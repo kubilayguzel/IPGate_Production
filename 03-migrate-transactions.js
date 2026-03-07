@@ -9,8 +9,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // 🔴 2. SUPABASE BAĞLANTISI (Kendi bilgilerinizi girin)
-const SUPABASE_URL = 'https://guicrctynauzxhyfpdfe.supabase.co'; 
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1aWNyY3R5bmF1enhoeWZwZGZlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTcwNDcyNywiZXhwIjoyMDg3MjgwNzI3fQ.Wop3lCBK3XvauYXOEg33TVxv4Cb6KQ8bK28N-sEgu08'; 
+const supabaseUrl = 'https://kadxvkejzctwymzeyrrl.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzg0NDgsImV4cCI6MjA4Nzc1NDQ0OH0.PFSzq8hOc14HgYwwF_ZR3v82ZzegKcoN4Vqw2wR2ZP0';
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const safeDate = (val) => {

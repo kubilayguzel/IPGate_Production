@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>IPGATE - Kişi Yönetimi</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="css/persons.css"> 
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="persons-container-wrapper">
+            
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Kişi Yönetimi</h1>
+                    <p class="page-subtitle">Sistemdeki tüm gerçek ve tüzel kişileri yönetin.</p>
+                </div>
+                <button class="btn btn-primary btn-lg px-4" id="addNewPersonBtn">
+                    <i class="fas fa-user-plus mr-2"></i> Yeni Kişi Ekle
+                </button>
+            </div>
+
+            <div class="persons-card">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="search-input-group">
+                        <i class="fas fa-search text-muted mt-1"></i>
+                        <input type="text" id="personSearchInput" class="form-control border-0 bg-transparent" 
+                               placeholder="İsim, e-posta veya TPE no ile ara..." 
+                               oninput="ui.filterPersons(this.value)">
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="persons-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th onclick="ui.handleSort('name')" style="cursor:pointer;">
+                                    Ad Soyad / Firma Adı <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th onclick="ui.handleSort('tckn')" style="cursor:pointer;">
+                                    Kimlik / VKN <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th onclick="ui.handleSort('tpeNo')" style="cursor:pointer;">
+                                    TPE No <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th onclick="ui.handleSort('email')" style="cursor:pointer;">
+                                    E-posta <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th onclick="ui.handleSort('type')" style="cursor:pointer;">
+                                    Tip <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th class="text-right">İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="personsTableBody">
+                            </tbody>
+                    </table>
+                </div>
+                
+                <div id="paginationContainer" class="mt-4"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script type="module">
+        import { loadSharedLayout } from './js/layout-loader.js';
+        import { PersonModalManager } from './js/components/PersonModalManager.js';
+        import { PersonUIManager } from './js/persons/PersonUIManager.js';
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 1. Ortak Layout Yükle
+            await loadSharedLayout({ activeMenuLink: 'persons.html' });
+
+            // 2. UI Yöneticisini Başlat ve Globale Tanıt (Sorting ve Arama için)
+            const ui = new PersonUIManager();
+            window.ui = ui;
+
+            // 3. Modal Yöneticisini Başlat ve Globale Tanıt (İç butonlar için)
+            const modal = new PersonModalManager({
+                onSuccess: () => ui.loadPersons()
+            });
+            window.personModal = modal;
+
+            // 4. Verileri İlk Kez Yükle
+            await ui.loadPersons();
+
+            // 5. Yeni Kişi Ekleme Butonu
+            document.getElementById('addNewPersonBtn').onclick = () => modal.open();
+            
+            // 6. Tablo Olay Dinleyicileri (Edit ve Delete)
+            document.getElementById('personsTableBody').addEventListener('click', (e) => {
+                // Tıklanan element veya parent'ında data-id var mı bak
+                const target = e.target.closest('button');
+                if (!target) return;
+                
+                const id = target.dataset.id;
+                
+                if (target.classList.contains('edit-btn')) {
+                    modal.open(id);
+                } else if (target.classList.contains('delete-btn')) {
+                    if(confirm('Bu kişiyi sistemden silmek istediğinizden emin misiniz?')) {
+                        ui.deletePerson(id);
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bülten Sorgulama</title>
+  <link rel="stylesheet" href="css/shared-styles.css" />
+  <link rel="stylesheet" href="css/selectbox.css" /> <!-- Ortak selectbox stil dosyası -->
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <style>
+    .page-wrapper {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      padding-top: 80px; /* Topbar kapatmasın diye */
+    }
+    .main-container { width: 100%; padding: 30px; padding-top: 120px; }
+    .page-header {
+      background: rgba(255,255,255,0.95);
+      padding: 30px;
+      border-radius: 20px;
+      margin-bottom: 30px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    .page-title {
+      font-size: 2em;
+      color: #1e3c72;
+      margin-bottom: 10px;
+    }
+    .tasks-container {
+      background: rgba(255,255,255,0.95);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      overflow-x: auto;
+    }
+    .search-section {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      padding: 20px;
+      flex-wrap: wrap;
+    }
+    .action-btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .action-btn:hover {
+      background-color: #0056b3;
+    }
+    .marka-image {
+      max-height: 60px;
+      max-width: 120px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
+      object-fit: contain;
+    }
+    .modal {
+      position: fixed;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .modal-content {
+      background:#fff;
+      padding:20px;
+      width:500px;
+      max-height:80vh;
+      overflow-y:auto;
+      border-radius:8px;
+      box-shadow:0 0 20px rgba(0,0,0,0.2);
+    }
+    .close {
+      float:right;
+      font-size:24px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="layout-placeholder"></div>
+  <div class="page-wrapper">
+    <main class="main-container">
+      <section class="page-header">
+        <h1 class="page-title">Bülten Sorgulama</h1>
+        <p class="page-subtitle">Marka, Patent ve Tasarım bültenlerini sorgulayabilirsiniz.</p>
+      </section>
+
+      <div class="tasks-container search-section">
+        <div style="display: flex; gap: 20px; align-items: flex-end; width: 100%;">
+          <div>
+            <label for="bulletinType" style="display: block; font-weight: bold; margin-bottom: 5px;">Bülten Türü:</label>
+            <select id="bulletinType" class="custom-select">
+              <option value="marka">Marka</option>
+              <option value="patent">Patent</option>
+              <option value="tasarim">Tasarım</option>
+            </select>
+          </div>
+          <div>
+            <label for="bulletinNo" style="display: block; font-weight: bold; margin-bottom: 5px;">Bülten No:</label>
+            <input type="text" id="bulletinNo" placeholder="Örn: 484" style="padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; width: 150px; font-size: 14px;">
+          </div>
+          <div>
+            <button id="searchButton" class="action-btn" style="height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <i class="fas fa-search"></i> Sorgula
+            </button>
+          </div>
+        </div>
+      </div>
+
+<div id="tabContainer" class="tabs-container" style="margin: 20px;"></div>
+<div id="recordsContainer" class="tasks-container" style="margin-top: 10px;"></div>
+<div id="paginationContainer" class="pagination-container" style="margin: 20px; text-align:center;"></div>
+</main>
+</div>
+
+  <!-- Modal -->
+  <div id="goodsModal" class="modal">
+    <div class="modal-content">
+      <span id="closeGoodsModal" class="close">&times;</span>
+      <h2>Mal / Hizmet Listesi</h2>
+      <ul id="goodsList" style="margin-top:15px; line-height:1.5;"></ul>
+    </div>
+  </div>
+
+  <script type="module" src="js/bulletin-search.js"></script>
+  <script src="js/selectbox.js"></script> <!-- Ortak select kutusu JS -->
+</body>
+</html>

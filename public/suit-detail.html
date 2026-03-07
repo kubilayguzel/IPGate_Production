@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Dava Detayı</title>
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+        .page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+        .main-container {width: 100%; padding: 30px; padding-top: 120px; margin: 0; }
+        .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); display: flex; justify-content: space-between; align-items: center; }
+        .page-title { font-size: 1.8em; color: #1e3c72; margin-bottom: 5px; font-weight: 700; }
+        .page-subtitle { color: #666; font-size: 1em; margin: 0; }
+        
+        .section-card { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05); margin-bottom: 25px; transition: transform 0.2s; }
+        .section-title { font-size: 1.2em; color: #1e3c72; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #f0f2f5; font-weight: 600; }
+        
+        /* Detay Görünüm Stilleri (Read-Only) */
+        .detail-row { display: flex; margin-bottom: 15px; border-bottom: 1px solid #f8f9fa; padding-bottom: 8px; }
+        .detail-row:last-child { border-bottom: none; margin-bottom: 0; }
+        .detail-label { width: 40%; font-weight: 600; color: #555; font-size: 0.95em; }
+        .detail-value { width: 60%; color: #222; font-weight: 500; font-size: 1em; word-break: break-word; }
+        .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600; }
+        .description-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; color: #444; line-height: 1.6; }
+
+        /* Timeline Stilleri */
+        .timeline-container { position: relative; padding-left: 20px; border-left: 3px solid #e9ecef; margin-top: 10px; }
+        .timeline-item { position: relative; margin-bottom: 30px; }
+        .timeline-item::before { content: ''; position: absolute; left: -26px; top: 5px; width: 15px; height: 15px; border-radius: 50%; background: #1e3c72; border: 3px solid #fff; box-shadow: 0 0 0 2px #1e3c72; }
+        .timeline-date { font-size: 0.9em; color: #666; margin-bottom: 5px; font-weight: 600; }
+        .timeline-content { background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; }
+        .timeline-title { font-weight: bold; color: #333; margin-bottom: 5px; font-size: 1.1em; }
+        .timeline-desc { color: #555; font-size: 0.95em; }
+        .timeline-badges { margin-top: 8px; }
+        .badge-type { background-color: #e3f2fd; color: #1e3c72; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; transition: all 0.3s; }
+        .btn-secondary { background-color: #6c757d; border: none; }
+        .btn-primary { background: linear-gradient(45deg, #1e3c72, #2a5298); border: none; }
+    </style>
+</head>
+<body>
+    <div id="notification-container" class="notification-container"></div>
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <div>
+                    <h1 class="page-title" id="suitTitleHeader">Dava Detayı</h1>
+                    <p class="page-subtitle" id="suitSubtitleHeader">Dosya No: Yükleniyor...</p>
+                </div>
+                <div>
+                    <a href="portfolio.html?activeTab=litigation" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left mr-2"></i>Portföye Dön</a>
+                </div>
+            </section>
+
+            <div class="row">
+                <div class="col-lg-7">
+                    
+                    <div class="section-card">
+                        <h3 class="section-title"><i class="fas fa-info-circle mr-2"></i>Temel Bilgiler</h3>
+                        
+                        <div class="detail-row">
+                            <span class="detail-label">Dava Durumu:</span>
+                            <span class="detail-value" id="viewSuitStatus">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Dava Türü:</span>
+                            <span class="detail-value" id="viewSuitType">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Mahkeme:</span>
+                            <span class="detail-value" id="viewCourt">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Esas No:</span>
+                            <span class="detail-value" id="viewCaseNo">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Dava Açılış Tarihi:</span>
+                            <span class="detail-value" id="viewOpenedDate">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Portföy Varlığı (Konu):</span>
+                            <span class="detail-value" id="viewSubjectAsset">-</span>
+                        </div>
+                    </div>
+
+                    <div class="section-card">
+                        <h3 class="section-title"><i class="fas fa-users mr-2"></i>Taraf Bilgileri</h3>
+                        
+                        <div class="detail-row">
+                            <span class="detail-label">Müvekkil:</span>
+                            <span class="detail-value" id="viewClientName">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Müvekkil Rolü:</span>
+                            <span class="detail-value" id="viewClientRole">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Karşı Taraf:</span>
+                            <span class="detail-value" id="viewOpposingParty">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Karşı Taraf Vekili:</span>
+                            <span class="detail-value" id="viewOpposingCounsel">-</span>
+                        </div>
+                    </div>
+
+                    <div class="section-card">
+                        <h3 class="section-title"><i class="fas fa-align-left mr-2"></i>Açıklama / Notlar</h3>
+                        <div class="description-box" id="viewDescription">
+                            <em>Açıklama bulunmuyor.</em>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="col-lg-5">
+                    <div class="section-card" style="background-color: #fcfcfc;">
+                        <h3 class="section-title"><i class="fas fa-history mr-2"></i> İşlem Geçmişi & Belgeler</h3>
+                        <div id="timelineContainer" class="timeline-container">
+                            <p class="text-muted text-center py-3">Yükleniyor...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script type="module">
+        import { loadSharedLayout } from './js/layout-loader.js';
+        import { supabase } from './supabase-config.js';
+        import { showNotification, STATUSES, formatToTRDate } from './utils.js';
+
+        const params = new URLSearchParams(window.location.search);
+        const suitId = params.get('id');
+
+        let currentDocuments = [];
+
+        // Başlangıç
+        (async function() {
+            await loadSharedLayout();
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (!session) return window.location.href = 'index.html';
+            if (!suitId) return window.location.href = 'portfolio.html';
+            
+            await loadSuitData();
+            await loadSuitTransactions(); // Timeline ve Belgeler Yükle
+        })();
+
+        // Dava Verilerini Yükle ve Görüntüle (Read-Only)
+        async function loadSuitData() {
+            try {
+                // 1. Supabase'den Dava verisini çek
+                const { data, error } = await supabase
+                    .from('suits')
+                    .select('*')
+                    .eq('id', suitId)
+                    .single();
+                
+                if (error || !data) {
+                    alert('Dava bulunamadı.');
+                    return window.location.href = 'portfolio.html';
+                }
+
+                // 2. Müvekkil (Client) bilgisini Persons tablosundan çek
+                let clientName = '-';
+                if (data.client_id) {
+                    const { data: clientData } = await supabase.from('persons').select('name').eq('id', data.client_id).single();
+                    if (clientData) clientName = clientData.name;
+                }
+
+                // 3. Konu Varlık (IP Record) bilgisini çek
+                let subjectAssetTitle = data.title || '-';
+                if (data.ip_record_id) {
+                    const { data: ipData } = await supabase.from('ip_records').select('application_number, ip_record_trademark_details(brand_name)').eq('id', data.ip_record_id).single();
+                    if (ipData) {
+                        const brandName = ipData.ip_record_trademark_details?.[0]?.brand_name || ipData.ip_record_trademark_details?.brand_name;
+                        subjectAssetTitle = brandName || ipData.application_number || subjectAssetTitle;
+                    }
+                }
+
+                // 4. Davaya ait ana belgeleri çek
+                const { data: docsData } = await supabase.from('suit_documents').select('*').eq('suit_id', suitId);
+                currentDocuments = docsData || [];
+                
+                // Başlıkları Güncelle
+                const displayTitle = data.file_no || data.title || 'Dava Detayı';
+                document.getElementById('suitTitleHeader').textContent = displayTitle;
+                document.getElementById('suitSubtitleHeader').textContent = `Dosya No: ${data.file_no || '-'}`;
+
+                // --- VERİLERİ YERLEŞTİR (TEXT CONTENT) ---
+                setText('viewSuitType', data.suit_type);
+                setText('viewCourt', data.court_name);
+                setText('viewCaseNo', data.file_no);
+                setText('viewOpenedDate', formatDate(data.opening_date));
+                setText('viewSubjectAsset', subjectAssetTitle);
+
+                // Durum Gösterimi
+                let statusVal = data.status || 'continue';
+                let statusObj = STATUSES.litigation ? STATUSES.litigation.find(s => s.value === statusVal) : null;
+                const statusText = statusObj ? statusObj.text : statusVal;
+                const statusColor = statusObj && statusObj.color ? statusObj.color : 'secondary';
+                
+                const statusEl = document.getElementById('viewSuitStatus');
+                statusEl.innerHTML = `<span class="badge badge-${statusColor}" style="font-size: 1rem; padding: 8px 12px;">${statusText}</span>`;
+
+                // Taraf Bilgileri
+                setText('viewClientName', clientName);
+                setText('viewClientRole', formatRole(data.client_role));
+                setText('viewOpposingParty', data.opposing_party);
+                setText('viewOpposingCounsel', data.opposing_counsel);
+
+                // Açıklama
+                const descEl = document.getElementById('viewDescription');
+                if (data.description) {
+                    descEl.textContent = data.description;
+                } else {
+                    descEl.innerHTML = '<em class="text-muted">Açıklama bulunmuyor.</em>';
+                }
+
+            } catch (e) {
+                console.error(e);
+                showNotification('Veri yüklenemedi.', 'error');
+            }
+        }
+
+        // Timeline (İşlem Geçmişi) ve Belgeler Yükle
+        async function loadSuitTransactions() {
+            const container = document.getElementById('timelineContainer');
+            try {
+                // İşlem geçmişini (Transactions) ve ilgili İşlem Türü adını çek (JOIN)
+                const { data: snap, error } = await supabase
+                    .from('transactions')
+                    .select(`
+                        *,
+                        transaction_types (name)
+                    `)
+                    .eq('ip_record_id', suitId) 
+                    .order('transaction_date', { ascending: false });
+                
+                if (error) throw error;
+
+                if (!snap || snap.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center">Henüz işlem geçmişi yok.</p>';
+                    return;
+                }
+
+                // Her bir transaction satırını işle
+                const timelineItems = await Promise.all(snap.map(async (t) => {
+                    const date = formatToTRDate(t.transaction_date || t.created_at);
+                    const desc = t.description || t.note || 'İşlem detay girilmemiş.';
+                    const typeName = t.transaction_types?.name || 'İşlem'; 
+                    
+                    let docs = [];
+
+                    // DURUM 1: Bu işlem bir Task (İş) tarafından tetiklendiyse -> Task belgelerini al
+                    if (t.task_id && t.task_id !== 'manual_entry') {
+                        try {
+                            const { data: taskDocs } = await supabase.from('task_documents').select('*').eq('task_id', t.task_id);
+                            if (taskDocs) docs = taskDocs;
+                        } catch (err) {
+                            console.warn('Task belgesi çekilemedi:', err);
+                        }
+                    } 
+                    // DURUM 2: Task yoksa VE bu Ana Dava Açılış (Parent) işlemiyse -> Suit belgelerini al
+                    else if (t.transaction_hierarchy === 'parent') {
+                        docs = currentDocuments;
+                    }
+
+                    // HTML OLUŞTURMA (Belgeler Varsa)
+                    let docsHtml = '';
+                    if (docs.length > 0) {
+                        docsHtml = `<div class="mt-2 pt-2 border-top">`;
+                        docsHtml += docs.map(d => `
+                            <a href="${d.document_url || d.url}" target="_blank" class="d-inline-flex align-items-center mr-2 mb-1 p-2 border rounded bg-white text-decoration-none text-dark shadow-sm" style="font-size: 0.85em;">
+                                <i class="fas fa-file-pdf text-danger mr-2"></i> 
+                                <span class="text-truncate" style="max-width: 180px;">${d.document_name || d.file_name || 'Belge'}</span>
+                            </a>
+                        `).join('');
+                        docsHtml += `</div>`;
+                    }
+
+                    return `
+                        <div class="timeline-item">
+                            <div class="timeline-date">${date}</div>
+                            <div class="timeline-content">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="timeline-title">${typeName}</div>
+                                    ${(t.task_id && t.task_id !== 'manual_entry') ? `<span class="badge badge-light border" style="font-size:0.7em;">Ref: ${t.task_id.substring(0,8)}...</span>` : ''}
+                                </div>
+                                <div class="timeline-desc">${desc}</div>
+                                ${docsHtml}
+                            </div>
+                        </div>
+                    `;
+                }));
+
+                container.innerHTML = timelineItems.join('');
+
+            } catch (e) {
+                console.error("Timeline hatası:", e);
+                container.innerHTML = '<p class="text-danger">Geçmiş yüklenemedi.</p>';
+            }
+        }
+
+        // Helpers
+        function setText(id, val) { 
+            const el = document.getElementById(id); 
+            if(el) el.textContent = val || '-'; 
+        }
+        
+        function formatDate(dateVal) {
+            return formatToTRDate(dateVal);
+        }
+
+        function formatRole(role) {
+            if (!role) return '-';
+            const roles = { 'davaci': 'Davacı', 'davali': 'Davalı', 'mudahil': 'Müdahil' };
+            return roles[role.toLowerCase()] || role;
+        }
+    </script>
+<script type="module" src="./js/layout-loader.js"></script>
+</body>
+</html>

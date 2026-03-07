@@ -1,0 +1,121 @@
+
+[functions.send-indexing-notification]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-indexing-notification/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/send-indexing-notification/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/send-indexing-notification/*.html" ]
+
+[functions.process-mail-notification]
+enabled = true
+verify_jwt = true
+import_map = "./functions/process-mail-notification/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/process-mail-notification/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/process-mail-notification/*.html" ]
+
+[functions.perform-trademark-similarity-search]
+enabled = true
+verify_jwt = true
+import_map = "./functions/perform-trademark-similarity-search/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/perform-trademark-similarity-search/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/perform-trademark-similarity-search/*.html" ]
+
+[functions.process-bulletin]
+enabled = true
+verify_jwt = true
+import_map = "./functions/process-bulletin/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/process-bulletin/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/process-bulletin/*.html" ]
+
+[functions.generate-similarity-report]
+enabled = true
+verify_jwt = true
+import_map = "./functions/generate-similarity-report/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/generate-similarity-report/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/generate-similarity-report/*.html" ]
+
+[functions.create-objection-task]
+enabled = true
+verify_jwt = true
+import_map = "./functions/create-objection-task/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/create-objection-task/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/create-objection-task/*.html" ]
+
+[functions.etebs-fetcher]
+enabled = true
+verify_jwt = true
+import_map = "./functions/etebs-fetcher/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/etebs-fetcher/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/etebs-fetcher/*.html" ]
+
+[functions.upsert-user]
+enabled = true
+verify_jwt = true
+import_map = "./functions/upsert-user/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/upsert-user/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/upsert-user/*.html" ]
+
+[functions.check-renewal-tasks]
+enabled = true
+verify_jwt = true
+import_map = "./functions/check-renewal-tasks/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/check-renewal-tasks/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/check-renewal-tasks/*.html" ]
+
+[functions.handle-task-mails]
+enabled = true
+verify_jwt = true
+import_map = "./functions/handle-task-mails/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/handle-task-mails/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/handle-task-mails/*.html" ]
+
+[functions.handle-indexed-document]
+enabled = true
+verify_jwt = true
+import_map = "./functions/handle-indexed-document/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/handle-indexed-document/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/handle-indexed-document/*.html" ]

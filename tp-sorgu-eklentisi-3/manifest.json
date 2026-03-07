@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "TP EPATS Otomasyon - V3 (Queue Support)",
+  "version": "3.1.0",
+  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi.",
+  "permissions": ["storage", "tabs", "scripting","webRequest"],
+  "host_permissions": ["https://epats.turkpatent.gov.tr/*"],
+  "externally_connectable": {
+    "matches": [
+      "*://localhost/*",
+      "https://ip-manager-production-aab4b.web.app/*",
+      "https://ip-manager-production-aab4b.firebaseapp.com/*",
+      "https://kubilayguzel.github.io/*",
+      "https://ipgate.evrekagroup.com/*"
+    ]
+  },
+  "action": {  },
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://epats.turkpatent.gov.tr/*"],
+      "js": ["content_script.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+
+}

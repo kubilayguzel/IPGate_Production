@@ -1,0 +1,17 @@
+[
+  { "id": "application_document", "name": "Başvuru Belgesi" },
+  { "id": "official_correspondence", "name": "Resmi Yazışma" },
+  { "id": "power_of_attorney", "name": "Vekaletname" },
+  { "id": "technical_drawing", "name": "Teknik Çizim" },
+  { "id": "decision", "name": "Karar" },
+  { "id": "financial_document", "name": "Finansal Belge" },
+  { "id": "publication_decision", "name": "Yayın Kararı" },
+  { "id": "rejection_decision", "name": "Ret Kararı" },
+  { "id": "registration_certificate", "name": "Tescil Belgesi" },
+  { "id": "research_report", "name": "Araştırma Raporu" },
+  { "id": "examination_report", "name": "İnceleme Raporu" },
+  { "id": "other_document", "name": "Diğer Belge" },
+  { "id": "payment_receipt", "name": "Ödeme Dekontu" },
+  { "id": "trademark_office_opposition", "name": "Yayına İtiraz - Markalar Dairesi" },
+  { "id": "itiraza_karsi_gorus", "name": "İtiraza Karşı Görüş" }
+]

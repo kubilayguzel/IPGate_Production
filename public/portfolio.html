@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Portföy Yönetimi</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    <link rel="stylesheet" href="./css/simple-loading.css">
+    <link rel="icon" href="./favicon.ico">
+    
+    <link rel="modulepreload" href="./supabase-config.js">
+    <link rel="modulepreload" href="./js/layout-loader.js">
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+        .page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+        .main-container { width: 100%; padding: 30px; padding-top: 120px; margin: 0;}
+        .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
+        .page-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; }
+        .page-subtitle { color: #666; font-size: 1.1em; }
+
+        /* Kontrol Paneli */
+        .portfolio-controls { background: rgba(255, 255, 255, 0.95); padding: 20px 30px; border-radius: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 30px; display: flex; flex-direction: column; gap: 15px; }
+        .filter-row { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 15px; }
+        .search-input { margin-right: auto; flex-grow: 1; min-width: 180px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; }
+
+        /* Tab Menu */
+        .tab-menu { display: flex; border-bottom: 2px solid #dee2e6; margin-bottom: 15px; flex-wrap: wrap; }
+        .tab-button { padding: 10px 18px; cursor: pointer; border: none; background: none; font-size: 1em; font-weight: 600; color: #6c757d; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.3s ease; }
+        .tab-button:hover { color: #1e3c72; }
+        .tab-button.active { color: #1e3c72; border-bottom-color: #1e3c72; }
+
+        /* Butonlar */
+        .btn-add-record, .btn-primary, .btn-secondary, .btn-status-toggle { 
+            background: linear-gradient(45deg, #1e3c72, #2a5298); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 0.9em; font-weight: 600; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px;
+        }
+        .btn-add-record:hover, .btn-primary:hover, .btn-secondary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(30, 60, 114, 0.2); }
+        .btn-status-toggle:disabled { background-color: #cccccc; cursor: not-allowed; box-shadow: none; transform: none; background: #ccc; }
+
+        /* Tablo */
+        .portfolio-table-container { background: rgba(255, 255, 255, 0.95); border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); overflow: visible; position: relative; z-index: 1; min-height: 200px; }
+        
+        .portfolio-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            table-layout: fixed; /* ÖNEMLİ: Kolon genişliklerinin çalışması için */
+        }
+        
+        .portfolio-table th, .portfolio-table td { 
+            padding: 12px 15px; 
+            text-align: left; 
+            border-bottom: 1px solid #f0f0f0; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+        }
+
+        /* Checkbox / aç-kapa kolonlarında "..." (ellipsis) görünmesin */
+        .portfolio-table th:first-child,
+        .portfolio-table td:first-child,
+        .portfolio-table th:nth-child(2),
+        .portfolio-table td:nth-child(2) {
+        overflow: visible;
+        text-overflow: unset;
+        }
+        
+        .portfolio-table th { 
+            background: #f8f9fa; 
+            font-weight: 600; 
+            position: sticky; 
+            top: 0; 
+            z-index: 10; 
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .portfolio-table tr:hover { background-color: #f6f8fa; }
+
+        /* Görseller ve İkonlar - BÜYÜTME EFEKTİ */
+        .trademark-image-wrapper {
+            position: relative;
+            height: 50px;
+            width: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+        }
+
+        .trademark-image-thumbnail { 
+            max-width: 100%; 
+            max-height: 100%; 
+            object-fit: contain; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            transition: all 0.2s ease;
+            background-color: white;
+            border: 1px solid #eee;
+        }
+        
+        .trademark-image-thumbnail:hover {
+            border-color: #1e3c72;
+            box-shadow: 0 2px 8px rgba(30, 60, 114, 0.2);
+        }
+        
+        /* Floating preview stilleri (main.js ile kontrol ediliyor) */
+        .floating-trademark-preview {
+            position: fixed;
+            z-index: 10000;
+            background: white;
+            border: 2px solid #1e3c72;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            padding: 5px;
+            pointer-events: none;
+            max-width: 300px;
+            max-height: 300px;
+            object-fit: contain;
+            display: none;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Loading & Empty States */
+        /* Eski spinner stillerini tutuyoruz ama JS'de SimpleLoading kullanacağız */
+        .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.8); display: none; align-items: center; justify-content: center; z-index: 50; }
+        .no-records { text-align: center; padding: 50px; color: #666; display: none; }
+        
+        /* Modal */
+        .modal { display: none; align-items: center; justify-content: center; position: fixed; z-index: 1002; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); }
+        .modal.show { display: flex; }
+        .modal-content { background-color: #fefefe; padding: 30px; border-radius: 20px; width: 90%; max-width: 1200px; max-height: 90vh; overflow-y: auto; position: relative; }
+        .close-modal-btn { position: absolute; right: 25px; top: 20px; font-size: 28px; cursor: pointer; color: #aaa; }
+        .close-modal-btn:hover { color: #333; }
+
+        /* Sort Header */
+        .sortable-header { cursor: pointer; user-select: none; }
+        .sortable-header::after { content: '↕'; margin-left: 5px; opacity: 0.3; font-size: 0.8em; }
+        .sortable-header.asc::after { content: '↑'; opacity: 1; }
+        .sortable-header.desc::after { content: '↓'; opacity: 1; }
+        
+        /* PDF Linkleri */
+        .pdf-link { color: #dc3545; font-size: 1.2em; text-decoration: none; margin-right: 5px; }
+        .pdf-link:hover { color: #c82333; transform: scale(1.1); display: inline-block; }
+    </style>
+</head>
+<body>
+    <div id="notification-container" class="notification-container"></div>
+    <div id="layout-placeholder"></div>
+    
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Portföy Yönetimi</h1>
+                <p class="page-subtitle">Tüm fikri mülkiyet kayıtlarınızı burada görüntüleyin ve yönetin.</p>
+            </section>
+            
+            <div class="portfolio-controls">
+                <div class="tab-menu" id="portfolioTabMenu">
+                    <button type="button" class="tab-button" data-type="all">Tümü</button>
+                    <button type="button" class="tab-button" data-type="patent">Patent</button>
+                    <button type="button" class="tab-button active" data-type="trademark">Marka</button>
+                    <button type="button" class="tab-button" data-type="design">Tasarım</button>
+                    <button type="button" class="tab-button" data-type="objections">İtirazlar</button>
+                    <button type="button" class="tab-button" data-type="litigation">Davalar</button>
+                </div>
+
+                <div class="sub-tab-menu" id="trademarkSubMenu" style="display: flex; gap: 10px; margin-bottom: 20px; padding-left: 5px;">
+                    <button type="button" class="btn btn-sm btn-outline-primary active" data-sub="turkpatent">
+                        <i class="fas fa-flag-checkered mr-1"></i> TÜRKPATENT
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-sub="foreign">
+                        <i class="fas fa-globe mr-1"></i> YURTDIŞI
+                    </button>
+                </div>
+
+                <div class="filter-row">
+                    <input type="text" id="searchBar" class="search-input" placeholder="Başlık, numara, durum, hak sahibi ara...">
+                    
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="selectAllCheckbox">
+                        <label for="selectAllCheckbox" style="margin:0; cursor:pointer;">Tümünü Seç</label>
+                    </div>
+
+                    <button type="button" class="btn-status-toggle" id="toggleRecordStatusBtn" disabled>Aktif/Pasif</button>
+                    <button type="button" class="btn-status-toggle" id="addToMonitoringBtn" disabled>İzlemeye Ekle</button>
+
+                    <button id="refreshPortfolioBtn" class="btn btn-sm btn-outline-secondary mr-2" title="Tabloyu Yenile">
+                        <i class="fas fa-sync-alt"></i> Yenile
+                    </button>
+                    
+                    <button class="btn-add-record" onclick="window.location.href='data-entry.html'">
+                        <span>&#x2795;</span> Yeni Kayıt
+                    </button>
+                    
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-secondary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="display: flex; align-items: center; gap: 5px;">
+                            <i class="fas fa-file-excel"></i> Excel'e Aktar
+                        </button>
+                        <div class="dropdown-menu">
+                            <a class="dropdown-item" href="#" id="btnExportSelected">
+                                <i class="fas fa-check-square mr-2"></i>Sadece Seçilenleri Aktar
+                            </a>
+                            <a class="dropdown-item" href="#" id="btnExportAll">
+                                <i class="fas fa-list mr-2"></i>Tüm Listeyi Aktar
+                            </a>
+                        </div>
+                    </div>
+                    <button id="exportPdfBtn" class="btn-secondary">PDF'e Aktar</button>
+                </div>
+            </div>
+            
+            <div class="portfolio-table-container">
+                <div id="loadingIndicator" class="loading-overlay">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Yükleniyor...</span>
+                    </div>
+                </div>
+                
+                <table class="portfolio-table" id="portfolio-table">
+                    <thead>
+                        <tr id="portfolioTableHeaderRow">
+                            </tr>
+                    </thead>
+                    <tbody id="portfolioTableBody">
+                        </tbody>
+                </table>
+                <div id="noRecordsMessage" class="no-records">Kayıt bulunamadı.</div>
+            </div>
+
+            <div id="paginationContainer" class="mt-3"></div>
+
+        </main>
+    </div>
+
+    <div id="recordDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeRecordDetailModal">&times;</span>
+            <h3 class="modal-title" id="modalRecordTitle">Kayıt Detayı</h3>
+            <div id="modalBody" class="modal-body-content"></div>
+        </div>
+    </div>
+
+    <div id="suitDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeSuitDetailModal">&times;</span>
+            <h3 class="modal-title" id="modalSuitTitle">Dava Detayı</h3>
+            <div id="modalSuitBody" class="modal-body-content"></div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script type="module" src="./js/portfolio/main.js"></script>
+</body>
+</html>

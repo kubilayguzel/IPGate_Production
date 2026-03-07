@@ -1,0 +1,91 @@
+/* EVREKA Deadline Highlighter v1.0 - default palette
+   Colors are adjustable via CSS variables for easy theming. */
+
+:root {
+ 
+  --evr-due-overdue-bg: #ffcdd2;
+  --evr-due-overdue-br: #c62828;
+   
+  --evr-due-today-bg:   #ffe3e6;
+  --evr-due-today-br:   #e57373;
+  
+  /* ≤ 7 gün: çok açık sarı */
+  --evr-due-7d-bg: #fffde7;  /* daha açık */
+  --evr-due-7d-br: #ffecb3;  /* yumuşak sınır rengi */
+
+  /* ≤ 3 gün: 7g'den bir ton koyu (yine de önceye göre daha açık) */
+  --evr-due-3d-bg: #ffecb3;  /* önce: #ffe082 */
+  --evr-due-3d-br: #ffcc80;  /* önce: #ffca28 */
+
+}
+
+/* Row highlights */
+.evr-due-overdue {
+  background: var(--evr-due-overdue-bg) !important;
+  box-shadow: inset 4px 0 0 0 var(--evr-due-overdue-br);
+}
+.evr-due-today {
+  background: var(--evr-due-today-bg) !important;
+  box-shadow: inset 4px 0 0 0 var(--evr-due-today-br);
+}
+.evr-due-3d {
+  background: var(--evr-due-3d-bg) !important;
+  box-shadow: inset 4px 0 0 0 var(--evr-due-3d-br);
+}
+.evr-due-7d {
+  background: var(--evr-due-7d-bg) !important;
+  box-shadow: inset 4px 0 0 0 var(--evr-due-7d-br);
+}
+.evr-due-30d {
+  background: var(--evr-due-30d-bg) !important;
+  box-shadow: inset 4px 0 0 0 var(--evr-due-30d-br);
+}
+
+/* Badge for cell-mode */
+.evr-due-badge {
+  display: inline-block;
+  margin-left: .5rem;
+  padding: .1rem .4rem;
+  border-radius: .4rem;
+  font-size: .75rem;
+  background: #00000010;
+}
+
+/* Legend */
+.evr-due-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: .5rem 0 1rem 0;
+  padding: .5rem .75rem;
+  background: #fafafa;
+  border: 1px dashed #e0e0e0;
+  border-radius: .5rem;
+}
+.evr-due-legend-title {
+  font-weight: 600;
+  opacity: .8;
+}
+.evr-due-legend-items {
+  display: inline-flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.evr-due-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+.evr-due-dot {
+  display: inline-block;
+  width: .9rem;
+  height: .9rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: #eee;
+}
+.evr-due-dot.evr-due-overdue { background: var(--evr-due-overdue-bg); border-color: var(--evr-due-overdue-br); }
+.evr-due-dot.evr-due-today   { background: var(--evr-due-today-bg);   border-color: var(--evr-due-today-br); }
+.evr-due-dot.evr-due-3d      { background: var(--evr-due-3d-bg);      border-color: var(--evr-due-3d-br); }
+.evr-due-dot.evr-due-7d      { background: var(--evr-due-7d-bg);      border-color: var(--evr-due-7d-br); }
+.evr-due-dot.evr-due-30d     { background: var(--evr-due-30d-bg);     border-color: var(--evr-due-30d-br); }

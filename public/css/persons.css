@@ -1,0 +1,104 @@
+/* public/css/persons.css */
+
+/* --- GENEL SAYFA YAPISI (Task Update ile Uyumlu) --- */
+.persons-container-wrapper { width: 100%; padding: 30px; padding-top: 120px; }
+
+/* Header Alanı */
+.page-header { 
+    background: rgba(255, 255, 255, 0.95); 
+    padding: 30px; 
+    border-radius: 20px; 
+    margin-bottom: 30px; 
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+}
+
+/* Ana Kart Yapısı (Task Update'teki Section-Card gibi) */
+.persons-card { 
+    background: #ffffff; 
+    padding: 30px; 
+    border-radius: 20px; 
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05); 
+    margin-bottom: 25px; 
+    border: 1px solid #e1e8ed;
+}
+
+/* Tablo Stilleri */
+.persons-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.persons-table th { 
+    background: #f8fafc; 
+    color: #1e3c72; 
+    font-weight: 700; 
+    padding: 15px; 
+    border-bottom: 2px solid #edf2f5;
+    text-transform: uppercase;
+    font-size: 0.85em;
+}
+.persons-table td { padding: 15px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+.persons-table tr:hover { background-color: #f8fafc; }
+
+/* Arama ve Filtreleme (Header içindeki yapı) */
+.search-input-group { 
+    display: flex; 
+    gap: 15px; 
+    background: #f8fafc; 
+    padding: 10px 20px; 
+    border-radius: 15px; 
+    border: 1px solid #e2e8f0;
+    max-width: 500px;
+    width: 100%;
+}
+.search-input-group input { 
+    border: none; 
+    background: transparent; 
+    width: 100%; 
+    outline: none; 
+    font-size: 0.95em; 
+}
+
+/* Badge Stilleri */
+.type-badge {
+    padding: 6px 12px;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    text-transform: uppercase;
+}
+.type-gercek { background: #3182ce; }
+.type-tuzel { background: #38a169; }
+/* Modal Kararma Sorununu Çözen Z-Index Ayarı */
+.modal { 
+    z-index: 1060 !important; 
+}
+
+.modal-backdrop { 
+    z-index: 1050 !important; 
+}
+
+/* Modalın üstte görünmesini garanti altına alan ek stil */
+#personModal {
+    background-color: rgba(0, 0, 0, 0.5); /* Hafif kararma efekti */
+}
+/* Soft Badges */
+.badge-soft-primary { background-color: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; }
+.badge-soft-success { background-color: #f0fdf4; color: #16a34a; border: 1px solid #dcfce7; }
+
+/* Action Buttons (Job Management Style) */
+.action-btn {
+    border: none;
+    background: #f8fafc;
+    color: #64748b;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+.action-btn.edit-btn:hover { background: #fffbeb; color: #d97706; }
+.action-btn.delete-btn:hover { background: #fef2f2; color: #dc2626; }

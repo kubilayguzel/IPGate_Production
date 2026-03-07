@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Tetiklenen Görevlerim</title>
+    
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    <link rel="stylesheet" href="./css/deadline-highlighter.css">
+    
+    <link rel="stylesheet" href="./css/task-management.css">
+    
+    <style>
+        /* Sayfaya Özel Stiller */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+        .page-wrapper {
+            flex-grow: 1; display: flex; flex-direction: column;
+            height: 100vh; overflow-y: auto;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .main-container { width: 100%; padding: 30px; padding-top: 120px; }
+        .status-badge { padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 500; color: white; text-align: center; }
+        .status-awaiting_client_approval { background-color: #6f42c1; }
+        .status-client_approval_opened { background-color: #28a745; }
+        .status-client_approval_closed { background-color: #6c757d; }
+        .status-client_no_response_closed { background-color: #fd7e14; }
+        .status-open { background-color: #007bff; }
+        .status-completed { background-color: #28a745; }
+        .form-input, .form-select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        .total-amount-display { font-size: 1.2em; font-weight: bold; color: #1e3c72; text-align: right; margin-top: 10px; padding: 12px 15px; background-color: #f0f4f8; border-radius: 10px; }
+        /* Tabloyu Sabitleme */
+        .tasks-table {
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        /* Kolon Genişlikleri (Toplam %100 olacak şekilde) */
+        .tasks-table th:nth-child(1) { width: 60px; }  /* İş No */
+        .tasks-table th:nth-child(2) { width: 8%; }   /* Başvuru No */
+        .tasks-table th:nth-child(3) { width: 12%; }   /* İlgili Kayıt */
+        .tasks-table th:nth-child(4) { width: 20%; }   /* Sahip */
+        .tasks-table th:nth-child(5) { width: 14%; }   /* Tip */
+        .tasks-table th:nth-child(6) { width: 10%; }   /* Son Tarih */
+        .tasks-table th:nth-child(7) { width: 10%; }   /* Resmi Son Tarih */
+        .tasks-table th:nth-child(8) { width: 10%; }   /* Durum */
+        .tasks-table th:nth-child(9) { width: 100px; } /* İşlemler */
+
+        /* Uzun metinleri üç nokta (...) ile kes */
+        .tasks-table td, .tasks-table th {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <div id="notification-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Tetiklenen Görevler</h1>
+                <p class="page-subtitle">Otomasyon ile oluşturulan ve takip gerektiren görevler.</p>
+            </section>
+    
+            <div class="tasks-container">
+                <div class="tasks-header">
+                    <div class="search-wrapper">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="text" id="searchInput" class="search-input" placeholder="Başlık, numara, tip ara...">
+                    </div>
+
+                    <button id="manualRenewalTriggerBtn" class="action-btn" style="background-color: #28a745;">
+                        <i class="fas fa-sync-alt mr-2"></i> Kontrol Et
+                    </button>
+
+                    <div class="filter-group">
+                        <label class="filter-label" for="statusFilter">Durum:</label>
+                        <select id="statusFilter" class="filter-select">
+                            <option value="all">Tümü</option>
+                            <option value="awaiting_client_approval">Müvekkil Onayı Bekliyor</option>
+                            <option value="client_approval_opened">Müvekkil Onayladı (Açıldı)</option>
+                            <option value="client_approval_closed">Müvekkil Reddetti (Kapatıldı)</option>
+                            <option value="client_no_response_closed">Cevap Alınamadı (Kapatıldı)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="table-container">
+                    <table class="tasks-table" id="triggeredTasksTable">
+                        <thead>
+                            <tr id="tasksTableHeaderRow">
+                                <th data-sort="id">İş No <i class="fas fa-sort"></i></th>
+                                <th data-sort="applicationNumber">Başvuru No <i class="fas fa-sort"></i></th>
+                                <th data-sort="relatedRecordTitle">İlgili Kayıt <i class="fas fa-sort"></i></th>
+                                <th data-sort="applicantName">Sahip <i class="fas fa-sort"></i></th>
+                                <th data-sort="taskTypeDisplayName">Tip <i class="fas fa-sort"></i></th>
+                                <th data-sort="operationalDueObj">Son Tarih <i class="fas fa-sort"></i></th>
+                                <th data-sort="officialDueObj">Resmi Son Tarih <i class="fas fa-sort"></i></th>
+                                <th data-sort="status">Durum <i class="fas fa-sort"></i></th>
+                                <th class="no-sort">İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="myTasksTableBody">
+                            </tbody>
+                    </table>
+                </div>
+                
+                <div id="loadingIndicator" class="loading">Veriler Yükleniyor...</div>
+                <div id="noTasksMessage" class="no-records">Görüntülenecek görev bulunamadı.</div>
+                
+                <div id="paginationContainer" class="pagination-container"></div>
+            </div>
+        </main>
+    </div>
+
+    <div id="taskDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeTaskDetailModal">&times;</span>
+            <h3 class="modal-title" id="modalTaskTitle">İş Detayı</h3>
+            <div id="modalBody" class="modal-body-content"></div> 
+        </div>
+    </div>
+    
+    <div class="modal" id="createMyTaskAccrualModal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeMyTaskAccrualModal">&times;</span>
+            <h3 class="modal-title">Ek Tahakkuk Oluştur</h3>
+            <div class="form-group">
+                <label>İlgili İş</label>
+                <input type="text" id="accrualTaskTitleDisplay" class="form-input" readonly disabled style="background-color: #f8f9fa;">
+            </div>
+            <div id="accrualFormContainer"></div>
+            <div class="modal-footer" style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-secondary" id="cancelCreateMyTaskAccrualBtn">İptal</button>
+                <button type="button" class="btn btn-primary" id="saveNewMyTaskAccrualBtn">Tahakkuku Oluştur</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="changeTriggeredTaskStatusModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-modal-btn" id="closeChangeTriggeredTaskStatusModal">&times;</span>
+            <h3 class="modal-title">Durum Değiştir</h3>
+            <p id="changeStatusModalTaskTitleDisplay" style="font-weight:bold; margin-bottom:20px; color:#1e3c72;"></p>
+            <div class="form-group">
+                <label for="newTriggeredTaskStatus">Yeni Durum Seçiniz:</label>
+                <select id="newTriggeredTaskStatus" class="form-select">
+                    <option value="client_approval_opened">Müvekkil Onayı - Açıldı (İşi Başlat)</option>
+                    <option value="client_approval_closed">Müvekkil Onayı - Kapatıldı (Red)</option>
+                    <option value="client_no_response_closed">Müvekkil Cevaplamadı - Kapatıldı</option>
+                </select>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid #eee; padding-top: 15px; margin-top: 15px; text-align: right;">
+                <button type="button" class="btn btn-secondary" id="cancelChangeTriggeredTaskStatusBtn">İptal</button>
+                <button type="button" class="btn btn-primary" id="saveChangeTriggeredTaskStatusBtn">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <script defer src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script defer src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="./js/deadline-highlighter.js"></script>
+    <script type="module" src="./js/task-management/triggered-tasks.js"></script>
+</body>
+</html>

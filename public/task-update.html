@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>İş Detayı ve Düzenleme - Hukuk Bürosu Yönetim Paneli</title>
+    
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="css/task-update.css"> 
+</head>
+<body>
+<div id="layout-placeholder"></div>
+    <div class="page-wrapper">
+        <div id="left-sidebar-container"></div>
+        <div id="top-bar-container"></div>
+
+        <div class="main-container">
+            
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">İş Detayı</h1>
+                    <p class="page-subtitle">İşin detaylarını görüntüleyin, güncelleyin ve yönetin.</p>
+                </div>
+            </div>
+
+            <form id="taskDetailForm">
+                <div class="row">
+                    <div class="col-12">
+                        
+                        <div class="section-card">
+                            <h3 class="section-title">Genel Bilgiler</h3>
+                            
+                            <div class="form-group">
+                                <label class="form-label">İş Başlığı</label>
+                                <input type="text" id="taskTitle" class="form-input" placeholder="İş başlığını giriniz...">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Açıklama</label>
+                                <textarea id="taskDescription" class="form-textarea" placeholder="İş ile ilgili detaylı açıklama..."></textarea>
+                            </div>
+
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label class="form-label">İş No</label>
+                                    <input type="text" id="taskIdDisplay" class="form-input" style="font-family: monospace; font-weight: bold; letter-spacing: 1px;" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Atanan Kişi</label>
+                                    <input type="text" id="assignedToDisplay" class="form-input" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Öncelik</label>
+                                    <select id="taskPriority" class="form-select">
+                                        <option value="low">Düşük</option>
+                                        <option value="medium">Orta</option>
+                                        <option value="high">Yüksek</option>
+                                        <option value="urgent">Acil</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Durum</label>
+                                    <select id="taskStatus" class="form-select">
+                                        </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-grid mt-3">
+                                <div class="form-group">
+                                    <label class="form-label">Resmi Son Tarih (Due Date)</label>
+                                    <input type="text" id="taskDueDate" class="form-input" placeholder="gg.aa.yyyy" data-datepicker>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Operasyonel Son Tarih</label>
+                                    <input type="text" id="deliveryDate" class="form-input" placeholder="gg.aa.yyyy" data-datepicker>
+                                </div>
+                                <div class="form-group mt-3" id="oppositionOwnerWrapper" style="display: none;">
+                                    <label class="form-label text-danger" style="font-weight: bold;">
+                                        <i class="fas fa-user-shield mr-1"></i> İtiraz Sahibi
+                                    </label>
+                                    <div id="oppositionOwnerDisplay" class="p-2 border rounded bg-light font-weight-bold"></div>
+                                    <small class="text-muted">Bu bilgi ilgili itiraz işleminden (transaction) otomatik çekilmiştir.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h3 class="section-title">İlgili Varlık</h3>
+                            <div class="search-input-wrapper">
+                                <input type="text" id="relatedIpRecordSearch" class="form-input" placeholder="Marka/Patent ara...">
+                                <div id="relatedIpRecordSearchResults" class="search-results-list" style="display: none;"></div>
+                            </div>
+                            <div id="selectedIpRecordDisplay" class="search-result-display" style="display: none;"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h3 class="section-title">İlgili Taraf</h3>
+                            <div class="search-input-wrapper">
+                                <input type="text" id="relatedPartySearch" class="form-input" placeholder="Kişi/Firma ara...">
+                                <div id="relatedPartySearchResults" class="search-results-list" style="display: none;"></div>
+                            </div>
+                            <div id="selectedRelatedPartyDisplay" class="search-result-display" style="display: none;"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h3 class="section-title">
+                                <span>Belgeler & Dosyalar</span>
+                                <small class="text-muted" style="font-size: 0.6em; font-weight: normal;">Genel belgeler</small>
+                            </h3>
+                            
+                            <div id="fileListContainer" class="file-list-container">
+                                </div>
+
+                            <div class="file-upload-area" id="fileUploadArea">
+                                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                                <div class="upload-text">Dosya Yüklemek İçin Tıklayın</div>
+                                <div class="upload-subtext">veya dosyaları buraya sürükleyin</div>
+                                <input type="file" id="fileInput" multiple style="display: none;">
+                            </div>
+                        </div>
+
+                        <div class="section-card" style="border-left: 5px solid #d63384;"> 
+                            <h3 class="section-title" style="color: #d63384;">
+                                <span>Resmi Kurum (EPATS) Evrakı</span>
+                            </h3>
+                            <p class="text-muted small">Bu alan sadece resmi kurumdan gelen veya kuruma sunulan nihai evraklar içindir.</p>
+                            
+                            <div id="updatedApplicationInfoArea" class="p-3 mb-3 bg-light rounded border" style="display: none;">
+                                <h6 class="text-dark font-weight-bold mb-2" style="font-size: 0.9em;">
+                                    <i class="fas fa-check-circle text-success mr-1"></i>
+                                    Varlığa İşlenecek Başvuru Bilgisi
+                                </h6>
+                                <div class="form-row">
+                                    <div class="col-md-6">
+                                        <label class="small text-muted mb-1">Başvuru No</label>
+                                        <input type="text" id="displayModalAppNo" class="form-control form-control-sm bg-white" readonly>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted mb-1">Başvuru Tarihi</label>
+                                        <input type="text" id="displayModalAppDate" class="form-control form-control-sm bg-white" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-grid mb-3">
+                                <div class="form-group">
+                                    <label class="form-label">TürkPatent Evrak No</label>
+                                    <input type="text" id="turkpatentEvrakNo" class="form-input" placeholder="Örn: 2024-GE-12345">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Evrak Tarihi</label>
+                                    <input type="text" id="epatsDocumentDate" class="form-input" placeholder="gg.aa.yyyy" data-datepicker>
+                                </div>
+                            </div>
+
+                            <div id="epatsFileListContainer"></div>
+                            <div class="file-upload-area" id="epatsFileUploadArea" style="border-color: #f8ccde; background: #fff0f6;">
+                                <i class="fas fa-file-signature upload-icon" style="color: #d63384;"></i>
+                                <div class="upload-text">EPATS Evrakı Yükle</div>
+                                <div class="upload-subtext">Sürükle &amp; bırak veya tıklayıp seç</div>
+                                <input type="file" id="epatsFileInput" accept=".pdf" style="display: none;">
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h3 class="section-title">
+                                <span>Finansal Hareketler (Tahakkuk)</span>
+                                <button type="button" class="btn btn-sm btn-success" id="addAccrualBtn">
+                                    <i class="fas fa-plus mr-1"></i> Yeni Ekle
+                                </button>
+                            </h3>
+                            
+                            <div id="accrualsContainer" class="accruals-grid">
+                                </div>
+                        </div>
+
+                    </div>
+                </div> 
+                
+                <div class="form-actions-footer bg-white p-4 rounded shadow-sm mt-4 border d-flex justify-content-end align-items-center" style="gap: 15px;">
+                    <button type="button" class="btn btn-secondary btn-lg" id="cancelEditBtn">
+                        <i class="fas fa-times mr-2"></i>İptal
+                    </button>
+                    <button type="button" class="btn btn-primary btn-lg px-5" id="saveTaskChangesBtn">
+                        <i class="fas fa-save mr-2"></i>Değişiklikleri Kaydet
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="accrualModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered" role="document" style="max-width: 95%;">
+            <div class="modal-content shadow-lg" style="height: 90vh;"> <div class="modal-header bg-light">
+                    <h5 class="modal-title font-weight-bold text-primary">
+                        <i class="fas fa-file-invoice-dollar mr-2"></i>Finansal Hareket (Tahakkuk)
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Kapat" onclick="$('#accrualModal').modal('hide')">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-0" style="overflow-y: auto;"> <div id="accrualFormContainer" class="p-4"></div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" onclick="$('#accrualModal').modal('hide')">İptal</button>
+                    <button type="button" class="btn btn-primary px-4" id="saveAccrualBtn">
+                        <i class="fas fa-check mr-2"></i>Kaydet
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    
+    <script type="module" src="js/task-update/main.js"></script>
+
+</body>
+</html>

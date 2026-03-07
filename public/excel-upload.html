@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toplu Portföy Yükleme | Evreka IP</title>
+    
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
+    
+    <style>
+        :root { --primary-color: #1e3c72; --primary-light: #eff6ff; --border-color: #e2e8f0; --text-dark: #0f172a; --text-gray: #64748b; --bg-body: #f8fafc; --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); color: var(--text-dark); margin: 0; padding: 0; }
+        .main-content { padding: 30px 40px; padding-top: 120px; width: 100%; box-sizing: border-box; max-width: 1600px; margin: 0 auto; }
+        .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
+        .page-title h1 { font-size: 24px; font-weight: 700; color: var(--text-dark); margin: 0; display: flex; align-items: center; gap: 12px; }
+        .page-title p { color: var(--text-gray); font-size: 14px; margin: 5px 0 0 0; }
+        .card { background: white; border-radius: 12px; padding: 0; box-shadow: var(--card-shadow); border: 1px solid var(--border-color); margin-bottom: 25px; width: 100%; }
+        .card-header { padding: 20px 25px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px 12px 0 0; }
+        .step-icon { width: 32px; height: 32px; background: var(--primary-light); color: var(--primary-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+        .card-title { font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0; }
+        .card-body { padding: 25px; }
+        .client-search-wrapper { position: relative; max-width: 600px; }
+        .form-control { width: 100%; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: #fff; transition: all 0.2s; }
+        .form-control:focus { border-color: var(--primary-color); outline: none; box-shadow: 0 0 0 3px rgba(30, 60, 114, 0.1); }
+        .search-results { position: absolute; top: 105%; left: 0; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); max-height: 250px; overflow-y: auto; z-index: 50; display: none; }
+        .search-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+        .search-item:hover { background-color: var(--primary-light); color: var(--primary-color); }
+        .selected-clients-area { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; padding: 15px; background: #f8fafc; border-radius: 8px; border: 1px dashed var(--border-color); min-height: 50px; align-items: center; }
+        .client-tag { background: white; color: var(--primary-color); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .client-tag i { cursor: pointer; color: #94a3b8; transition: 0.2s; }
+        .client-tag i:hover { color: #ef4444; }
+        .drop-zone { border: 2px dashed #cbd5e1; background: #f8fafc; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .drop-zone:hover { border-color: var(--primary-color); background: var(--primary-light); }
+        .drop-zone-icon { font-size: 40px; color: #94a3b8; margin-bottom: 15px; }
+        .drop-zone h3 { margin: 0 0 5px 0; font-size: 16px; font-weight: 600; }
+        .drop-zone p { margin: 0; font-size: 13px; color: var(--text-gray); }
+        .progress-section { margin-top: 25px; display: none; }
+        .progress-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+        .progress-track { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary-color); width: 0%; transition: width 0.3s; }
+        .error-report { margin-top: 25px; display: none; border: 1px solid #fee2e2; background: #fff5f5; border-radius: 8px; overflow: hidden; }
+        .error-header { background: #ffe4e6; padding: 12px 20px; color: #9f1239; font-weight: 600; font-size: 14px; }
+        .error-list { list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto; }
+        .error-item { padding: 10px 20px; border-bottom: 1px solid #fecaca; font-size: 13px; color: #881337; }
+        .status-log { margin-top: 20px; background: #0f172a; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 12px; max-height: 200px; overflow-y: auto; display: none; }
+        .log-item { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 2px; }
+        .log-success { color: #4ade80; }
+        .log-error { color: #f87171; }
+        .btn-restart { margin-top: 20px; padding: 12px 24px; background: var(--primary-color); color: white; border: none; border-radius: 8px; font-weight: 500; cursor: pointer; display: none; float: right; }
+        .btn-restart:hover { background: #162c55; }
+        @media (max-width: 768px) { .main-content { padding: 20px; padding-top: 100px; } }
+    </style>
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+
+    <div class="main-content">
+        <div class="page-header">
+            <div class="page-title">
+                <h1><i class="fas fa-file-import" style="color: #1e3c72; margin-right: 10px;"></i> Excel Portföy Yükleme</h1>
+                <p>Toplu portföy verilerini doğrulayarak güvenli bir şekilde sisteme aktarın.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><div class="step-icon">1</div><h3 class="card-title">Müşteri Seçimi</h3></div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom: 8px; font-weight: 500; font-size: 14px;">Müşteri Arayın</label>
+                    <div class="client-search-wrapper">
+                        <input type="text" id="clientSearchInput" class="form-control" placeholder="Müşteri adı veya unvanı yazın...">
+                        <div id="searchResults" class="search-results"></div>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight: 500; font-size: 14px;">Seçili Müşteriler</label>
+                    <div id="selectedClientsList" class="selected-clients-area">
+                        <span style="color: #94a3b8; font-size: 13px;">Listeye eklemek için yukarıdan arama yapın.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><div class="step-icon">2</div><h3 class="card-title">Dosya Yükleme</h3></div>
+            <div class="card-body">
+                <div id="dropZone" class="drop-zone">
+                    <input type="file" id="fileInput" accept=".xlsx" style="display: none;">
+                    <i class="fas fa-file-excel drop-zone-icon"></i>
+                    <h3>Excel Dosyasını Buraya Sürükleyin</h3>
+                    <p>veya dosya seçmek için tıklayın (.xlsx)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="statusCard" style="display:none;">
+            <div class="card-header"><div class="step-icon"><i class="fas fa-check"></i></div><h3 class="card-title">İşlem Durumu</h3></div>
+            <div class="card-body">
+                <div id="progressContainer" class="progress-section">
+                    <div class="progress-header"><span id="progressText">Analiz ediliyor...</span><span id="progressPercent">0%</span></div>
+                    <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+                </div>
+                <div id="errorReport" class="error-report">
+                    <div class="error-header"><i class="fas fa-exclamation-triangle mr-2"></i><span>Aktarılamayan Kayıtlar (<span id="errorCountHeader">0</span>)</span></div>
+                    <ul id="errorList" class="error-list"></ul>
+                </div>
+                <div id="statusLog" class="status-log"></div>
+                <div style="overflow: hidden;">
+                    <button id="restartBtn" class="btn-restart"><i class="fas fa-sync-alt mr-2"></i> Yeni İşlem Başlat</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script type="module">
+        import { supabase } from './supabase-config.js'; 
+        import { loadSharedLayout } from './js/layout-loader.js';
+        
+        const MAX_CONCURRENT_UPLOADS = 5; 
+        
+        let ALL_COUNTRIES = []; 
+        let ALL_CLIENTS = []; 
+        let SELECTED_CLIENTS = []; 
+        let FAILED_ROWS = [];
+        let elements = {}; 
+
+        const ENGLISH_TO_CODE_MAP = {
+            "Afghanistan": "AF", "Albania": "AL", "Algeria": "DZ", "American Samoa": "AS", "Andorra": "AD", "Angola": "AO", "Anguilla": "AI", "Antarctica": "AQ", "Antigua and Barbuda": "AG", "Argentina": "AR", "Armenia": "AM", "Aruba": "AW", "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ",
+            "Bahamas": "BS", "Bahrain": "BH", "Bangladesh": "BD", "Barbados": "BB", "Belarus": "BY", "Belgium": "BE", "Belize": "BZ", "Benin": "BJ", "Bermuda": "BM", "Bhutan": "BT", "Bolivia": "BO", "Bosnia and Herzegovina": "BA", "Botswana": "BW", "Brazil": "BR", "British Indian Ocean Territory": "IO", "Brunei": "BN", "Bulgaria": "BG", "Burkina Faso": "BF", "Burundi": "BI",
+            "Cabo Verde": "CV", "Cambodia": "KH", "Cameroon": "CM", "Canada": "CA", "Cayman Islands": "KY", "Central African Republic": "CF", "Chad": "TD", "Chile": "CL", "China": "CN", "Christmas Island": "CX", "Cocos (Keeling) Islands": "CC", "Colombia": "CO", "Comoros": "KM", "Congo": "CG", "Congo, Democratic Republic of": "CD", "Cook Islands": "CK", "Costa Rica": "CR", "Croatia": "HR", "Cuba": "CU", "Curaçao": "CW", "Cyprus": "CY", "Czech Republic": "CZ", "Czechia": "CZ",
+            "Denmark": "DK", "Djibouti": "DJ", "Dominica": "DM", "Dominican Republic": "DO",
+            "Ecuador": "EC", "Egypt": "EG", "El Salvador": "SV", "Equatorial Guinea": "GQ", "Eritrea": "ER", "Estonia": "EE", "Eswatini": "SZ", "Ethiopia": "ET",
+            "Falkland Islands": "FK", "Faroe Islands": "FO", "Fiji": "FJ", "Finland": "FI", "France": "FR", "French Guiana": "GF", "French Polynesia": "PF",
+            "Gabon": "GA", "Gambia": "GM", "Georgia": "GE", "Germany": "DE", "Ghana": "GH", "Gibraltar": "GI", "Greece": "GR", "Greenland": "GL", "Grenada": "GD", "Guadeloupe": "GP", "Guam": "GU", "Guatemala": "GT", "Guernsey": "GG", "Guinea": "GN", "Guinea-Bissau": "GW", "Guyana": "GY",
+            "Haiti": "HT", "Honduras": "HN", "Hong Kong": "HK", "Hungary": "HU",
+            "Iceland": "IS", "India": "IN", "Indonesia": "ID", "Iran": "IR", "Iraq": "IQ", "Ireland": "IE", "Isle of Man": "IM", "Israel": "IL", "Italy": "IT", "Ivory Coast": "CI",
+            "Jamaica": "JM", "Japan": "JP", "Jersey": "JE", "Jordan": "JO",
+            "Kazakhstan": "KZ", "Kenya": "KE", "Kiribati": "KI", "Korea, North": "KP", "Korea, South": "KR", "South Korea": "KR", "North Korea": "KP", "Kuwait": "KW", "Kyrgyzstan": "KG",
+            "Laos": "LA", "Latvia": "LV", "Lebanon": "LB", "Lesotho": "LS", "Liberia": "LR", "Libya": "LY", "Liechtenstein": "LI", "Lithuania": "LT", "Luxembourg": "LU",
+            "Macao": "MO", "Madagascar": "MG", "Malawi": "MW", "Malaysia": "MY", "Maldives": "MV", "Mali": "ML", "Malta": "MT", "Marshall Islands": "MH", "Martinique": "MQ", "Mauritania": "MR", "Mauritius": "MU", "Mayotte": "YT", "Mexico": "MX", "Micronesia": "FM", "Moldova": "MD", "Monaco": "MC", "Mongolia": "MN", "Montenegro": "ME", "Montserrat": "MS", "Morocco": "MA", "Mozambique": "MZ", "Myanmar": "MM",
+            "Namibia": "NA", "Nauru": "NR", "Nepal": "NP", "Netherlands": "NL", "New Caledonia": "NC", "New Zealand": "NZ", "Nicaragua": "NI", "Niger": "NE", "Nigeria": "NG", "Niue": "NU", "North Macedonia": "MK", "Macedonia": "MK", "Norway": "NO",
+            "Oman": "OM",
+            "Pakistan": "PK", "Palau": "PW", "Palestine": "PS", "Panama": "PA", "Papua New Guinea": "PG", "Paraguay": "PY", "Peru": "PE", "Philippines": "PH", "Poland": "PL", "Portugal": "PT", "Puerto Rico": "PR",
+            "Qatar": "QA",
+            "Réunion": "RE", "Romania": "RO", "Russia": "RU", "Russian Federation": "RU", "Rwanda": "RW",
+            "Saint Kitts and Nevis": "KN", "Saint Lucia": "LC", "Saint Vincent and the Grenadines": "VC", "Samoa": "WS", "San Marino": "SM", "Sao Tome and Principe": "ST", "Saudi Arabia": "SA", "Senegal": "SN", "Serbia": "RS", "Seychelles": "SC", "Sierra Leone": "SL", "Singapore": "SG", "Sint Maarten": "SX", "Slovakia": "SK", "Slovenia": "SI", "Solomon Islands": "SB", "Somalia": "SO", "South Africa": "ZA", "South Sudan": "SS", "Spain": "ES", "Sri Lanka": "LK", "Sudan": "SD", "Suriname": "SR", "Sweden": "SE", "Switzerland": "CH", "Syria": "SY",
+            "Taiwan": "TW", "Tajikistan": "TJ", "Tanzania": "TZ", "Thailand": "TH", "Timor-Leste": "TL", "Togo": "TG", "Tokelau": "TK", "Tonga": "TO", "Trinidad and Tobago": "TT", "Tunisia": "TN", "Turkey": "TR", "Türkiye": "TR", "Turkmenistan": "TM", "Turks and Caicos Islands": "TC", "Tuvalu": "TV",
+            "Uganda": "UG", "Ukraine": "UA", "United Arab Emirates": "AE", "United Kingdom": "GB", "United States": "US", "United States of America": "US", "Uruguay": "UY", "Uzbekistan": "UZ",
+            "Vanuatu": "VU", "Vatican City": "VA", "Venezuela": "VE", "Vietnam": "VN", "Virgin Islands, British": "VG", "Virgin Islands, U.S.": "VI",
+            "Wallis and Futuna": "WF", "Western Sahara": "EH", "Yemen": "YE", "Zambia": "ZM", "Zimbabwe": "ZW",
+            "European Union": "EUIPO", 
+            "African Intellectual Property Organization": "OAPI",
+            "OAPI": "OAPI",
+            "Benelux": "BX",
+            "Benelux (Belgium, Netherlands, Luxembourg)": "BX",
+            "Turkish Republic of Northern Cyprus": "TRNC"
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+             loadSharedLayout({ activeMenuLink: 'excel-upload.html' });
+
+             elements = {
+                dropZone: document.getElementById('dropZone'),
+                fileInput: document.getElementById('fileInput'),
+                clientSearchInput: document.getElementById('clientSearchInput'),
+                searchResults: document.getElementById('searchResults'),
+                selectedClientsList: document.getElementById('selectedClientsList'),
+                statusCard: document.getElementById('statusCard'), 
+                progressContainer: document.getElementById('progressContainer'),
+                progressFill: document.getElementById('progressFill'),
+                progressText: document.getElementById('progressText'),
+                progressPercent: document.getElementById('progressPercent'),
+                statusLog: document.getElementById('statusLog'),
+                restartBtn: document.getElementById('restartBtn'),
+                errorReport: document.getElementById('errorReport'),
+                errorList: document.getElementById('errorList'),
+                errorCountHeader: document.getElementById('errorCountHeader')
+            };
+
+            if (elements.dropZone && elements.fileInput) {
+                elements.dropZone.onclick = () => elements.fileInput.click();
+                elements.fileInput.onchange = (e) => { if(e.target.files.length) handleFile(e.target.files[0]); };
+                elements.dropZone.ondragover = (e) => { e.preventDefault(); elements.dropZone.style.background = "#eff6ff"; elements.dropZone.style.borderColor = "#1e3c72"; };
+                elements.dropZone.ondragleave = (e) => { e.preventDefault(); elements.dropZone.style.background = "#f8fafc"; elements.dropZone.style.borderColor = "#cbd5e1"; };
+                elements.dropZone.ondrop = (e) => { e.preventDefault(); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); };
+            }
+
+            if (elements.clientSearchInput) {
+                elements.clientSearchInput.addEventListener('input', (e) => filterClients(e.target.value));
+                document.addEventListener('click', (e) => { if (!e.target.closest('.client-search-wrapper')) elements.searchResults.style.display = 'none'; });
+            }
+
+            init();
+        });
+
+        async function init() {
+            try { await Promise.all([loadClients(), loadCountries()]); } catch (e) { log(e.message, 'error'); }
+        }
+
+        // YENİ ŞEMA: Kişileri getir
+        async function loadClients() {
+            try {
+                const { data, error } = await supabase.from('persons').select('id, name, email').order('name');
+                if (error) throw error;
+                ALL_CLIENTS = data || [];
+            } catch(e) { console.error("Müşteri yükleme hatası", e); }
+        }
+
+        // YENİ ŞEMA: Ülkeleri ortak tablodan json olarak getir
+        async function loadCountries() {
+            try {
+                const { data, error } = await supabase.from('common').select('data').eq('id', 'countries').single();
+                if (data && data.data && data.data.list) ALL_COUNTRIES = data.data.list;
+            } catch (e) { console.error("Ülke yükleme hatası:", e); }
+        }
+
+        function filterClients(searchText) {
+            if (!searchText || searchText.length < 2) { elements.searchResults.style.display = 'none'; return; }
+            const lowerText = searchText.toLowerCase();
+            const filtered = ALL_CLIENTS.filter(c => c.name.toLowerCase().includes(lowerText));
+            renderSearchResults(filtered);
+        }
+
+        function renderSearchResults(results) {
+            elements.searchResults.innerHTML = '';
+            if (results.length === 0) { elements.searchResults.style.display = 'none'; return; }
+            results.forEach(client => {
+                const div = document.createElement('div');
+                div.className = 'search-item';
+                div.innerHTML = `<i class="fas fa-user-circle"></i> ${client.name}`;
+                div.onclick = () => addSelectedClient(client);
+                elements.searchResults.appendChild(div);
+            });
+            elements.searchResults.style.display = 'block';
+        }
+
+        function addSelectedClient(client) {
+            if (SELECTED_CLIENTS.some(c => c.id === client.id)) { elements.clientSearchInput.value = ''; elements.searchResults.style.display = 'none'; return; }
+            SELECTED_CLIENTS.push(client);
+            renderSelectedClients();
+            elements.clientSearchInput.value = '';
+            elements.searchResults.style.display = 'none';
+        }
+
+        function removeSelectedClient(clientId) {
+            SELECTED_CLIENTS = SELECTED_CLIENTS.filter(c => c.id !== clientId);
+            renderSelectedClients();
+        }
+
+        function renderSelectedClients() {
+            elements.selectedClientsList.innerHTML = '';
+            if (SELECTED_CLIENTS.length === 0) { elements.selectedClientsList.innerHTML = '<span style="color: #94a3b8; font-size: 13px;">Listeye eklemek için arama yapın.</span>'; return; }
+            SELECTED_CLIENTS.forEach(client => {
+                const tag = document.createElement('div');
+                tag.className = 'client-tag';
+                tag.innerHTML = `<span>${client.name}</span><i class="fas fa-times" onclick="window.removeClientGlobal('${client.id}')"></i>`;
+                elements.selectedClientsList.appendChild(tag);
+            });
+        }
+        window.removeClientGlobal = (id) => removeSelectedClient(id);
+
+        function formatDateForDataEntry(cellValue) {
+            if (!cellValue) return null;
+            let dateObj = null;
+            if (cellValue instanceof Date) dateObj = cellValue;
+            else {
+                const d = new Date(cellValue);
+                if (!isNaN(d.getTime())) dateObj = d;
+            }
+            if (dateObj) {
+                const year = dateObj.getFullYear();
+                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const day = String(dateObj.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`; // Postgres Date Formatı
+            }
+            return null;
+        }
+
+        function mapStatus(statusText) {
+            if (!statusText) return 'filed';
+            const s = String(statusText).trim().toLowerCase();
+            if (s.includes('valid') && !s.includes('invalid')) { 
+                return 'registered';
+            }
+            if (s.includes('expired') || s.includes('invalid')) {
+                return 'rejected';
+            }
+            return 'filed'; 
+        }
+
+        function getCountryCode(countryName) {
+            if (!countryName) return null; 
+            const search = String(countryName).trim();
+            if (!search) return null;
+
+            const searchLower = search.toLowerCase();
+            if (search.length === 2) return search.toUpperCase();
+
+            if (ENGLISH_TO_CODE_MAP[search]) return ENGLISH_TO_CODE_MAP[search];
+            if (searchLower.includes('european union')) return 'EUIPO'; 
+            if (searchLower.includes('african intellectual')) return 'OAPI'; 
+            if (searchLower.includes('wipo')) return 'WO'; 
+            if (searchLower.includes('aripo')) return 'AP';
+            
+            if (Array.isArray(ALL_COUNTRIES)) {
+                const found = ALL_COUNTRIES.find(c => c.name.toLowerCase() === searchLower);
+                if (found) return found.code;
+            }
+            
+            if (searchLower === 'turkey' || searchLower === 'türkiye' || searchLower === 'turkiye') return 'TR';
+            return null; 
+        }
+
+        function parseGoodsAndServicesStructured(text) {
+            if (!text) return { classes: [], goodsByClass: [] };
+            const regex = /\[(\d+)\]:\s*([\s\S]*?)(?=\s*\[\d+\]:|$)/g;
+            const goodsByClass = [];
+            const classes = [];
+            let match;
+            let foundMatch = false;
+            while ((match = regex.exec(text)) !== null) {
+                foundMatch = true;
+                const cls = match[1];
+                const desc = match[2].trim();
+                if (!classes.includes(cls)) classes.push(cls);
+                goodsByClass.push({ classNo: cls, items: [desc] });
+            }
+            if (!foundMatch && text.trim().length > 0) {
+                return { classes: [], goodsByClass: [], raw: text.trim() };
+            }
+            return { classes, goodsByClass };
+        }
+
+        function log(msg, type = 'info') {
+            if (!elements.statusLog) return;
+            elements.statusLog.style.display = 'block';
+            const div = document.createElement('div');
+            div.className = `log-item log-${type}`;
+            div.innerHTML = `<span style="opacity:0.6">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            elements.statusLog.appendChild(div);
+            elements.statusLog.scrollTop = elements.statusLog.scrollHeight;
+        }
+
+        function updateProgress(current, total) {
+            if (!elements.progressFill) return;
+            const percent = Math.round((current / total) * 100);
+            elements.progressFill.style.width = `${percent}%`;
+            elements.progressPercent.textContent = `${percent}%`;
+            elements.progressText.textContent = `${current}/${total} İşlendi`;
+        }
+
+        function addErrorToReport(rowNumber, name, message) {
+            FAILED_ROWS.push({ rowNumber, name, message });
+            elements.errorReport.style.display = 'block';
+            elements.errorCountHeader.textContent = FAILED_ROWS.length;
+            const li = document.createElement('li');
+            li.className = 'error-item';
+            li.innerHTML = `<span class="error-badge">Satır ${rowNumber}</span><div><strong>${name || 'İsimsiz Kayıt'}</strong>: ${message}</div>`;
+            elements.errorList.appendChild(li);
+        }
+
+        // YENİ ŞEMA: Aynı kayıt var mı kontrolü (ip_records tablosundan)
+        async function checkDuplicate(appNo, regNo, countryCode) {
+            if (appNo) {
+                const { data } = await supabase.from('ip_records')
+                    .select('id').eq('application_number', String(appNo)).eq('country_code', countryCode).limit(1);
+                if (data && data.length > 0) return true;
+            }
+            if (regNo) {
+                const { data } = await supabase.from('ip_records')
+                    .select('id').eq('registration_number', String(regNo)).eq('country_code', countryCode).limit(1);
+                if (data && data.length > 0) return true;
+            }
+            return false;
+        }
+
+        // YENİ ŞEMA: Resmi Supabase Storage'a Yükleme
+        async function uploadImageToStorage(buffer, extension, brandName) {
+            try {
+                const safeName = brandName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                const filename = `brand-logos/${Date.now()}_${safeName}.${extension}`;
+                const blob = new Blob([buffer], { type: `image/${extension}` });
+                
+                const { data, error } = await supabase.storage.from('brand_images').upload(filename, blob);
+                if (error) throw error;
+                
+                const { data: urlData } = supabase.storage.from('brand_images').getPublicUrl(filename);
+                return urlData.publicUrl;
+            } catch (error) {
+                console.error("Resim yükleme hatası:", error);
+                return null;
+            }
+        }
+
+        // 🔥 YENİ ŞEMA: 5 Ayrı Tabloya İlişkisel (Relational) Kayıt Atan Ana Fonksiyon 🔥
+        async function insertFullRecord(recordData, currentUserId, currentUserEmail, currentUserName, now) {
+            
+            // 1. ip_records Tablosu (Ana Veriler)
+            const { data: ipData, error: ipError } = await supabase.from('ip_records').insert({
+                ip_type: 'trademark',
+                origin: recordData.origin,
+                portfolio_status: 'active',
+                status: recordData.status,
+                record_owner_type: 'self',
+                application_number: recordData.applicationNumber,
+                application_date: recordData.applicationDate,
+                registration_number: recordData.registrationNumber,
+                registration_date: recordData.registrationDate,
+                renewal_date: recordData.renewalDate,
+                country_code: recordData.countryCode,
+                created_from: 'excel_upload',
+                parent_id: recordData.parentId || null,
+                transaction_hierarchy: recordData.transactionHierarchy || 'parent',
+                wipo_ir: recordData.wipoIR || null,
+                created_at: now,
+                updated_at: now
+            }).select('id').single();
+
+            if (ipError) throw new Error("Ana Kayıt Hatası: " + ipError.message);
+            const recordId = ipData.id;
+
+            // 2. ip_record_trademark_details Tablosu (İsim ve Görsel)
+            const { error: tmError } = await supabase.from('ip_record_trademark_details').insert({
+                ip_record_id: recordId,
+                brand_name: recordData.brandText,
+                brand_category: "Ticaret/Hizmet Markası",
+                brand_image_url: recordData.brandImageUrl || null
+            });
+            if (tmError) throw new Error("Marka Detay Hatası: " + tmError.message);
+
+            // 3. ip_record_applicants Tablosu (Müşteri İlişkisi)
+            if (SELECTED_CLIENTS.length > 0) {
+                const applicantsToInsert = SELECTED_CLIENTS.map((client, index) => ({
+                    ip_record_id: recordId,
+                    person_id: client.id,
+                    order_index: index,
+                    is_invoice_client: index === 0
+                }));
+                const { error: appError } = await supabase.from('ip_record_applicants').insert(applicantsToInsert);
+                if (appError) throw new Error("Müşteri Bağlama Hatası: " + appError.message);
+            }
+
+            // 4. ip_record_classes Tablosu (Emtia ve Sınıflar)
+            if (recordData.goodsAndServicesByClass && recordData.goodsAndServicesByClass.length > 0) {
+                const classesToInsert = recordData.goodsAndServicesByClass.map(cls => ({
+                    ip_record_id: recordId,
+                    class_no: parseInt(cls.classNo) || 0,
+                    items: cls.items || []
+                }));
+                const { error: clsError } = await supabase.from('ip_record_classes').insert(classesToInsert);
+                if (clsError) throw new Error("Emtia Sınıfı Hatası: " + clsError.message);
+            }
+
+            // 5. transactions Tablosu (İlk Başvuru İşlemi)
+            const { error: txError } = await supabase.from('transactions').insert({
+                ip_record_id: recordId,
+                transaction_type_id: "2", // Başvuru Tipi ID'si
+                transaction_hierarchy: recordData.transactionHierarchy || 'parent',
+                description: recordData.transactionHierarchy === 'child' ? "Ülke başvurusu işlemi." : "Excel'den toplu başvuru işlemi.",
+                transaction_date: now,
+                user_id: currentUserId,
+                user_email: currentUserEmail,
+                user_name: currentUserName,
+                created_at: now
+            });
+            if (txError) throw new Error("İşlem Kaydı Hatası: " + txError.message);
+
+            return recordId;
+        }
+
+        function extractImagesFromSheet(workbook, sheet) {
+            const imageMap = {};
+            if (!sheet || typeof sheet.getImages !== 'function') return imageMap;
+
+            const images = sheet.getImages();
+            if (!images || images.length === 0) return imageMap;
+            images.forEach(img => {
+                const rowIndex = img.range.tl.nativeRow + 1; 
+                const colIndex = img.range.tl.nativeCol;
+                if (colIndex === 1) { 
+                    const media = workbook.getImage(img.imageId);
+                    if (media) {
+                        imageMap[rowIndex] = { buffer: media.buffer, extension: media.extension };
+                    }
+                }
+            });
+            return imageMap;
+        }
+
+        async function handleFile(file) {
+            if (SELECTED_CLIENTS.length === 0) { alert("Lütfen en az bir müşteri seçin!"); elements.fileInput.value = ''; return; }
+
+            // Supabase Oturum Kontrolü
+            const { data: sessionData } = await supabase.auth.getSession();
+            const currentUser = sessionData?.session?.user;
+            const currentUserId = currentUser ? currentUser.id : "";
+            const currentUserEmail = currentUser ? currentUser.email : "";
+            const currentUserName = currentUser ? (currentUser.user_metadata?.full_name || currentUser.email) : "Sistem";
+
+            elements.statusCard.style.display = 'block'; 
+            elements.dropZone.style.pointerEvents = 'none'; 
+            elements.dropZone.style.opacity = '0.5';
+
+            elements.progressContainer.style.display = 'block';
+            elements.errorReport.style.display = 'none';
+            elements.errorList.innerHTML = '';
+            FAILED_ROWS = [];
+
+            log(`Dosya okunuyor: ${file.name}`, 'info');
+
+            const workbook = new ExcelJS.Workbook();
+            try { await workbook.xlsx.load(file); } catch (err) {
+                alert("Dosya yüklenirken hata oluştu.");
+                elements.dropZone.style.pointerEvents = 'auto';
+                elements.dropZone.style.opacity = '1';
+                return;
+            }
+
+            let sheet = workbook.getWorksheet(1);
+            if (!sheet && workbook.worksheets.length > 0) sheet = workbook.worksheets[0];
+
+            if (!sheet) {
+                alert("Excel dosyasında okunabilir bir çalışma sayfası bulunamadı!");
+                elements.dropZone.style.pointerEvents = 'auto';
+                elements.dropZone.style.opacity = '1';
+                return;
+            }
+            
+            const rowImages = extractImagesFromSheet(workbook, sheet);
+            
+            const rowsToProcess = [];
+            sheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return;
+                if (!row.getCell(1).value) return;
+
+                const rawData = {
+                    rowNumber,
+                    Name: row.getCell(1).text,
+                    Registry: row.getCell(3).text,
+                    Status: row.getCell(4).text,
+                    Classes: row.getCell(5).text, 
+                    "Goods and services": row.getCell(6).text,
+                    "App. no.": row.getCell(7).text,
+                    "Reg. no": row.getCell(8).text,
+                    "App. date": row.getCell(9).value,
+                    "Reg. date": row.getCell(10).value,
+                    "Exp. date": row.getCell(11).value,
+                    "Representative": row.getCell(12).text,
+                    "Jurisdictions": row.getCell(13).text
+                };
+                rowsToProcess.push(rawData);
+            });
+
+            const totalRows = rowsToProcess.length;
+            log(`${totalRows} adet kayıt bulundu. İşlem başlıyor...`, 'info');
+
+            let processedCount = 0;
+            let successCount = 0;
+            let errorCount = 0;
+
+            const processRow = async (rowData) => {
+                try {
+                    if (!rowData.Name || rowData.Name.trim().length === 0) throw new Error("Marka adı (Name) boş olamaz.");
+                    
+                    const formattedBrandText = rowData.Name.replace(/\n/g, ' ').trim().toLowerCase();
+
+                    let uploadedImageUrl = null;
+                    if (rowImages[rowData.rowNumber]) {
+                        const imgData = rowImages[rowData.rowNumber];
+                        uploadedImageUrl = await uploadImageToStorage(imgData.buffer, imgData.extension, formattedBrandText);
+                    }
+
+                    const parsedGS = parseGoodsAndServicesStructured(rowData["Goods and services"]);
+                    let finalGoodsByClass = parsedGS.goodsByClass;
+                    
+                    if (parsedGS.classes.length === 0) {
+                        const classCol = rowData["Classes"];
+                        let manualClasses = [];
+                        if (classCol) manualClasses = String(classCol).split(',').map(c => c.trim().replace(/\D/g, ''));
+                        if (parsedGS.raw) {
+                            const mainClass = manualClasses.length > 0 ? manualClasses[0] : '0';
+                            finalGoodsByClass = [{ classNo: mainClass, items: [parsedGS.raw] }];
+                        }
+                    }
+
+                    let rawJurisdictions = rowData.Jurisdictions || "";
+                    if (rawJurisdictions.includes("Benelux (Belgium, Netherlands, Luxembourg)")) {
+                        rawJurisdictions = rawJurisdictions.replace("Benelux (Belgium, Netherlands, Luxembourg)", "BX");
+                    }
+                    
+                    const isWipo = rowData.Registry === "INT WIPO" && rawJurisdictions.includes(",");
+                    const mappedStatus = mapStatus(rowData.Status);
+                    const appDateStr = formatDateForDataEntry(rowData["App. date"]);
+                    const regDateStr = formatDateForDataEntry(rowData["Reg. date"]);
+                    const expDateStr = formatDateForDataEntry(rowData["Exp. date"]);
+                    const now = new Date().toISOString();
+                    
+                    let appNum = rowData["App. no."] ? String(rowData["App. no."]) : null;
+                    let regNum = rowData["Reg. no"] ? String(rowData["Reg. no"]) : null;
+
+                    const baseData = {
+                        brandText: formattedBrandText,
+                        brandImageUrl: uploadedImageUrl,
+                        status: mappedStatus,
+                        applicationNumber: appNum,
+                        registrationNumber: regNum,
+                        applicationDate: appDateStr,
+                        registrationDate: regDateStr,
+                        renewalDate: expDateStr,
+                        goodsAndServicesByClass: finalGoodsByClass,
+                    };
+
+                    if (isWipo) {
+                        const wipoAppNoToCheck = baseData.registrationNumber || baseData.applicationNumber;
+                        const isDuplicate = await checkDuplicate(wipoAppNoToCheck, wipoAppNoToCheck, 'WO');
+                        if (isDuplicate) throw new Error(`Bu kayıt zaten sistemde mevcut! (WIPO: ${wipoAppNoToCheck})`);
+
+                        const countryCodes = rawJurisdictions.split(',')
+                            .map(c => c.trim())
+                            .filter(c => c.length > 0)
+                            .map(cName => getCountryCode(cName) || 'TR'); 
+
+                        if (countryCodes.length === 0) throw new Error("WIPO ülke listesi boş.");
+
+                        // 1. WIPO Parent (Çatı) Kaydını At
+                        const parentId = await insertFullRecord({
+                            ...baseData,
+                            countryCode: 'WO', 
+                            transactionHierarchy: "parent",
+                            origin: "WIPO",
+                            wipoIR: baseData.registrationNumber
+                        }, currentUserId, currentUserEmail, currentUserName, now);
+
+                        // 2. WIPO Alt Ülkeleri (Child) At
+                        for (const childCode of countryCodes) {
+                            await insertFullRecord({
+                                ...baseData,
+                                countryCode: childCode,
+                                transactionHierarchy: "child",
+                                parentId: parentId,
+                                origin: "WIPO",
+                                wipoIR: baseData.registrationNumber
+                            }, currentUserId, currentUserEmail, currentUserName, now);
+                        }
+                    } else {
+                        // TEKİL KAYIT İŞLEME (Standart veya Yerel Başvuru)
+                        let countryInput = rawJurisdictions.split(',')[0].trim();
+                        let countryCode = getCountryCode(countryInput);
+                        
+                        if (!countryCode && rowData.Registry) {
+                            const registryParts = rowData.Registry.trim().split(/[\s,-]+/);
+                            if (registryParts.length > 0) {
+                                const registryCode = getCountryCode(registryParts[0].trim());
+                                if (registryCode) countryCode = registryCode;
+                            }
+                        }
+
+                        if (!countryCode) countryCode = "TR";
+                        
+                        const isDuplicate = await checkDuplicate(baseData.applicationNumber, baseData.registrationNumber, countryCode);
+                        if (isDuplicate) throw new Error(`Bu kayıt zaten mevcut! (App: ${baseData.applicationNumber} / Reg: ${baseData.registrationNumber})`);
+
+                        let originValue = "Yurtdışı Ulusal";
+                        if (countryCode === "EUIPO") originValue = "EUIPO";
+                        if (countryCode === "OAPI") originValue = "OAPI";
+                        if (countryCode === "TR") originValue = "TÜRKPATENT";
+
+                        await insertFullRecord({
+                            ...baseData,
+                            countryCode: countryCode,
+                            transactionHierarchy: "parent",
+                            origin: originValue 
+                        }, currentUserId, currentUserEmail, currentUserName, now);
+                    }
+
+                    successCount++;
+                } catch (err) {
+                    errorCount++;
+                    const name = rowData.Name ? rowData.Name.replace(/\n/g, ' ').trim() : "Bilinmeyen Kayıt";
+                    addErrorToReport(rowData.rowNumber, name, err.message);
+                    log(`Satır ${rowData.rowNumber} Atlandı: ${err.message}`, 'error');
+                } finally {
+                    processedCount++;
+                    updateProgress(processedCount, totalRows);
+                }
+            };
+
+            // Eşzamanlı Yükleme Kotası (Supabase'i Boğmamak İçin)
+            for (let i = 0; i < rowsToProcess.length; i += MAX_CONCURRENT_UPLOADS) {
+                const chunk = rowsToProcess.slice(i, i + MAX_CONCURRENT_UPLOADS);
+                await Promise.all(chunk.map(row => processRow(row)));
+            }
+
+            const resultMsg = `İŞLEM BİTTİ: ${successCount} Aktarıldı, ${errorCount} Başarısız.`;
+            log(resultMsg, errorCount > 0 ? 'error' : 'success');
+            if (errorCount > 0) alert(resultMsg + "\nLütfen hata raporunu inceleyiniz.");
+            
+            elements.restartBtn.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

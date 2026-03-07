@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Evreka IP Sorgu Yardımcısı (Debug Wide Match)",
+  "version": "1.1.5",
+  "description": "Evreka IP uygulamasından TÜRKPATENT üzerinde otomatik sorgulama yapar. (Geniş eşleşme + detaylı log)",
+  "permissions": [],
+  "host_permissions": [
+    "*://opts.turkpatent.gov.tr/*",
+    "*://www.turkpatent.gov.tr/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://opts.turkpatent.gov.tr/*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_end"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+    "https://kubilayguzel.github.io/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://ip-manager-production-aab4b.web.app/*",
+    "https://ip-manager-production-aab4b.firebaseapp.com/*",
+    "https://ipgate-31bd2.web.app/*",
+    "https://ipgate-31bd2.firebaseapp.com/*"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "algoliasearch": "^5.34.0",
+    "firebase-admin": "^13.6.1",
+    "pdf-lib": "^1.17.1",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "supabase": "^2.76.14"
+  }
+}

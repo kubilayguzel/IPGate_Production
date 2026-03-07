@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TPE Dosya Aktarımı</title>
+
+  <link rel="stylesheet" href="css/shared-styles.css">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="stylesheet" href="css/simple-loading.css">
+  
+  <style>
+    /* Genel Stil Ayarları */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+    .page-wrapper { flex-grow: 1; display: flex; flex-direction: column; min-height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+    .main-container { width: 100%; padding: 30px; padding-top: 120px; }
+    .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
+    .page-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; }
+    .page-subtitle { color: #666; font-size: 1.1em; }
+    .section-card { background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0, 0, 0, .06); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 30px; }
+    .section-title { font-size: 1.25rem; color: #1e3c72; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e8ecf1; display: flex; align-items: center; justify-content: space-between; }
+    .form-label { font-weight: 600; }
+    .form-inline-gap { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
+    .form-control, .btn { border-radius: 10px; }
+    .btn { padding: 12px 24px; border: none; cursor: pointer; font-size: 1em; font-weight: 600; transition: all 0.2s ease-in-out; }
+    .btn-primary { background: #1e3c72; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #2a5298; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .btn-secondary { background: #6c757d; color: white; }
+    .btn-secondary:hover:not(:disabled) { background: #5a6268; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .btn-outline-primary { border: 2px solid #1e3c72; color: #1e3c72; background-color: transparent; }
+    .btn-outline-primary:hover { background-color: #1e3c72; color: white; }
+    .hero { display: flex; gap: 24px; align-items: flex-start; }
+    .hero-img-wrap { flex: 0 0 auto; width: 180px; height: 180px; }
+    .hero-img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; border: 1px solid #eee; background: #fff; }
+    .badge-soft { background: #eef2ff; color: #4e5cf2; font-weight: 600; padding: .35rem .55rem; border-radius: 10px; }
+    .kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 18px; }
+    .kv-item.owner-wide { grid-column: 1 / -1; }
+    @media (max-width: 768px) { .kv-item.owner-wide { grid-column: 1 / -1; } }
+    .kv-item.owner-wide .value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kv-item .label { font-weight: 600; font-size: .9em; color: #555; margin-bottom: 4px; }
+    .kv-item .value { background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; padding: 8px 10px; min-height: 38px; display: flex; align-items: center; }
+    .goods-group { border: 1px solid #e8ecf1; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fff; }
+    .goods-class { font-weight: 700; color: #1e3c72; margin-bottom: 6px; }
+    .goods-items { margin: 0; padding-left: 18px; }
+    .goods-items li { margin-bottom: 4px; }
+    .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+    .hide { display: none !important; }
+    .muted { color: #6c757d; }
+    .selected-items-list { min-height: 100px; border: 1px dashed #ced4da; border-radius: 0.25rem; padding: 10px; background-color: #f8f9fa; overflow-y: auto; max-height: 300px; }
+    .selected-item { background-color: #e2f0ff; border: 1px solid #a7d9ff; border-radius: 0.25rem; padding: 8px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; color: #343a40; }
+    .remove-selected-item-btn { background: none; border: none; color: #dc3545; font-size: 1.2rem; cursor: pointer; padding: 0 5px; transition: color 0.2s ease; }
+    .remove-selected-item-btn:hover { color: #c82333; }
+    .search-results-list { position: absolute !important; top: 100% !important; left: 0 !important; right: 0 !important; max-height: 250px !important; overflow-y: auto !important; border: 1px solid #ced4da !important; border-top: none !important; border-bottom-left-radius: .25rem !important; border-bottom-right-radius: .25rem !important; background: #fff !important; box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important; z-index: 9999 !important; }
+    .search-input-wrapper { position: relative !important; z-index: auto !important; }
+    .search-result-item { padding: 12px 15px !important; cursor: pointer !important; border-bottom: 1px solid #eee !important; transition: background-color .2s !important; background: #fff !important; }
+    .search-result-item:hover { background: #f8f9fa !important; }
+    .empty-state { color: #6c757d; text-align: center; padding: 20px; }
+
+    /* Bulk tablo (portföy sayfası ile uyumlu, sade Bootstrap üstünde) */
+    .tp-results-table { width: 100%; }
+    .tp-results-table th, .tp-results-table td { vertical-align: middle; white-space: nowrap; }
+    .tp-results-table th { background: #f1f4f8; color: #1e3c72; font-weight: 700; border-top: none !important; }
+    .tp-results-table tbody tr:hover { background: #f9fbff; }
+/* Sahip Scraping Sonuçları Tablo Stilleri - ESNEKLİK */
+.tp-results-table {
+  table-layout: auto !important; /* Otomatik genişlik hesaplama */
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Tablo wrapper - horizontal scroll */
+.table-responsive {
+  overflow-x: auto !important;
+  max-width: 100% !important;
+}
+
+/* Genel hücre stilleri */
+.tp-results-table th,
+.tp-results-table td {
+  padding: 8px 12px !important;
+  vertical-align: top !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+  line-height: 1.3 !important;
+}
+
+/* SABİT GENIŞLIK - Sadece dar kolonlar için */
+.tp-results-table th:nth-child(1),
+.tp-results-table td:nth-child(1) {
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.tp-results-table th:nth-child(2),
+.tp-results-table td:nth-child(2) {
+  width: 70px !important;
+  min-width: 70px !important;
+  max-width: 70px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+/* MİNİMUM GENIŞLIK - İçerik adaptif */
+.tp-results-table th:nth-child(3),
+.tp-results-table td:nth-child(3) {
+  min-width: 120px !important;
+  white-space: nowrap !important; /* Başvuru no kırılmasın */
+}
+
+.tp-results-table th:nth-child(4),
+.tp-results-table td:nth-child(4) {
+  min-width: 150px !important;
+  max-width: 300px !important; /* Çok uzarsa kırılsın */
+}
+
+.tp-results-table th:nth-child(5),
+.tp-results-table td:nth-child(5) {
+  min-width: 100px !important;
+  white-space: nowrap !important; /* Tarih kırılmasın */
+}
+
+.tp-results-table th:nth-child(6),
+.tp-results-table td:nth-child(6) {
+  min-width: 120px !important;
+  white-space: nowrap !important; /* Tescil no kırılmasın */
+}
+
+.tp-results-table th:nth-child(7),
+.tp-results-table td:nth-child(7) {
+  min-width: 100px !important;
+}
+
+.tp-results-table th:nth-child(8),
+.tp-results-table td:nth-child(8) {
+  min-width: 120px !important;
+}
+
+/* Tablo satırları */
+.tp-results-table tr {
+  min-height: 50px;
+}
+
+/* Responsive - küçük ekranlarda */
+@media (max-width: 1200px) {
+  .tp-results-table th:nth-child(4),
+  .tp-results-table td:nth-child(4) {
+    max-width: 200px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .tp-results-table th:nth-child(4),
+  .tp-results-table td:nth-child(4) {
+    max-width: 150px !important;
+  }
+  
+  .tp-results-table th,
+  .tp-results-table td {
+    padding: 6px 8px !important;
+    font-size: 0.9em !important;
+  }
+}
+  </style>
+</head>
+
+<body>
+  <div id="layout-placeholder"></div>
+  <div class="page-wrapper">
+    <main class="main-container">
+      <section class="page-header">
+        <h1 class="page-title">TPE Dosya Aktarımı</h1>
+        <p class="page-subtitle">Tür: Marka — tekli sorgu ya da sahip numarası ile toplu aktarım</p>
+      </section>
+
+      <div class="section-card">
+        <div class="section-title">Aktarım Ayarları</div>
+
+        <div class="form-group mb-2">
+          <label class="form-label d-block">Transfer Seçeneği</label>
+          <div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="transferOption" id="singleTransfer" value="single" checked>
+              <label class="form-check-label" for="singleTransfer">Tekli Dosya Aktarımı</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="transferOption" id="bulkByOwner" value="bulkOwner">
+              <label class="form-check-label" for="bulkByOwner">Sahip Numarası ile Sorgula</label>
+            </div>
+          </div>
+        </div>
+
+        <div id="singleFields" class="form-inline-gap">
+          <div class="form-group mb-0">
+            <label for="basvuruNoInput" class="form-label">Başvuru Numarası</label>
+            <input type="text" id="basvuruNoInput" class="form-control" placeholder="örn: 2021/110000" />
+          </div>
+          <div class="form-group mb-0">
+            <button id="queryBtn" class="btn btn-primary">Sorgula</button>
+          </div>
+          <div class="form-group mb-0 hide" id="loading">
+            <span class="spinner-border spinner-border-sm"></span>
+            <span class="ml-2">Sorgulanıyor...</span>
+          </div>
+        </div>
+
+        <div id="bulkFields" class="form-inline-gap hide">
+          <div class="form-group mb-0">
+            <label for="ownerIdInput" class="form-label">Sahip Numarası</label>
+            <input type="text" id="ownerIdInput" class="form-control" placeholder="örn: 6888897" />
+          </div>
+          <div class="form-group mb-0">
+            <button id="bulkQueryBtn" class="btn btn-secondary">Sorgula</button>
+          </div>
+          <div class="form-group mb-0 hide" id="bulkLoading">
+            <span class="spinner-border spinner-border-sm"></span>
+            <span class="ml-2">Sonuçlar çekiliyor...</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="singleResultContainer" class="section-card hide">
+        <div class="section-title">Sonuç</div>
+        <div id="singleResultInner"></div>
+
+        <hr class="my-4">
+        <div class="section-title">İlgili Taraf Ekle/Yönet</div>
+        <div class="form-group full-width">
+          <label for="relatedPartySearchInput" class="form-label">Sistemdeki Kişilerden Ara</label>
+          <div class="d-flex" style="gap:10px; align-items:flex-start;">
+            <div class="search-input-wrapper" style="flex:1; position:relative;">
+              <input type="text" id="relatedPartySearchInput" class="form-control" placeholder="Aramak için en az 2 karakter...">
+              <div id="relatedPartySearchResults" class="search-results-list" style="display:none;"></div>
+            </div>
+            <button type="button" id="addNewPersonBtn" class="btn btn-outline-primary" style="white-space:nowrap;">
+              <i class="fas fa-user-plus mr-1"></i> Yeni Kişi
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group full-width mt-2">
+          <label class="form-label">
+            Seçilen Taraflar <span class="badge badge-light ml-2" id="relatedPartyCount">0</span>
+          </label>
+          <div id="relatedPartyList" class="selected-items-list">
+            <div class="empty-state">
+              <i class="fas fa-user-friends fa-3x text-muted mb-3"></i>
+              <p class="text-muted">Henüz taraf eklenmedi.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BULK RESULT LIST -->
+      <div id="bulkResultsContainer" class="section-card hide">
+        <div class="section-title">
+          <div><strong>Toplu Sonuçlar</strong> <small class="text-muted" id="bulkMeta"></small></div>
+          <div>
+            <button id="exportCsvBtn" class="btn btn-outline-primary btn-sm"><i class="fas fa-file-csv mr-1"></i> CSV Dışa Aktar</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover table-striped tp-results-table" id="bulkResultsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllRecords" checked></th>
+                <th>Başvuru Numarası</th>
+                <th>Marka Adı</th>
+                <th>Marka Sahibi</th>
+                <th>Başvuru Tarihi</th>
+                <th>Tescil No</th>
+                <th>Durumu</th>
+                <th>Nice Sınıfları</th>
+              </tr>
+            </thead>
+            <tbody id="bulkResultsBody">
+              <!-- doldurulacak -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="form-actions">
+          <button id="savePortfolioBtn" class="btn btn-primary" disabled>Portföye Kaydet</button>
+          <button id="cancelBtn" class="btn btn-outline-secondary">İptal</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <script src="js/simple-loading.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <script type="module" src="./js/tp-file-transfer.js"></script>
+<script type="module">
+    import { loadSharedLayout } from './js/layout-loader.js';
+    loadSharedLayout();
+</script>
+</body>
+</html>

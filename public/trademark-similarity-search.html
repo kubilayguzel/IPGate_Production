@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Marka Bülten İzleme</title>
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="css/trademark-search.css">
+</head>
+<body>
+    <div id="notification-container" class="notification-container"></div>
+    <div id="layout-placeholder"></div>
+    
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Marka Bülten İzleme</h1>
+                <p class="page-subtitle">Marka bültenlerini takip edin, benzerlikleri analiz edin ve raporlayın.</p>
+            </section>
+    
+            <div class="tm-section-card">
+                <div class="tm-card-header">
+                    <h5><i class="fas fa-filter text-primary"></i> Arama ve Filtreleme Kriterleri</h5>
+                </div>
+                <div class="tm-card-body">
+                    <div class="portfolio-controls"> 
+                        <div class="row align-items-end">
+                            <div class="col-md-3 form-group mb-3">
+                                <label class="form-label font-weight-bold text-muted small text-uppercase">Sahip</label>
+                                <input type="text" id="ownerSearch" class="form-control" placeholder="Sahip ara...">
+                            </div>
+                            <div class="col-md-2 form-group mb-3">
+                                <label class="form-label font-weight-bold text-muted small text-uppercase">Nice Sınıfı</label>
+                                <input type="text" id="niceClassSearch" class="form-control" placeholder="Örn: 35, 42">
+                            </div>
+                            <div class="col-md-3 form-group mb-3">
+                                <label class="form-label font-weight-bold text-muted small text-uppercase">Marka Adı</label>
+                                <input type="text" id="brandNameSearch" class="form-control" placeholder="Marka adı ara...">
+                            </div>
+                            <div class="col-md-4 form-group mb-3">
+                                <label class="form-label font-weight-bold text-muted small text-uppercase">Bülten Seçimi</label>
+                                <select id="bulletinSelect" class="form-control form-select">
+                                    <option value="">Bülten seçin...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="filter-row d-flex flex-wrap justify-content-end gap-2 mt-3 pt-3 border-top">
+                            <button id="startSearchBtn" class="btn btn-primary" disabled>
+                                <i class="fas fa-search"></i> Arama Başlat
+                            </button>
+                            <button id="researchBtn" class="btn btn-secondary ml-2" disabled>
+                                <i class="fas fa-sync-alt"></i> Yeniden Ara
+                            </button>
+                            <button id="btnGenerateReportAndNotifyGlobal" class="btn btn-success ml-2" disabled>
+                                <i class="fas fa-paper-plane"></i> Raporla & Bildir
+                            </button>
+                            <button id="openManualEntryBtn" class="btn btn-outline-secondary ml-2">
+                                <i class="fas fa-plus"></i> Manuel Ekle
+                            </button>
+                            <button id="clearFiltersBtn" class="btn btn-light ml-2 text-danger">
+                                <i class="fas fa-eraser"></i> Temizle
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tm-section-card">
+                <div class="tm-card-header">
+                    <h5><i class="fas fa-list-alt text-info"></i> İzlenen Markalar</h5>
+                    <span id="monitoringCount" class="badge badge-pill badge-info px-3 py-2">Yükleniyor...</span>
+                </div>
+                
+                <div class="tm-card-body p-0">
+                    <div style="overflow-x: auto;">
+                        <table id="monitoringTable" class="portfolio-table monitoring-table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Sahip</th>
+                                    <th>Marka Sayısı</th>
+                                    <th>İş Tetiklendi</th>
+                                    <th>Bildirim Durumu</th>
+                                    <th>Eylemler</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monitoringListBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="monitoringPaginationContainer" class="p-3 bg-light border-top"></div>
+                </div>
+            </div>
+    
+            <div class="tm-section-card results-container">
+                <div class="tm-card-header">
+                    <div class="d-flex align-items-center justify-content-between w-100">
+                        <h5><i class="fas fa-search-plus text-success"></i> Arama Sonuçları</h5>
+                        
+                        <div class="nice-class-legend d-flex gap-3 align-items-center">
+                            <div class="legend-item">
+                                <span class="nice-class-badge match demo">Nice</span>
+                                <span class="legend-text small text-muted">: Tescili Sınıf</span>
+                            </div>
+                            <div class="legend-item ml-2">
+                                <span class="nice-class-badge partial-match demo">Nice</span>
+                                <span class="legend-text small text-muted">: İzlenen Sınıf</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tm-card-body">
+                    <div id="infoMessageContainer" class="mb-3"></div>
+
+                    <div class="bg-light p-3 rounded border mb-3 d-flex align-items-center flex-wrap gap-3">
+                        <div class="d-flex align-items-center">
+                            <label class="mb-0 fw-bold text-muted mr-2"><i class="fas fa-filter"></i> Benzerlik:</label>
+                            <select id="similarityFilterSelect" class="form-control form-control-sm" style="width: auto;">
+                                <option value="all">Tümü</option>
+                                <option value="similar">✓ Benzer</option>
+                                <option value="not-similar">✗ Benzemez</option>
+                            </select>
+                        </div>
+                        
+                        <div id="selectedTrademarkInfo" class="ml-3" style="display: none; flex: 1; padding: 5px 10px; background: #e3f2fd; border-radius: 4px; border-left: 4px solid #1e3c72; align-items: center;">
+                            <span class="mr-2 font-weight-bold text-primary">Filtre:</span>
+                            <span id="selectedTrademarkName" class="mr-2 text-dark"></span>
+                            <button id="clearTrademarkFilterBtn" class="btn btn-sm btn-danger py-0 px-2" style="font-size: 0.8em;">Kaldır</button>
+                        </div>
+                        
+                        <div class="ml-auto text-muted small font-weight-bold">
+                            <i class="fas fa-list"></i> <span id="filteredResultCount">0</span> sonuç
+                        </div>
+                    </div>
+
+                    <div style="overflow-x: auto; border: 1px solid #dee2e6; border-radius: 8px;">
+                        <table id="searchResultsTable" class="portfolio-table search-results-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>No</th>
+                                    <th>Karar</th>
+                                    <th>Görsel</th>
+                                    <th>Marka Adı</th>
+                                    <th>Sahip</th>
+                                    <th>Nice</th>
+                                    <th>Başvuru No</th>
+                                    <th>Benzerlik</th>
+                                    <th>B.Ş</th>
+                                    <th>Not</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsTableBody"></tbody>
+                        </table>
+                    </div>
+                    
+                    <div id="loadingIndicator" class="loading" style="display: none; text-align: center; padding: 40px;">
+                        <div class="spinner-border text-primary" role="status"><span class="sr-only">Yükleniyor...</span></div>
+                    </div>
+                    <div id="workersGridContainer" style="margin-top: 15px; display: none;">
+                        <h6 style="font-size: 13px; color: #666; margin-bottom: 8px;">Arka Plan İşlemleri (Workers)</h6>
+                        <div id="workersGrid" style="
+                            display: grid; 
+                            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); 
+                            gap: 10px;">
+                            </div>
+                    </div>
+                    <div id="noRecordsMessage" class="no-records" style="display: none; text-align: center; padding: 40px; color: #666;">
+                        Kayıt bulunamadı.
+                    </div>
+
+                    <div id="paginationContainer" class="mt-3"></div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div id="noteModal" class="modal">
+        <div class="modal-dialog modal-xl modal-full-width">
+            <div class="modal-content">
+                <span class="close-modal-btn" id="closeNoteModal">&times;</span>
+                <h3 class="modal-title">Not Ekle/Düzenle</h3>
+                <textarea id="noteInputModal" class="form-control" style="min-height: 150px; margin-top: 15px;" placeholder="Notunuzu buraya girin..."></textarea>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelNoteBtn">Vazgeç</button>
+                    <button type="button" class="btn btn-primary" id="saveNoteBtn">Kaydet</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="addManualResultModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-full-width" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Manuel / Harici Sonuç Ekle</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Kapat">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group position-relative">
+                        <label><strong>1. Hangi Markanız İçin Ekliyorsunuz?</strong></label>
+                        <div class="input-group">
+                            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-search"></i></span></div>
+                            <input type="text" id="manualTargetSearchInput" class="form-control" placeholder="Marka adı veya başvuru numarası..." autocomplete="off">
+                            <input type="hidden" id="manualTargetId">
+                        </div>
+                        <div id="manualTargetSearchResults" class="list-group position-absolute w-100 shadow" style="z-index: 1050; display: none; top: 100%;"></div>
+                        <small id="manualTargetSelectedInfo" class="text-success font-weight-bold mt-2" style="display:none;"></small>
+                    </div>
+                    <hr>
+                    <div class="form-group">
+                        <label><strong>2. Kaynak Türü</strong></label>
+                        <div class="btn-group btn-group-toggle w-100" data-toggle="buttons">
+                            <label class="btn btn-outline-primary active">
+                                <input type="radio" name="manualSourceType" value="tp" checked> TÜRKPATENT
+                            </label>
+                            <label class="btn btn-outline-dark">
+                                <input type="radio" name="manualSourceType" value="manual"> YURTDIŞI / SERBEST
+                            </label>
+                        </div>
+                    </div>
+                    <div id="tpSourceForm" class="source-form-section">
+                        <div class="row">
+                            <div class="col-md-6"><div class="form-group"><label>Bülten No</label><input type="text" id="tpSearchBulletinNo" class="form-control" placeholder="Örn: 469"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label>Başvuru No</label><div class="input-group"><input type="text" id="tpSearchAppNo" class="form-control" placeholder="Örn: 2024/12345"><div class="input-group-append"><button class="btn btn-primary" type="button" id="btnQueryTpRecord">Sorgula</button></div></div></div></div>
+                        </div>
+                        <div id="tpPreviewCard" class="card mt-3" style="display:none; border: 1px solid #28a745;">
+                            <div class="card-body d-flex align-items-center">
+                                <img id="tpPreviewImg" src="" style="width:60px; height:60px; object-fit:contain; margin-right:15px; border:1px solid #eee;">
+                                <div><h6 id="tpPreviewName" class="mb-0 font-weight-bold"></h6><small id="tpPreviewAppNo"></small><br><small id="tpPreviewOwner"></small> <small id="tpPreviewClasses"></small></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="manualSourceForm" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-6"><div class="form-group"><label>Marka Adı</label><input type="text" id="manMarkName" class="form-control"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label>Başvuru No</label><input type="text" id="manAppNo" class="form-control"></div></div>
+                        </div>
+                        <div class="form-group"><label>Kaynak</label><input type="text" id="manSourceInfo" class="form-control" placeholder="Örn: WIPO 2024/15"></div>
+                        <div class="row">
+                            <div class="col-md-6"><div class="form-group"><label>B. Tarihi</label><input type="date" id="manAppDate" class="form-control"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label>İtiraz Son T.</label><input type="date" id="manObjectionDeadline" class="form-control"></div></div>
+                        </div>
+                        <div class="form-group"><label>Sahip</label><input type="text" id="manOwner" class="form-control"></div>
+                        <div class="form-group"><label>Sınıflar</label><div class="nice-class-selector-grid" id="manualNiceGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(35px, 1fr)); gap:5px;"></div></div>
+                        <div class="form-group"><label>Görsel</label><div id="manualImgDropZone" class="upload-drop-zone"><div class="default-content">Sürükle veya Seç</div><input type="file" id="manualImgInput" hidden><div id="manualImgPreviewContainer" style="display:none; position: relative;"><img id="manualImgPreview" style="max-height:150px;"><button id="removeManualImgBtn" class="btn btn-sm btn-danger" style="position:absolute; top:-10px; right:-10px;">&times;</button></div></div></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Vazgeç</button>
+                    <button type="button" class="btn btn-success" id="btnSaveManualResult" disabled>Listeye Ekle</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editCriteriaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-full-width">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="editCriteriaModalLabel">İzleme Kriterleri</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+                <div class="modal-body">
+                    <div class="card mb-3"><div class="card-body d-flex"><img id="modalTrademarkImage" style="width:80px;height:80px;object-fit:contain;margin-right:15px;border:1px solid #eee;"><div><h5 id="modalTrademarkName" class="font-weight-bold"></h5><p class="mb-0"><span id="modalApplicationNo"></span> - <span id="modalOwner"></span><br>Sınıflar: <span id="modalNiceClass"></span></p></div></div></div>
+                    <div class="form-group"><div class="input-group"><input type="text" class="form-control" id="brandTextSearchInput" placeholder="Marka adı ekle..."><div class="input-group-append"><button class="btn btn-outline-secondary" type="button" id="addBrandTextBtn">Ekle</button></div></div></div>
+                    <ul class="list-group mb-3" id="brandTextSearchList"></ul>
+                    <div class="form-group"><label>Sınıflar:</label><div id="niceClassSelectionContainer" class="nice-class-boxes" style="display:flex;flex-wrap:wrap;gap:5px;"></div></div>
+                    <ul class="list-group" id="niceClassSearchList"></ul>
+                </div>
+                <div class="modal-footer"><button class="btn btn-secondary" data-dismiss="modal">Kapat</button><button class="btn btn-primary" id="saveCriteriaBtn">Kaydet</button></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="js/simple-loading.js"></script>
+    <script type="module" src="js/create-portfolio-by-opposition.js"></script>
+    <script type="module" src="js/trademark-similarity-search.js"></script>
+</body>
+</html>

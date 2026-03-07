@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Müvekkil Bildirimleri</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="stylesheet" href="./css/shared-styles.css">
+  <link rel="stylesheet" href="./css/simple-loading.css">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color:#333; display:flex; }
+    .page-wrapper { flex-grow:1; display:flex; flex-direction:column; height:100vh; overflow-y:auto; background:linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); }
+    .main-container { width: 100%; padding: 30px; padding-top: 120px; }
+    .page-header { background:rgba(255,255,255,0.95); padding:30px; border-radius:20px; margin-bottom:30px; box-shadow:0 10px 30px rgba(0,0,0,0.1); }
+    .page-title { font-size:2em; color:#1e3c72; margin-bottom:10px; }
+    .page-subtitle { color:#666; font-size:1.1em; }
+    .tasks-container { background:rgba(255,255,255,0.95); border-radius:20px; box-shadow:0 10px 30px rgba(0,0,0,0.1); overflow:hidden; }
+    .tasks-table { width:100%; border-collapse:collapse; }
+    .tasks-table th,.tasks-table td { padding:15px; text-align:left; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+    .tasks-table th { background:#f8f9fa; font-weight:600; }
+    .status-badge { padding:5px 10px; border-radius:12px; color:white; font-weight:500; font-size:0.9em; }
+    .status-sent{ background-color:#28a745 } .status-failed{ background-color:#dc3545 } .status-pending{ background-color:#6c757d }
+    .status-badge.missing-info{ background-color:#fd7e14; color:#000 }
+    .missing-info{ background-color:#ffe5c0 }
+    .missing-field{ display:inline-block; background-color:#fd7e14; color:#000; padding:2px 8px; border-radius:8px; font-size:0.85em; }
+    .action-btn{ background:#007bff; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; margin-left:5px; transition:all .3s ease; }
+    .action-btn:hover{ opacity:.9 }
+    .loading{ text-align:center; padding:50px } .no-records{ text-align:center; padding:50px; color:#666 }
+    #paginationContainer{ margin:12px 0 4px }
+    
+    /* Modal Styles */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:9999 }
+    .modal-content{ background:#fff; padding:20px; width:720px; max-width:95vw; border-radius:12px; box-shadow:0 0 20px rgba(0,0,0,.2) }
+    .modal-content-lg{ background:#fff; padding:20px; width:960px; max-width:95vw; border-radius:12px; box-shadow:0 0 24px rgba(0,0,0,.25); display:flex; flex-direction:column }
+    .modal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
+    .modal-title{ margin:0; font-size:1.25rem } .close-modal-btn,.close{ background:transparent; border:0; font-size:28px; line-height:1; cursor:pointer }
+    .modal-body{ max-height:70vh; overflow:auto } .modal-footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px }
+    .recipient-badges .badge{ display:inline-block; padding:4px 8px; border-radius:12px; font-size:12px; margin:2px 4px 0 0 }
+    .badge-to{ background:#0d6efd; color:#fff } .badge-cc{ background:#17a2b8; color:#fff } .badge-empty{ background:#e9ecef; color:#555 }
+    .link{ color:#0d6efd; text-decoration:underline; cursor:pointer }
+    .action-btn-remind { background:#f59f00 !important; }
+    .action-btn-remind:hover { background:#e67700 !important; }
+    
+    /* Progress Overlay */
+    #progressOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; z-index: 10000; }
+    #progressOverlay .box { background: #fff; padding: 20px 24px; border-radius: 12px; min-width: 260px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    
+    /* Tab Buttons */
+    .tab-btn { background: none; border: none; padding: 10px 20px; font-size: 15px; font-weight: 600; color: #6c757d; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s ease; }
+    .tab-btn:hover { color: #1e3c72; background-color: #f8f9fa; border-radius: 5px 5px 0 0; }
+    .tab-btn.active { color: #1e3c72; border-bottom-color: #1e3c72; }
+    .tab-btn i { margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="notification-container" style="position:fixed; top:20px; right:20px; z-index:9999;"></div>
+  <div id="layout-placeholder"></div>
+
+  <div id="progressOverlay">
+      <div class="box">
+          <i class="fas fa-circle-notch fa-spin fa-2x text-primary"></i>
+          <span id="progressMessage" style="font-weight: 600;">İşlem yapılıyor...</span>
+      </div>
+  </div>
+
+  <div class="page-wrapper">
+    <main class="main-container">
+      <section class="page-header">
+        <h1 class="page-title">Müvekkil Bildirimleri</h1>
+        <p class="page-subtitle">Müvekkillere gönderilen bildirimleri buradan takip edebilirsiniz.</p>
+      </section>
+
+      <div class="tasks-container">
+        <div class="tabs-header" style="padding: 20px 20px 0 20px; border-bottom: 1px solid #eee; display: flex; gap: 10px;">
+          <button class="tab-btn active" data-tab="pending">
+            <i class="fas fa-clock"></i> Bekleyen Bildirimler
+          </button>
+          <button class="tab-btn" data-tab="reminders">
+            <i class="fas fa-bell"></i> Hatırlatmalar
+          </button>
+          <button class="tab-btn" data-tab="sent">
+            <i class="fas fa-check-circle"></i> Gönderilen Bildirimler
+          </button>
+        </div>
+        <div id="loader" class="loading">Yükleniyor...</div>
+        <div id="error" class="no-records" style="display:none;"></div>
+
+        <div class="table-container">
+          <table class="tasks-table">
+            <thead>
+              <tr>
+                <th>Sıra No</th> 
+                <th>Beklet</th>  
+                <th>Durum</th>
+                <th>Müvekkil</th>
+                <th>Konu</th>
+                <th>Başvuru No</th>
+                <th>Tür (İşlem ID)</th>
+                <th>Evrak</th>
+                <th>Resmi Son Tarih</th>  
+                <th>Son Hatırlatma</th> 
+                <th>Oluşturma</th>
+                <th>Gönderim Tarihi</th>
+                <th>İşlem</th>
+              </tr>
+            </thead>
+            <tbody id="notifications-table-body"></tbody>
+          </table>
+          <div id="paginationContainer"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="notification-modal" class="modal">
+    <div class="modal-content-lg">
+      <div class="modal-header">
+        <h2 class="modal-title">Bildirimi Düzenle</h2>
+        <button id="close-modal" class="close-modal-btn" aria-label="Kapat">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="modal-subject" class="form-label font-weight-bold">Konu</label>
+        <input type="text" id="modal-subject" class="form-control mb-3" />
+
+        <div id="mailRecipientsBlock" class="mb-3 p-3 bg-light rounded border">
+          <div class="d-flex" style="gap:20px; flex-wrap:wrap;">
+            <div style="flex:1;">
+              <label class="form-label font-weight-bold text-primary">Kime (To)</label>
+              <div id="modal-to" class="recipient-badges mb-2"></div>
+              <input id="modal-to-input" class="form-control form-control-sm" placeholder="E-posta yazıp Enter'a basın">
+            </div>
+            <div style="flex:1;">
+              <label class="form-label font-weight-bold text-info">Bilgi (CC)</label>
+              <div id="modal-cc" class="recipient-badges mb-2"></div>
+              <input id="modal-cc-input" class="form-control form-control-sm" placeholder="E-posta yazıp Enter'a basın">
+            </div>
+          </div>
+        </div>
+
+        <label for="modal-body" class="form-label font-weight-bold">İçerik</label>
+        <textarea id="modal-body"></textarea>
+      </div>
+      <div class="modal-footer mt-3">
+        <button id="save-draft" class="btn btn-success"><i class="fas fa-save mr-2"></i>Kaydet</button>
+        <button id="close-modal-btn" class="btn btn-secondary">İptal</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="missing-info-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="text-warning"><i class="fas fa-exclamation-triangle mr-2"></i>Eksik Bilgiler</h4>
+        <button id="mi-close" class="close" aria-label="Kapat">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Bu bildirim şu anda <b>gönderilmeye hazır değil</b>. Lütfen aşağıdaki eksikleri tamamlayın.</p>
+        <div class="mb-2">
+          <strong>Portföy Başvuru No:</strong>
+          <span id="mi-application-no" class="ml-2 font-weight-bold">—</span>
+        </div>
+        <div class="alert alert-warning">
+          <strong>Eksik Alanlar:</strong>
+          <ul id="mi-missing-list" class="mb-0 mt-2"></ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="mi-edit" class="btn btn-primary">Bildirimi Düzenle</button>
+        <button id="mi-close-btn" class="btn btn-secondary">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.tiny.cloud/1/uecky9tx0nvoenpj0odjyue9swj52q3sz49i62c745240d99/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+  <script src="./js/simple-loading.js"></script>
+  
+  <script type="module" src="./js/notifications.js"></script>
+
+</body>
+</html>

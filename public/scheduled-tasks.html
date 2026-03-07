@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Zamanlanmış Görevler</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    <style>
+        /* Bu sayfaya özel stiller */
+        /* Genel body, page-wrapper, main-container stilleri shared-styles.css'ten gelecektir. */
+        /* Sadece bu sayfaya özgü ve çakışmayan stilleri burada tutun */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+        .page-wrapper {
+            flex-grow: 1; display: flex; flex-direction: column;
+            height: 100vh; overflow-y: auto;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .main-container { width: 100%; padding: 30px; padding-top: 120px; }
+        /* Scheduled Tasks specific styles */
+        .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
+        .page-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; }
+        .page-subtitle { color: #666; font-size: 1.1em; }
+
+        .scheduled-tasks-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+            padding: 30px;
+        }
+
+        .filter-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e1e8ed;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filter-label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .form-select, .form-input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 0.95em;
+        }
+        .form-input[type="date"] {
+            min-width: 150px;
+        }
+        .form-select {
+            min-width: 120px;
+        }
+
+        .tasks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .task-card {
+            background: #f8f9fa;
+            border: 1px solid #e1e8ed;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .task-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+
+        .task-status-badge {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            color: white;
+        }
+        /* Status Badges - From task-management.html */
+        .status-open { background-color: #007bff; }
+        .status-in-progress { background-color: #ffc107; color: #333;}
+        .status-pending { background-color: #6c757d; }
+        .status-completed { background-color: #28a745; }
+        .status-cancelled { background-color: #dc3545; }
+        .status-on-hold { background-color: #17a2b8; }
+        .status-awaiting-approval { background-color: #6f42c1; }
+
+        .task-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #1e3c72;
+            margin-bottom: 10px;
+            padding-right: 80px; /* Badge için boşluk */
+        }
+
+        .task-detail-item {
+            margin-bottom: 8px;
+            font-size: 0.95em;
+            color: #555;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start; /* İçerik kayarsa üstten hizala */
+        }
+        .detail-icon { font-size: 1.1em; color: #6c757d; flex-shrink: 0; }
+        .detail-label { font-weight: 500; flex-shrink: 0; }
+        .detail-value { word-break: break-word; } /* Uzun metinlerin sarılmasını sağlar */
+
+        .task-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed #e1e8ed;
+        }
+
+        .action-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+        .action-btn.view-btn { background-color: #17a2b8; }
+        .action-btn.view-btn:hover { background-color: #138496; }
+        .action-btn:hover { opacity: 0.9; }
+
+        .loading { text-align: center; padding: 50px; grid-column: 1 / -1; }
+        .no-tasks { text-align: center; padding: 50px; color: #666; grid-column: 1 / -1; }
+
+        /* Modal Styles (for task detail) */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1002; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.6); /* Black w/ opacity */
+            align-items: center; /* Center horizontally */
+            justify-content: center; /* Center vertically */
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 30px;
+            border: 1px solid #888;
+            width: 90%; /* Could be more specific */
+            max-width: 900px; /* Max width */
+            border-radius: 20px;
+            animation-name: animatetop;
+            animation-duration: 0.4s;
+            max-height: 90vh; /* Allow scrolling within modal if content is long */
+            overflow-y: auto;
+        }
+
+        @keyframes animatetop {
+            from {top: -300px; opacity: 0}
+            to {top: 0; opacity: 1}
+        }
+
+        .close-modal-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            color: #1e3c72;
+            margin-bottom: 20px;
+        }
+
+        .modal-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px 25px;
+        }
+
+        .modal-detail-item {
+            margin-bottom: 10px;
+        }
+
+        .modal-detail-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .modal-detail-value {
+            color: #555;
+            word-break: break-word; /* Ensure long texts wrap */
+            font-size: 0.95em;
+        }
+
+        .modal-detail-value.long-text {
+            white-space: pre-wrap; /* Preserve whitespace and line breaks */
+            background-color: #f8f9fa;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        
+        .modal-detail-section-title {
+            grid-column: 1 / -1; /* Span full width */
+            font-size: 1.1em;
+            color: #1e3c72;
+            margin-top: 20px;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 1px dashed #e1e8ed;
+        }
+
+        .task-history {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e8ed;
+            max-height: 250px; /* History scroll */
+            overflow-y: auto;
+        }
+
+        .task-history-item {
+            padding: 8px 0;
+            border-bottom: 1px dashed #eee;
+        }
+        .task-history-item:last-child {
+            border-bottom: none;
+        }
+
+        .task-history-description {
+            font-size: 0.9em;
+            color: #333;
+            font-weight: 600;
+        }
+        .task-history-meta {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Zamanlanmış Görevler</h1>
+                <p class="page-subtitle">Sistem tarafından otomatik olarak oluşturulan ve takip edilen görevleri görüntüleyin.</p>
+            </section>
+    
+            <div class="scheduled-tasks-container">
+                <div class="filter-section">
+                    <div class="filter-group">
+                        <label class="filter-label" for="statusFilter">Durum:</label>
+                        <select id="statusFilter" class="form-select">
+                            <option value="all">Tümü</option>
+                            <option value="open">Açık</option>
+                            <option value="in-progress">Devam Ediyor</option>
+                            <option value="completed">Tamamlandı</option>
+                            <option value="pending">Beklemede</option>
+                            <option value="cancelled">İptal Edildi</option>
+                            <option value="on-hold">Askıda</option>
+                            <option value="awaiting-approval">Onay Bekliyor</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label" for="taskTypeFilter">İş Tipi:</label>
+                        <select id="taskTypeFilter" class="form-select">
+                            <option value="all">Tümü</option>
+                            <option value="patent_renewal">Patent Yenileme</option>
+                            <option value="trademark_renewal">Marka Yenileme</option>
+                            <option value="design_renewal">Tasarım Yenileme</option>
+                            </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label" for="dueDateFilter">Son Tarih:</label>
+                        <input type="date" id="dueDateFilter" class="form-input">
+                    </div>
+                </div>
+                
+                <div id="tasksGrid" class="tasks-grid">
+                    <div id="loadingIndicator" class="loading" style="display: none;">Yükleniyor...</div>
+                    <div id="noTasksMessage" class="no-tasks" style="display: none;">Henüz zamanlanmış görev bulunmamaktadır.</div>
+                    </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="taskDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeTaskDetailModal">&times;</span>
+            <h3 class="modal-title" id="modalTaskTitle">İş Detayı</h3>
+            <div id="modalBody" class="modal-body-content">
+                </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authService, taskService, ipRecordsService, accrualService, personService, auth } from './firebase-config.js';
+        import { showNotification } from './utils.js';
+        import { loadSharedLayout } from './js/layout-loader.js'; // layout-loader.js eklendi
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Ortak layout'u yükle ve bu sayfanın aktif linkini belirt
+            await loadSharedLayout({ activeMenuLink: 'scheduled-tasks.html' });
+
+            class ScheduledTasksModule {
+                constructor() {
+                    this.currentUser = null;
+                    this.allTasks = [];
+                    this.allIpRecords = [];
+                    this.allPersons = [];
+                }
+
+                init() {
+                    authService.auth.onAuthStateChanged(async (user) => {
+                        if (user || authService.getCurrentUser()) {
+                            this.currentUser = authService.getCurrentUser();
+                            await this.loadAllData();
+                            this.setupEventListeners();
+                        } else {
+                            window.location.href = 'index.html';
+                        }
+                    });
+                }
+
+                async loadAllData() {
+                    document.getElementById('loadingIndicator').style.display = 'block';
+                    try {
+                        const [tasksResult, ipRecordsResult, personsResult] = await Promise.all([
+                            taskService.getAllTasks(), // Tüm görevleri al
+                            ipRecordsService.getRecords(),
+                            personService.getPersons()
+                        ]);
+
+                        // Sadece zamanlanmış görevleri filtrele (şimdilik renewal tipleri)
+                        this.allTasks = (tasksResult.success ? tasksResult.data : []).filter(task => 
+                            task.taskType && (task.taskType.endsWith('_renewal') || task.taskType.startsWith('scheduled_'))
+                        );
+                        this.allIpRecords = ipRecordsResult.success ? ipRecordsResult.data : [];
+                        this.allPersons = personsResult.success ? personsResult.data : [];
+                        const accrualsResult = await accrualService.getAccruals();
+                        this.allAccruals = accrualsResult.success ? accrualsResult.data : [];
+                        this.renderTasks();
+                    } catch (error) {
+                        showNotification('Veriler yüklenirken bir hata oluştu: ' + error.message, 'error');
+                    } finally {
+                        document.getElementById('loadingIndicator').style.display = 'none';
+                    }
+                }
+
+                setupEventListeners() {
+                    document.getElementById('statusFilter').addEventListener('change', () => this.renderTasks());
+                    document.getElementById('taskTypeFilter').addEventListener('change', () => this.renderTasks());
+                    document.getElementById('dueDateFilter').addEventListener('change', () => this.renderTasks());
+
+                    document.getElementById('tasksGrid').addEventListener('click', (e) => {
+                        if (e.target.classList.contains('action-btn')) {
+                            e.preventDefault();
+                            const taskId = e.target.dataset.taskId;
+                            if (e.target.classList.contains('view-btn')) {
+                                this.showTaskDetailModal(taskId);
+                            }
+                        }
+                    });
+
+                    document.getElementById('closeTaskDetailModal').addEventListener('click', () => this.closeModal('taskDetailModal'));
+                }
+
+                renderTasks() {
+                    const grid = document.getElementById('tasksGrid');
+                    const noTasksMessage = document.getElementById('noTasksMessage');
+                    grid.innerHTML = '';
+
+                    const statusFilter = document.getElementById('statusFilter').value;
+                    const taskTypeFilter = document.getElementById('taskTypeFilter').value;
+                    const dueDateFilter = document.getElementById('dueDateFilter').value;
+
+                    const filteredTasks = this.allTasks.filter(task => {
+                        const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
+                        const matchesType = taskTypeFilter === 'all' || task.taskType === taskTypeFilter;
+                        const matchesDueDate = !dueDateFilter || (task.dueDate && task.dueDate === dueDateFilter);
+                        return matchesStatus && matchesType && matchesDueDate;
+                    });
+
+                    if (filteredTasks.length === 0) {
+                        noTasksMessage.style.display = 'block';
+                        return;
+                    }
+                    noTasksMessage.style.display = 'none';
+
+                    filteredTasks.forEach(task => {
+                        const card = document.createElement('div');
+                        card.classList.add('task-card');
+
+                        const statusClass = `status-${task.status.replace(/ /g, '-').toLowerCase()}`;
+                        const taskTypeParts = task.taskType ? task.taskType.split('_') : [];
+                        const mainType = taskTypeParts[0] || '';
+                        const specificType = taskTypeParts.slice(1).join(' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                        const relatedIpRecord = task.relatedIpRecordId ? this.allIpRecords.find(rec => rec.id === task.relatedIpRecordId) : null;
+                        const relatedIpRecordTitle = relatedIpRecord ? relatedIpRecord.title : 'Yok';
+
+                        const assignedToUserEmail = task.assignedTo_email || 'Atanmamış';
+
+                        card.innerHTML = `
+                            <span class="task-status-badge ${statusClass}">${task.status}</span>
+                            <h4 class="task-title">${task.title}</h4>
+                            <div class="task-detail-item"><span class="detail-icon">📁</span><span class="detail-label">İlgili Kayıt:</span><span class="detail-value">${relatedIpRecordTitle}</span></div>
+                            <div class="task-detail-item"><span class="detail-icon">🏷️</span><span class="detail-label">İş Tipi:</span><span class="detail-value">${mainType.charAt(0).toUpperCase() + mainType.slice(1)} - ${specificType}</span></div>
+                            <div class="task-detail-item"><span class="detail-icon">👤</span><span class="detail-label">Atanan:</span><span class="detail-value">${assignedToUserEmail}</span></div>
+                            <div class="task-detail-item"><span class="detail-icon">📅</span><span class="detail-label">Son Tarih:</span><span class="detail-value">${task.dueDate ? new Date(task.dueDate).toLocaleDateString('tr-TR') : 'Belirtilmemiş'}</span></div>
+                            <div class="task-detail-item"><span class="detail-icon">📝</span><span class="detail-label">Açıklama:</span><span class="detail-value">${task.description || '-'}</span></div>
+                            <div class="task-actions">
+                                <button class="action-btn view-btn" data-task-id="${task.id}">Görüntüle</button>
+                            </div>
+                        `;
+                        grid.appendChild(card);
+                    });
+                }
+                cleanHistoryAction(action) {
+                        if (action.includes('İş güncellendi. Değişen alanlar:')) {
+                            return 'İş güncellendi';
+                        }
+                        if (action.includes('İş oluşturuldu')) return 'İş oluşturuldu';
+                        if (action.includes('İş silindi')) return 'İş silindi';
+                        if (action.includes('İş tamamlandı')) return 'İş tamamlandı';
+                        if (action.includes('İş yeniden atandı')) return 'İş yeniden atandı';
+                        if (action.includes('Durum değişti')) return 'Durum değiştirildi';
+                        
+                        return action.length > 50 ? action.substring(0, 50) + '...' : action;
+                    }
+                showTaskDetailModal(taskId) {
+                    const task = this.allTasks.find(t => t.id === taskId);
+                    if (!task) {
+                        showNotification('İlgili iş bulunamadı.', 'error');
+                        return;
+                    }
+
+                    const modal = document.getElementById('taskDetailModal');
+                    const modalBody = document.getElementById('modalBody');
+                    
+                    const ipRecord = this.allIpRecords.find(r => r.id === task.relatedIpRecordId);
+                    const relatedParty = task.details?.relatedParty?.id ? this.allPersons.find(p => p.id === task.details.relatedParty.id) : null;
+
+                    document.getElementById('modalTaskTitle').textContent = `İş Detayı: ${task.title}`;
+
+                    const taskTypeParts = task.taskType ? task.taskType.split('_') : [];
+                    const mainType = taskTypeParts[0] || '';
+                    const specificType = taskTypeParts.slice(1).join(' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                    const renderField = (label, value) => value ? `<div class="modal-detail-item"><div class="modal-detail-label">${label}</div><div class="modal-detail-value">${value}</div></div>` : '';
+// İlişkili tahakkukları bul
+const relatedAccruals = this.allAccruals ? this.allAccruals.filter(acc => acc.taskId === taskId) : [];
+
+                    let accrualsHtml = '';
+                    if(relatedAccruals.length > 0) {
+                        accrualsHtml = relatedAccruals.map(acc => {
+                            const statusText = acc.status === 'paid' ? 'Ödendi' : 'Ödenmedi';
+                            const statusClass = acc.status === 'paid' ? 'status-paid' : 'status-unpaid';
+                            const totalAmountText = new Intl.NumberFormat('tr-TR', { 
+                                style: 'currency', 
+                                currency: acc.totalAmountCurrency || 'TRY' 
+                            }).format(acc.totalAmount || 0);
+                            
+                            return `<div class="related-accrual-item">
+                                <div class="accrual-info">
+                                    <strong>ID:</strong> ${acc.id.substring(0,8)}... | 
+                                    <strong>Durum:</strong> <span class="status-badge ${statusClass}">${statusText}</span> | 
+                                    <strong>Tutar:</strong> ${totalAmountText}
+                                    ${acc.paymentDate ? ` | <strong>Ödeme Tarihi:</strong> ${new Date(acc.paymentDate).toLocaleDateString('tr-TR')}` : ''}
+                                </div>
+                            </div>`;
+                        }).join('');
+                    } else {
+                        accrualsHtml = '<p style="color: #666; font-style: italic;">Bu işe ait tahakkuk bulunmuyor.</p>';
+                    }
+
+                    let historyHtml = '<p>İşlem geçmişi bulunmuyor.</p>';
+                    if(task.history && task.history.length > 0) {
+                        historyHtml = [...task.history].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).map(entry => 
+                            `<div class="task-history-item">
+                                <div class="task-history-description">${this.cleanHistoryAction.action}</div>
+                                <div class="task-history-meta">${new Date(entry.timestamp).toLocaleString('tr-TR')} by ${entry.userEmail}</div>
+                            </div>`
+                        ).join('');
+                    }
+
+                    modalBody.innerHTML = `
+                        <div class="modal-detail-grid">
+                            ${renderField('İş Başlığı', task.title)}
+                            ${renderField('Atanan Kişi', task.assignedTo_email)}
+                            ${renderField('İş Türü', `${mainType.charAt(0).toUpperCase() + mainType.slice(1)} - ${specificType}`)}
+                            ${renderField('Bitiş Tarihi', task.dueDate ? new Date(task.dueDate).toLocaleDateString('tr-TR') : '-')}
+                            ${renderField('Öncelik', task.priority)}
+                            ${renderField('İlgili Portföy Kaydı', ipRecord ? ipRecord.title : 'Bulunamadı')}
+                            ${renderField('İlgili Taraf', relatedParty ? relatedParty.name : '')}
+                            <div class="modal-detail-item full-width">
+                                <div class="modal-detail-label">Açıklama</div>
+                                <div class="modal-detail-value long-text">${task.description || '-'}</div>
+                            </div>
+                            <h4 class="modal-detail-section-title">İlişkili Tahakkuklar</h4>
+                            <div class="related-accruals-section">${accrualsHtml}</div>
+                            <h4 class="modal-detail-section-title">İşlem Geçmişi</h4>
+                            <div class="modal-detail-item full-width task-history">${historyHtml}</div>
+                        </div>
+                    `;
+                    modal.classList.add('show');
+                }
+
+                closeModal(modalId) {
+                    document.getElementById(modalId).classList.remove('show');
+                }
+            }
+
+            const scheduledTasksModule = new ScheduledTasksModule();
+            scheduledTasksModule.init();
+        });
+    </script>
+</body>
+</html>

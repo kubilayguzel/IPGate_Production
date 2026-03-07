@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IPGATE - Giriş</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+      background:linear-gradient(135deg,#1e3c72 0%,#2a5298 100%);
+      min-height:100vh;display:flex;align-items:center;justify-content:center
+    }
+    .auth-container{
+      background:rgba(255,255,255,.95);padding:40px;border-radius:20px;
+      box-shadow:0 20px 40px rgba(0,0,0,.1);backdrop-filter:blur(10px);
+      width:100%;max-width:400px;position:relative
+    }
+    .logo-section{text-align:center;margin-bottom:40px}
+    .logo{font-size:2.5em;font-weight:bold;color:#1e3c72}
+    .subtitle{color:#666;font-size:1.1em}
+    .tabs{display:flex;margin:30px 0;background:#f8f9fa;border-radius:10px;padding:5px}
+    .tab{flex:1;padding:10px;text-align:center;border-radius:8px;cursor:pointer;transition:.3s;font-weight:500}
+    .tab.active{background:#1e3c72;color:#fff}
+    .form-section{display:none}
+    .form-section.active{display:block}
+    .form-group{margin-bottom:25px}
+    .form-label{display:block;margin-bottom:8px;color:#333;font-weight:500}
+    .form-input{
+      width:100%;padding:15px;border:2px solid #e1e8ed;border-radius:10px;font-size:1em;transition:.3s;background:#fff
+    }
+    .form-input:focus{outline:none;border-color:#1e3c72;box-shadow:0 0 0 3px rgba(30,60,114,.1)}
+    .form-input.error{border-color:#ff6b6b}
+    .error-message{color:#ff6b6b;font-size:.9em;margin-top:5px;display:none}
+    .auth-btn{
+      width:100%;padding:15px;background:linear-gradient(45deg,#1e3c72,#2a5298);color:#fff;border:none;border-radius:10px;
+      font-size:1.1em;font-weight:600;cursor:pointer;transition:.3s;margin-bottom:20px;position:relative
+    }
+    .auth-btn:hover{transform:translateY(-2px);box-shadow:0 10px 25px rgba(30,60,114,.3)}
+    .auth-btn:disabled{opacity:.7;cursor:not-allowed;transform:none}
+    .loading{
+      display:none;position:absolute;right:15px;top:50%;transform:translateY(-50%);
+      width:20px;height:20px;border:2px solid #fff;border-radius:50%;border-top-color:transparent;animation:spin 1s ease-in-out infinite
+    }
+    @keyframes spin{to{transform:translateY(-50%) rotate(360deg)}}
+    .firebase-status{
+      position:fixed;top:20px;right:20px;padding:10px 15px;border-radius:20px;font-size:.8em;font-weight:600;z-index:1000
+    }
+    .firebase-status.connected{background:#d4edda;color:#155724}
+    .firebase-status.error{background:#f8d7da;color:#721c24}
+    .helper-links{display:flex;justify-content:flex-end;margin-top:-10px;margin-bottom:20px;gap:12px}
+    .link-btn{
+      background:none;border:none;color:#1e3c72;cursor:pointer;font-size:.9em;text-decoration:underline;padding:0
+    }
+    @media (max-width:480px){
+      .auth-container{margin:20px;padding:30px 25px}
+      .logo{font-size:2em}
+    }
+  </style>
+</head>
+<body>
+  <div id="firebaseStatus" class="firebase-status">🔄 Firebase bağlanıyor...</div>
+
+  <div class="auth-container">
+    <div class="logo-section">
+      <div class="logo">🔥 IPGATE</div>
+      <div class="subtitle">Fikri Mülkiyet Yönetim Sistemi</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="signin">Giriş Yap</div>
+      <div class="tab" data-tab="signup">Kayıt Ol</div>
+    </div>
+
+    <!-- Sign In -->
+    <div class="form-section active" id="signin-section">
+      <form id="signinForm">
+        <div class="form-group">
+          <label class="form-label" for="signin-email">E-posta Adresi</label>
+          <input type="email" id="signin-email" class="form-input" required />
+          <div class="error-message" id="signin-email-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="signin-password">Şifre</label>
+          <input type="password" id="signin-password" class="form-input" required />
+          <div class="error-message" id="signin-password-error"></div>
+        </div>
+
+        <div class="helper-links">
+          <button type="button" class="link-btn" id="forgotPasswordBtn">Şifremi Unuttum</button>
+        </div>
+
+        <button type="submit" class="auth-btn" id="signinBtn">
+          <span id="signinText">Giriş Yap</span>
+          <span class="loading" id="signinLoading"></span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Sign Up -->
+    <div class="form-section" id="signup-section">
+      <form id="signupForm">
+        <div class="form-group">
+          <label class="form-label" for="signup-name">Ad Soyad</label>
+          <input type="text" id="signup-name" class="form-input" required />
+          <div class="error-message" id="signup-name-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="signup-email">E-posta Adresi</label>
+          <input type="email" id="signup-email" class="form-input" required />
+          <div class="error-message" id="signup-email-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="signup-password">Şifre (min. 6 karakter)</label>
+          <input type="password" id="signup-password" class="form-input" required minlength="6" />
+          <div class="error-message" id="signup-password-error"></div>
+        </div>
+
+        <button type="submit" class="auth-btn" id="signupBtn">
+          <span id="signupText">Kayıt Ol</span>
+          <span class="loading" id="signupLoading"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+  import { authService, auth } from './public/firebase-config.js';
+  import { sendPasswordResetEmail, sendEmailVerification, updateProfile } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+  import { showNotification, showFieldError, clearAllFieldErrors } from './public/utils.js';
+
+    class AuthController {
+      constructor() {
+        this.currentTab = 'signin';
+        this.init();
+      }
+
+      init() {
+        this.setupEventListeners();
+        this.setupAuthStateListener();
+        this.checkFirebaseConnectionStatus();
+        console.log('🔐 Auth Controller initialized');
+      }
+
+      setupEventListeners() {
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+          tab.addEventListener('click', (e) => {
+            this.switchTab(e.target.dataset.tab);
+          });
+        });
+
+        // Sign in
+        document.getElementById('signinForm').addEventListener('submit', (e) => {
+          e.preventDefault();
+          this.handleSignIn();
+        });
+
+        // Sign up
+        document.getElementById('signupForm').addEventListener('submit', (e) => {
+          e.preventDefault();
+          this.handleSignUp();
+        });
+
+        // Forgot password
+        document.getElementById('forgotPasswordBtn').addEventListener('click', () => {
+          this.handlePasswordReset();
+        });
+      }
+
+      setupAuthStateListener() {
+        auth.onAuthStateChanged(async (user) => {
+          if (!user) {
+            console.log('ℹ️ No authenticated Firebase user.');
+            return;
+          }
+
+          // Eğer kayıt akışı sürüyorsa ve kullanıcı henüz doğrulanmadıysa:
+          const inSignupFlow = sessionStorage.getItem('signup_flow') === '1';
+          if (inSignupFlow && !user.emailVerified) {
+            // Kayıt akışında "Giriş başarılı..." mesajını bastırıyoruz.
+            console.log('🟡 Signup flow in progress, suppressing success notification.');
+            return; // Bildirim ve yönlendirme YOK
+          }
+
+          // Genel doğrulama koruması (opsiyonel ama tavsiye):
+          if (!inSignupFlow && !user.emailVerified) {
+            showNotification('Lütfen e-posta adresinizi doğrulayın. Doğrulama e-postası az önce gönderilmiş olabilir.', 'warning');
+            try { await authService.signOut(); } catch {}
+            this.switchTab('signin');
+            return;
+          }
+
+          // Rolü al ve localStorage'a yaz
+          const role = await authService.getUserRole(user.uid);
+          const userData = {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            role: role || 'user',
+            isSuperAdmin: role === 'superadmin'
+          };
+          localStorage.setItem('currentUser', JSON.stringify(userData));
+          console.log('💾 User data saved to localStorage:', userData);
+
+          // Başarılı giriş bildirimi ve yönlendirme (yalnızca doğrulanmış hesaplar için)
+          showNotification('Giriş başarılı! Dashboard\'a yönlendiriliyorsunuz...', 'success');
+
+          setTimeout(() => {
+            console.log('🚀 Redirecting to dashboard...');
+            window.location.href = 'public/dashboard.html';
+          }, 1200);
+        });
+      }
+
+      checkFirebaseConnectionStatus() {
+        const statusDiv = document.getElementById('firebaseStatus');
+        if (authService.isFirebaseAvailable) {
+          statusDiv.textContent = '🔥 Firebase Bağlı';
+          statusDiv.className = 'firebase-status connected';
+        } else {
+          statusDiv.textContent = '❌ Firebase Bağlantı Hatası (Yerel Mod)';
+          statusDiv.className = 'firebase-status error';
+        }
+        setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+      }
+
+      switchTab(tabName) {
+        document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+        document.querySelectorAll('.form-section').forEach(s => s.classList.remove('active'));
+        document.getElementById(`${tabName}-section`).classList.add('active');
+
+        this.currentTab = tabName;
+        clearAllFieldErrors();
+      }
+
+      async handleSignIn() {
+        const email = document.getElementById('signin-email').value.trim();
+        const password = document.getElementById('signin-password').value;
+
+        if (!this.validateSignIn(email, password)) return;
+
+        this.setLoading('signin', true);
+
+        try {
+          const result = await authService.signIn(email, password);
+          if (!result?.success) {
+            showNotification(result?.error || 'Giriş başarısız.', 'error');
+          }
+          // onAuthStateChanged gerekli aksiyonları alacak
+        } catch (err) {
+          console.error('Final sign in error catch:', err);
+          showNotification('Giriş sırasında beklenmeyen bir hata oluştu.', 'error');
+        } finally {
+          this.setLoading('signin', false);
+        }
+      }
+
+      async handleSignUp() {
+          const name = document.getElementById('signup-name').value.trim();
+          const email = document.getElementById('signup-email').value.trim();
+          const password = document.getElementById('signup-password').value;
+
+          if (!this.validateSignUp(name, email, password)) return;
+
+          this.setLoading('signup', true);
+          sessionStorage.setItem('signup_flow', '1');
+
+          try {
+              const result = await authService.signUp(email, password, name, 'user');
+              if (result.success) {
+                  const user = auth.currentUser;
+                  if (user) {
+                      // Ad-soyad bilgisini kaydetmek için updateProfile fonksiyonunu kullanın.
+                      // Bu fonksiyon, ilk parametre olarak auth nesnesini, ikinci parametre olarak ise
+                      // güncellenecek user nesnesini alır.
+                      await updateProfile(user, { displayName: name }); // <-- BURASI DÜZELTİLDİ
+
+                      try {
+                          await sendEmailVerification(user);
+                          showNotification('Doğrulama e-postası gönderildi. Lütfen e-postanızı doğrulayıp giriş yapın.', 'success');
+                      } catch (ve) {
+                          console.error('sendEmailVerification error:', ve);
+                          showNotification('Doğrulama e-postası gönderilemedi. Daha sonra tekrar deneyin.', 'error');
+                      }
+                      await authService.signOut();
+                      this.switchTab('signin');
+                  } else {
+                      showNotification('Hesap oluşturuldu. Lütfen e-postanızı doğrulayın ve giriş yapın.', 'success');
+                      this.switchTab('signin');
+                  }
+              } else {
+                  showNotification(result.error || 'Kayıt başarısız.', 'error');
+              }
+          } catch (err) {
+              console.error('Final sign up error catch:', err);
+              showNotification('Kayıt sırasında beklenmeyen bir hata oluştu.', 'error');
+          } finally {
+              sessionStorage.removeItem('signup_flow');
+              this.setLoading('signup', false);
+          }
+      }
+      async handlePasswordReset() {
+        const email = document.getElementById('signin-email').value.trim();
+        if (!email) {
+          showFieldError('signin-email', 'Önce e-posta adresinizi girin');
+          return;
+        }
+        if (!this.isValidEmail(email)) {
+          showFieldError('signin-email', 'Geçerli bir e-posta girin');
+          return;
+        }
+
+        try {
+          await sendPasswordResetEmail(auth, email.toLowerCase());
+          showNotification('Şifre sıfırlama e-postası gönderildi. Gelen kutunuzu kontrol edin.', 'success');
+        } catch (err) {
+          console.error('Password reset error:', err);
+          let msg = 'İşlem gerçekleştirilemedi.';
+          if (err?.code === 'auth/user-not-found') msg = 'Bu e-posta ile kullanıcı bulunamadı.';
+          else if (err?.code === 'auth/invalid-email') msg = 'Geçersiz e-posta adresi.';
+          showNotification(msg, 'error');
+        }
+      }
+
+      validateSignIn(email, password) {
+        clearAllFieldErrors();
+        let isValid = true;
+        if (!email) { showFieldError('signin-email','E-posta adresi gerekli'); isValid = false; }
+        if (!password) { showFieldError('signin-password','Şifre gerekli'); isValid = false; }
+        return isValid;
+      }
+
+      validateSignUp(name, email, password) {
+        clearAllFieldErrors();
+        let isValid = true;
+        if (!name || name.length < 2) { showFieldError('signup-name','Ad soyad en az 2 karakter'); isValid = false; }
+        if (!email) { showFieldError('signup-email','E-posta adresi gerekli'); isValid = false; }
+        else if (!this.isValidEmail(email)) { showFieldError('signup-email','Geçerli bir e-posta girin'); isValid = false; }
+        if (!password) { showFieldError('signup-password','Şifre gerekli'); isValid = false; }
+        else if (password.length < 6) { showFieldError('signup-password','Şifre en az 6 karakter'); isValid = false; }
+        return isValid;
+      }
+
+      isValidEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+      }
+
+      setLoading(form, isLoading) {
+        const btn = document.getElementById(`${form}Btn`);
+        const text = document.getElementById(`${form}Text`);
+        const loading = document.getElementById(`${form}Loading`);
+        if (btn) btn.disabled = isLoading;
+        if (text) text.style.display = isLoading ? 'none' : 'inline';
+        if (loading) loading.style.display = isLoading ? 'inline-block' : 'none';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => new AuthController());
+
+    // Dev yardımcıları (sadece alan doldurur)
+    window.testAuth = {
+      fillDemoSignIn: () => {
+        document.getElementById('signin-email').value = 'demo@ipmanager.com';
+        document.getElementById('signin-password').value = 'demo123';
+        clearAllFieldErrors();
+      },
+      fillAdminSignIn: () => {
+        document.getElementById('signin-email').value = 'admin@ipmanager.com';
+        document.getElementById('signin-password').value = 'admin123';
+        clearAllFieldErrors();
+      },
+      fillSuperAdminSignIn: () => {
+        document.getElementById('signin-email').value = 'superadmin@ipmanager.com';
+        document.getElementById('signin-password').value = 'superadmin123';
+        clearAllFieldErrors();
+      },
+      signOut: async () => {
+        console.log('Attempting sign out...');
+        await authService.signOut();
+        window.location.href = 'index.html';
+      },
+      forceDashboard: () => { window.location.href = 'public/dashboard.html'; }
+    };
+
+    console.log('🚀 Firebase Auth module loaded!');
+  </script>
+  <div id="notification-container" class="notification-container"></div>
+</body>
+</html>

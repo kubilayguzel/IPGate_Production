@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>indexTrademarkBulletinRecords Tetikleyici</title>
+  <link rel="stylesheet" href="css/shared-styles.css">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+    }
+    label, input, button {
+      font-size: 16px;
+      margin-top: 1rem;
+      display: block;
+    }
+    .response {
+      margin-top: 1.5rem;
+      white-space: pre-wrap;
+      background: #f5f5f5;
+      padding: 1rem;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h2>Trademark Bulletin Records İndeksleme Tetikleyici</h2>
+  
+  <label for="bulletinNo">Bülten No girin (örneğin 2025/35):</label>
+  <input type="text" id="bulletinNo" placeholder="2025/35" />
+  
+  <button onclick="triggerFunction()">Fonksiyonu Tetikle</button>
+  
+  <div class="response" id="responseBox">Yanıt bekleniyor...</div>
+  
+  <script>
+    async function triggerFunction() {
+      const bulletinNo = document.getElementById("bulletinNo").value;
+      const responseBox = document.getElementById("responseBox");
+
+      responseBox.textContent = "İstek gönderiliyor...";
+
+      try {
+        const response = await fetch("https://indextrademarkbulletinrecords-jzwp32xwma-ew.a.run.app", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ bulletinNo: bulletinNo })
+        });
+
+        const data = await response.text(); // JSON değilse .text()
+        responseBox.textContent = `✅ Yanıt:\n${data}`;
+      } catch (error) {
+        responseBox.textContent = `❌ Hata:\n${error}`;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IPGATE - Marka İzleme Listesi</title>
+    <link rel="stylesheet" href="css/shared-styles.css"/>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="stylesheet" href="css/simple-loading.css"/>
+  <style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #333;
+        display: flex;
+        min-height: 100vh;
+        margin: 0;
+    }
+    .page-wrapper {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        box-sizing: border-box;
+    }
+    .main-container {
+        width: 100%;
+        padding: 30px; /* Diğer kenar boşluklarını koru */
+        padding-top: 120px; /* Sadece üst boşluğu düzelt */
+        margin: 0;
+        box-sizing: border-box;
+        flex-shrink: 0;
+    }
+    .page-header {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 30px;
+        border-radius: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    }
+    .page-title {
+        font-size: 2em;
+        color: #1e3c72;
+        margin-bottom: 10px;
+    }
+    .page-subtitle {
+        color: #666;
+        font-size: 1.1em;
+    }
+
+    .monitoring-controls {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px 30px;
+        border-radius: 20px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+        position: relative;
+        z-index: 2;
+    }
+    .monitoring-controls .filter-group {
+        display: none;
+    }
+    .monitoring-controls .btn-selected-action {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.9em;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    .monitoring-controls .btn-selected-action:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 123, 255, 0.2);
+    }
+    .monitoring-controls .btn-selected-action:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+    }
+
+    /* Filtre Bölümü Stilleri */
+    .filter-section {
+        background: rgba(255,255,255,0.95);
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        animation: fadeIn 0.3s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .filter-controls {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .filter-group.search {
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-label {
+        font-size: 0.9em;
+        color: #666;
+        font-weight: 500;
+    }
+
+    .filter-input, .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: all 0.2s ease;
+    }
+
+    .filter-input:focus, .filter-select:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+
+    .filter-input.search {
+        width: 100%;
+    }
+
+    .filter-select {
+        min-width: 120px;
+    }
+
+    .clear-filters-btn {
+        padding: 8px 16px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        align-self: flex-end;
+    }
+
+    .clear-filters-btn:hover {
+        background: #5a6268;
+        transform: translateY(-1px);
+    }
+
+    .accruals-container {
+        background: rgba(255,255,255,0.95);
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+    .accruals-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+    .accruals-table th,
+    .accruals-table td {
+        padding: 15px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .accruals-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+    }
+
+    /* KOLON GENİŞLİKLERİ */
+   
+    /* 1. Checkbox (Sabit) */
+    .accruals-table th:nth-child(1),
+    .accruals-table td:nth-child(1) {
+        width: 50px;
+        text-align: center;
+        padding-left: 5px;
+        padding-right: 5px;
+    }
+
+    /* 2. Görsel (Sabit) */
+    .accruals-table th:nth-child(2),
+    .accruals-table td:nth-child(2) {
+        width: 110px;
+        text-align: center;
+    }
+
+    /* 3. Marka Adı (Daraltıldı) */
+    .accruals-table th:nth-child(3),
+    .accruals-table td:nth-child(3) {
+        width: 220px;
+        max-width: 220px; /* Taşan metni kesmek için sınır */
+    }
+
+    /* 4. Aranacak İbareler (Daraltıldı) */
+    .accruals-table th:nth-child(4),
+    .accruals-table td:nth-child(4) {
+        width: 300px;
+        max-width: 300px;
+    }
+
+    /* 5. Sahip (Genişletildi - Kalan alanı kaplar) */
+    .accruals-table th:nth-child(5),
+    .accruals-table td:nth-child(5) {
+        width: auto; /* Esnek genişlik */
+    }
+
+    /* 6. Başvuru No (Sabit) */
+    .accruals-table th:nth-child(6),
+    .accruals-table td:nth-child(6) {
+        width: 140px;
+    }
+
+    /* 7. Başvuru Tarihi (Sabit) */
+    .accruals-table th:nth-child(7),
+    .accruals-table td:nth-child(7) {
+        width: 130px;
+    }
+
+    /* 8. Nice Sınıfı (Sabit) */
+    .accruals-table th:nth-child(8),
+    .accruals-table td:nth-child(8) {
+        width: 200px;
+    }
+
+    /* 9. Durum (Sabit) */
+    .accruals-table th:nth-child(9),
+    .accruals-table td:nth-child(9) {
+        width: 120px;
+        text-align: center;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-size: 0.8em;
+        font-weight: 600;
+        color: white;
+        text-transform: uppercase;
+        line-height: 1;
+    }
+    .status-badge.application { background-color: #007bff; }
+    .status-badge.registered { background-color: #28a745; }
+    .status-badge.rejected { background-color: #dc3545; }
+    .status-badge.pending { background-color: #ffc107; color: #333; }
+    .status-badge.objection { background-color: #6f42c1; }
+    .status-badge.litigation { background-color: #fd7e14; }
+
+    .loading, .no-records {
+        text-align: center;
+        padding: 30px;
+        color: #666;
+    }
+    .error-message {
+        text-align: center;
+        padding: 30px;
+        color: #dc3545;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 5px;
+        margin: 20px 0;
+    }
+
+    /* Nice Sınıf Badge Stilleri */
+
+/* Marka Görseli Stilleri */
+.trademark-image-thumbnail {
+    position: relative;
+}
+
+.trademark-image-thumbnail:hover {
+    border-color: #1e3c72;
+}
+
+.trademark-image-thumbnail:hover::after {
+    content: '';
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px;
+    height: 300px;
+    background-image: attr(src url);
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 3px solid #1e3c72;
+    border-radius: 10px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+    z-index: 9999;
+    pointer-events: none;
+    background-color: white;
+}
+
+/* Eksik alan uyarı stilleri */
+.missing-field {
+    color: #dc3545;
+    font-style: italic;
+    font-size: 12px;
+}
+
+.missing-field::before {
+    content: "⚠️ ";
+}
+
+/* Sahip hücresi için */
+.owner-cell {
+    max-width: 100%; /* Değişiklik: Hücre genişliği kadar kullanmasına izin ver */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block; /* Gerekirse ekleyin, div zaten block'tur ama garanti olsun */
+}
+
+/* Durum badge'leri */
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.status-badge.application {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.status-badge.registered {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-badge.rejected {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.status-badge.pending {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.status-badge.objection {
+    background: #ffeeba;
+    color: #533f03;
+    border: 1px solid #ffeaa7;
+}
+
+.status-badge.litigation {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+/* Tablo responsive düzenleme */
+@media (max-width: 768px) {
+    .accruals-table {
+        font-size: 12px;
+    }
+
+    .trademark-image-thumbnail {
+        width: 40px;
+        height: 40px;
+    }
+
+    .nice-class-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+}
+/* Görsel hücresi için ekstra alan */
+.accruals-table td:nth-child(2) {
+    min-width: 100px;
+    text-align: center;
+    padding: 15px 8px;
+    position: relative;
+}
+
+/* Hover overlay için backdrop */
+.image-hover-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.3);
+    z-index: 9998;
+    pointer-events: none;
+}
+    
+/* Yeni Nice Sınıfı Seçim Kutuları için Stiller */
+.nice-class-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.nice-class-box {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.nice-class-box:hover {
+    background-color: #e9ecef;
+    border-color: #007bff;
+}
+
+.nice-class-box.selected {
+    background-color: #007bff;
+    color: #fff;
+    border-color: #007bff;
+    font-weight: bold;
+}
+.list-group-item.permanent-item .remove-item {
+    display: none;
+}
+
+/* Seçili Satır Stili */
+tr.selected-row {
+    background-color: #e8f0fe !important; /* Açık mavi tonu */
+    transition: background-color 0.3s ease;
+}
+/* Seçili satırın üzerine gelindiğinde */
+tr.selected-row:hover {
+    background-color: #d2e3fc !important;
+}
+
+
+.nice-class-box {
+    display: flex; justify-content: center; align-items: center;
+    height: 40px; background-color: #f8f9fc; border: 1px solid #d1d3e2;
+    border-radius: 8px; cursor: pointer; font-weight: 600; color: #5a5c69;
+    transition: all 0.2s ease;
+}
+.nice-class-box:hover { background-color: #eaecf4; border-color: #b7b9cc; }
+.nice-class-box.selected { background-color: #4e73df; color: white; border-color: #4e73df; }
+.nice-class-box.permanent-item { background-color: #1cc88a; border-color: #1cc88a; color: white; cursor: not-allowed; }
+
+</style>
+</head>
+<body>
+<div id="notification-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+  <div id="layout-placeholder"></div>
+  <div class="page-wrapper">
+    <main class="main-container">
+      <section class="page-header">
+        <h1 class="page-title">📊 Marka İzleme Listesi</h1>
+        <p class="page-subtitle">İzleme listenizdeki markalar burada listelenir.</p>
+      </section>
+
+      <div class="monitoring-controls">
+        <button type="button" class="btn-selected-action" id="removeSelectedBtn" disabled>
+          Seçileni Kaldır (<span id="selectedCount">0</span>)
+        </button>
+        <button type="button" class="btn-selected-action" id="editCriteriaBtn" disabled>
+          Kriterleri Düzenle
+        </button>
+      </div>
+
+      <div id="filterSection" class="filter-section" style="display: none;">
+        <div class="filter-controls">
+          <div class="filter-group search">
+            <label class="filter-label">Genel Arama</label>
+            <input type="text" id="searchFilter" class="filter-input search" placeholder="Genel arama yapın...">
+          </div>
+          
+          <div class="filter-group">
+            <label class="filter-label">Marka Adı</label>
+            <input type="text" id="markNameFilter" class="filter-input" placeholder="Marka adı..." style="width: 140px;">
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Aranacak İbareler</label>
+            <input type="text" id="searchTermsFilter" class="filter-input" placeholder="İbare..." style="width: 140px;">
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Durum</label>
+            <select id="statusFilter" class="filter-select">
+              <option value="all">Tüm Durumlar</option>
+              <option value="application">Başvuru</option>
+              <option value="registered">Tescilli</option>
+              <option value="rejected">Reddedildi</option>
+              <option value="pending">Beklemede</option>
+              <option value="objection">İtiraz</option>
+              <option value="litigation">Dava</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Nice Sınıfı</label>
+            <input type="text" id="niceClassFilter" class="filter-input" placeholder="35, 42..." style="width: 120px;">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Sahip</label>
+            <input type="text" id="ownerFilter" class="filter-input" placeholder="Şirket adı..." style="width: 150px;">
+          </div>
+          <button type="button" id="clearFilters" class="clear-filters-btn">Temizle</button>
+        </div>
+      </div>
+
+      <div class="accruals-container">
+        <div id="monitoringTableContainer">
+          <div class="loading">Yükleniyor...</div>
+        </div>
+      </div>
+
+      <div id="paginationContainer"></div>
+    </main>
+  </div>
+
+  <div class="modal fade" id="editCriteriaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 16px; border: none; box-shadow: 0 10px 40px rgba(0,0,0,0.15);">
+            <div class="modal-header" style="background: #f8f9fc; border-bottom: 1px solid #e3e6f0; border-radius: 16px 16px 0 0; padding: 1.5rem;">
+                <h5 class="modal-title" style="color: #1e3c72; font-weight: 700; font-size: 1.25rem;">
+                    <i class="fas fa-sliders-h mr-2 text-primary"></i> İzleme Kriterlerini Düzenle
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="background: white; border-radius: 50%; width: 32px; height: 32px; opacity: 1; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                    <span aria-hidden="true" style="color: #555;">&times;</span>
+                </button>
+            </div>
+            
+            <div class="modal-body p-4" style="background: #fafbfe;">
+                
+                <div class="card mb-4" style="border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+                    <div class="card-body d-flex align-items-center">
+                        <img id="modalTrademarkImage" src="" alt="Marka" style="width: 70px; height: 70px; object-fit: contain; border-radius: 8px; border: 1px solid #eee; margin-right: 1.5rem;">
+                        <div>
+                            <h4 id="modalTrademarkName" style="margin: 0; color: #333; font-weight: 700; font-size: 1.1rem;">-</h4>
+                            <div style="color: #6c757d; font-size: 0.9rem; margin-top: 5px;">
+                                <i class="fas fa-file-alt mr-1"></i> Başvuru: <strong id="modalApplicationNo" class="text-dark"></strong> &nbsp;|&nbsp; 
+                                <i class="fas fa-user mr-1"></i> Sahip: <strong id="modalOwner" class="text-dark"></strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100" style="border: 1px solid #e3e6f0; border-radius: 12px;">
+                            <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; font-weight: 600; color: #4a5568; border-radius: 12px 12px 0 0;">
+                                <i class="fas fa-search text-primary mr-1"></i> Aranacak İbareler
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group mb-4">
+                                    <label class="text-muted small font-weight-bold">Ana Aranacak İbare</label>
+                                    <input type="text" id="searchMarkNameInput" class="form-control" style="border-radius: 8px; background: #fff; border: 1px solid #d1d3e2;">
+                                </div>
+                                
+                                <label class="text-muted small font-weight-bold">Ekstra Aranacak Kelimeler</label>
+                                <div class="input-group mb-3">
+                                    <input type="text" id="brandTextSearchInput" class="form-control" placeholder="Yeni ibare yazın..." style="border-radius: 8px 0 0 8px;">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-primary" type="button" id="addBrandTextBtn" style="border-radius: 0 8px 8px 0;"><i class="fas fa-plus"></i></button>
+                                    </div>
+                                </div>
+                                <ul class="list-group" id="brandTextSearchList" style="max-height: 200px; overflow-y: auto;">
+                                    </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100" style="border: 1px solid #e3e6f0; border-radius: 12px;">
+                            <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; font-weight: 600; color: #4a5568; border-radius: 12px 12px 0 0;">
+                                <i class="fas fa-th text-info mr-1"></i> Nice Sınıfları
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted small mb-2"><i class="fas fa-info-circle"></i> Yeşil renkli sınıflar markanın orijinal sınıflarıdır, kaldırılamaz.</p>
+                                <div id="niceClassSelectionContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 8px;">
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer" style="border-top: 1px solid #e3e6f0; background: #fff; border-radius: 0 0 16px 16px; padding: 1.25rem;">
+                <button type="button" class="btn btn-light" data-dismiss="modal" style="border-radius: 8px; font-weight: 600; padding: 8px 20px;">İptal</button>
+                <button type="button" id="saveCriteriaBtn" class="btn btn-primary" style="border-radius: 8px; font-weight: 600; padding: 8px 25px;"><i class="fas fa-save mr-1"></i> Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="js/monitoring/main.js"></script>
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Yeni İş Oluştur</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    
+    <link rel="modulepreload" href="./supabase-config.js">
+    <link rel="modulepreload" href="./js/layout-loader.js">
+
+<style>
+/* --- GENEL RESET VE YAPILAR --- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+
+.page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+.main-container { width: 100%; padding: 30px; padding-top: 120px; }
+.page-header { background: #ffffff; padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+.page-title { font-size: 2em !important; color: #1e3c72 !important; margin-bottom: 10px !important;}
+.page-subtitle { color: #666; font-size: 1.1em; }
+
+/* --- KART STİLLERİ --- */
+.selection-card {
+    background: #fff;
+    border: 2px solid #e1e8ed;
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.selection-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    border-color: #1e3c72;
+}
+
+.selection-card.active {
+    background: #f0f4f8;
+    border-color: #1e3c72;
+    box-shadow: 0 0 0 4px rgba(30, 60, 114, 0.1);
+}
+
+.selection-card .card-icon {
+    font-size: 2.5rem;
+    margin-bottom: 15px;
+    color: #6c757d;
+    transition: color 0.3s;
+}
+
+.selection-card:hover .card-icon,
+.selection-card.active .card-icon {
+    color: #1e3c72;
+}
+
+.selection-card .card-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.selection-card .card-desc {
+    font-size: 0.85rem;
+    color: #666;
+}
+
+/* KÜÇÜK KARTLAR (Alt İşlemler İçin) */
+.sub-selection-card {
+    border: 1px dashed #1e3c72;
+    background: #fff;
+    padding: 15px;
+    border-radius: 10px;
+    cursor: pointer; /* Varsayılan (JS ile yönetilecek) */
+    transition: all 0.2s;
+    text-align: center;
+}
+.sub-selection-card:hover {
+    background: #eef2f7;
+    transform: scale(1.02);
+}
+.sub-selection-card i {
+    font-size: 1.5rem;
+    color: #1e3c72;
+    margin-bottom: 8px;
+    display: block;
+}
+.sub-selection-card span {
+    font-weight: 600;
+    color: #1e3c72;
+}
+
+/* Pasif Kart Stili (JS Yüklenene Kadar) */
+.card-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: default;
+}
+
+/* --- KART STİLLERİ --- */
+.selection-card {
+    background: #fff;
+    border: 2px solid #e1e8ed;
+    border-radius: 15px;
+    padding: 15px 10px; /* 🔥 Padding'i küçülttük */
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.selection-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+/* Standart aktif durumu yedeği (Özel renkler ezecek) */
+.selection-card.active { border-color: #1e3c72; background: #f0f4f8; }
+
+.selection-card .card-icon {
+    font-size: 2rem; /* 🔥 İkonları biraz küçülttük */
+    margin-bottom: 10px;
+    color: #6c757d;
+    transition: color 0.3s;
+}
+
+.selection-card .card-title {
+    font-weight: 600;
+    font-size: 1rem; /* 🔥 Başlık boyutunu küçülttük */
+    margin-bottom: 4px;
+    color: #333;
+}
+
+.selection-card .card-desc {
+    font-size: 0.75rem; /* 🔥 Açıklamayı küçülttük */
+    color: #666;
+    line-height: 1.2;
+}
+
+/* 🔥 YENİ: KARTLARA ÖZEL RENKLENDİRMELER */
+/* Marka (Mavi) */
+.selection-card.color-blue:hover, .selection-card.color-blue.active { border-color: #0d6efd; background: #f0f7ff; }
+.selection-card.color-blue:hover .card-icon, .selection-card.color-blue.active .card-icon { color: #0d6efd; }
+
+/* Patent (Turuncu) */
+.selection-card.color-orange:hover, .selection-card.color-orange.active { border-color: #fd7e14; background: #fff8f0; }
+.selection-card.color-orange:hover .card-icon, .selection-card.color-orange.active .card-icon { color: #fd7e14; }
+
+/* Tasarım (Yeşil) */
+.selection-card.color-green:hover, .selection-card.color-green.active { border-color: #198754; background: #f0fdf4; }
+.selection-card.color-green:hover .card-icon, .selection-card.color-green.active .card-icon { color: #198754; }
+
+/* Dava (Kırmızı) */
+.selection-card.color-red:hover, .selection-card.color-red.active { border-color: #dc3545; background: #fff0f1; }
+.selection-card.color-red:hover .card-icon, .selection-card.color-red.active .card-icon { color: #dc3545; }
+
+/* Diğer (Mor) */
+.selection-card.color-purple:hover, .selection-card.color-purple.active { border-color: #6f42c1; background: #f8f0ff; }
+.selection-card.color-purple:hover .card-icon, .selection-card.color-purple.active .card-icon { color: #6f42c1; }
+
+/* --- MEVCUT FORM YAPISI --- */
+.form-container { background: none; box-shadow: none; padding: 0; }
+.section-card {
+  background: #fff;
+  border-radius: 20px;
+  border: 1px solid rgba(0,0,0,.06);
+  box-shadow: 0 10px 30px rgba(0,0,0,.10);
+  position: relative;
+  margin-bottom: 24px;
+  padding: 30px;
+}
+.section-title {
+    font-size: 1.3em;
+    color: #1e3c72;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e1e8ed;
+}
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
+.form-group { display: flex; flex-direction: column; }
+.form-group.full-width { grid-column: 1 / -1; }
+.form-label { margin-bottom: 8px; font-weight: 500; color: #333; }
+.form-input, .form-select { width: 100%; padding: 12px 15px; border: 2px solid #e1e8ed; border-radius: 10px; }
+
+/* Butonlar */
+.form-actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 30px; }
+.btn { padding: 12px 25px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.btn-primary { background: #1e3c72; color: #fff; }
+.btn-secondary { background: #6c757d; color: #fff; }
+
+/* Select Box Gizleme */
+.hidden-select-container { display: none !important; }
+
+/* Arama Sonuçları & Listeler */
+.classification-panel, .selected-classes-panel { height: 600px; display: flex; flex-direction: column; background: #fff; border: 1px solid #dee2e6; border-radius: 12px; }
+.search-results-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; background: #fff; border: 1px solid #ced4da; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.1); border-radius: 0 0 8px 8px;}
+.search-result-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+.search-result-item:hover { background-color: #f8f9fa; }
+.selected-items-list { min-height: 60px; background: #f8f9fa; padding: 10px; border-radius: 10px; border: 1px dashed #ced4da; }
+.selected-item { background: #fff; padding: 8px; margin-bottom: 5px; border-radius: 5px; border: 1px solid #ddd; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+    <div id="notification-container" class="notification-container"></div>
+    <div id="layout-placeholder"></div>
+    
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Yeni İş Oluştur</h1>
+                <p class="page-subtitle">Oluşturmak istediğiniz işin türünü seçerek başlayın.</p>
+            </section>
+            
+            <div class="form-container">
+                <form id="createTaskForm" onsubmit="return false;">
+                    
+                    <div class="section-card">
+                        <h3 class="section-title">1. İş Türü Seçimi</h3>
+                        
+                        <div class="row mb-4" id="mainTypeCardContainer">
+                            <div class="col mb-2">
+                                <div class="selection-card color-blue" onclick="selectMainType('trademark', this)">
+                                    <i class="fas fa-registered card-icon"></i>
+                                    <div class="card-title">Marka</div>
+                                    <div class="card-desc">Başvuru, devir ve marka işlemleri.</div>
+                                </div>
+                            </div>
+                            <div class="col mb-2">
+                                <div class="selection-card color-orange" onclick="selectMainType('patent', this)">
+                                    <i class="fas fa-lightbulb card-icon"></i>
+                                    <div class="card-title">Patent</div>
+                                    <div class="card-desc">Buluşlar ve tescil süreçleri.</div>
+                                </div>
+                            </div>
+                            <div class="col mb-2">
+                                <div class="selection-card color-green" onclick="selectMainType('design', this)">
+                                    <i class="fas fa-drafting-compass card-icon"></i>
+                                    <div class="card-title">Tasarım</div>
+                                    <div class="card-desc">Endüstriyel tasarım tescili.</div>
+                                </div>
+                            </div>
+                            <div class="col mb-2">
+                                <div class="selection-card color-red" onclick="selectMainType('suit', this)">
+                                    <i class="fas fa-gavel card-icon"></i>
+                                    <div class="card-title">Dava</div>
+                                    <div class="card-desc">Hukuki süreç ve dava takibi.</div>
+                                </div>
+                            </div>
+                            <div class="col mb-2">
+                                <div class="selection-card color-purple" onclick="selectMainType('other', this)">
+                                    <i class="fas fa-ellipsis-h card-icon"></i>
+                                    <div class="card-title">Diğer</div>
+                                    <div class="card-desc">Domain ve danışmanlıklar.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hidden-select-container">
+                            <select id="mainIpType" class="form-select">
+                                <option value="">Seçiniz...</option>
+                                <option value="patent">Patent</option>
+                                <option value="trademark">Marka</option>
+                                <option value="design">Tasarım</option>
+                                <option value="suit">Dava</option>
+                                <option value="other">Diğer</option>
+                            </select>
+                        </div>
+
+                        <div id="trademarkSubCards" style="display: none;" class="mb-4 p-3 bg-light rounded">
+                            <h6 class="text-primary font-weight-bold mb-3">Hızlı İşlem Seçimi</h6>
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    <div id="card-tm-application" class="sub-selection-card card-disabled" onclick="selectSpecificTask('2', this)"> 
+                                        <i class="fas fa-file-signature"></i>
+                                        <span>Yeni Marka Başvurusu</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    <div id="card-tm-transfer" class="sub-selection-card card-disabled" onclick="selectSpecificTask('5', this)"> 
+                                        <i class="fas fa-exchange-alt"></i>
+                                        <span>Devir İşlemi</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <hr>
+                            <div class="text-muted small mb-2">veya aşağıdaki listeden diğer işlemleri seçin:</div>
+                        </div>
+
+                        <div class="form-group" id="specificTaskContainer">
+                            <label for="specificTaskType" class="form-label">Spesifik İş Tipi / Diğer İşlemler</label>
+                            <select id="specificTaskType" class="form-select" disabled>
+                                <option value="">Önce İşin Ana Türünü Seçin</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-grid mt-3">
+                            <div class="form-group">
+                                <label for="originSelect" class="form-label">Menşe</label>
+                                <select id="originSelect" class="form-select"></select>
+                            </div>
+                        </div>
+                        
+                        <div id="countrySelectionContainer" class="form-section" style="display:none; margin-top:20px; padding-top:20px; border-top:1px solid #eee;">
+                            <h3 class="section-title" id="countrySelectionTitle">Ulusal Menşe Ülke Seçimi</h3>
+                            
+                            <div id="singleCountrySelectWrapper" class="form-group full-width">
+                                <label for="countrySelect" class="form-label">Ülke</label>
+                                <select id="countrySelect" class="form-select"></select>
+                            </div>
+                            
+                            <div id="multiCountrySelectWrapper" style="display: none;">
+                                <div class="form-group full-width">
+                                    <label for="countriesMultiSelectInput" class="form-label">Ülke Ara ve Ekle</label>
+                                    <div class="position-relative">
+                                        <input type="text" id="countriesMultiSelectInput" class="form-input" placeholder="Ülke adı veya kodu ile arayın...">
+                                        <div id="countriesMultiSelectResults" class="search-results-list" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width mt-3">
+                                    <label class="form-label">Seçilen Ülkeler <span class="badge badge-light" id="selectedCountriesCount">0</span></label>
+                                    <div id="selectedCountriesList" class="selected-items-list">
+                                        <div class="empty-state"><i class="fas fa-flag fa-3x text-muted mb-3"></i><p class="text-muted">Henüz ülke eklenmedi.</p></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="conditionalFieldsContainer"></div>
+                    
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal fade" id="selectParentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Geri Çekilecek İtirazı Seçin</h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>İlgili portföyde birden fazla açık itiraz işlemi bulundu.</p>
+                    <ul id="parentListContainer" class="list-group"></ul>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-dismiss="modal">İptal</button></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/tr.js"></script>
+
+    <script type="module" src="./js/create-portfolio-by-opposition.js"></script>
+    <script type="module" src="./js/create-task/main.js"></script>
+
+    <script>
+        // Ana Kart Seçimi
+        function selectMainType(typeValue, cardElement) {
+            // 1) Görsel durumu güncelle
+            document.querySelectorAll('.selection-card').forEach(el => el.classList.remove('active'));
+            if (cardElement) cardElement.classList.add('active');
+
+            // 2) Gizli Select'i güncelle ve tetikle
+            const mainSelect = document.getElementById('mainIpType');
+            if (!mainSelect) {
+                console.warn('mainIpType bulunamadı');
+                return;
+            }
+
+            mainSelect.value = typeValue;
+
+            // 3) Marka ise alt kartları göster (Ama henüz aktifleştirme!)
+            // Main.js 'change' eventini yakalayıp listeyi doldurduktan sonra kartları açacaktır.
+            const tmSubCards = document.getElementById('trademarkSubCards');
+
+            if (typeValue === 'trademark') {
+                if (tmSubCards) tmSubCards.style.display = 'block';
+
+                const label = document.querySelector('label[for="specificTaskType"]');
+                if (label) label.textContent = 'Diğer Marka İşlemleri';
+
+                // Güvenlik: Kartları tekrar pasife çek (Main.js açana kadar)
+                const appCard = document.getElementById('card-tm-application');
+                const transferCard = document.getElementById('card-tm-transfer');
+
+                if (appCard) {
+                    appCard.classList.add('card-disabled');
+                    appCard.style.opacity = '0.5';
+                }
+                if (transferCard) {
+                    transferCard.classList.add('card-disabled');
+                    transferCard.style.opacity = '0.5';
+                }
+            } else {
+                if (tmSubCards) tmSubCards.style.display = 'none';
+
+                const label = document.querySelector('label[for="specificTaskType"]');
+                if (label) label.textContent = 'Spesifik İş Tipi';
+            }
+
+            // ✅ ÖNEMLİ: Her tıklamada change tetikle
+            // (Bazen event listener geç bağlanır; bu yüzden 0ms setTimeout daha sağlamdır)
+            setTimeout(() => {
+                mainSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }, 0);
+        }
+
+        // Alt Kart Seçimi
+        function selectSpecificTask(taskValue, cardEl) {
+            const specificSelect = document.getElementById('specificTaskType');
+            if (!specificSelect) {
+                console.warn('specificTaskType select bulunamadı.');
+                return;
+            }
+
+            // Eğer kart pasifse işlem yapma
+            // (Pointer-events:none genelde engeller ama çift güvenlik)
+            if (cardEl && cardEl.classList.contains('card-disabled')) {
+                return;
+            }
+
+            // --- AKILLI SEÇİM MANTIĞI ---
+            let targetValue = String(taskValue);
+            let found = false;
+
+            // 1) Önce value (ID) ile ara
+            for (let i = 0; i < specificSelect.options.length; i++) {
+                if (String(specificSelect.options[i].value) === targetValue) {
+                    specificSelect.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+
+            // 2) ID bulunamazsa Metin ile ara (Yedek)
+            // Başvuru için taskValue '2' ise:
+            if (!found && targetValue === '2') {
+                for (let i = 0; i < specificSelect.options.length; i++) {
+                    const txt = (specificSelect.options[i].text || '').toLowerCase();
+                    if (txt.includes('başvuru') || txt.includes('application')) {
+                        specificSelect.selectedIndex = i;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                // change tetikle
+                specificSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Form alanına kaydır
+                setTimeout(() => {
+                    const container = document.getElementById('conditionalFieldsContainer');
+                    if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
+            } else {
+                console.warn('İstenen işlem tipi listede bulunamadı:', taskValue);
+                alert('İşlem listesi henüz yüklenemedi. Lütfen birkaç saniye bekleyip tekrar deneyiniz.');
+            }
+        }
+
+    </script>
+</body>
+</html>

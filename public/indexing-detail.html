@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF İndeksleme - IP Yönetim Sistemi</title>
+    
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="./css/shared-styles.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+
+    <style>
+        :root{ --card-radius: 16px; }
+        
+        html, body {
+            height: 100%;
+            margin: 0;
+            background-color: #f8f9fa;
+        }
+
+        .main-content {
+            width: 100%;
+            min-height: 100vh;
+            padding-top: 80px; 
+            transition: margin-left 0.3s;
+            padding-bottom: 100px;
+        }
+
+        .container-fluid {
+            max-width: 100% !important;
+            padding-left: 25px;
+            padding-right: 25px;
+        }
+
+        .card { 
+            border-radius: var(--card-radius); 
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .pdf-card-body {
+            height: 75vh; 
+            min-height: 600px;
+            background-color: #525659;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #pdfViewer {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+        
+        .analysis-panel {
+            height: 75vh; 
+            min-height: 600px;
+            overflow-y: auto;
+            background-color: #fff;
+        }
+
+        .search-results-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .search-result-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .search-result-item:hover { background-color: #f8f9fa; }
+
+        .shadow-sm { box-shadow: 0 10px 24px rgba(0,0,0,0.08) !important; }
+        
+        /* Accordion Ok Animasyonu */
+        .nice-accordion-btn i {
+            transition: transform 0.2s ease;
+        }
+
+        /* Bildirim Toast Stilleri */
+        #notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .notification-item {
+            min-width: 300px;
+            padding: 15px 20px;
+            border-radius: 12px;
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideInRight 0.3s ease-out;
+            transition: all 0.3s ease;
+        }
+
+        /* Durum Renkleri */
+        .notification-success { background: linear-gradient(45deg, #28a745, #34ce57); }
+        .notification-error { background: linear-gradient(45deg, #dc3545, #ff4d5a); }
+        .notification-info { background: linear-gradient(45deg, #1e3c72, #2a5298); }
+        .notification-warning { background: linear-gradient(45deg, #ffc107, #ffdb70); color: #333; }
+
+        .notification-close-btn {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 22px;
+            cursor: pointer;
+            padding: 0;
+            margin-left: 15px;
+            line-height: 1;
+            opacity: 0.7;
+        }
+        .notification-close-btn:hover { opacity: 1; }
+
+        .notification-item.hide {
+            opacity: 0;
+            transform: translateX(120%);
+        }
+
+        /* PDF Drag & Drop */
+        .pdf-dropzone {
+            border: 1px dashed #cbd5e1;
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #ffffff;
+            cursor: pointer;
+            transition: 120ms ease;
+        }
+
+        .pdf-dropzone.drag-over {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .pdf-dropzone .dz-title {
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .pdf-dropzone .dz-hint {
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .pdf-dropzone .dz-filename {
+            font-size: 12px;
+            color: #495057;
+            margin-top: 6px;
+            word-break: break-word;
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+    </style>
+</head>
+<body>
+    
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="loading-text mt-2">İşleniyor...</div>
+    </div>
+
+    <div id="layout-placeholder"></div>
+
+    <div class="main-content">
+        <div class="container-fluid">
+            
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h4 class="mb-1 text-dark font-weight-bold">
+                        <i class="fas fa-file-contract mr-2 text-primary"></i>Evrak Analizi ve İndeksleme
+                    </h4>
+                    <p class="text-muted mb-0 small" id="fileNameDisplay">Dosya yükleniyor...</p>
+                </div>
+                <a href="bulk-indexing-page.html" class="btn btn-outline-secondary btn-sm px-3">
+                    <i class="fas fa-arrow-left mr-1"></i> Listeye Dön
+                </a>
+            </div>
+
+            <div class="card mb-4 shadow-sm border-left-primary">
+                <div class="card-header bg-white py-3">
+                    <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-link mr-2"></i>Kayıt Bağlantısı</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row align-items-start">
+                        <div class="col-md-5 border-right">
+                            <div class="form-group mb-0 position-relative">
+                                <label class="small font-weight-bold text-muted mb-1 text-uppercase">Kayıt Ara</label>
+                                <div class="input-group shadow-sm">
+                                    <input type="text" id="manualSearchInput" class="form-control border-primary" placeholder="Marka Adı veya Başvuru No...">
+                                    <div class="input-group-append">
+                                        <span class="input-group-text bg-primary text-white border-primary"><i class="fas fa-search"></i></span>
+                                    </div>
+                                </div>
+                                <div id="manualSearchResults" class="search-results-dropdown w-100" style="left: 0; right: 0;"></div>
+                                <small class="text-muted mt-2 d-block"><i class="fas fa-info-circle mr-1"></i>Eşleşme hatalıysa buradan yeni kayıt seçebilirsiniz.</small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-7">
+                            <label class="small font-weight-bold text-muted mb-1 text-uppercase d-block">Seçili Kayıt Bilgileri</label>
+                            <div id="matchInfoDisplay" class="p-2 rounded border bg-light shadow-sm" style="min-height: 85px;">
+                                <div class="text-center py-3 text-muted italic">Henüz bir kayıt seçilmedi.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-lg-8 pr-lg-2 mb-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white border-bottom py-2">
+                            <h6 class="mb-0 font-weight-bold text-dark"><i class="fas fa-file-pdf mr-2 text-danger"></i>Evrak Önizleme</h6>
+                        </div>
+                        <div class="card-body p-0 pdf-card-body">
+                            <iframe id="pdfViewer" allow="fullscreen"></iframe>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4 pl-lg-2 mb-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white border-bottom py-2">
+                            <h6 class="mb-0 text-primary font-weight-bold"><i class="fas fa-robot mr-2"></i>İndeksleme Detayları</h6>
+                        </div>
+                        <div class="card-body analysis-panel p-3">
+                            <div id="analysisResults">
+                                <div class="form-group">
+                                    <label class="font-weight-bold small text-muted mb-1 text-uppercase">Tebliğ Tarihi</label>
+                                    <input type="text" id="detectedDate" class="form-control border-primary shadow-sm" placeholder="gg.aa.yyyy" data-datepicker>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold small text-muted mb-1 text-uppercase">
+                                        Bağlı Olduğu İşlem (Parent)
+                                        <i class="fas fa-info-circle text-info" title="Bu evrak hangi ana işlemin devamı?"></i>
+                                    </label>
+                                    <select id="parentTransactionSelect" class="form-control border-primary shadow-sm">
+                                        <option value="">-- Önce Kayıt Seçiniz --</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold small text-muted mb-1 text-uppercase">İşlem Türü (Evrak Tipi)</label>
+                                    <select id="detectedType" class="form-control border-primary shadow-sm" disabled>
+                                        <option value="">-- Önce Bağlı İşlem Seçiniz --</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group mb-3">
+                                    <label class="font-weight-bold small text-danger mb-1 text-uppercase">Resmi Son Cevap Tarihi</label>
+                                    <div class="input-group shadow-sm">
+                                        <input type="text" id="calculatedDeadlineDisplay" class="form-control bg-white border-danger text-danger font-weight-bold" readonly placeholder="Tarih seçildiğinde hesaplanacak">
+                                        <div class="input-group-append">
+                                            <span class="input-group-text bg-danger text-white border-danger"><i class="fas fa-calendar-times"></i></span>
+                                        </div>
+                                    </div>
+                                    <small class="text-muted italic"><i class="fas fa-info-circle mr-1"></i>Hafta sonu ve resmi tatiller otomatik kontrol edilir.</small>
+                                </div>
+
+                                <div id="oppositionSection" style="display: none; background: #fff7e6; padding: 15px; border-radius: 12px; border: 1px solid #ffe58f; margin-bottom: 15px;">
+                                    <h6 class="text-warning font-weight-bold small"><i class="fas fa-exclamation-triangle mr-1"></i>İtiraz Detayları</h6>
+                                    
+                                    <div class="form-group mb-2">
+                                        <label class="small font-weight-bold">İtiraz Sahibi</label>
+                                        <input type="text" id="oppositionOwnerInput" class="form-control form-control-sm" placeholder="İtiraz eden kişi/kurum...">
+                                    </div>
+
+                                    <div class="form-group mb-0">
+                                        <label class="small font-weight-bold">Karşı Taraf İtiraz Dilekçesi (PDF)</label>
+                                        <div id="oppositionPetitionDropzone" class="pdf-dropzone" role="button" tabindex="0">
+                                            <div class="dz-title"><i class="fas fa-file-upload mr-1"></i>PDF yükle</div>
+                                            <div class="dz-hint">Sürükle &amp; bırak ya da tıklayıp seç</div>
+                                            <div id="oppositionPetitionFileName" class="dz-filename">Dosya seçilmedi</div>
+                                            <input type="file" id="oppositionPetitionFile" class="d-none" accept="application/pdf">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group mt-2 mb-0">
+                                        <label class="small font-weight-bold">Karşı ePATS Dilekçesi (PDF)</label>
+                                        <div id="oppositionEpatsDropzone" class="pdf-dropzone" role="button" tabindex="0">
+                                            <div class="dz-title"><i class="fas fa-file-upload mr-1"></i>PDF yükle</div>
+                                            <div class="dz-hint">Sürükle &amp; bırak ya da tıklayıp seç</div>
+                                            <div id="oppositionEpatsFileName" class="dz-filename">Dosya seçilmedi</div>
+                                            <input type="file" id="oppositionEpatsPetitionFile" class="d-none" accept="application/pdf">
+                                        </div>
+                                        <small class="text-muted italic d-block mt-1"><i class="fas fa-info-circle mr-1"></i>Opsiyonel: Karşı tarafın ePATS dilekçesini ekleyebilirsiniz.</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold small text-muted mb-1 text-uppercase">Açıklama / Notlar</label>
+                                    <textarea id="transactionNotes" class="form-control border-primary shadow-sm" rows="4" placeholder="İsteğe bağlı not ekleyebilirsiniz..."></textarea>
+                                </div>
+
+                                <button id="saveTransactionBtn" class="btn btn-primary btn-block py-3 mt-4 shadow font-weight-bold rounded-pill text-uppercase" style="letter-spacing: 1px;">
+                                    <i class="fas fa-check-circle mr-2"></i> İndekslemeyi Tamamla
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="registry-editor-section" style="display: none; margin-top: 30px; margin-bottom: 80px;">
+                
+                <div class="card shadow-sm border-top-success mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="m-0 font-weight-bold text-success">
+                            <i class="fas fa-info-circle mr-2"></i>Tescil Bilgileri
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label class="small font-weight-bold text-secondary">Tescil Numarası</label>
+                                    <input type="text" id="registry-registration-no" class="form-control" placeholder="Tescil no giriniz...">
+                                </div>
+                                <div class="form-group">
+                                    <label class="small font-weight-bold text-secondary">Tescil Tarihi</label>
+                                    <div class="input-group">
+                                        <input type="text" id="registry-registration-date" class="form-control" placeholder="gg.aa.yyyy" data-datepicker>
+                                        <div class="input-group-append">
+                                            <span class="input-group-text"><i class="far fa-calendar-alt"></i></span>
+                                        </div>
+                                    </div>
+
+                                    
+
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label class="small font-weight-bold text-secondary">Koruma (Yenileme) Tarihi</label>
+                                    <div class="input-group">
+                                        <input type="text" id="registry-renewal-date" class="form-control" placeholder="gg.aa.yyyy" data-datepicker>
+                                        <div class="input-group-append">
+                                            <span class="input-group-text"><i class="far fa-calendar-alt"></i></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="small font-weight-bold text-secondary">Marka Durumu</label>
+                                    <select id="registry-status" class="form-control"></select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm border-top-primary mb-4">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h6 class="m-0 font-weight-bold text-primary">
+                            <i class="fas fa-layer-group mr-2"></i>Sınıf Düzenleme (Nice)
+                        </h6>
+                        <button class="btn btn-sm btn-outline-primary" id="btn-add-nice-modal" type="button">
+                            <i class="fas fa-plus mr-1"></i>Sınıf Ekle
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="nice-classes-chips" class="mb-3 border-bottom pb-2"></div>
+                        <div id="nice-classes-accordion" class="accordion"></div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <button type="button" id="btn-save-all" class="btn btn-success btn-lg btn-block shadow font-weight-bold">
+                            <i class="fas fa-save mr-2"></i>Tüm Değişiklikleri Kaydet ve Tamamla
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+    </div>
+
+    <div class="modal fade" id="nice-class-modal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title font-weight-bold">Sınıf Ekle</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div id="available-nice-classes" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="wipoSelectionModal" tabindex="-1" role="dialog" aria-hidden="true" style="z-index: 1060;">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title font-weight-bold text-primary">
+                    <i class="fas fa-sitemap mr-2"></i>Kayıt Seçimi (WIPO/ARIPO)
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Kapat">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="alert alert-info small">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Bu kayıt bir çatı (Parent) kayıttır. Lütfen işlem yapmak istediğiniz <strong>spesifik dosyayı</strong> seçin.
+                </div>
+                <div class="list-group" id="wipoSelectionList">
+                    </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/tr.js"></script>
+    <script type="module" src="js/layout-loader.js"></script>
+    <script type="module" src="js/indexing/document-review-manager.js"></script>
+    <script type="module" src="js/indexing/portfolio-update-manager.js"></script>
+    
+    <script type="module">
+        import { loadSharedLayout } from './js/layout-loader.js';
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSharedLayout({ activeMenuLink: 'bulk-indexing-page.html' });
+        });
+    </script>
+    <div id="notification-container"></div>
+</body>
+</html>

@@ -1,0 +1,242 @@
+/* public/css/task-management.css */
+
+/* Genel Sayfa Stilleri */
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+.page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+.main-container { width: 100%; padding: 30px; padding-top: 120px; }
+
+/* Header */
+.page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; padding-top: 120px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
+.page-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; }
+.page-subtitle { color: #666; font-size: 1.1em; }
+
+/* Görevler Konteyneri */
+.tasks-container { background: rgba(255, 255, 255, 0.95); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; }
+.tasks-header { padding: 20px 30px; border-bottom: 1px solid #e1e8ed; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+
+/* Arama ve Butonlar */
+/* ==========================================================================
+   Premium Arama Alanı Tasarımı
+   ========================================================================== */
+
+/* Header içindeki hizalamayı iyileştir */
+.tasks-header {
+    align-items: center;
+    gap: 20px; /* Elementler arası boşluğu artır */
+}
+
+/* Arama alanını saran kapsayıcı */
+.search-wrapper {
+    position: relative;
+    flex-grow: 1;
+    max-width: 500px; /* Genişliği biraz artırdık */
+    min-width: 300px;
+    display: flex;
+    align-items: center;
+}
+
+/* Arama İkonu */
+.search-wrapper .search-icon {
+    position: absolute;
+    left: 20px; /* Kenardan daha içeride */
+    font-size: 1.2rem; /* İkonu biraz büyüttük */
+    color: #adb5bd; /* Daha modern, nötr bir gri */
+    pointer-events: none; /* Tıklamaları input'a geçirir */
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* Yumuşak geçiş */
+    z-index: 2;
+}
+
+/* Arama Inputu (Gövde) */
+.search-wrapper .search-input {
+    width: 100%;
+    padding: 16px 20px 16px 60px; /* İkon için bolca yer bıraktık */
+    border: none; /* Kenarlık yerine gölge kullanacağız */
+    border-radius: 16px; /* Tam yuvarlak değil, modern yumuşak köşeler */
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: #495057;
+    background-color: #f8f9fa; /* Çok hafif gri arka plan (Pasif durum) */
+    /* Modern, katmanlı gölge efekti */
+    box-shadow: 
+        inset 0 1px 3px rgba(0,0,0,0.05), /* Hafif iç gölge */
+        0 5px 15px rgba(0,0,0,0.05);      /* Yumuşak dış gölge */
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Placeholder (Yazı tutucu) Rengi */
+.search-wrapper .search-input::placeholder {
+    color: #ced4da;
+    font-weight: 400;
+}
+
+/* Input Odaklanma (Focus) Durumu - Aktif Hale Gelince */
+.search-wrapper .search-input:focus {
+    outline: none;
+    background-color: #ffffff; /* Arka plan beyaza döner */
+    /* Daha belirgin, mavi tonlu "parlama" efekti */
+    box-shadow: 
+        0 0 0 3px rgba(0, 123, 255, 0.15), /* Mavi halka */
+        0 8px 20px rgba(0, 123, 255, 0.1);  /* Geniş mavi gölge */
+    transform: translateY(-2px); /* Hafifçe yukarı kalkma efekti */
+}
+
+/* Input odaklandığında ikonu renklendir ve hareket ettir */
+.search-wrapper:focus-within .search-icon {
+    color: #007bff; /* İkon mavi olur */
+    transform: translateX(-3px) scale(1.05); /* Hafifçe sola kayar ve büyür */
+}
+.btn-add-task { background: linear-gradient(45deg, #1e3c72, #2a5298); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 0.9em; font-weight: 600; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px; }
+.btn-add-task:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(30, 60, 114, 0.2); }
+
+/* Tablo */
+.tasks-table { width: 100%; border-collapse: collapse; }
+.tasks-table th, .tasks-table td { padding: 15px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+.tasks-table th { background: #f8f9fa; font-weight: 600; }
+
+/* Durum Rozetleri */
+.status-badge { padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 500; color: white; text-align: center; }
+.status-open { background-color: #007bff; }
+.status-in-progress { background-color: #ffc107; color: #333;}
+.status-pending { background-color: #6c757d; }
+.status-completed { background-color: #28a745; }
+.status-cancelled { background-color: #dc3545; }
+.status-on-hold { background-color: #17a2b8; }
+.status-awaiting-approval { background-color: #6f42c1; }
+.status-awaiting_client_approval { background-color: #6f42c1; color: white; }
+.status-client_approval_opened { background-color: #28a745; color: white; }
+.status-client_approval_closed { background-color: #6c757d; color: white; }
+.status-client_no_response_closed { background-color: #fd7e14; color: white; }
+
+/* Öncelik Rozetleri */
+.priority-badge { padding: 4px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 500; }
+.priority-high { background-color: #ffe0e6; color: #dc3545; }
+.priority-medium { background-color: #fff3cd; color: #ffc107; }
+.priority-low { background-color: #e6ffed; color: #28a745; }
+
+/* Aksiyon Butonları */
+.action-btn { background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; margin-left: 5px; transition: all 0.3s ease; }
+.action-btn:hover { opacity: 0.9; }
+.action-btn.edit-btn { background-color: #ffc107; color: #212529; }
+.action-btn.delete-btn { background-color: #dc3545; }
+.action-btn.add-accrual-btn { background-color: #008080; } 
+
+.loading { text-align: center; padding: 50px; }
+.no-records { text-align: center; padding: 50px; color: #666; }
+
+/* Modal Stilleri */
+.modal { display: none; position: fixed; z-index: 1002; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; }
+.modal.show { display: flex; }
+.modal-content { background-color: #fefefe; margin: auto; padding: 30px; border: 1px solid #888; width: 90%; max-width: 1200px; border-radius: 20px; animation-name: animatetop; animation-duration: 0.4s; max-height: 90vh; overflow-y: auto; position: relative; }
+
+/* Modal Kapatma Butonu (Sağ Üst Sabit) */
+.close-modal-btn { color: #aaa; position: absolute; top: 20px; right: 30px; font-size: 28px; font-weight: bold; cursor: pointer; z-index: 10; transition: color 0.2s; }
+.close-modal-btn:hover { color: #333; }
+
+#assignTaskModal .modal-content .form-actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 30px; padding-top: 15px; border-top: 1px solid #e1e8ed; flex-direction: row; flex-wrap: nowrap; }
+#assignTaskModal .modal-content .form-actions .btn { width: auto; margin-bottom: 0; flex-shrink: 0; }
+
+@keyframes animatetop { from {top: -300px; opacity: 0} to {top: 0; opacity: 1} }
+
+.modal-title { font-size: 1.5em; color: #1e3c72; margin-bottom: 20px; }
+.modal-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px 25px; }
+.modal-detail-item { margin-bottom: 10px; }
+.modal-detail-label { font-weight: 600; color: #333; margin-bottom: 5px; font-size: 0.9em; }
+.modal-detail-value { color: #555; word-break: break-word; font-size: 0.95em; }
+.modal-detail-value.long-text { white-space: pre-wrap; background-color: #f8f9fa; padding: 8px; border-radius: 6px; }
+.modal-detail-section-title { grid-column: 1 / -1; font-size: 1.1em; color: #1e3c72; margin-top: 20px; margin-bottom: 15px; padding-bottom: 5px; border-bottom: 1px dashed #e1e8ed; }
+.task-history { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e1e8ed; width: 100%; }
+.task-history-item { padding: 8px 0; border-bottom: 1px dashed #eee; }
+.task-history-description { font-size: 0.9em; color: #333; font-weight: 600; }
+.task-history-meta { font-size: 0.8em; color: #666; margin-top: 4px; }
+
+/* Form Elemanları */
+.form-input, .form-select, .form-textarea { width: 100%; padding: 12px 15px; border: 2px solid #e1e8ed; border-radius: 10px; font-size: 1em; transition: all 0.3s ease; background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+.form-group { margin-bottom: 15px; } 
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px 25px; } 
+.input-with-currency { display: flex; gap: 10px; }
+.input-with-currency .form-input { flex-grow: 1; }
+.currency-select { padding: 12px 8px; border: 2px solid #e1e8ed; border-radius: 10px; background-color: #f8f9fa; font-weight: bold; }
+.checkbox-label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 500; }
+.checkbox-label input { width: 18px; height: 18px; }
+.total-amount-display { font-size: 1.2em; font-weight: bold; color: #1e3c72; text-align: right; margin-top: 10px; padding: 12px 15px; background-color: #f0f4f8; border-radius: 10px; }
+.search-results-list { max-height: 150px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; }
+.search-result-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+.search-result-item:hover { background-color: #f0f4f8; }
+.no-results-message { text-align: center; color: #999; padding: 15px; }
+.search-result-display { background: #e9f5ff; border: 1px solid #bde0fe; padding: 10px; border-radius: 8px; margin-top: 10px; }
+
+/* Özel Dosya Input Stili */
+.custom-file-upload { border: 2px dashed #ccc; display: block; padding: 10px; cursor: pointer; border-radius: 5px; background-color: #f9f9f9; text-align: center; transition: all 0.3s; }
+.custom-file-upload:hover { border-color: #1e3c72; background-color: #eef2f7; }
+
+/* ==========================================================================
+   Modern Filtre (Select) Tasarımı
+   ========================================================================== */
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* Mobilde alt alta geçmesini önlemek için */
+    white-space: nowrap; 
+}
+
+.filter-label {
+    font-weight: 600;
+    color: #4a5568;
+    font-size: 0.95rem;
+}
+
+/* Select Kutusunu Arama Çubuğuna Benzetme */
+.filter-select {
+    appearance: none; /* Varsayılan tarayıcı okunu gizle */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    
+    background-color: #ffffff;
+    border: 2px solid #e1e8ed;
+    border-radius: 50px; /* Arama çubuğu ile aynı yuvarlaklık */
+    padding: 10px 40px 10px 20px; /* Sağ tarafta ok için boşluk bırak */
+    font-size: 0.95rem;
+    color: #4a5568;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-width: 180px;
+    
+    /* Özel Aşağı Ok İkonu (SVG) */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0aec0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 15px center;
+    background-size: 16px;
+}
+
+/* Hover Durumu */
+.filter-select:hover {
+    border-color: #cbd5e0;
+}
+
+/* Focus (Odaklanma) Durumu - Arama çubuğu ile aynı efekt */
+.filter-select:focus {
+    outline: none;
+    border-color: #007bff;
+    background-color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Mobilde Düzenleme */
+@media (max-width: 768px) {
+    .tasks-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .filter-group {
+        width: 100%;
+        justify-content: space-between;
+        margin-top: 10px;
+    }
+    
+    .filter-select {
+        flex-grow: 1;
+    }
+}

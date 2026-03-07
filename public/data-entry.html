@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Portföy Kaydı</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="css/data-entry.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">Portföy Kaydı</h1>
+                <p class="page-subtitle">Yeni portföy kaydı oluşturmak için IP türünü seçin ve bilgileri girin.</p>
+            </section>
+            
+            <div class="form-container">
+                <form id="portfolioForm" onsubmit="return false;">
+                    <div class="form-section">
+                        <h3 class="section-title">1. Tür Seçimi</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="ipTypeSelect" class="form-label">IP Türü</label>
+                                <select id="ipTypeSelect" class="form-select">
+                                    <option value="">Seçiniz...</option>
+                                    <option value="trademark">Marka</option>
+                                    <option value="patent">Patent</option>
+                                    <option value="design">Tasarım</option>
+                                    <option value="suit">Dava</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group" id="ownerCard">
+                                <label for="recordOwnerType" class="form-label">Kayıt Sahibi</label>
+                                <select id="recordOwnerType" class="form-select">
+                                    <option value="self" selected>Portföy</option>
+                                    <option value="third-party">3. Taraf</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" id="originSelectWrapper">
+                                <label for="originSelect" class="form-label">Menşe</label>
+                                <select id="originSelect" class="form-select"></select>
+                            </div>
+                            
+                            <div class="form-group" id="specificTaskTypeWrapper" style="display: none;">
+                                <label for="specificTaskType" class="form-label">Spesifik İş Tipi</label>
+                                <select class="form-select" id="specificTaskType">
+                                    <option value="">Seçiniz...</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div id="countrySelectionContainer" class="form-section" style="display:none;">
+                            <h3 class="section-title" id="countrySelectionTitle">Ulusal Menşe Ülke Seçimi</h3>
+                            <div id="singleCountrySelectWrapper" class="form-group full-width">
+                                <label for="countrySelect" class="form-label">Ülke</label>
+                                <select id="countrySelect" class="form-select"></select>
+                            </div>
+                            
+                            <div id="multiCountrySelectWrapper" style="display: none;">
+                                <div class="form-group full-width">
+                                    <label for="countriesMultiSelectInput" class="form-label">Ülke Ara ve Ekle</label>
+                                    <div class="position-relative">
+                                        <input type="text" id="countriesMultiSelectInput" class="form-input" placeholder="Ülke adı veya kodu ile arayın...">
+                                        <div id="countriesMultiSelectResults" class="search-results-list" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width mt-3">
+                                    <label class="form-label">Seçilen Ülkeler <span class="badge badge-light" id="selectedCountriesCount">0</span></label>
+                                    <div id="selectedCountriesList" class="selected-items-list">
+                                        <div class="empty-state">
+                                            <i class="fas fa-flag fa-3x text-muted mb-3"></i>
+                                            <p class="text-muted">Henüz ülke eklenmedi.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4" id="suitSpecificFieldsCard" style="display: none;">
+                        <div id="suitSpecificFieldsContainer" class="card-body">
+                            </div>
+                    </div>
+
+                    <div id="dynamicFormContainer"></div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="window.location.href='portfolio-management.html'">
+                            <i class="fas fa-times mr-2"></i>İptal
+                        </button>
+                        <button type="button" class="btn btn-primary" id="savePortfolioBtn" disabled>
+                            <i class="fas fa-save mr-2"></i>Portföy Kaydını Kaydet
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/tr.js"></script>
+    <script src="./js/date-pickers.js"></script>
+    <script type="module" src="./js/layout-loader.js"></script>
+    <script type="module" src="js/data-entry/data-entry.js"></script>
+    <script type="module" src="./js/nice-classification.js"></script>
+    
+    </body>
+</html>

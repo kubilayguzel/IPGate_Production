@@ -1,0 +1,141 @@
+/* public/css/task-update.css */
+
+/* --- GENEL SAYFA YAPISI --- */
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; display: flex; }
+.page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+.main-container { width: 100%; padding: 30px; padding-top: 120px; margin: 0; }
+
+/* Header */
+.page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); display: flex; justify-content: space-between; align-items: center; }
+.page-title { font-size: 1.8em; color: #1e3c72; margin-bottom: 5px; font-weight: 700; }
+.page-subtitle { color: #666; font-size: 1em; margin: 0; }
+
+/* Kartlar (Suit Detail Stili) */
+.section-card { 
+    background: #ffffff; 
+    padding: 30px; 
+    border-radius: 20px; 
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05); 
+    margin-bottom: 25px; 
+    transition: transform 0.2s; 
+    border: 1px solid #e1e8ed;
+}
+.section-title { 
+    font-size: 1.2em; 
+    color: #1e3c72; 
+    margin-bottom: 20px; 
+    padding-bottom: 10px; 
+    border-bottom: 2px solid #f0f2f5; 
+    font-weight: 600; 
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+/* Form Elemanları */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; }
+.form-group { margin-bottom: 20px; display: flex; flex-direction: column; }
+.form-group.full-width { grid-column: 1 / -1; }
+.form-label { display: block; margin-bottom: 8px; color: #555; font-weight: 600; font-size: 0.95em; }
+.form-input, .form-select, .form-textarea {
+    width: 100%; padding: 12px 15px; border: 2px solid #e1e8ed;
+    border-radius: 10px; font-size: 1em; transition: all 0.3s ease;
+    background: #fdfdfd; color: #333;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+    outline: none; border-color: #1e3c72; background: #fff;
+    box-shadow: 0 0 0 3px rgba(30, 60, 114, 0.1);
+}
+.form-input[readonly] { background-color: #e9ecef; color: #6c757d; cursor: not-allowed; }
+.form-textarea { min-height: 120px; resize: vertical; }
+
+/* Butonlar */
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 20px; border-top: 1px solid #e9ecef; margin-top: 20px; }
+.btn { padding: 10px 25px; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-primary { background: linear-gradient(45deg, #1e3c72, #2a5298); color: white; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(30, 60, 114, 0.3); }
+.btn-secondary { background: #6c757d; color: white; }
+.btn-secondary:hover { background: #5a6268; }
+.btn-success { background: #28a745; color: white; }
+.btn-outline-danger { border: 1px solid #dc3545; color: #dc3545; background: transparent; }
+.btn-outline-danger:hover { background: #dc3545; color: white; }
+
+/* Dosya Yükleme (Drag & Drop) */
+.file-upload-area {
+    border: 2px dashed #a8dadc; border-radius: 12px; padding: 40px;
+    text-align: center; cursor: pointer; transition: all 0.3s ease;
+    background: #f1faee; margin-top: 15px; position: relative;
+}
+.file-upload-area:hover { border-color: #457b9d; background: #e0f2f7; }
+.file-upload-area.drag-over { border-color: #d63384; background: #ffe3ef; box-shadow: 0 0 0 4px rgba(214,51,132,0.12); }
+
+.upload-icon { font-size: 3.5em; color: #457b9d; margin-bottom: 15px; }
+.upload-text { font-size: 1.2em; font-weight: 600; color: #333; }
+.upload-subtext { font-size: 0.9em; color: #666; margin-top: 5px; }
+
+/* Dosya Listesi */
+.file-list-container { margin-top: 15px; }
+.file-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 15px; border: 1px solid #e1e8ed; border-radius: 8px;
+    background: white; margin-bottom: 8px; transition: transform 0.2s;
+}
+.file-item:hover { transform: translateX(5px); border-color: #ccc; }
+.file-info { display: flex; align-items: center; gap: 15px; overflow: hidden; }
+.file-icon { font-size: 1.5em; color: #e74c3c; } /* PDF rengi */
+.file-details { display: flex; flex-direction: column; overflow: hidden; }
+.file-name { font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-size { font-size: 0.8em; color: #888; }
+.file-actions { display: flex; gap: 10px; align-items: center; }
+.file-designation-select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85em; }
+
+/* Arama Sonuçları (Dropdown) */
+.search-input-wrapper { position: relative; }
+.search-results-list {
+    position: absolute; top: 100%; left: 0; right: 0;
+    max-height: 250px; overflow-y: auto;
+    border: 1px solid #e1e8ed; border-radius: 0 0 10px 10px;
+    background: white; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+.search-result-item { padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s; }
+.search-result-item:hover { background-color: #f8f9fa; }
+.search-result-display {
+    background: #e9f5ff; border: 1px solid #bde0fe; padding: 12px 15px;
+    border-radius: 8px; margin-top: 10px; display: flex;
+    justify-content: space-between; align-items: center;
+}
+
+/* Tahakkuk Kartları */
+.accruals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.accrual-card {
+    background: #fff; border: 1px solid #e1e8ed; border-radius: 12px;
+    padding: 20px; transition: all 0.3s; position: relative;
+    border-left: 5px solid #1e3c72;
+}
+.accrual-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.08); }
+.accrual-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
+.accrual-id { font-weight: 700; color: #1e3c72; font-size: 0.9em; }
+.status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 700; text-transform: uppercase; }
+.status-paid { background: #d4edda; color: #155724; }
+.status-unpaid { background: #fff3cd; color: #856404; }
+.accrual-card-body p { margin: 5px 0; font-size: 0.9em; display: flex; justify-content: space-between; }
+.accrual-total { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #eee; font-weight: 700; font-size: 1.1em; color: #1e3c72; text-align: right; }
+#accrualsContainer {
+    width: 100%;
+    display: block; /* Eğer parent flex ise kart küçülmesin */
+}
+
+/* Timeline (İşlem Geçmişi - Suit Detail Stili) */
+.history-list { position: relative; padding-left: 20px; border-left: 2px solid #e9ecef; margin-top: 10px; }
+.history-item { position: relative; margin-bottom: 25px; }
+.history-item::before {
+    content: ''; position: absolute; left: -26px; top: 5px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 3px solid #1e3c72;
+}
+.history-item-content { background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; }
+.history-action { font-weight: 700; color: #333; margin-bottom: 5px; }
+.history-meta { font-size: 0.85em; color: #777; display: flex; justify-content: space-between; }
+
+/* Modal Z-Index Düzeltmesi */
+.modal { z-index: 1060 !important; } /* Bootstrap backdrop 1040 veya 1050 olabilir, 1060 güvenlidir */
+.modal-backdrop { z-index: 1050 !important; }
+

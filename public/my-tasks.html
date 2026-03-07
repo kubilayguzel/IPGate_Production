@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - İşlerim</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    <link rel="stylesheet" href="./css/deadline-highlighter.css">
+    <link rel="stylesheet" href="./css/task-management.css">
+
+</head>
+<body>
+<div id="notification-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+    <div id="layout-placeholder"></div>
+    <div class="page-wrapper">
+          <main class="main-container">
+            <section class="page-header">
+                <h1 class="page-title">İşlerim</h1>
+                <p class="page-subtitle">Size atanmış olan tüm görevleri buradan takip edebilirsiniz.</p>
+            </section>
+    
+            <div class="tasks-container">
+                <ul class="nav nav-tabs mb-4" id="taskTabs" role="tablist" style="border-bottom: 2px solid #dee2e6;">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="tab-active" data-tab="active" href="#" style="font-weight: 600; color: #495057;">
+                            <i class="fas fa-briefcase mr-2"></i>Aktif İşler
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="tab-completed" data-tab="completed" href="#" style="font-weight: 600; color: #6c757d;">
+                            <i class="fas fa-check-circle mr-2"></i>Biten / Kapatılan İşler
+                        </a>
+                    </li>
+                </ul>
+                    <div class="tasks-header">
+                        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                            <div class="search-wrapper" style="margin: 0;">
+                                <i class="fas fa-search search-icon"></i>
+                                <input type="text" id="taskSearchInput" class="search-input" placeholder="Başlık, numara, tip ara...">
+                            </div>
+                            <button class="btn btn-primary" id="batchAssignBtn" style="display:none; padding: 10px 20px; border-radius: 8px;">
+                                <i class="fas fa-user-check"></i> Seçilenleri Ata (<span id="selectedTaskCount">0</span>)
+                            </button>
+                        </div>  
+                    <div class="filter-group">
+                        <label class="filter-label" for="statusFilter">Durum:</label>
+                        <select id="statusFilter" class="filter-select">
+                            <option value="all">Tümü</option>
+                            <option value="open">Açık</option>
+                            <option value="in-progress">Devam Ediyor</option>
+                            <option value="completed">Tamamlandı</option>
+                            <option value="pending">Beklemede</option>
+                            <option value="cancelled">İptal Edildi</option>
+                            <option value="on-hold">Askıda</option>
+                            <option value="awaiting-approval">Onay Bekliyor</option>
+                            <option value="awaiting_client_approval">Müvekkil Onayı Bekliyor</option>
+                            <option value="client_approval_opened">Müvekkil Onayı - Açıldı</option>
+                            <option value="client_approval_closed">Müvekkil Onayı - Kapatıldı</option>
+                            <option value="client_no_response_closed">Müvekkil Cevaplamadı - Kapatıldı</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="tasks-table" id="myTasksTable">
+                        <thead>
+                            <tr>
+                                <th class="no-sort"><input type="checkbox" id="selectAllTasks"></th>
+                                <th data-sort="id">İş No. <i class="fas fa-sort"></i></th>
+                                <th data-sort="relatedRecordDisplay">İlgili Kayıt <i class="fas fa-sort"></i></th>
+                                <th data-sort="taskTypeDisplay">Tip <i class="fas fa-sort"></i></th>
+                                <th data-sort="priority">Öncelik <i class="fas fa-sort"></i></th>
+                                <th data-sort="dueDateObj">Son Tarih <i class="fas fa-sort"></i></th>
+                                <th data-sort="officialDueObj">Resmi Son Tarih <i class="fas fa-sort"></i></th>
+                                <th data-sort="createdAtObj">Oluşturma <i class="fas fa-sort"></i></th>
+                                <th data-sort="assignedDateObj">Atama <i class="fas fa-sort"></i></th>
+                                <th data-sort="statusText">Durum <i class="fas fa-sort"></i></th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="myTasksTableBody">
+                            </tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" class="pagination-container" style="display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 10px; padding-bottom: 20px;"></div>
+                <div id="loadingIndicator" class="loading">Yükleniyor...</div>
+                <div id="noTasksMessage" class="no-records">Henüz size atanmış bir göreviniz bulunmamaktadır.</div>
+            </div>
+        </main>
+    </div>
+
+    <div id="taskDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeTaskDetailModal">&times;</span>
+            <h3 class="modal-title" id="modalTaskTitle">İş Detayı</h3>
+            <div id="modalBody" class="modal-body-content"></div>
+        </div>
+    </div>
+    
+    <div class="modal" id="createMyTaskAccrualModal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeMyTaskAccrualModal">&times;</span>
+            <h3 class="modal-title">Ek Tahakkuk Oluştur</h3>
+            
+            <div id="createMyTaskAccrualFormContainer"></div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelCreateMyTaskAccrualBtn">İptal</button>
+                <button type="button" class="btn btn-primary" id="saveNewMyTaskAccrualBtn">Tahakkuku Oluştur</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="completeAccrualTaskModal" tabindex="-1">
+        <div class="modal-content">
+            <span class="close-modal-btn" onclick="document.getElementById('completeAccrualTaskModal').classList.remove('show')">&times;</span>
+            <h3 class="modal-title">Tahakkuk Oluştur ve Tamamla</h3>
+            
+            <input type="hidden" id="targetTaskIdForCompletion">
+            <div id="completeAccrualFormContainer"></div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelCompleteAccrualBtn">İptal</button>
+                <button type="button" class="btn btn-primary" id="submitCompleteAccrualBtn">Kaydet ve Tamamla</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="applicationSummaryModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title font-weight-bold text-primary">
+                        <i class="fas fa-clipboard-check mr-2"></i>Başvuru Detayları
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Kapat">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                
+                <div class="modal-body bg-white p-4">
+                    <div id="applicationSummaryContent">
+                        <div class="d-flex justify-content-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Yükleniyor...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light border-top">
+                    <a id="btnGoToTaskUpdate" href="#" class="btn btn-primary px-4 shadow-sm">
+                        <i class="fas fa-external-link-alt mr-2"></i>İşe Git ve Düzenle
+                    </a>
+                    <button type="button" class="btn btn-secondary px-4" data-dismiss="modal">Kapat</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="assignTaskModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal-btn" id="closeAssignTaskModal">&times;</span>
+            <h3 class="modal-title">İşi Başkasına Ata</h3>
+            <div class="modal-body-content">
+                <div class="form-group">
+                    <label for="newAssignedTo" class="form-label">Yeni Atanacak Kullanıcı</label>
+                    <select id="newAssignedTo" class="form-select"><option value="">Seçiniz...</option></select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary" id="saveNewAssignmentBtn">Atamayı Kaydet</button>
+                    <button type="button" class="btn btn-secondary" id="cancelAssignmentBtn">İptal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+    <script src="./js/deadline-highlighter.js"></script>
+    <script type="module" src="./js/task-management/my-tasks.js"></script>
+</body>
+</html>

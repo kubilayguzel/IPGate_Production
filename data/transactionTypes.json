@@ -1,0 +1,358 @@
+[
+  {
+    "id": "patent_application",
+    "name": "Başvuru",
+    "ipType": "patent",
+    "hierarchy": "parent",
+    "applicableToMainType": ["patent"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "ret_karari", "kısmi_yayin_karari", "yayin_karari", "tescil_ucreti_bildirimi", "tescil_belgesi", "islemden_kaldirma_karari", "genel", "diger"],
+    "documentDesignationDefault": "Başvuru Belgesi",
+    "order": 10,
+    "alias": "Başvuru"
+  },
+  {
+    "id": "patent_annual_fee_payment",
+    "name": "Yıllık Ücret Ödemesi",
+    "ipType": "patent",
+    "hierarchy": "parent",
+    "applicableToMainType": ["patent"],
+    "allowedChildTypes": ["odeme_dekontu", "genel", "diger"],
+    "documentDesignationDefault": "Ödeme Dekontu",
+    "order": 20,
+    "alias": "Yıllık Ücret Ödemesi"
+  },
+
+  {
+    "id": "design_application",
+    "name": "Başvuru",
+    "ipType": "design",
+    "hierarchy": "parent",
+    "applicableToMainType": ["design"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Başvuru Belgesi",
+    "order": 10,
+    "alias": "Başvuru"
+  },
+  {
+    "id": "design_renewal",
+    "name": "Yenileme",
+    "ipType": "design",
+    "hierarchy": "parent",
+    "applicableToMainType": ["design"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 20,
+    "alias": "Yenileme"
+  },
+
+  {
+    "id": "trademark_application",
+    "name": "Başvuru",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "ret_karari", "kısmi_yayin_karari", "yayin_karari", "tescil_ucreti_bildirimi", "tescil_belgesi", "islemden_kaldirma_karari", "genel", "diger"],
+    "documentDesignationDefault": "Başvuru Belgesi",
+    "order": 10,
+    "alias": "Başvuru"
+  },
+  {
+    "id": "trademark_publication_objection",
+    "name": "Yayına İtiraz",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["kullanim_ispati_delili_talebi", "itiraz_bildirimi", "itiraza_karsi_gorus_child", "itirazi_geri_cekme_child", "itiraza_ek_belge", "itiraz_kabul", "itiraz_kismen_kabul", "itiraz_ret", "eksiklik_giderme", "kullanim_ispati_delili_sunma", "genel", "diger"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 30,
+    "alias": "Yayına İtiraz"
+  },
+  {
+    "id": "trademark_decision_objection",
+    "name": "Karara İtiraz",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["itirazi_geri_cekme_child", "itiraza_ek_belge", "muvafakat_sunumu_child", "eksiklik_giderme", "itiraz_kabul", "itiraz_kismen_kabul", "itiraz_ret", "genel", "diger"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 40,
+    "alias": "Karara İtiraz"
+  },
+  {
+    "id": "trademark_reconsideration_of_publication_objection",
+    "name": "Yayına İtirazın Yeniden İncelenmesi",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["itiraza_karsi_gorus_child", "itiraz_bildirimi", "itirazi_geri_cekme_child", "itiraza_ek_belge", "itiraz_kabul", "itiraz_kismen_kabul", "itiraz_ret", "genel", "diger"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 50,
+    "alias": "Yayına İtirazın Yeniden İncelenmesi"
+  },
+  {
+    "id": "trademark_renewal_process",
+    "name": "Yenileme",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 20,
+    "alias": "Yenileme"
+  },
+  {
+    "id": "trademark_transfer_process",
+    "name": "Devir",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 60,
+    "alias": "Devir"
+  },
+  {
+    "id": "trademark_license_process",
+    "name": "Lisans",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 70,
+    "alias": "Lisans"
+  },
+  {
+    "id": "trademark_merger_process",
+    "name": "Birleşme",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 80,
+    "alias": "Birleşme"
+  },
+  {
+    "id": "trademark_inheritance_process",
+    "name": "Veraset ile İntikal",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 90,
+    "alias": "Veraset ile İntikal"
+  },
+  {
+    "id": "trademark_registration_certificate_copy_process",
+    "name": "Tescil Belgesi Sureti",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 100,
+    "alias": "Tescil Belgesi Sureti"
+  },
+  {
+    "id": "trademark_registry_copy_process",
+    "name": "Sicil Sureti",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 110,
+    "alias": "Sicil Sureti"
+  },
+  {
+    "id": "trademark_country_of_origin_certificate",
+    "name": "Menşe Memleket Belgesi",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 120,
+    "alias": "Menşe Memleket Belgesi"
+  },
+  {
+    "id": "trademark_pledge_guarantee_process",
+    "name": "Rehin/Teminat",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 130,
+    "alias": "Rehin/Teminat"
+  },
+  {
+    "id": "trademark_division_process",
+    "name": "Bölünme",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 140,
+    "alias": "Bölünme"
+  },
+  {
+    "id": "trademark_abandonment_process",
+    "name": "Vazgeçme",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 150,
+    "alias": "Vazgeçme"
+  },
+  {
+    "id": "trademark_recognition_determination_process",
+    "name": "Tanınmışlık Tespiti",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 160,
+    "alias": "Tanınmışlık Tespiti"
+  },
+  {
+    "id": "trademark_third_party_opinion_process",
+    "name": "3. Kişi Görüşü",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 170,
+    "alias": "3. Kişi Görüşü"
+  },
+  {
+    "id": "trademark_goods_limitation_process",
+    "name": "Eşya Sınırlandırma",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["eksiklik_bildirimi", "kabul_karari", "ret_karari", "genel", "diger"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 180,
+    "alias": "Eşya Sınırlandırma"
+  },
+  {
+    "id": "trademark_madrid_application_fee_payment",
+    "name": "Madrid Başvurusu Ücret Ödeme",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "allowedChildTypes": ["odeme_dekontu", "genel", "diger"],
+    "documentDesignationDefault": "Ödeme Dekontu",
+    "order": 190,
+    "alias": "Madrid Başvurusu Ücret Ödeme"
+  },
+
+  {
+    "id": "eksiklik_bildirimi",
+    "name": "Eksiklik Bildirimi",
+    "alias": "Eksiklik Giderme",
+    "ipType": "general",
+    "hierarchy": "child",
+    "applicableToMainType": ["all"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 10,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_application", "patent_application", "design_application", "trademark_renewal_process", "trademark_transfer_process", "trademark_license_process", "trademark_merger_process", "trademark_inheritance_process", "trademark_registration_certificate_copy_process", "trademark_registry_copy_process", "trademark_country_of_origin_certificate", "trademark_pledge_guarantee_process", "trademark_division_process", "trademark_abandonment_process", "trademark_recognition_determination_process", "trademark_third_party_opinion_process", "trademark_goods_limitation_process", "trademark_publication_objection", "trademark_decision_objection", "trademark_reconsideration_of_publication_objection"]
+  },
+
+  {
+    "id": "tescil_ucreti_bildirimi",
+    "name": "Tescil Ücreti Bildirimi",
+    "alias": "Tescil Ücreti Ödeme",
+    "ipType": "general",
+    "hierarchy": "child",
+    "applicableToMainType": ["all"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 50,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_application", "patent_application", "design_application"]
+  },
+
+  {
+    "id": "kullanim_ispati_delili_talebi",
+    "name": "Kullanım İspatı Delili Talebi",
+    "alias": "Kullanım Delili Sunma",
+    "ipType": "trademark",
+    "hierarchy": "child",
+    "applicableToMainType": ["trademark"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 80,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_publication_objection", "trademark_reconsideration_of_publication_objection"]
+  },
+
+  {
+    "id": "itiraza_karsi_gorus_child",
+    "name": "İtiraza Karşı Görüş",
+    "alias": "İtiraza Karşı Görüş",
+    "ipType": "trademark",
+    "hierarchy": "child",
+    "applicableToMainType": ["trademark"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 100,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_publication_objection", "trademark_reconsideration_of_publication_objection"]
+  },
+  {
+    "id": "itirazi_geri_cekme_child",
+    "name": "İtirazı Geri Çekme",
+    "alias": "Karara İtirazı Geri Çekme",
+    "ipType": "trademark",
+    "hierarchy": "child",
+    "applicableToMainType": ["trademark"],
+    "documentDesignationDefault": "Resmi Yazışma",
+    "order": 110,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_publication_objection", "trademark_decision_objection", "trademark_reconsideration_of_publication_objection"]
+  },
+  {
+    "id": "itiraza_ek_belge",
+    "name": "İtiraza Ek Belge",
+    "alias": "İtiraza Ek Belge",
+    "ipType": "trademark",
+    "hierarchy": "child",
+    "applicableToMainType": ["trademark"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 120,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_publication_objection", "trademark_decision_objection", "trademark_reconsideration_of_publication_objection"]
+  },
+
+  {
+    "id": "muvafakat_sunumu_child",
+    "name": "Muvafakat Sunumu",
+    "alias": "Muvafakat Sunumu",
+    "ipType": "trademark",
+    "hierarchy": "child",
+    "applicableToMainType": ["trademark"],
+    "documentDesignationDefault": "Genel Belge",
+    "order": 170,
+    "isTopLevelSelectable": true,
+    "expectedParentTypeIds": ["trademark_decision_objection"] 
+  },
+  {
+    "id": "kabul_karari",
+    "name": "Kabul Kararı",
+    "alias": "Kabul Kararı",
+    "ipType": "general",
+    "hierarchy": "child",
+    "applicableToMainType": ["all"],
+    "documentDesignationDefault": "Karar",
+    "order": 180,
+    "isTopLevelSelectable": false, 
+    "expectedParentTypeIds": [] 
+  }
+]

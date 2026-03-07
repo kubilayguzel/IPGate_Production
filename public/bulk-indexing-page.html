@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - Belge Yükleme ve Yönetimi</title>
+    
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap">
+    
+    <link rel="stylesheet" href="css/shared-styles.css">
+    <link rel="stylesheet" href="css/task-update.css">
+
+    <style>
+        /* --- DÜZELTMELER VE ÖZEL STİLLER --- */
+        
+        /* 1. LAYOUT & SCROLL FIX */
+        body {
+            overflow-x: hidden; /* Sağ taraftaki beyaz kolonu engeller */
+        }
+
+        /* 2. BİLDİRİM KAPSAYICISI (Sabit Pozisyon) */
+        .notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 99999; /* En üstte */
+            width: auto;
+            max-width: 350px;
+            pointer-events: none; /* Tıklamaları engelleme */
+        }
+        /* Bildirim içeriğinin tıklanabilir olması için */
+        .notification-container > * {
+            pointer-events: auto;
+        }
+
+        /* 3. ANA TAB NAVİGASYONU */
+        .tab-navigation {
+            display: flex; gap: 15px; margin-bottom: 25px; padding: 0 5px;
+        }
+        .nav-btn {
+            background: #fff; border: 1px solid #e1e8ed;
+            padding: 12px 20px; border-radius: 12px; color: #64748b;
+            font-weight: 600; cursor: pointer; transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+            flex: 1; justify-content: center;
+        }
+        .nav-btn:hover { background: #f8f9fa; transform: translateY(-2px); color: #1e3c72; }
+        .nav-btn.active {
+            background: #1e3c72; color: #fff; border-color: #1e3c72;
+            box-shadow: 0 4px 12px rgba(30, 60, 114, 0.2);
+        }
+
+        /* 4. DOSYA YÜKLEME ALANI (Temizlendi) */
+        .file-upload-area {
+            border: 2px dashed #cbd5e1;
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fdfdfd;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .file-upload-area:hover {
+            border-color: #1e3c72 !important;
+            background: #f0f7ff !important;
+        }
+        /* İçindeki ikon ve yazı stili */
+        .file-upload-area i { color: #a0aec0; margin-bottom: 10px; }
+        .file-upload-area span { font-weight: 600; color: #4a5568; }
+
+        /* 5. ETEBS FİLTRE TABLARI (Görünürlük Fix) */
+        .filter-tabs {
+            display: flex; gap: 8px; margin-bottom: 20px; background: #f8f9fa; 
+            padding: 8px; border-radius: 10px; border: 1px solid #e9ecef;
+            width: 100%; /* Genişlik sorunu için */
+        }
+        .filter-btn {
+            padding: 8px 16px; border-radius: 8px; border: none; background: transparent;
+            color: #64748b; font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s;
+            flex: 1; text-align: center;
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+        }
+        .filter-btn.active { background: #fff; color: #1e3c72; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .filter-btn.active .badge { background: #1e3c72; color: white; }
+
+        /* 6. DOSYA KARTLARI */
+        .file-item, .pdf-list-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 15px; border: 1px solid #e1e8ed; border-radius: 12px;
+            background: white; margin-bottom: 10px; transition: transform 0.2s;
+        }
+        .file-item-name, .pdf-name { margin-bottom: 0; font-weight: 600; color: #333; font-size: 0.95rem; }
+        .pdf-list-item.matched { border-left: 5px solid #2ecc71; background: #f0fdf4; }
+        .pdf-list-item.unmatched { border-left: 5px solid #ef4444; background: #fef2f2; }
+        
+        .pdf-icon { font-size: 1.5rem; margin-right: 15px; color: #e74c3c; }
+        .match-status { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+        .match-status.matched { background: #dcfce7; color: #155724; }
+        .match-status.unmatched { background: #f8d7da; color: #721c24; }
+        /* PDF aksiyon butonları (aynı tasarım dili) */
+        .pdf-actions { display: flex; gap: 8px; align-items: center; }
+
+        .pdf-action-btn{
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        border: 1px solid #e1e8ed;
+        background: #fff;
+        color: #1e3c72;
+        padding: 0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.04);
+        }
+
+        .pdf-action-btn:hover{
+        background: #f8f9fa;
+        transform: translateY(-1px);
+        }
+
+        .pdf-action-danger { color: #dc3545; }
+
+        /* TAB PANE YÖNETİMİ */
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; animation: fadeIn 0.3s ease-out; }
+        
+        /* İç Tablar (Files & Notifications) */
+        .file-tab-pane, .notification-tab-pane { display: none !important; }
+        .file-tab-pane.active, .notification-tab-pane.active { display: block !important; animation: fadeIn 0.3s ease; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Badge & Search Results */
+        .badge-counter { background: #ff4757; color: white; font-size: 0.75em; padding: 2px 8px; border-radius: 10px; margin-left: 5px; }
+        .search-results-wrapper {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: white; border: 1px solid #e1e8ed; border-top: none;
+            border-radius: 0 0 10px 10px; box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            z-index: 1000; max-height: 300px; overflow-y: auto;
+        }
+        /* Üstteki mod butonları (Token ile / Manuel Yükleme) */
+        .mode-btn{
+        flex: 0 0 auto;         /* içerik kadar genişlesin */
+        white-space: nowrap;    /* satır kırma olmasın */
+        }
+
+        
+
+        /* 1. LAYOUT FIX */
+    body { overflow-x: hidden; background-color: #f8f9fa; }
+
+    /* 2. ANA TAB NAVİGASYONU (Sadeleştirilmiş) */
+    .tab-navigation { display: flex; gap: 10px; margin-bottom: 25px; }
+    .nav-btn {
+        background: #fff; border: 1px solid #dee2e6;
+        padding: 10px 20px; border-radius: 8px; color: #495057;
+        font-weight: 600; cursor: pointer; transition: all 0.2s;
+        flex: 1; text-align: center;
+    }
+    .nav-btn.active { background: #1e3c72; color: #fff; border-color: #1e3c72; }
+
+    /* 3. DOSYA LİSTESİ TASARIMI (Eski haline dönüş) */
+    .pdf-list-item {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 15px; border: 1px solid #e9ecef; border-radius: 8px;
+        background: white; margin-bottom: 8px;
+    }
+    .pdf-list-item.matched { border-left: 4px solid #28a745; }
+    .pdf-list-item.unmatched { border-left: 4px solid #dc3545; }
+    
+    .pdf-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; }
+    .pdf-meta { font-size: 0.8rem; color: #6c757d; }
+
+    /* 4. BUTONLARIN GÖRÜNÜMÜ (Fix) */
+    .pdf-actions { display: flex; gap: 5px; }
+    .pdf-action-btn {
+        width: 32px; height: 32px; border-radius: 6px;
+        border: 1px solid #dee2e6; background: #fff;
+        display: inline-flex; align-items: center; justify-content: center;
+        color: #1e3c72; transition: 0.2s;
+    }
+    .pdf-action-btn:hover { background: #f8f9fa; border-color: #ced4da; }
+    .pdf-action-danger { color: #dc3545; }
+
+    /* PANE YÖNETİMİ */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .notification-tab-pane { display: none !important; }
+    .notification-tab-pane.active { display: block !important; }
+
+    </style>
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+    <div id="notification-container" class="notification-container"></div>
+    <div class="page-wrapper">
+        <div id="left-sidebar-container"></div>
+        <div id="top-bar-container"></div>
+
+        <div class="main-container">
+            
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Belge Yükleme ve Yönetimi</h1>
+                    <p class="page-subtitle">Merkezi belge yönetimi, ETEBS sorgulama ve EPATS transfer işlemleri.</p>
+                </div>
+            </div>
+
+            <div class="tab-navigation tabs-container">
+                <button class="nav-btn tab-btn active" data-tab="manual-indexing-pane">
+                    <i class="fas fa-edit"></i> Manuel İşlem
+                </button>
+                <button class="nav-btn tab-btn" data-tab="bulk-indexing-pane">
+                    <i class="fas fa-envelope-open-text"></i> ETEBS Tebligatları
+                    <span class="badge-counter" id="totalBadge">0</span>
+                </button>
+                <button class="nav-btn tab-btn" data-tab="epats-indexing-pane">
+                    <i class="fas fa-file-import"></i> EPATS Evrak Yükleme
+                </button>
+            </div>
+
+            <div class="tab-content-wrapper">
+                
+                <div id="manual-indexing-pane" class="tab-pane active">
+                    <div class="row">
+                        <div class="col-12">
+                            
+                            <div class="section-card">
+                                <h3 class="section-title">Kayıt Seçimi</h3>
+                                <div class="form-group position-relative">
+                                    <label class="form-label">Başvuru Numarası veya Marka Adı</label>
+                                    <input type="text" id="recordSearchInputManual" class="form-input" placeholder="Aramak için yazın..." autocomplete="off">
+                                    <div id="searchResultsContainerManual" class="search-results-wrapper" style="display:none;"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Seçili Kayıt</label>
+                                    <div id="selectedRecordEmptyManual" class="text-muted small" style="padding: 6px 0;">Henüz bir kayıt seçilmedi.</div>
+
+                                    <!-- Create Task > İşleme Konu Varlık görselliğiyle uyumlu kart -->
+                                    <div id="selectedRecordContainerManual" class="mt-3" style="display:none;">
+                                        <div class="d-flex justify-content-between align-items-center p-3 border rounded bg-white shadow-sm">
+                                            <div class="d-flex align-items-center">
+                                                <div class="mr-3">
+                                                    <img id="selectedRecordImageManual" src="" alt="Marka" 
+                                                         style="width: 60px; height: 60px; object-fit: contain; border: 1px solid #eee; border-radius: 4px; display:none; background-color: #fff;">
+                                                    <div id="selectedRecordPlaceholderManual" 
+                                                         style="width: 60px; height: 60px; background-color: #f8f9fa; border: 1px solid #eee; border-radius: 4px; display:flex; align-items:center; justify-content:center; color:#adb5bd;">
+                                                        <i class="fas fa-image" style="font-size: 24px;"></i>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <h5 class="mb-1 font-weight-bold" id="selectedRecordLabelManual" style="font-size: 1rem; color: #2c3e50;"></h5>
+                                                    <div class="text-muted small">
+                                                        Başvuru No: <strong id="selectedRecordNumberManual" style="color: #333;"></strong>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button type="button" class="btn btn-danger btn-sm d-flex align-items-center justify-content-center" 
+                                                    id="clearSelectedRecordManual" title="Kaldır" 
+                                                    style="width: 32px; height: 32px; border-radius: 4px;">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="section-card">
+                                <h3 class="section-title">İşlem Detayları</h3>
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label class="form-label">İşlem Türü (Ana İşlem) <span class="text-danger">*</span></label>
+                                        <select id="specificManualTransactionType" class="form-select"></select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Alt İşlem Türü (Opsiyonel)</label>
+                                        <select id="manualChildTransactionType" class="form-select" disabled>
+                                            <option value="">-- Sadece Ana İşlem Oluştur --</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="form-group" id="manualParentSelectContainer" style="display: none; grid-column: span 2;">
+                                        <label class="form-label">Bağlanacak Ana İşlem (Parent) <span class="text-danger">*</span></label>
+                                        <select id="manualExistingParentSelect" class="form-select">
+                                            <option value="">-- Ana İşlem Seçin --</option>
+                                        </select>
+                                        <small class="text-muted"><i class="fas fa-info-circle mr-1"></i>Alt işlemi bağlamak için mevcut bir ana işlem seçmelisiniz.</small>
+                                    </div>
+
+                                    <div class="form-group" style="grid-column: span 2;">
+                                        <label class="form-label">Tebliğ Tarihi</label>
+                                        <input type="date" id="manualTransactionDeliveryDate" class="form-input">
+                                    </div>
+                                </div>
+                                <div class="form-group mt-3">
+                                    <label class="form-label">Notlar</label>
+                                    <textarea id="manualTransactionNotes" class="form-textarea" placeholder="İşlemle ilgili notlar..."></textarea>
+                                </div>
+                            </div>
+
+                            <div class="section-card">
+                                <h3 class="section-title">Belgeler & Dosyalar</h3>
+                                
+                                <div class="file-upload-area" id="filesManualButton">
+                                    <i class="fas fa-cloud-upload-alt fa-3x"></i>
+                                    <span>PDF Dosyalarını Buraya Sürükleyin</span>
+                                </div>
+                                <input type="file" id="filesManual" multiple style="display:none;">
+                                
+                                <div id="fileListManual" class="mt-3"></div>
+                                
+                                <div class="form-actions mt-4 text-right">
+                                    <button id="saveManualTransactionBtn" class="btn btn-primary btn-lg px-5 font-weight-bold" disabled>
+                                        <i class="fas fa-save mr-2"></i> Manuel İşlemi Kaydet
+                                    </button>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div id="bulk-indexing-pane" class="tab-pane">
+                    <div class="section-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3 class="section-title mb-0">Tebligat İşlemleri</h3>
+                            <div class="filter-tabs mb-0 p-1" style="width: auto;">
+                                <button class="filter-btn active mode-btn" data-mode="etebs">
+                                    <i class="fas fa-key mr-2"></i> ETEBS Tokenı İle Sorgula
+                                </button>
+                                <button class="filter-btn mode-btn" data-mode="upload">
+                                    <i class="fas fa-file-upload mr-2"></i> Manuel Yükleme
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="etebs-content">
+                            <div class="form-group">
+                                <label class="form-label">ETEBS Token (GUID)</label>
+                                <div class="d-flex gap-2">
+                                    <input type="text" id="etebsTokenInput" class="form-input" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX">
+                                    <button id="fetchNotificationsBtn" class="btn btn-primary px-4">
+                                        <i class="fas fa-sync-alt mr-2"></i> Sorgula
+                                    </button>
+                                </div>
+                                <div id="tokenStatus" class="mt-2"></div>
+                            </div>
+                        </div>
+
+                        <div id="upload-content" style="display: none;">
+                            <div class="file-upload-area" id="bulkFilesButton">
+                                <i class="fas fa-file-pdf fa-3x" style="color: #e74c3c;"></i>
+                                <span>PDF Dosyalarını Sürükleyin</span>
+                            </div>
+                            <input type="file" id="bulkFiles" multiple style="display:none;" accept=".pdf">
+                            <div id="bulkFilesInfo" style="display:none;"></div>
+
+                        </div>
+                    </div>
+                    
+                    <div id="notificationsSection">
+                        <div class="section-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <h3 class="section-title mb-0">Sorgu Sonuçları</h3>
+                            </div>
+
+                            <div class="tab-navigation tabs-container mb-3" style="padding: 0; gap: 10px; margin-bottom: 20px;">
+                                <button class="nav-btn notification-tab-btn active" data-target="etebs-matched-tab">
+                                    <i class="fas fa-link text-success"></i> ETEBS - Eşleşen
+                                    <span class="badge-counter ml-2" id="etebsMatchedBadge">0</span>
+                                </button>
+                                <button class="nav-btn notification-tab-btn" data-target="etebs-unmatched-tab">
+                                    <i class="fas fa-unlink text-danger"></i> ETEBS - Eşleşmeyen
+                                    <span class="badge-counter ml-2" id="etebsUnmatchedBadge">0</span>
+                                </button>
+                                <button class="nav-btn notification-tab-btn" data-target="manual-uploaded-tab">
+                                    <i class="fas fa-file-upload text-primary"></i> Manuel Yüklenenler
+                                    <span class="badge-counter ml-2" id="manualUploadedBadge">0</span>
+                                </button>
+                            </div>
+
+                            <div class="tab-content mt-3">
+                                <div id="etebs-matched-tab" class="notification-tab-pane active">
+                                    <div id="etebsMatchedList" class="pdf-list-container"></div>
+                                    <div id="etebsMatchedPagination" class="pagination-container mt-3 d-flex justify-content-center"></div>
+                                </div>
+
+                                <div id="etebs-unmatched-tab" class="notification-tab-pane">
+                                    <div id="etebsUnmatchedList" class="pdf-list-container"></div>
+                                    <div id="etebsUnmatchedPagination" class="pagination-container mt-3 d-flex justify-content-center"></div>
+                                </div>
+
+                                <div id="manual-uploaded-tab" class="notification-tab-pane">
+                                    <div id="manualUploadedList" class="pdf-list-container"></div>
+                                    <div id="manualUploadedPagination" class="pagination-container mt-3 d-flex justify-content-center"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="epats-indexing-pane" class="tab-pane">
+                    <div class="section-card">
+                        <h3 class="section-title">Filtreleme ve Kayıt Seçimi</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">Müvekkil (Sahip)</label>
+                                <select id="epatsClientSelect" class="form-select">
+                                    <option value="">Yükleniyor...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">IP Türü</label>
+                                <select id="epatsIpTypeSelect" class="form-select">
+                                    <option value="trademark">Marka</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Belge Türü</label>
+                                <select id="epatsDocTypeSelect" class="form-select">
+                                    <option value="tescil_belgesi">Tescil Belgesi</option>
+                                    <option value="marka_basvuru_belgesi">Başvuru Belgesi</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-actions border-top-0 pt-0 mt-3">
+                            <button id="btnFetchMissingDocs" class="btn btn-primary px-4">
+                                <i class="fas fa-search mr-2"></i> Eksik Belgeleri Listele
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="epatsResultsSection" class="section-card" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3">
+                            <h3 class="section-title mb-0 border-0 p-0">İşlem Bekleyen Kayıtlar</h3>
+                            <button id="btnStartEpatsTransfer" class="btn btn-success" disabled>
+                                <i class="fas fa-rocket mr-2"></i> Transferi Başlat (<span id="selectedEpatsCount">0</span>)
+                            </button>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th style="width: 50px;" class="text-center"><input type="checkbox" id="selectAllEpats"></th>
+                                        <th>Başvuru No</th>
+                                        <th>Marka Adı</th>
+                                        <th>Durum</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="epatsResultsBody"></tbody>
+                            </table>
+                        </div>
+                        <div id="epatsPagination" class="mt-4 d-flex justify-content-center"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+<script type="module">
+    import { loadSharedLayout } from './js/layout-loader.js';
+    import { ETEBSManager } from './js/indexing/etebs-manager.js';
+    import { EpatsUiManager } from './js/indexing/epats-ui-manager.js';
+    import './js/simple-loading.js'; 
+    import { ManuelPdfTransactionManager } from './js/indexing/manuel-pdf-transaction-manager.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSharedLayout({ activeMenuLink: 'bulk-indexing-page.html' });
+
+        // Modülleri Başlat
+        window.etebsManager = new ETEBSManager();
+        window.epatsUiManager = new EpatsUiManager();
+        window.manuelPdfTransactionManager = new ManuelPdfTransactionManager();
+
+        // 2. URL Parametresi Kontrolü (Yükleme veya ETEBS Sorgusu Sonrası)
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialTab = urlParams.get('tab'); 
+        
+        const navBtns = document.querySelectorAll('.nav-btn.tab-btn');
+        const panes = document.querySelectorAll('.tab-pane');
+
+        // Eğer URL'de tab=bulk varsa ETEBS sekmesini aktif et
+        if (initialTab === 'bulk') {
+            // Mevcut aktifleri temizle
+            navBtns.forEach(b => b.classList.remove('active'));
+            panes.forEach(p => p.classList.remove('active'));
+            
+            const bulkTabBtn = document.querySelector('[data-tab="bulk-indexing-pane"]');
+            const bulkPane = document.getElementById('bulk-indexing-pane');
+            
+            if (bulkTabBtn && bulkPane) {
+                bulkTabBtn.classList.add('active');
+                bulkPane.classList.add('active');
+                
+                // 🔥 Verileri LOADER İLE çek (false = sessiz mod kapalı)
+                // Sayfa yenilendiğinde kullanıcı verilerin yüklendiğini görsün.
+                if (window.etebsManager) {
+                    console.log("🔄 Sayfa yenilendi, ETEBS listesi loader ile tazeleniyor...");
+                    window.etebsManager.fetchNotifications(false, false);
+                }
+            }
+        }
+
+        // 3. Manuel Sekme Geçiş Dinleyicileri
+        navBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = btn.getAttribute('data-tab');
+                
+                navBtns.forEach(b => b.classList.remove('active'));
+                panes.forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(target).classList.add('active');
+
+                // 🔥 ETEBS Sekmesine tıklandığında listeyi LOADER İLE tazele
+                if (target === 'bulk-indexing-pane' && window.etebsManager) {
+                    window.etebsManager.fetchNotifications(false, false); 
+                }
+            });
+        });
+
+        // 4. ETEBS Modu (Token / Manuel Upload Butonları)
+        const modeBtns = document.querySelectorAll('.mode-btn');
+        const etebsContent = document.getElementById('etebs-content');
+        const uploadContent = document.getElementById('upload-content');
+        
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                modeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const mode = btn.getAttribute('data-mode');
+                
+                if (mode === 'etebs') {
+                    etebsContent.style.display = 'block';
+                    uploadContent.style.display = 'none';
+                } else {
+                    etebsContent.style.display = 'none';
+                    uploadContent.style.display = 'block';
+                }
+            });
+        });
+    });
+</script>
+</body>
+</html>

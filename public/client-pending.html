@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yetki Onayı Bekleniyor - Evreka IPGate</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Montserrat', sans-serif;
+            background-color: #f4f6f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .pending-container {
+            background: #ffffff;
+            padding: 40px 50px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            text-align: center;
+            max-width: 450px;
+            width: 90%;
+        }
+        .logo {
+            max-width: 180px;
+            margin-bottom: 30px;
+        }
+        .icon-wrapper {
+            width: 80px;
+            height: 80px;
+            background-color: #e0f2fe; /* Açık mavi arka plan */
+            color: #0ea5e9; /* Evreka mavisi tonları */
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 20px auto;
+        }
+        .icon-wrapper svg {
+            width: 40px;
+            height: 40px;
+        }
+        h1 {
+            color: #1e293b;
+            font-size: 22px;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+        p {
+            color: #64748b;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 35px;
+        }
+        .logout-btn {
+            background-color: #ef4444; /* Kırmızı çıkış butonu */
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-family: 'Montserrat', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        .logout-btn:hover {
+            background-color: #dc2626;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
+        }
+        .logout-btn:active {
+            transform: translateY(2px);
+        }
+        .logout-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="pending-container">
+    <img src="evreka-logo.png" alt="Evreka Logo" class="logo">
+    
+    <div class="icon-wrapper">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+    </div>
+
+    <h1>Hesabınız Onay Bekliyor</h1>
+    <p>Sisteme başarıyla kayıt oldunuz. Ancak güvenlik nedeniyle hesabınızın sistem yöneticisi tarafından yetkilendirilmesi gerekmektedir. Lütfen daha sonra tekrar deneyin veya yöneticinizle iletişime geçin.</p>
+    
+    <button id="logoutBtn" class="logout-btn">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+        Çıkış Yap ve Ana Sayfaya Dön
+    </button>
+</div>
+
+<script type="module">
+    // supabase-config.js'den authService modülünü içeri aktarıyoruz
+    import { authService, redirectOnLogout } from './supabase-config.js';
+
+    // Çıkış yapıldığında otomatik login (index.html) sayfasına yönlendirme dinleyicisi
+    redirectOnLogout('index.html');
+
+    // Butona tıklandığında güvenli çıkış yap
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('logoutBtn');
+        btn.innerHTML = 'Çıkış Yapılıyor...';
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        
+        // Bu fonksiyon hem Supabase session'ı kapatır hem de local/session storage'ı temizler
+        await authService.signOut();
+    });
+</script>
+
+</body>
+</html>

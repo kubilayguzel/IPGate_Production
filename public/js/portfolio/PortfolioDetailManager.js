@@ -272,15 +272,54 @@ export class PortfolioDetailManager {
             const { tx, containerId, hasAnyDirect } = item;
             const container = document.getElementById(containerId);
             if (!container) return;
+            
             const taskDocs = await TransactionHelper.getTaskDocuments(tx);
             container.querySelector('.tx-docs-loading')?.remove();
+            
             if (!taskDocs || taskDocs.length === 0) {
                 if (!hasAnyDirect && container.innerText.trim() === '') container.innerHTML = '<span class="text-muted small">-</span>';
                 return;
             }
-            const existing = new Set(Array.from(container.querySelectorAll('a')).map(a => a.getAttribute('href')));
-            const icons = taskDocs.filter(d => d?.url && !existing.has(d.url)).map((d, i) => this.createDocIcon(d, i === 0 && existing.size === 0)).join(' ');
+
+            // 🔥 ÇİFT KAYIT ÖNLEYİCİ (Akıllı Filtreleme)
+            // 1. DOM'da halihazırda var olan (TransactionHelper'dan gelen) evrakların URL'lerini ve isimlerini topla
+            const existingUrls = new Set();
+            const existingNames = new Set();
+            
+            container.querySelectorAll('a').forEach(a => {
+                const href = a.getAttribute('href') || '';
+                const title = a.getAttribute('title') || '';
+                // URL'nin sonundaki ?t=... gibi değişken tokenleri atarak ana dosya yolunu al
+                existingUrls.add(href.split('?')[0].toLowerCase());
+                existingNames.add(title.trim().toLowerCase());
+            });
+            
+            // 2. Yeni eklenecek (Görevden gelen) evrakları filtrele
+            const icons = taskDocs.filter(d => {
+                if (!d?.url) return false;
+                
+                const cleanUrl = d.url.split('?')[0].toLowerCase();
+                const cleanName = (d.name || '').trim().toLowerCase();
+                const isGenericName = cleanName === 'belge' || cleanName === 'görev belgesi' || cleanName === 'epats belgesi';
+
+                // Eğer ana URL (tokensiz hali) zaten varsa, EKLEME
+                if (existingUrls.has(cleanUrl)) return false;
+                
+                // Eğer URL farklı ama ismi aynıysa (ve jenerik bir isim değilse), EKLEME
+                if (!isGenericName && existingNames.has(cleanName)) return false;
+
+                // Testi geçerse setlere ekle (aynı döngüde ardışık gelirse diye)
+                existingUrls.add(cleanUrl);
+                if (!isGenericName) existingNames.add(cleanName);
+                
+                return true;
+            }).map((d, i) => this.createDocIcon(d, i === 0 && existingUrls.size === 1)).join(' ');
+            
             if (icons) container.insertAdjacentHTML('beforeend', icons);
+            
+            if (!hasAnyDirect && container.innerText.trim() === '') {
+                container.innerHTML = '<span class="text-muted small">-</span>';
+            }
         };
         for (const item of queue) { await worker(item); }
     }

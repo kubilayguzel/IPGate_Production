@@ -53,7 +53,7 @@ body {
 /* Sol Menü (Sidebar) */
 .sidebar {
     width: 280px; 
-    background: #0f172a; /* Kurumsal, modern ve premium koyu arduvaz rengi */
+    background: #093a85; /* Kurumsal, modern ve premium koyu arduvaz rengi */
     color: white;
     display: flex;
     overflow: hidden;

@@ -4,18 +4,41 @@ export class TransactionHelper {
     // 1. İşlemle (Transaction) Doğrudan İlişkili Evrakları Okur
     static getDirectDocuments(transaction) {
         const docs = [];
-        const seenUrls = new Set();
+        const seenKeys = new Set(); // 🔥 YENİ: URL ve İsim bazlı akıllı filtreleme için
 
         const addDoc = (d, source = 'direct') => {
             if (!d) return;
-            // Yeni SQL şeması alan adlarına (document_url vb.) tam uyum
-            const url = d.document_url || d.file_url || d.url || d.fileUrl || d.downloadURL || d.path;
+            const rawUrl = d.document_url || d.file_url || d.url || d.fileUrl || d.downloadURL || d.path;
+            if (!rawUrl) return;
+
+            const name = d.document_name || d.file_name || d.name || d.fileName || 'Belge';
+
+            // 🔥 ÇÖZÜM 1: URL'nin sonundaki ?t=123 gibi değişken parametreleri atarak sadece ana dosya yolunu alıyoruz
+            const cleanUrl = rawUrl.split('?')[0].toLowerCase();
             
-            if (url && !seenUrls.has(url)) {
-                seenUrls.add(url);
+            // 🔥 ÇÖZÜM 2: Dosya ismini temizle (küçük harfe çevir ve boşlukları al)
+            const cleanName = name.trim().toLowerCase();
+
+            // Kontrol anahtarları oluştur
+            const keyUrl = `url_${cleanUrl}`;
+            const keyName = `name_${cleanName}`;
+
+            // Eğer bu dosya (URL olarak) daha önce eklenmediyse:
+            if (!seenKeys.has(keyUrl)) {
+                
+                // Ekstra Güvenlik: Eğer dosya ismi jenerik "belge" değilse ve bu isimde bir dosya zaten eklendiyse tekrar ekleme
+                if (cleanName !== 'belge' && cleanName !== 'resmi yazı' && seenKeys.has(keyName)) {
+                    return; 
+                }
+
+                seenKeys.add(keyUrl);
+                if (cleanName !== 'belge' && cleanName !== 'resmi yazı') {
+                    seenKeys.add(keyName);
+                }
+
                 docs.push({ 
-                    name: d.document_name || d.file_name || d.name || d.fileName || 'Belge', 
-                    url: url, 
+                    name: name, 
+                    url: rawUrl, // Ekranda tıklanabilmesi için orijinal (parametreleri olan) linki kullanıyoruz
                     type: d.document_type || d.type || 'document', 
                     source: source 
                 });
@@ -49,20 +72,37 @@ export class TransactionHelper {
     // 2. Görev (Task) Tablosundan Gelen Resim/PDF'leri Okur
     static async getTaskDocuments(transaction) {
         const docs = [];
-        const seenUrls = new Set();
+        const seenKeys = new Set(); // 🔥 Görev belgeleri için de akıllı filtre
         
-        // İşleme JOIN ile bağlanmış görev verisi
         const taskData = transaction.task_data;
         if (!taskData) return docs;
 
         const addDoc = (d, source = 'task') => {
             if (!d) return;
-            const url = d.url || d.downloadURL || d.fileUrl || d.path || d.document_url; 
-            if (url && !seenUrls.has(url)) {
-                seenUrls.add(url);
+            const rawUrl = d.url || d.downloadURL || d.fileUrl || d.path || d.document_url; 
+            if (!rawUrl) return;
+
+            const name = d.name || d.fileName || d.document_name || 'Görev Belgesi';
+
+            const cleanUrl = rawUrl.split('?')[0].toLowerCase();
+            const cleanName = name.trim().toLowerCase();
+
+            const keyUrl = `url_${cleanUrl}`;
+            const keyName = `name_${cleanName}`;
+
+            if (!seenKeys.has(keyUrl)) {
+                if (cleanName !== 'görev belgesi' && cleanName !== 'belge' && cleanName !== 'epats belgesi' && seenKeys.has(keyName)) {
+                    return;
+                }
+
+                seenKeys.add(keyUrl);
+                if (cleanName !== 'görev belgesi' && cleanName !== 'belge' && cleanName !== 'epats belgesi') {
+                    seenKeys.add(keyName);
+                }
+
                 docs.push({ 
-                    name: d.name || d.fileName || d.document_name || 'Görev Belgesi', 
-                    url: url, 
+                    name: name, 
+                    url: rawUrl, 
                     type: d.type || d.document_type || 'document', 
                     source: source 
                 });
@@ -106,7 +146,6 @@ export class TransactionHelper {
 
     // 4. İşlemleri Ana (Parent) ve Alt (Child) Olarak Gruplar ve Tarihe Göre Sıralar
     static organizeTransactions(transactions) {
-        // Parent = transactionHierarchy alanı 'parent' olan veya parentId'si olmayanlar
         const parents = transactions.filter(t => t.transactionHierarchy === 'parent' || !t.parentId || !t.parent_id);
         const childrenMap = {};
 
@@ -118,7 +157,6 @@ export class TransactionHelper {
             }
         });
 
-        // 🔥 YENİ: Firebase kalıntıları temizlendi, doğrudan standart Date objesi ile sıralama yapılıyor
         const parseDateVal = (val) => {
             if (!val) return 0;
             const parsed = new Date(val).getTime();
@@ -128,7 +166,7 @@ export class TransactionHelper {
         const sortByDateDesc = (a, b) => {
             const dateA = parseDateVal(a.timestamp || a.date || a.created_at);
             const dateB = parseDateVal(b.timestamp || b.date || b.created_at);
-            return dateB - dateA; // En yeni işlem en üstte
+            return dateB - dateA;
         };
 
         parents.sort(sortByDateDesc);

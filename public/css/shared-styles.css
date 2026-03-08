@@ -53,7 +53,7 @@ body {
 /* Sol Menü (Sidebar) */
 .sidebar {
     width: 280px; 
-    background: #007bff; /* Koyu mavi (#1e3c72) yerine TÜRKPATENT butonu mavisi */
+    background: #0f172a; /* Kurumsal, modern ve premium koyu arduvaz rengi */
     color: white;
     display: flex;
     overflow: hidden;
@@ -64,7 +64,7 @@ body {
     top: 0;
     z-index: 1001; 
     flex-shrink: 0; 
-    box-shadow: 2px 0 10px rgba(0,0,0,0.1); 
+    box-shadow: 4px 0 15px rgba(0,0,0,0.15); /* Gölgeyi biraz artırdık, derinlik katar */
 }
 
 .sidebar-header {

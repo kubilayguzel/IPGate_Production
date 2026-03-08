@@ -738,46 +738,57 @@ export const ipRecordsService = {
         return { success: true, data: mappedData, from: 'server' };
     },
     
-    // B) Tek Bir Kaydı Çeker (Detay Sayfası İçin)
+    // B) Tek Bir Kaydı Çeker (Detay Sayfası İçin) - 🚀 400 Hatasına Karşı Güvenli Hale Getirildi
     async getRecordById(id) {
+        // 1. Önce ana tabloyu (ip_records) çek
         const { data: record, error } = await supabase
             .from('ip_records')
-            .select(`
-                *,
-                ip_record_trademark_details (*),
-                ip_record_applicants ( persons ( id, name, type, address, email ) ),
-                ip_record_classes ( class_no, items ),
-                ip_record_priorities (*),
-                ip_record_bulletins (*)
-            `)
+            .select('*')
             .eq('id', id)
             .single();
 
         if (error) return { success: false, error: error.message };
 
-        // 🔥 Orijinal tablo adıyla veriyi okuyoruz
-        let tmDetails = record.ip_record_trademark_details || {};
-        if (Array.isArray(tmDetails)) {
-            tmDetails = tmDetails.length > 0 ? tmDetails[0] : {};
+        // 2. İlişkili tabloları Supabase'i yormadan paralel olarak ayrı ayrı çek
+        const [tmDetailsRes, applicantsRes, classesRes, prioritiesRes, bulletinsRes] = await Promise.all([
+            supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', id),
+            supabase.from('ip_record_applicants').select('*').eq('ip_record_id', id),
+            supabase.from('ip_record_classes').select('*').eq('ip_record_id', id),
+            supabase.from('ip_record_priorities').select('*').eq('ip_record_id', id),
+            supabase.from('ip_record_bulletins').select('*').eq('ip_record_id', id)
+        ]);
+
+        let tmDetails = tmDetailsRes.data && tmDetailsRes.data.length > 0 ? tmDetailsRes.data[0] : {};
+
+        // 3. Başvuru Sahipleri İçin Kişi Bilgilerini (persons) Çek
+        let applicantsArray = [];
+        if (applicantsRes.data && applicantsRes.data.length > 0) {
+            const personIds = applicantsRes.data.map(a => a.person_id).filter(Boolean);
+            if (personIds.length > 0) {
+                const { data: personsData } = await supabase.from('persons').select('id, name, type, address, email').in('id', personIds);
+                if (personsData) {
+                    applicantsArray = applicantsRes.data.map(app => {
+                        const person = personsData.find(p => p.id === app.person_id);
+                        return person ? {
+                            id: person.id, 
+                            name: person.name, 
+                            email: person.email,
+                            address: person.address
+                        } : null;
+                    }).filter(Boolean);
+                }
+            }
         }
 
-        const applicantsArray = record.ip_record_applicants
-            ? record.ip_record_applicants.filter(rel => rel.persons).map(rel => ({
-                id: rel.persons.id, 
-                name: rel.persons.name, 
-                email: rel.persons.email,
-                address: rel.persons.address // 🔥 ÇÖZÜM 1: Adres alanını objeye ekledik
-            })) : [];
-
-        const gsbc = record.ip_record_classes ? record.ip_record_classes.map(c => ({
+        const gsbc = classesRes.data ? classesRes.data.map(c => ({
             classNo: c.class_no, items: c.items || []
         })) : [];
 
-        const priorities = record.ip_record_priorities ? record.ip_record_priorities.map(p => ({
+        const priorities = prioritiesRes.data ? prioritiesRes.data.map(p => ({
             id: p.id, country: p.priority_country, date: p.priority_date, number: p.priority_number
         })) : [];
 
-        const bulletins = record.ip_record_bulletins ? record.ip_record_bulletins.map(b => ({
+        const bulletins = bulletinsRes.data ? bulletinsRes.data.map(b => ({
             id: b.id, bulletinNo: b.bulletin_no, bulletinDate: b.bulletin_date
         })) : [];
 

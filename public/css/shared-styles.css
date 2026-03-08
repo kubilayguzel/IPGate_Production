@@ -53,8 +53,7 @@ body {
 /* Sol Menü (Sidebar) */
 .sidebar {
     width: 280px; 
-    /* YENİ IPGATE YEŞİLİ (Ferah bir degrade - gradient) */
-    background: linear-gradient(180deg, #00a878 0%, #007e5b 100%); 
+    background: #007bff; /* Koyu mavi (#1e3c72) yerine TÜRKPATENT butonu mavisi */
     color: white;
     display: flex;
     overflow: hidden;
@@ -63,9 +62,9 @@ body {
     height: 100vh;
     position: sticky;
     top: 0;
-    z-index: 1001; /* Diğer elementlerin önünde olması için */
-    flex-shrink: 0; /* Küçülmesini engeller */
-    box-shadow: 2px 0 10px rgba(0,0,0,0.1); /* Hafif gölge */
+    z-index: 1001; 
+    flex-shrink: 0; 
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1); 
 }
 
 .sidebar-header {
@@ -75,11 +74,11 @@ body {
 }
 
 .sidebar-logo {
-    font-size: 1.8em;
-    font-weight: bold;
+    font-size: 2.4em; /* 1.8em'den 2.4em'e büyüttük */
+    font-weight: 800; /* Biraz daha kalınlaştırdık */
     color: white;
     text-decoration: none;
-    display: block; /* Linkin tüm alanı kaplaması için */
+    display: block;
 }
 
 .sidebar-nav {

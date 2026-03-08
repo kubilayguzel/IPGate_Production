@@ -9,8 +9,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // 🔴 2. SUPABASE BAĞLANTISI
-const supabaseUrl = 'https://kadxvkejzctwymzeyrrl.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzg0NDgsImV4cCI6MjA4Nzc1NDQ0OH0.PFSzq8hOc14HgYwwF_ZR3v82ZzegKcoN4Vqw2wR2ZP0';
+const SUPABASE_URL = 'https://kadxvkejzctwymzeyrrl.supabase.co';
+const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzg0NDgsImV4cCI6MjA4Nzc1NDQ0OH0.PFSzq8hOc14HgYwwF_ZR3v82ZzegKcoN4Vqw2wR2ZP0';
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const safeDate = (val) => {
@@ -88,8 +88,8 @@ async function migrateStep7() {
             file_path: d.filePath || d.file_path || null,
             document_source: d.source || (d.isEtebs || d.is_etebs ? 'etebs' : 'manual'),
             status: d.status || 'pending',
-            evrak_no: d.evrakNo || d.evrak_no || null,
-            dosya_no: d.dosyaNo || d.dosya_no || null,
+            document_number: d.evrakNo || d.evrak_no || null,
+            application_number: d.dosyaNo || d.dosya_no || null,
             belge_tarihi: safeDate(d.belgeTarihi || d.belge_tarihi),
             teblig_tarihi: safeDate(d.tebligTarihi || d.teblig_tarihi),
             ip_record_id: validIpIds.has(ipRecId) ? ipRecId : null,
@@ -120,8 +120,8 @@ async function migrateStep7() {
             file_url: d.fileUrl || d.file_url || d.downloadURL || null,
             document_source: d.documentSource || d.document_source || 'manual',
             status: d.status || 'indexed',
-            evrak_no: d.etebsEvrakNo || d.etebs_evrak_no || null,
-            dosya_no: d.etebsDosyaNo || d.etebs_dosya_no || null,
+            document_number: d.etebsEvrakNo || d.etebs_evrak_no || null,
+            application_number: d.etebsDosyaNo || d.etebs_dosya_no || null,
             ip_record_id: validIpIds.has(ipRecId) ? ipRecId : null,
             transaction_type_id: validTxTypeIds.has(txTypeId) ? txTypeId : null,
             user_id: validUserIds.has(userId) ? userId : null,

@@ -1039,22 +1039,32 @@ export const ipRecordsService = {
     async getRecordTransactions(recordId) {
         if (!recordId) return { success: false, message: 'Kayıt ID yok.' };
         try {
-            // 🔥 ÇÖZÜM 2: Bağlantıları en sade haliyle (tasks ve transaction_documents) çekiyoruz
-            const { data, error } = await supabase
+            // 1. Önce sadece işlemleri çekiyoruz (İlişki hatasını önlemek için)
+            const { data: txData, error: txError } = await supabase
                 .from('transactions')
-                .select(`*, transaction_documents(*), tasks(*)`)
+                .select('*')
                 .eq('ip_record_id', String(recordId))
                 .order('created_at', { ascending: false });
 
-            if (error) {
-                console.error("İşlem geçmişi SQL hatası:", error);
-                throw error;
-            }
-            if (!data) return { success: true, data: [] };
+            if (txError) throw txError;
+            if (!txData || txData.length === 0) return { success: true, data: [] };
 
-            const mappedData = data.map(t => {
+            const txIds = txData.map(t => t.id);
+            const taskIds = [...new Set(txData.map(t => t.task_id).filter(Boolean))];
+
+            // 2. İşlemlere ait belgeleri ve görevleri ayrı ayrı paralel çekiyoruz
+            const [docsRes, tasksRes] = await Promise.all([
+                supabase.from('transaction_documents').select('*').in('transaction_id', txIds),
+                taskIds.length > 0 
+                    ? supabase.from('tasks').select('*').in('id', taskIds) 
+                    : Promise.resolve({ data: [] })
+            ]);
+
+            // 3. JavaScript ile birleştiriyoruz
+            const mappedData = txData.map(t => {
                 const dateVal = t.transaction_date || t.created_at;
-                const taskObj = t.tasks ? (Array.isArray(t.tasks) ? t.tasks[0] : t.tasks) : null;
+                const txDocs = docsRes.data ? docsRes.data.filter(d => d.transaction_id === t.id) : [];
+                const taskObj = tasksRes.data ? tasksRes.data.find(task => task.id === t.task_id) : null;
                 
                 return {
                     ...t, 
@@ -1065,7 +1075,7 @@ export const ipRecordsService = {
                     timestamp: dateVal, 
                     date: dateVal,
                     userEmail: t.user_email || t.user_name || 'Sistem',
-                    transaction_documents: t.transaction_documents || [], 
+                    transaction_documents: txDocs, 
                     task_data: taskObj
                 };
             });
@@ -1075,7 +1085,7 @@ export const ipRecordsService = {
             return { success: false, error: error.message };
         }
     },
-
+    
     async getTransactionsForRecord(recordId) {
         const res = await this.getRecordTransactions(recordId);
         return { success: res.success, transactions: res.data, error: res.error };

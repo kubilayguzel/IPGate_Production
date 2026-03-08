@@ -24,7 +24,12 @@ export class PortfolioDetailManager {
             brandImage: document.getElementById('brandImage'),
             heroCard: document.getElementById('heroCard'),
             heroKv: document.getElementById('heroKv'),
+            
+            // Eşya Listesi Değişkenleri
+            globalGoodsToggle: document.getElementById('globalGoodsToggle'),
             goodsContainer: document.getElementById('goodsContainer'),
+            globalGoodsIcon: document.getElementById('globalGoodsIcon'),
+            
             txAccordion: document.getElementById('txAccordion'),
             docsTbody: document.getElementById('documentsTbody'),
             addDocForm: document.getElementById('addDocForm'),
@@ -100,7 +105,7 @@ export class PortfolioDetailManager {
         const imgWrap = this.elements.brandImage?.closest('.hero-img-wrap');
         if (imgSrc && this.elements.brandImage) {
             this.elements.brandImage.src = imgSrc;
-            if (imgWrap) imgWrap.style.display = 'block';
+            if (imgWrap) imgWrap.style.display = 'flex'; 
         } else {
             if (imgWrap) imgWrap.style.display = 'none'; 
         }
@@ -117,6 +122,7 @@ export class PortfolioDetailManager {
         }
 
         if (this.elements.heroKv) {
+            // Bilgiler kutu kutu değil, yan yana tek satır olarak işleniyor
             this.elements.heroKv.innerHTML = `
                 <div class="kv-item"><div class="label">Başvuru No</div><div class="value">${r.applicationNumber || '-'}</div></div>
                 <div class="kv-item"><div class="label">Tescil No</div><div class="value">${regNo}</div></div>
@@ -126,20 +132,19 @@ export class PortfolioDetailManager {
                 <div class="kv-item"><div class="label">Yenileme Tarihi</div><div class="value">${this.formatDate(r.renewalDate)}</div></div>
                 
                 ${(!isTP) ? `
-                    <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
-                        <div class="kv-item" style="border:none; padding:0;"><div class="label">Ülke</div><div class="value">${countryName}</div></div>
-                        <div class="kv-item" style="border:none; padding:0;"><div class="label">Orijin</div><div class="value">${r.origin || '-'}</div></div>
-                    </div>` : ''}
+                    <div class="kv-item"><div class="label">Ülke</div><div class="value">${countryName}</div></div>
+                    <div class="kv-item"><div class="label">Orijin</div><div class="value">${r.origin || '-'}</div></div>
+                ` : ''}
 
-                <div class="kv-item" style="grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e0e0e0;">
-                    <div class="label" style="margin-bottom: 4px;">Sınıflar (Nice)</div>
+                <div class="kv-item">
+                    <div class="label">Sınıflar (Nice)</div>
                     <div class="value text-primary" style="font-weight: 700;">${classesStr}</div>
                 </div>
             `;
         }
 
         if (this.elements.tpQueryBtn) {
-            this.elements.tpQueryBtn.style.display = isTP ? 'inline-block' : 'none';
+            this.elements.tpQueryBtn.style.display = isTP ? 'flex' : 'none';
         }
     }
 
@@ -149,13 +154,18 @@ export class PortfolioDetailManager {
         const gsbc = this.currentRecord.goodsAndServicesByClass || [];
         if (gsbc.length === 0) { container.innerHTML = '<div class="text-muted p-3">Eşya listesi yok.</div>'; return; }
 
+        // Artık her sınıfta ayrı tıklama yok, sadece temiz bir liste var
         container.innerHTML = [...gsbc].sort((a,b) => Number(a.classNo) - Number(b.classNo)).map(entry => {
             const listHtml = this.formatNiceClassContent(entry.classNo, entry.items || []);
             return `
-                <div class="goods-group border rounded p-3 mb-2 bg-white">
-                    <div class="font-weight-bold text-primary mb-2">Nice ${entry.classNo}</div>
-                    <ul class="pl-3 mb-0 goods-items">${listHtml}</ul>
-                </div>`
+                <div class="goods-group">
+                    <div class="mb-2">
+                        <span class="badge px-3 py-2 shadow-sm" style="font-size: 0.95rem; background: #1e3c72; color: white;">
+                            Nice ${entry.classNo}
+                        </span>
+                    </div>
+                    <ul class="pl-3 mb-0 goods-items" style="color: #475569; line-height: 1.6;">${listHtml}</ul>
+                </div>`;
         }).join('');
     }
 
@@ -286,7 +296,7 @@ export class PortfolioDetailManager {
             else if (t.includes('epats')) iconClass = 'fa-file-invoice';
         }
 
-        return `<a href="${doc.url}" target="_blank" class="mx-1 ${color}" title="${doc.name || 'Belge'}"><i class="fas ${iconClass} fa-lg"></i></a>`;
+        return `<a href="${doc.url}" target="_blank" class="mx-1 doc-link-item ${color}" title="${doc.name || 'Belge'}"><i class="fas ${iconClass} fa-lg"></i></a>`;
     }
 
     toggleLoading(show) {
@@ -305,7 +315,6 @@ export class PortfolioDetailManager {
         if (!this.elements.applicantName) return;
         let names = [], addresses = [];
         
-        // 🔥 ÇÖZÜM: Yeni SQL yapımızda veriler JOIN ile geldiği için "N+1" ekstra sorguları tamamen kaldırıldı. Işık hızında çalışacak!
         if (Array.isArray(r.applicants) && r.applicants.length > 0) {
             r.applicants.forEach(app => {
                 names.push(app.name || '-');
@@ -323,7 +332,6 @@ export class PortfolioDetailManager {
     }
 
     renderDocuments() {
-        // 🔥 ÇÖZÜM: SQL tablosundan (veya yedek JSON'dan) gelen belgeler SQL isimlendirmeleriyle (document_url, document_name vb.) okundu
         const docs = this.currentRecord.documents || [];
         if (this.elements.docsTbody) {
             this.elements.docsTbody.innerHTML = docs.length ? docs.map(d => `
@@ -334,7 +342,7 @@ export class PortfolioDetailManager {
                     <td class="text-right">
                         <i class="fas fa-eye text-primary cursor-pointer" onclick="window.open('${d.url || d.fileUrl || d.document_url}','_blank')"></i>
                     </td>
-                </tr>`).join('') : '<tr><td colspan="4" class="text-center">Belge yok.</td></tr>';
+                </tr>`).join('') : '<tr><td colspan="4" class="text-center text-muted">Belge yok.</td></tr>';
         }
     }
 
@@ -374,11 +382,21 @@ export class PortfolioDetailManager {
     }
 
     setupEventListeners() {
+        // TÜRKPATENT Butonu Tıklaması
         this.elements.tpQueryBtn?.addEventListener('click', () => {
              const appNo = this.currentRecord.applicationNumber;
              if(window.triggerTpQuery) window.triggerTpQuery(appNo);
              else window.open(`https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(appNo)}`, '_blank');
         });
+
+        // EŞYA LİSTESİ Genel Aç/Kapat Butonu
+        if (this.elements.globalGoodsToggle && this.elements.goodsContainer && this.elements.globalGoodsIcon) {
+            this.elements.globalGoodsToggle.addEventListener('click', () => {
+                this.elements.goodsContainer.classList.toggle('d-none');
+                this.elements.globalGoodsIcon.classList.toggle('fa-chevron-down');
+                this.elements.globalGoodsIcon.classList.toggle('fa-chevron-up');
+            });
+        }
     }
 
     showError(msg) {

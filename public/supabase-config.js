@@ -1035,36 +1035,91 @@ export const ipRecordsService = {
         return { success: true };
     },
 
-    // İşlem Geçmişi 
+    // İşlem Geçmişi (Bol Loglu Hata Ayıklama Versiyonu)
     async getRecordTransactions(recordId) {
-        if (!recordId) return { success: false, message: 'Kayıt ID yok.' };
+        console.log("-----------------------------------------");
+        console.log("🔍 GET RECORD TRANSACTIONS BAŞLADI");
+        console.log("1. Aranan Record ID:", recordId);
+        
+        if (!recordId) {
+            console.warn("❌ Record ID yok!");
+            return { success: false, message: 'Kayıt ID yok.' };
+        }
+        
         try {
-            // 1. Önce sadece işlemleri çekiyoruz (İlişki hatasını önlemek için)
+            console.log("2. Transactions tablosuna istek atılıyor...");
             const { data: txData, error: txError } = await supabase
                 .from('transactions')
                 .select('*')
                 .eq('ip_record_id', String(recordId))
                 .order('created_at', { ascending: false });
 
-            if (txError) throw txError;
-            if (!txData || txData.length === 0) return { success: true, data: [] };
+            console.log("3. Transactions Sorgu Sonucu:", txData);
+            if (txError) {
+                console.error("❌ Transactions Sorgu Hatası:", txError);
+                throw txError;
+            }
+            
+            let finalTransactions = txData || [];
 
-            const txIds = txData.map(t => t.id);
-            const taskIds = [...new Set(txData.map(t => t.task_id).filter(Boolean))];
+            // EĞER MİGRASYON ÖNCESİ ESKİ BİR KAYITSA:
+            if (finalTransactions.length === 0) {
+                console.log("⚠️ Transactions tablosu boş. Eski JSON yedeğine (old_transactions) bakılıyor...");
+                const { data: recordFallback } = await supabase
+                    .from('ip_records')
+                    .select('old_transactions')
+                    .eq('id', String(recordId))
+                    .single();
+                
+                console.log("4. Eski JSON yedeği (old_transactions):", recordFallback?.old_transactions);
+                if (recordFallback && recordFallback.old_transactions && Array.isArray(recordFallback.old_transactions)) {
+                    console.log("✅ Eski yedekten veriler yüklendi.");
+                    return { success: true, data: recordFallback.old_transactions };
+                }
+                console.log("❌ Eski yedek de boş. İşlem geçmişi yok.");
+                return { success: true, data: [] };
+            }
 
-            // 2. İşlemlere ait belgeleri ve görevleri ayrı ayrı paralel çekiyoruz
-            const [docsRes, tasksRes] = await Promise.all([
-                supabase.from('transaction_documents').select('*').in('transaction_id', txIds),
+            const txIds = finalTransactions.map(t => t.id).filter(Boolean);
+            const taskIds = [...new Set(finalTransactions.map(t => t.task_id).filter(Boolean))];
+            
+            console.log("5. Toplanan Transaction ID'leri:", txIds);
+            console.log("6. Toplanan Task ID'leri:", taskIds);
+
+            console.log("7. İlişkili belgeler ve görevler çekiliyor (Promise.all)...");
+            const [docsRes, tasksRes, taskDocsRes] = await Promise.all([
+                txIds.length > 0 
+                    ? supabase.from('transaction_documents').select('*').in('transaction_id', txIds)
+                    : Promise.resolve({ data: [] }),
                 taskIds.length > 0 
                     ? supabase.from('tasks').select('*').in('id', taskIds) 
+                    : Promise.resolve({ data: [] }),
+                taskIds.length > 0 
+                    ? supabase.from('task_documents').select('*').in('task_id', taskIds) 
                     : Promise.resolve({ data: [] })
             ]);
 
-            // 3. JavaScript ile birleştiriyoruz
-            const mappedData = txData.map(t => {
+            if (docsRes.error) console.error("❌ Evrak Çekme Hatası:", docsRes.error);
+            if (tasksRes.error) console.error("❌ Görev Çekme Hatası:", tasksRes.error);
+            if (taskDocsRes.error) console.error("❌ Görev Evrakı Çekme Hatası:", taskDocsRes.error);
+
+            const safeDocs = docsRes.data || [];
+            const safeTasks = tasksRes.data || [];
+            const safeTaskDocs = taskDocsRes.data || [];
+            
+            console.log("8. Çekilen transaction_documents sayısı:", safeDocs.length);
+            console.log("9. Çekilen tasks sayısı:", safeTasks.length);
+            console.log("10. Çekilen task_documents sayısı:", safeTaskDocs.length);
+
+            console.log("11. Veriler birleştiriliyor (Mapping)...");
+            const mappedData = finalTransactions.map(t => {
                 const dateVal = t.transaction_date || t.created_at;
-                const txDocs = docsRes.data ? docsRes.data.filter(d => d.transaction_id === t.id) : [];
-                const taskObj = tasksRes.data ? tasksRes.data.find(task => task.id === t.task_id) : null;
+                const txDocs = safeDocs.filter(d => d.transaction_id === t.id);
+                
+                let taskObj = safeTasks.find(task => task.id === t.task_id) || null;
+                if (taskObj) {
+                    taskObj.task_documents = safeTaskDocs.filter(d => d.task_id === taskObj.id);
+                }
                 
                 return {
                     ...t, 
@@ -1079,9 +1134,12 @@ export const ipRecordsService = {
                     task_data: taskObj
                 };
             });
+            
+            console.log("12. BİRLEŞTİRİLMİŞ FİNAL VERİ:", mappedData);
+            console.log("-----------------------------------------");
             return { success: true, data: mappedData };
         } catch (error) {
-            console.error("İşlem geçmişi çekme hatası:", error);
+            console.error("❌ İŞLEM GEÇMİŞİ ÇEKME ANA HATASI:", error);
             return { success: false, error: error.message };
         }
     },

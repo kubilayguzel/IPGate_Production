@@ -48,17 +48,11 @@ async function migrateStep3() {
 
     // 🌟 YENİ: Geçerli Kullanıcı (User) ID'lerini Çekelim
     console.log("\n⏳ 1.5. Supabase'den geçerli Kullanıcı (Users) ID'leri kontrol ediliyor...");
-    // Not: Tablonuzun adı 'users' veya 'profiles' olabilir. Eğer farklıysa aşağıyı değiştirin.
-    // Auth şemasındaki asıl kullanıcılar public şemada bir tabloya yansıyorsa oradan alıyoruz.
-    // Varsayılan olarak 'profiles' tablosunu deneyelim (Supabase'de genelde böyledir).
-    // Eğer sizde users ise 'users' yapın. Hata alırsanız doğrudan auth.users tablosuna admin yetkisiyle de bakabiliriz.
-    // Şimdilik 'profiles' tablosunu varsayıyorum, hata verirse bunu değiştirmemiz gerekebilir.
     let validUserIds = new Set();
-    const { data: usersData, error: usersError } = await supabase.from('users').select('id'); // 'profiles' tablosu varsayıldı
+    const { data: usersData, error: usersError } = await supabase.from('users').select('id'); 
     
     if (usersError) {
-         console.warn("⚠️ 'profiles' tablosundan kullanıcılar çekilemedi. Tablo adınız farklı olabilir (Örn: 'users'). Hata:", usersError.message);
-         // Hata alsak bile devam etsin, en kötü hepsi null olur.
+         console.warn("⚠️ 'users' tablosundan kullanıcılar çekilemedi. Hata:", usersError.message);
     } else if (usersData) {
          validUserIds = new Set(usersData.map(u => u.id));
          console.log(`ℹ️ ${validUserIds.size} geçerli kullanıcı bulundu.`);
@@ -108,8 +102,15 @@ async function migrateStep3() {
         const ipRecordId = parentRef.id;
 
         if (validIpIds.has(ipRecordId)) {
-            // 🌟 YENİ: user_id doğrulama
+            
+            // 🌟 YENİ: user_id doğrulama ve OTOMATİK DÖNÜŞÜM
             let safeUserId = d.userId;
+            
+            // AZ ÖNCEKİ SQL GÜNCELLEMESİNE UYUM SAĞLAMASI İÇİN:
+            if (safeUserId === '6aBctYpERaeTqwfSSwVZGiZjHe33') {
+                safeUserId = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
+            }
+
             if (safeUserId && !validUserIds.has(safeUserId)) {
                 safeUserId = null; // Geçersizse null atıyoruz
             }
@@ -123,7 +124,7 @@ async function migrateStep3() {
                 description: d.description || d.designation || null,
                 note: d.note || null,
                 transaction_date: safeDate(d.date || d.timestamp) || null,
-                user_id: safeUserId, // 🌟 Kontrol edilmiş ID
+                user_id: safeUserId, // 🌟 Kontrol edilmiş ID eklendi
                 user_email: d.userEmail || null,
                 user_name: d.userName || null,
                 task_id: d.taskId || null,
@@ -190,6 +191,11 @@ async function migrateStep3() {
     await batchUpsert('transactions', validChildTxs);
 
     console.log("\n⏳ 6. İşlem Dosyaları (Documents) aktarılıyor...");
+    
+    // 🔥 ÇİFT KAYDI ÖNLEMEK İÇİN: Önce eski aktarılan belgeleri siliyoruz
+    console.log("🧹 Önceki aktarımdan kalan eski belgeler temizleniyor...");
+    await supabase.from('transaction_documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    
     validParentIds.forEach(id => validChildTxs.push({id})); 
     const allValidTxIds = new Set([...parentTransactions.map(p => p.id), ...validChildTxs.map(c => c.id)]);
     

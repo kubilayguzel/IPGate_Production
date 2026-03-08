@@ -52,8 +52,9 @@ body {
 
 /* Sol Menü (Sidebar) */
 .sidebar {
-    width: 280px; /* GENİŞLİK BURADA ARTIRILDI */
-    background: #1e3c72; /* Koyu mavi */
+    width: 280px; 
+    /* YENİ IPGATE YEŞİLİ (Ferah bir degrade - gradient) */
+    background: linear-gradient(180deg, #00a878 0%, #007e5b 100%); 
     color: white;
     display: flex;
     overflow: hidden;

@@ -588,16 +588,28 @@ import { supabase, authService, personService } from './supabase-config.js';
                     return;
                 }
 
-                // 2. Kullanıcının profilini çek ve Superadmin mi diye bak
+                // 2. Kullanıcının profilini çek ve yetki kontrolü yap
                 const { data: profile, error } = await supabase
                     .from('users')
                     .select('*')
                     .eq('id', session.user.id)
                     .single();
+                    
+                // 🔥 HATA AYIKLAMA İÇİN KONSOLA YAZDIRIYORUZ
+                console.log("🔍 Yetki Kontrolü - Session ID:", session.user.id);
+                console.log("🔍 Yetki Kontrolü - Veritabanı Sonucu:", profile);
+                if (error) console.error("❌ Yetki Kontrolü - Supabase Hatası:", error);
 
-                if (error || !profile || profile.role !== 'superadmin') {
-                    showNotification('Bu sayfaya erişim yetkiniz yoktur.', 'error');
-                    setTimeout(() => window.location.replace('portfolio.html'), 1500);
+                // Rol değerini güvenli hale getir (küçük harfe çevir, sağ/sol boşlukları sil)
+                const userRole = profile && profile.role ? profile.role.trim().toLowerCase() : 'belirsiz';
+
+                // Eğer hata varsa, profil yoksa veya rol admin/superadmin değilse engelle
+                if (error || !profile || (userRole !== 'superadmin' && userRole !== 'admin')) {
+                    const roleMsg = profile ? `(Mevcut Rol: ${profile.role})` : '(Profil bulunamadı veya Supabase RLS engeli)';
+                    showNotification(`Bu sayfaya erişim yetkiniz yoktur. ${roleMsg}`, 'error');
+                    
+                    // Uyarıyı okuyabilmeniz için süreyi 3 saniyeye çıkardık
+                    setTimeout(() => window.location.replace('portfolio.html'), 3000);
                     return;
                 }
 
@@ -605,7 +617,7 @@ import { supabase, authService, personService } from './supabase-config.js';
                 await this.loadUsers();
                 this.setupEventListeners();
             }
-
+            
             setupEventListeners() {
                 document.getElementById('addNewUserBtn').addEventListener('click', () => this.showAddUserModal());
                 document.getElementById('closeUserModal').addEventListener('click', () => this.closeUserModal());

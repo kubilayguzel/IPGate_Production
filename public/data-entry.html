@@ -6,6 +6,7 @@
     <title>IPGATE - Portföy Kaydı</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Segoe+UI:wght@400;600;700&display=swap">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" href="css/shared-styles.css">
     <link rel="stylesheet" href="css/data-entry.css">
@@ -14,51 +15,62 @@
 <body>
     <div id="layout-placeholder"></div>
     <div class="page-wrapper">
-        <main class="main-container">
-            <section class="page-header">
-                <h1 class="page-title">Portföy Kaydı</h1>
-                <p class="page-subtitle">Yeni portföy kaydı oluşturmak için IP türünü seçin ve bilgileri girin.</p>
+        <main class="main-container container">
+            <section class="page-header mb-4">
+                <div>
+                    <h1 class="page-title">Portföy Kaydı</h1>
+                    <p class="page-subtitle">Yeni portföy kaydı oluşturmak için IP türünü seçin veya mevcut kaydı güncelleyin.</p>
+                </div>
             </section>
             
             <div class="form-container">
                 <form id="portfolioForm" onsubmit="return false;">
+                    
                     <div class="form-section">
-                        <h3 class="section-title">1. Tür Seçimi</h3>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="ipTypeSelect" class="form-label">IP Türü</label>
-                                <select id="ipTypeSelect" class="form-select">
-                                    <option value="">Seçiniz...</option>
-                                    <option value="trademark">Marka</option>
-                                    <option value="patent">Patent</option>
-                                    <option value="design">Tasarım</option>
-                                    <option value="suit">Dava</option>
-                                </select>
-                            </div>
-                            
-                            <div class="form-group" id="ownerCard">
-                                <label for="recordOwnerType" class="form-label">Kayıt Sahibi</label>
-                                <select id="recordOwnerType" class="form-select">
-                                    <option value="self" selected>Portföy</option>
-                                    <option value="third-party">3. Taraf</option>
-                                </select>
-                            </div>
+                        <h3 class="section-title">
+                            <span><i class="fas fa-layer-group text-primary mr-2"></i> Tür Seçimi</span>
+                        </h3>
+                        <div class="card-body-custom">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="ipTypeSelect" class="form-label">IP Türü</label>
+                                    <select id="ipTypeSelect" class="form-select">
+                                        <option value="">Seçiniz...</option>
+                                        <option value="trademark">Marka</option>
+                                        <option value="patent">Patent</option>
+                                        <option value="design">Tasarım</option>
+                                        <option value="suit">Dava</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group" id="ownerCard">
+                                    <label for="recordOwnerType" class="form-label">Kayıt Sahibi</label>
+                                    <select id="recordOwnerType" class="form-select">
+                                        <option value="self" selected>Portföy (Kendi Dosyamız)</option>
+                                        <option value="third-party">3. Taraf (Karşı Marka/Bülten)</option>
+                                    </select>
+                                </div>
 
-                            <div class="form-group" id="originSelectWrapper">
-                                <label for="originSelect" class="form-label">Menşe</label>
-                                <select id="originSelect" class="form-select"></select>
-                            </div>
-                            
-                            <div class="form-group" id="specificTaskTypeWrapper" style="display: none;">
-                                <label for="specificTaskType" class="form-label">Spesifik İş Tipi</label>
-                                <select class="form-select" id="specificTaskType">
-                                    <option value="">Seçiniz...</option>
-                                </select>
+                                <div class="form-group" id="originSelectWrapper">
+                                    <label for="originSelect" class="form-label">Menşe</label>
+                                    <select id="originSelect" class="form-select"></select>
+                                </div>
+                                
+                                <div class="form-group" id="specificTaskTypeWrapper" style="display: none;">
+                                    <label for="specificTaskType" class="form-label">Spesifik İş Tipi</label>
+                                    <select class="form-select" id="specificTaskType">
+                                        <option value="">Seçiniz...</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                        
-                        <div id="countrySelectionContainer" class="form-section" style="display:none;">
-                            <h3 class="section-title" id="countrySelectionTitle">Ulusal Menşe Ülke Seçimi</h3>
+                    </div>
+
+                    <div id="countrySelectionContainer" class="form-section" style="display:none;">
+                        <h3 class="section-title" id="countrySelectionTitle">
+                            <span><i class="fas fa-globe-europe text-info mr-2"></i> Ulusal Menşe Ülke Seçimi</span>
+                        </h3>
+                        <div class="card-body-custom">
                             <div id="singleCountrySelectWrapper" class="form-group full-width">
                                 <label for="countrySelect" class="form-label">Ülke</label>
                                 <select id="countrySelect" class="form-select"></select>
@@ -73,11 +85,11 @@
                                     </div>
                                 </div>
                                 <div class="form-group full-width mt-3">
-                                    <label class="form-label">Seçilen Ülkeler <span class="badge badge-light" id="selectedCountriesCount">0</span></label>
-                                    <div id="selectedCountriesList" class="selected-items-list">
-                                        <div class="empty-state">
-                                            <i class="fas fa-flag fa-3x text-muted mb-3"></i>
-                                            <p class="text-muted">Henüz ülke eklenmedi.</p>
+                                    <label class="form-label">Seçilen Ülkeler <span class="badge badge-primary ml-1" id="selectedCountriesCount">0</span></label>
+                                    <div id="selectedCountriesList" class="selected-items-list border rounded bg-light">
+                                        <div class="empty-state p-4 text-center">
+                                            <i class="fas fa-flag fa-2x text-muted mb-2"></i>
+                                            <p class="text-muted m-0">Henüz ülke eklenmedi.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -85,19 +97,21 @@
                         </div>
                     </div>
 
-                    <div class="card mb-4" id="suitSpecificFieldsCard" style="display: none;">
-                        <div id="suitSpecificFieldsContainer" class="card-body">
-                            </div>
+                    <div class="form-section" id="suitSpecificFieldsCard" style="display: none; border-left: 5px solid #dc3545;">
+                        <h3 class="section-title text-danger">
+                            <span><i class="fas fa-gavel mr-2"></i> Dava Detayları</span>
+                        </h3>
+                        <div id="suitSpecificFieldsContainer" class="card-body-custom"></div>
                     </div>
 
                     <div id="dynamicFormContainer"></div>
                     
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" onclick="window.location.href='portfolio-management.html'">
+                        <div class="premium-footer-actions">
+                        <button type="button" class="btn btn-secondary btn-lg rounded-pill px-4" onclick="window.location.href='portfolio.html'">
                             <i class="fas fa-times mr-2"></i>İptal
                         </button>
-                        <button type="button" class="btn btn-primary" id="savePortfolioBtn" disabled>
-                            <i class="fas fa-save mr-2"></i>Portföy Kaydını Kaydet
+                        <button type="button" class="btn btn-primary btn-lg rounded-pill px-5 shadow" id="savePortfolioBtn" disabled>
+                            <i class="fas fa-save mr-2"></i>Kayıt İşlemini Tamamla
                         </button>
                     </div>
                 </form>
@@ -114,6 +128,5 @@
     <script type="module" src="./js/layout-loader.js"></script>
     <script type="module" src="js/data-entry/data-entry.js"></script>
     <script type="module" src="./js/nice-classification.js"></script>
-    
-    </body>
+</body>
 </html>

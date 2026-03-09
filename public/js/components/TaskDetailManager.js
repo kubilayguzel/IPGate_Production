@@ -1,6 +1,6 @@
 // public/js/components/TaskDetailManager.js
 
-import { supabase } from "../../supabase-config.js";
+import { supabase, ipRecordsService } from "../../supabase-config.js";
 import { formatToTRDate } from "../../utils.js";
 
 export class TaskDetailManager {
@@ -53,20 +53,38 @@ export class TaskDetailManager {
         this.showLoading();
 
         try {
+            const modalContent = this.container.closest('.modal-content');
+            
+            // Eğer görev türü 2 (Marka Başvurusu) ise modalı devasa yap
+            if (modalContent) {
+                if (String(task.taskType) === '2') {
+                    modalContent.style.maxWidth = '95%'; 
+                    modalContent.style.width = '1400px'; 
+                    modalContent.style.margin = 'auto';
+                } else {
+                    modalContent.style.maxWidth = ''; // Diğer işlerde orijinal boyut
+                    modalContent.style.width = '';
+                }
+            }
+
             if (String(task.taskType) === '66') {
                 await this._renderEvaluationEditor(task);
                 return;
             }
 
+            // 🔥 MARKA BAŞVURUSU (TİP 2) İÇİN DEVASA ÖZET EKRANI
+            if (String(task.taskType) === '2') {
+                await this._renderApplicationSummary(task, options);
+                return;
+            }
+
+            // STANDART İŞ DETAYI GÖRÜNÜMÜ
             let { ipRecord, transactionType, assignedUser, accruals = [] } = options;
 
-            // 🔥 YENİ SUPABASE ENTEGRASYONU: Asıl İşin Portföyünü Bulma (Type 53 Tahakkuk İşleri İçin)
             let targetRecordId = task.ip_record_id || task.related_ip_record_id || task.relatedIpRecordId;
-            
             if (!targetRecordId && (String(task.taskType) === '53' || (task.title || '').toLowerCase().includes('tahakkuk'))) {
                 let detailsObj = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {});
                 let parentId = detailsObj.relatedTaskId || task.relatedTaskId || detailsObj.parent_task_id;
-                
                 if (parentId) {
                     try {
                         const { data: pTask } = await supabase.from('tasks').select('ip_record_id, related_ip_record_id').eq('id', String(parentId)).single();
@@ -75,7 +93,6 @@ export class TaskDetailManager {
                 }
             }
 
-            // Eğer veritabanından ilişkili IP Record'u (Marka, Patent, Dava) çekmemiz gerekiyorsa:
             if (!ipRecord && targetRecordId) {
                 try {
                     const { data: ipDoc } = await supabase.from('ip_records').select('*').eq('id', String(targetRecordId)).maybeSingle();
@@ -87,7 +104,6 @@ export class TaskDetailManager {
                 } catch (e) { console.warn("IP Record fetch error:", e); }
             }
 
-            // --- Veri Formatlama ---
             let relatedPartyTxt = task.relatedPartyName || task.iprecordApplicantName || '-';
             const assignedName = assignedUser ? (assignedUser.displayName || assignedUser.email) : (task.assignedTo_email || 'Atanmamış');
             const relatedRecordTxt = ipRecord ? (ipRecord.application_number || ipRecord.title || ipRecord.brand_name) : 'İlgili kayıt bulunamadı';
@@ -213,6 +229,254 @@ export class TaskDetailManager {
         }
     }
 
+    // =========================================================================
+    // 🔥 MARKA BAŞVURUSU İÇİN ÖZEL, GENİŞ, PREMIUM ÖZET EKRANI
+    // =========================================================================
+    async _renderApplicationSummary(task, options) {
+        let targetRecordId = task.ip_record_id || task.related_ip_record_id || task.relatedIpRecordId;
+        
+        let fullRecord = {};
+        if (targetRecordId) {
+            const res = await ipRecordsService.getRecordById(targetRecordId);
+            if (res && res.success) fullRecord = res.data;
+        }
+
+        let tmDetails = {};
+        if (targetRecordId) {
+            const { data } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', targetRecordId).maybeSingle();
+            if (data) tmDetails = data;
+        }
+        
+        let details = {};
+        try {
+            details = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {});
+        } catch(e) {}
+
+        const brandName = tmDetails.brand_name || fullRecord.title || details.brandText || task.title || '-';
+        const brandType = tmDetails.brand_type || fullRecord.brandType || details.brandType || '-';
+        const brandCategory = tmDetails.brand_category || fullRecord.brandCategory || details.brandCategory || '-';
+        const origin = fullRecord.origin || details.origin || '-';
+        
+        let nonLatin = '-';
+        if (tmDetails.non_latin_alphabet !== undefined) nonLatin = tmDetails.non_latin_alphabet ? 'Evet' : 'Hayır';
+        else if (details.nonLatinAlphabet) nonLatin = details.nonLatinAlphabet;
+
+        const coverLetter = tmDetails.cover_letter_request || details.coverLetterRequest || '-';
+        const consent = tmDetails.consent_request || details.consentRequest || '-';
+
+        // 🔥 GÜÇLENDİRİLMİŞ OLUŞTURAN (CREATED_BY) KONTROLÜ
+        // Yeni görevlerde task.created_by doludur, eskilerde ise history (işlem geçmişi) tablosuna bakar.
+        let createdByTxt = task.created_by;
+        if (!createdByTxt && task.history && task.history.length > 0) {
+            createdByTxt = task.history[0].userEmail || task.history[0].user_id;
+        }
+        createdByTxt = createdByTxt || 'Sistem';
+
+        // --- LİSTELER (Sahipler, Rüçhanlar ve Sınıflar) ---
+        const applicants = (fullRecord.applicants && fullRecord.applicants.length > 0) ? fullRecord.applicants : (details.applicants || []);
+        
+        // 🔥 YENİ: BAŞVURU SAHİBİ TC/VKN/TPE VE DOĞUM TARİHİ BİLGİLERİ EKLENDİ
+        const applicantsHtml = applicants.length > 0 
+            ? applicants.map(a => {
+                let detailsArr = [];
+                if (a.tckn) detailsArr.push(`TCKN: <strong>${a.tckn}</strong>`);
+                if (a.taxNo || a.tax_no) detailsArr.push(`VKN: <strong>${a.taxNo || a.tax_no}</strong>`);
+                if (a.tpeNo || a.tpe_no) detailsArr.push(`TPE No: <strong>${a.tpeNo || a.tpe_no}</strong>`);
+                
+                // 🔥 YENİ: Doğum tarihi varsa, formatlayarak diziye ekle
+                if (a.birthDate || a.birth_date) {
+                    detailsArr.push(`D.Tarihi: <strong>${this._formatDate(a.birthDate || a.birth_date)}</strong>`);
+                }
+                
+                let extraHtml = detailsArr.length > 0 
+                    ? `<div class="text-muted mt-2" style="font-size: 0.95rem;">${detailsArr.join(' <span class="mx-2 text-light">|</span> ')}</div>` 
+                    : '';
+
+                return `<div class="p-3 border rounded bg-light mb-2 d-flex align-items-center shadow-sm">
+                    <i class="fas fa-user-tie fa-2x mr-4 text-secondary"></i>
+                    <div>
+                        <strong class="text-dark d-block" style="font-size: 1.15rem;">${a.name}</strong>
+                        ${extraHtml}
+                    </div>
+                </div>`;
+            }).join('') 
+            : '<span class="text-danger small font-weight-bold">Seçilmedi</span>';
+
+        const priorities = (fullRecord.priorities && fullRecord.priorities.length > 0) ? fullRecord.priorities : (details.priorities || []);
+        const prioritiesHtml = priorities.length > 0 
+            ? priorities.map(p => `<div class="p-3 border rounded bg-light mb-2"><i class="fas fa-globe-europe mr-2 text-info"></i><strong class="text-dark">${p.country || p.priority_country}</strong> - ${p.type || 'Rüçhan'} (${p.number || p.priority_number} / ${p.date || p.priority_date})</div>`).join('') 
+            : '<span class="text-muted small font-italic">Rüçhan bilgisi eklenmemiş.</span>';
+
+        // EŞYA LİSTESİ / SINIFLAR
+        const classes = (fullRecord.goodsAndServicesByClass && fullRecord.goodsAndServicesByClass.length > 0) 
+            ? fullRecord.goodsAndServicesByClass 
+            : (details.goodsAndServicesByClass || []);
+            
+        let classesHtml = '';
+        if (classes.length > 0) {
+            classesHtml = classes.map(c => {
+                const classNum = c.classNo || c;
+                const items = c.items && Array.isArray(c.items) && c.items.length > 0 
+                    ? `<ul class="mt-3 mb-0 pl-4" style="font-size: 0.95rem; color: #495057; line-height: 1.6;">${c.items.map(item => `<li class="mb-2">${item}</li>`).join('')}</ul>`
+                    : '<div class="text-muted small mt-2"><i class="fas fa-info-circle mr-1"></i> Sınıfa ait özel alt kalem (eşya) seçilmemiş, standart sınıf kaydedilmiş.</div>';
+
+                return `
+                <div class="mb-4 p-4 border rounded shadow-sm" style="background-color: #f8fafc; border-color: #e2e8f0 !important;">
+                    <span class="badge p-2 px-3 text-white shadow-sm" style="background-color: #3b82f6; font-size: 1.1rem; border-radius: 8px;">
+                        <i class="fas fa-cube mr-1"></i> Sınıf ${classNum}
+                    </span>
+                    ${items}
+                </div>`;
+            }).join('');
+        } else {
+            classesHtml = '<div class="alert alert-danger font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>Sınıf seçimi yapılmamış.</div>';
+        }
+
+        const customClasses = tmDetails.description || fullRecord.description || details.customClasses || '';
+
+        // --- GÖRSEL ---
+        let imageUrl = tmDetails.brand_image_url || fullRecord.brandImageUrl || details.brandImageUrl || null;
+        if (!imageUrl && task.documents && task.documents.length > 0) {
+            const imgDoc = task.documents.find(d => d.type === 'marka_ornegi' || d.name.match(/\.(jpg|jpeg|png)$/i));
+            if (imgDoc) imageUrl = imgDoc.url || imgDoc.downloadURL;
+        }
+
+        let imageSection = '';
+        if (imageUrl) {
+            imageSection = `
+                <div class="text-center">
+                    <div style="background: #f8f9fa; border: 1px dashed #cbd5e1; padding: 10px; border-radius: 12px; display: inline-block; width: 100%;">
+                        <img src="${imageUrl}" class="img-fluid rounded" style="max-height: 300px; width: auto; object-fit: contain; background: #fff;" />
+                    </div>
+                    <div class="mt-4">
+                        <a href="${imageUrl}" target="_blank" download="marka_ornegi" class="btn btn-primary btn-lg rounded-pill px-4 shadow w-100 font-weight-bold">
+                            <i class="fas fa-download mr-2"></i>Görseli İndir
+                        </a>
+                    </div>
+                </div>
+            `;
+        } else {
+            imageSection = `<div class="alert alert-warning text-center rounded border-warning py-5"><i class="fas fa-image fa-3x mb-3 text-warning"></i><br><strong class="d-block">Görsel Bulunamadı</strong>Marka görseli sisteme yüklenmemiş.</div>`;
+        }
+
+        // --- FİNAL HTML ---
+        const html = `
+        <div class="application-summary-container p-3" style="background: #f4f7f9; border-radius: 0 0 16px 16px;">
+            
+            <div class="alert alert-info border-info shadow-sm mb-4 d-flex align-items-center" style="font-size: 1.05rem;">
+                <i class="fas fa-info-circle fa-2x mr-3 text-info"></i>
+                <div>
+                    <strong>Resmi Kurum Başvurusu Ekrani:</strong> Bu ekrandaki tüm verileri kullanarak ilgili kuruma marka başvurusunu gerçekleştirebilirsiniz. Sınıf listeleri ve ekli belgeler sayfanın altındadır.
+                </div>
+            </div>
+
+            <div class="row">
+                
+                <div class="col-lg-8">
+                    
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4">
+                            <h5 class="mb-0 text-primary font-weight-bold"><i class="fas fa-tag mr-2"></i>Marka Bilgileri</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <table class="table table-striped table-hover mb-0 border-0" style="font-size: 1.05rem;">
+                                <tbody>
+                                    <tr><th style="width: 35%;" class="pl-4 py-3">Marka Adı</th><td class="text-primary font-weight-bold py-3" style="font-size: 1.3em;">${brandName}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Menşe</th><td class="py-3 align-middle">${origin}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Marka Tipi / Türü</th><td class="py-3 align-middle">${brandType} <span class="mx-2 text-muted">/</span> ${brandCategory}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Latin Dışı Karakter</th><td class="py-3 align-middle font-weight-bold ${nonLatin === 'Evet' ? 'text-danger' : 'text-success'}">${nonLatin}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Önyazı Talebi</th><td class="py-3 align-middle">${coverLetter}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Muvafakat Talebi</th><td class="py-3 align-middle">${consent}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4">
+                            <h5 class="mb-0 text-success font-weight-bold"><i class="fas fa-users mr-2"></i>Başvuru Sahipleri</h5>
+                        </div>
+                        <div class="card-body p-4">
+                            ${applicantsHtml}
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4">
+                            <h5 class="mb-0 text-warning font-weight-bold"><i class="fas fa-star mr-2"></i>Rüçhan Bilgileri</h5>
+                        </div>
+                        <div class="card-body p-4">
+                            ${prioritiesHtml}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4 text-center">
+                            <h5 class="mb-0 text-dark font-weight-bold">Marka Örneği</h5>
+                        </div>
+                        <div class="card-body p-4 bg-white">
+                            ${imageSection}
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4">
+                            <h6 class="mb-0 text-dark font-weight-bold"><i class="fas fa-info-circle mr-2 text-secondary"></i>Görev Özeti</h6>
+                        </div>
+                        <div class="card-body p-4" style="font-size: 1rem; line-height: 1.8;">
+                            <p class="mb-2 text-muted">Oluşturan: <strong class="text-dark ml-2">${createdByTxt}</strong></p>
+                            <p class="mb-2 text-muted">Atanan: <strong class="text-primary ml-2">${options.assignedUser?.displayName || task.assignedTo_email || 'Atanmamış'}</strong></p>
+                            <p class="mb-2 text-muted">Öncelik: <strong class="text-dark ml-2">${task.priority}</strong></p>
+                            <p class="mb-0 text-muted">Son Tarih: <strong class="text-danger ml-2">${this._formatDate(task.officialDueDate || task.official_due_date)}</strong></p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="row mt-2">
+                <div class="col-12">
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4">
+                            <h5 class="mb-0 text-dark font-weight-bold"><i class="fas fa-folder-open mr-2 text-primary"></i>Ekli Diğer Belgeler</h5>
+                        </div>
+                        <div class="card-body p-4 bg-light">
+                            ${this._generateDocsHtml(task, true)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+                        <div class="card-header bg-white border-bottom p-4 d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0 text-info font-weight-bold"><i class="fas fa-list-ol mr-2"></i>Mal ve Hizmet Sınıfları (Eşya Listesi)</h4>
+                            <span class="badge badge-info p-2" style="font-size: 1rem;">Toplam Sınıf: ${classes.length}</span>
+                        </div>
+                        <div class="card-body p-4">
+                            ${classesHtml}
+                            
+                            ${customClasses ? `
+                            <div class="mt-4 p-4 border rounded shadow-sm" style="background: #fff8e1; border-color: #ffecb3 !important;">
+                                <h6 class="font-weight-bold text-dark mb-3"><i class="fas fa-edit mr-2 text-warning"></i>Özel Tanım (Elle Eklenen):</h6>
+                                <p class="m-0 text-dark" style="line-height: 1.8; font-size: 1.05rem;">${customClasses}</p>
+                            </div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        `;
+        
+        this.container.innerHTML = html;
+    }
+
+
+    // --- YARDIMCI FONKSİYONLAR AŞAĞIDA DEVAM EDİYOR ---
+
     async _renderEvaluationEditor(task) {
         this.showLoading();
         try {
@@ -295,23 +559,28 @@ export class TaskDetailManager {
         }
     }
 
-    _generateDocsHtml(task) {
+    // 🔥 BELGELERİ YANYANA (FLEX/GRID) DİZEN GÜNCELLENMİŞ FONKSİYON
+    _generateDocsHtml(task, isHorizontal = false) {
         let items = [];
         const docs = task.documents || [];
         const epatsDoc = docs.find(d => d.type === 'epats_document');
         const epatsUrl = epatsDoc?.downloadURL || epatsDoc?.url;
 
+        const cardStyle = isHorizontal 
+            ? "flex: 1 1 300px; min-width: 300px; max-width: 400px; margin-bottom: 0 !important;" 
+            : "margin-bottom: 0.5rem;";
+
         if (epatsDoc && epatsUrl) {
             items.push(`
-                <a href="${epatsUrl}" target="_blank" class="d-flex align-items-center justify-content-between p-3 mb-2 rounded text-decoration-none bg-white border" style="border-left: 3px solid #d63384 !important;">
+                <a href="${epatsUrl}" target="_blank" class="d-flex align-items-center justify-content-between p-3 rounded text-decoration-none bg-white border shadow-sm" style="border-left: 4px solid #d63384 !important; ${cardStyle}">
                     <div class="d-flex align-items-center">
-                        <i class="fas fa-file-pdf text-danger fa-lg mr-3"></i>
+                        <i class="fas fa-file-pdf text-danger fa-2x mr-3"></i>
                         <div class="text-truncate">
-                            <span class="d-block text-dark font-weight-bold" style="font-size: 0.9rem;">EPATS Belgesi</span>
+                            <span class="d-block text-dark font-weight-bold" style="font-size: 1rem;">EPATS Belgesi</span>
                             <span class="d-block text-muted small text-truncate">${epatsDoc.name}</span>
                         </div>
                     </div>
-                    <i class="fas fa-external-link-alt text-muted small"></i>
+                    <i class="fas fa-external-link-alt text-muted ml-2"></i>
                 </a>
             `);
         }
@@ -320,21 +589,29 @@ export class TaskDetailManager {
             const fUrl = file.downloadURL || file.url;
             if (fUrl) {
                 items.push(`
-                    <a href="${fUrl}" target="_blank" class="d-flex align-items-center justify-content-between p-3 mb-2 rounded text-decoration-none bg-white border">
+                    <a href="${fUrl}" target="_blank" class="d-flex align-items-center justify-content-between p-3 rounded text-decoration-none bg-white border shadow-sm" style="${cardStyle}">
                         <div class="d-flex align-items-center overflow-hidden">
-                            <i class="fas fa-paperclip text-muted fa-lg mr-3"></i>
-                            <div class="text-truncate" style="max-width: 250px;">
-                                <span class="d-block text-dark font-weight-bold" style="font-size: 0.9rem;">Dosya</span>
+                            <i class="fas fa-paperclip text-muted fa-2x mr-3"></i>
+                            <div class="text-truncate" style="max-width: 200px;">
+                                <span class="d-block text-dark font-weight-bold" style="font-size: 1rem;">Dosya</span>
                                 <small class="text-muted text-truncate d-block">${file.name || 'Adsız'}</small>
                             </div>
                         </div>
-                        <i class="fas fa-download text-muted small"></i>
+                        <i class="fas fa-download text-muted ml-2"></i>
                     </a>
                 `);
             }
         });
 
-        return items.length ? items.join('') : `<div class="text-muted small font-italic p-2">Ekli belge bulunmuyor.</div>`;
+        if (items.length === 0) {
+            return `<div class="text-muted small font-italic p-2">Ekli belge bulunmuyor.</div>`;
+        }
+
+        if (isHorizontal) {
+            return `<div class="d-flex flex-wrap" style="gap: 15px;">${items.join('')}</div>`;
+        } else {
+            return items.join('');
+        }
     }
 
     _generateAccrualsHtml(accruals) {

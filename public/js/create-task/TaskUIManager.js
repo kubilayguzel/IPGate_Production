@@ -33,7 +33,10 @@ export class TaskUIManager {
                 <div class="tab-pane fade" id="summary" role="tabpanel"><div id="summaryContent" class="form-section"></div></div>
             </div>
         </div>
-        <div id="formActionsContainer" class="premium-footer-actions mt-4"></div>`;
+        <div id="formActionsContainer" class="premium-footer-actions mt-4">
+            <button type="button" id="cancelBtn" class="btn btn-secondary btn-lg rounded-pill px-4"><i class="fas fa-times mr-2"></i>İptal</button>
+            <button type="button" id="nextTabBtn" class="btn btn-primary btn-lg rounded-pill px-5 shadow"><i class="fas fa-arrow-right mr-2"></i>İlerle</button>
+        </div>`;
     }
 
     // --- 2. DİĞER İŞLEMLER (STANDART FORM) ---
@@ -57,7 +60,13 @@ export class TaskUIManager {
 
         contentHtml += this._getAccrualCardHtml();
         contentHtml += this._getJobDetailsHtml();
-        contentHtml += `<div id="formActionsContainer" class="premium-footer-actions mt-4"></div>`;
+        
+        // 🔥 ÇÖZÜM: Standart formların butonları kalıcı eklendi
+        contentHtml += `
+        <div id="formActionsContainer" class="premium-footer-actions mt-4">
+            <button type="button" id="cancelBtn" class="btn btn-secondary btn-lg rounded-pill px-4"><i class="fas fa-times mr-2"></i>İptal</button>
+            <button type="submit" id="saveTaskBtn" class="btn btn-success btn-lg rounded-pill px-5 shadow"><i class="fas fa-check-double mr-2"></i>İşi Oluştur ve Kaydet</button>
+        </div>`;
 
         this.container.innerHTML = contentHtml;
     }
@@ -95,6 +104,7 @@ export class TaskUIManager {
             customFields = `<div class="form-grid"><div class="form-group"><label class="form-label font-weight-bold">Araştırılacak Marka/Kelime</label><input type="text" id="searchKeywordInput" class="form-input" placeholder="Araştırma yapılacak ibare..."></div><div class="form-group"><label class="form-label font-weight-bold">Sınıflar (Opsiyonel)</label><input type="text" id="searchClassesInput" class="form-input" placeholder="Örn: 05, 35 (Virgülle ayırın)"></div></div>`;
         }
 
+        // 🔥 ÇÖZÜM: Diğer formların butonları kalıcı eklendi
         this.container.innerHTML = `
         <div class="premium-card mb-4">
             <div class="card-header-custom"><span><i class="fas fa-layer-group text-primary mr-2"></i>${taskType.name || 'İşlem Detayları'}</span></div>
@@ -108,7 +118,10 @@ export class TaskUIManager {
                 <div class="mt-4">${this._getJobDetailsHtml(true)}</div>
             </div>
         </div>
-        <div id="formActionsContainer" class="premium-footer-actions mt-4"></div>`;
+        <div id="formActionsContainer" class="premium-footer-actions mt-4">
+            <button type="button" id="cancelBtn" class="btn btn-secondary btn-lg rounded-pill px-4"><i class="fas fa-times mr-2"></i>İptal</button>
+            <button type="submit" id="saveTaskBtn" class="btn btn-success btn-lg rounded-pill px-5 shadow"><i class="fas fa-check-double mr-2"></i>İşi Oluştur ve Kaydet</button>
+        </div>`;
     }
 
     renderSelectedOwners(owners) {

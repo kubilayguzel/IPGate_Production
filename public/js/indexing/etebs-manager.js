@@ -82,12 +82,15 @@ export class ETEBSManager {
         try {
             console.log('🚀 Supabase Edge Function Başlatılıyor... (etebs-fetcher)');
 
-            // 🔥 ÇÖZÜM: Firebase Cloud Function yerine Supabase Edge Function çağrısı
+            // 🔥 ÇÖZÜM: Session içindeki token'ı yetkilendirme (Authorization) olarak ekliyoruz
             const { data, error } = await supabase.functions.invoke('etebs-fetcher', {
                 body: {
                     action: 'CHECK_LIST_ONLY',
                     token: token,
-                    userId: user.id // Supabase user.id formatı
+                    userId: user.id 
+                },
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`
                 }
             });
 

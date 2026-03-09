@@ -939,9 +939,16 @@ import { supabase, authService, personService } from './supabase-config.js';
                 showNotification('Siliniyor, lütfen bekleyin...', 'info', 2000);
 
                 try {
-                    // Supabase Edge Function'ı çağırıyoruz
+                    // 🔥 ÇÖZÜM 1: En güncel oturumu alıyoruz
+                    const session = await authService.getCurrentSession();
+                    if (!session) throw new Error("Geçerli bir oturum bulunamadı. Lütfen tekrar giriş yapın.");
+
+                    // 🔥 ÇÖZÜM 2: Token'ı Authorization başlığına (Header) açıkça (explicitly) ekliyoruz
                     const { data, error } = await supabase.functions.invoke('delete-user', {
-                        body: { userId: userId }
+                        body: { userId: userId },
+                        headers: {
+                            Authorization: `Bearer ${session.access_token}`
+                        }
                     });
 
                     if (error) throw error;

@@ -104,46 +104,44 @@ export const authService = {
 // ==========================================
 
 export async function waitForAuthUser({ requireAuth = true, redirectTo = 'index.html', graceMs = 0 } = {}) {
-    // Aktif oturumu al
     const session = await authService.getCurrentSession();
     
-    // Oturum yoksa ve sayfa yetki gerektiriyorsa logine at
     if (requireAuth && !session) {
-        console.warn("Kullanıcı oturumu bulunamadı, logine dönülüyor...");
         window.location.replace(redirectTo);
         return null;
     }
 
-    // Oturum VARSA Rol Kontrolü Yap
     if (session) {
-        // Kullanıcının rolünü users tablosundan çek
-        const { data: userProfile } = await supabase
+        const { data: userProfile, error } = await supabase
             .from('users')
             .select('role')
             .eq('id', session.user.id)
             .single();
 
+        // 🔥 YENİ: Ağ (Firewall) engeli tespit edilirse kullanıcıyı uyar
+        if (error) {
+            console.error("Veritabanı bağlantı hatası (Ağ engeli olabilir):", error);
+            if (error.message.includes('Failed to fetch') || error.message.includes('Network')) {
+                alert("SİSTEM UYARISI: Kurum ağınız (Wi-Fi / Firewall) güvenlik nedeniyle veritabanı bağlantımızı engelliyor. Lütfen mobil veriye geçin veya IT departmanından 'supabase.co' adresine izin vermesini isteyin.");
+            }
+        }
+
         const userRole = userProfile ? userProfile.role : 'belirsiz';
         const currentPath = window.location.pathname;
 
-        // DURUM 1: Rol "belirsiz" ise (Onay Bekliyor)
         if (userRole === 'belirsiz' && !currentPath.includes('client-pending.html')) {
-            console.warn("Kullanıcı yetkisi belirsiz, onay sayfasına yönlendiriliyor...");
             window.location.replace('client-pending.html');
             return null;
         }
 
-        // 🔥 YENİ - DURUM 2: Rol "client" ise (Müvekkil Portalı)
         if (userRole === 'client' && !currentPath.includes('client-portal.html')) {
-            console.warn("Müvekkil girişi yapıldı, portala yönlendiriliyor...");
             window.location.replace('client-portal.html');
             return null;
         }
 
-        // DURUM 3: Rol "user/admin/superadmin" ise (Yanlışlıkla pending veya portal sayfasına girdiyse)
         if (userRole !== 'belirsiz' && userRole !== 'client') {
             if (currentPath.includes('client-pending.html') || currentPath.includes('client-portal.html')) {
-                window.location.replace('dashboard.html'); // Ofis çalışanını ana sayfaya at
+                window.location.replace('dashboard.html'); 
                 return null;
             }
         }

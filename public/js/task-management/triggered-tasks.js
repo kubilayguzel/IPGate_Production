@@ -73,11 +73,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (loader) loader.style.display = 'block';
 
             try {
-                const isSuper = this.currentUser?.role === 'superadmin';
+                // 🔥 ANA KURAL UYGULAMASI: 
+                // Eğer kullanıcı 'superadmin' veya 'admin' ise, tüm görevleri çekmek için filtreyi null gönder.
+                // Eğer normal kullanıcı ise (user, vb.), sadece KENDİNE atanan görevleri çekmek için kendi UID'sini gönder.
+                const isManager = ['superadmin', 'admin'].includes(this.currentUser?.role);
+                const queryUid = isManager ? null : this.currentUser.uid;
                 const targetStatus = 'awaiting_client_approval';
 
+                // Sorguyu ilgili UID (veya null) ile başlat
                 const [tasksResult, transTypesResult] = await Promise.all([
-                    taskService.getTasksByStatus(targetStatus, isSuper ? null : this.currentUser.uid),
+                    taskService.getTasksByStatus(targetStatus, queryUid),
                     transactionTypeService.getTransactionTypes()
                 ]);
 

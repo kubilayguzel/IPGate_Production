@@ -14,6 +14,7 @@ export class PortfolioDataManager {
         
         this.allCountries = [];  
         this.wipoGroups = { parents: new Map(), children: new Map() };
+        this.monitoredRecordIds = new Set();
 
         this._buildStatusMap();
     }
@@ -38,10 +39,11 @@ export class PortfolioDataManager {
     }
 
     async loadInitialData() {
-        this.loadPersons(); // Arkada sessizce başlar, arayüzü kilitlemez
+        this.loadPersons(); 
         await Promise.all([
             this.loadTransactionTypes(),
-            this.loadCountries()
+            this.loadCountries(),
+            this.loadMonitoredIds() // 🔥 YENİ EKLENDİ
         ]);
         return this.allRecords;
     }
@@ -74,6 +76,23 @@ export class PortfolioDataManager {
         } catch (e) {
             console.error("Ülke listesi hatası:", e);
         }
+    }
+
+    // 🔥 YENİ: Hangi markaların izlemede olduğunu Supabase'den çeker
+    async loadMonitoredIds() {
+        try {
+            const { data, error } = await supabase.from('monitoring_trademarks').select('ip_record_id');
+            if (data && !error) {
+                this.monitoredRecordIds = new Set(data.map(d => String(d.ip_record_id)));
+            }
+        } catch (e) {
+            console.error("İzleme listesi çekilemedi:", e);
+        }
+    }
+
+    // 🔥 YENİ: Arayüze bu markanın izlenip izlenmediğini söyler
+    isRecordMonitored(id) {
+        return this.monitoredRecordIds ? this.monitoredRecordIds.has(String(id)) : false;
     }
 
     _buildStatusMap() {

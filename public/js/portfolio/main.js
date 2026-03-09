@@ -512,6 +512,39 @@ class PortfolioController {
             if (!hasSelection) exportSelectedBtn.classList.add('disabled');
             else exportSelectedBtn.classList.remove('disabled');
         }
+
+        // 🔥 YENİ: Tekil Seçim (Hızlı Aksiyon) Butonu Mantığı
+        // Önce sayfadaki var olan tüm hızlı butonları temizle (birden fazla seçim olursa kaybolması için)
+        document.querySelectorAll('.quick-monitor-btn').forEach(btn => btn.remove());
+
+        // Eğer SADECE 1 TANE marka seçiliyse ve Markalar sekmesindeysek
+        if (count === 1 && this.state.activeTab === 'trademark') {
+            const selectedId = Array.from(this.state.selectedRecords)[0];
+            const isAlreadyMonitored = this.dataManager.isRecordMonitored(selectedId);
+            
+            // Eğer marka zaten izleme listesinde DEĞİLSE butonu oluştur
+            if (!isAlreadyMonitored) {
+                const tr = document.querySelector(`tr[data-id="${selectedId}"]`);
+                if (tr) {
+                    const titleCell = tr.querySelector('.record-title-cell');
+                    if (titleCell) {
+                        const quickBtn = document.createElement('button');
+                        quickBtn.className = 'btn btn-sm btn-success quick-monitor-btn ml-3 shadow-sm';
+                        quickBtn.style.padding = '2px 10px';
+                        quickBtn.style.fontSize = '0.75rem';
+                        quickBtn.style.borderRadius = '12px';
+                        quickBtn.innerHTML = '<i class="fas fa-plus mr-1"></i>Hemen İzlemeye Al';
+                        
+                        // Tıklanınca tekil ekleme fonksiyonunu çalıştır
+                        quickBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            this.handleSingleMonitoring(selectedId);
+                        };
+                        titleCell.appendChild(quickBtn);
+                    }
+                }
+            }
+        }
     }
 
     getCurrentPageRecords() {
@@ -571,15 +604,58 @@ class PortfolioController {
                 const monitoringData = this.dataManager.prepareMonitoringData(record);
                 if(monitoringData) {
                     const res = await monitoringService.addMonitoringItem(monitoringData);
-                    if (res.success) successCount++;
+                    if (res.success) {
+                        successCount++;
+                        // 🔥 YENİ: Anında listeye dahil et (Sayfa yenilemeden yeşil olması için)
+                        this.dataManager.monitoredRecordIds.add(String(id));
+                    }
                 }
             }
-            showNotification(`${successCount} kayıt izlemeye eklendi.`, 'success');
+            if(typeof showNotification === 'function') {
+                showNotification(`${successCount} kayıt izlemeye eklendi.`, 'success');
+            }
             this.state.selectedRecords.clear();
             this.updateActionButtons();
             this.render();
-        } catch (e) { showNotification('Hata: ' + e.message, 'error'); }
+        } catch (e) { 
+            if(typeof showNotification === 'function') {
+                showNotification('Hata: ' + e.message, 'error'); 
+            }
+        }
         finally { this.renderer.showLoading(false); }
+    }
+
+    // 🔥 YENİ: Satır içindeki butona tıklandığında sadece o markayı izlemeye alır
+    async handleSingleMonitoring(id) {
+        try {
+            this.renderer.showLoading(true);
+            const record = this.dataManager.getRecordById(id);
+            if (!record || record.type !== 'trademark') return;
+            
+            const monitoringData = this.dataManager.prepareMonitoringData(record);
+            if (monitoringData) {
+                const res = await monitoringService.addMonitoringItem(monitoringData);
+                if (res.success) {
+                    // RAM'e ekle (sayfa yenilenmeden yeşil olması için)
+                    this.dataManager.monitoredRecordIds.add(String(id));
+                    if(typeof showNotification === 'function') {
+                        showNotification('Marka başarıyla izlemeye eklendi.', 'success');
+                    }
+                    // İşlem bitince kutucuğun seçimini kaldır ve sayfayı tekrar çiz
+                    this.state.selectedRecords.clear(); 
+                    this.updateActionButtons();
+                    this.render(); 
+                } else {
+                    throw new Error("Ekleme işlemi başarısız oldu.");
+                }
+            }
+        } catch (e) { 
+            if(typeof showNotification === 'function') {
+                showNotification('Hata: ' + e.message, 'error'); 
+            }
+        } finally { 
+            this.renderer.showLoading(false); 
+        }
     }
 
     async handleDelete(id) {
@@ -666,19 +742,23 @@ class PortfolioController {
                 }
             } else {
                 const isSelected = this.state.selectedRecords.has(String(item.id));
-                const tr = this.renderer.renderStandardRow(item, this.state.activeTab === 'trademark', isSelected);
+                const isMonitored = this.dataManager.isRecordMonitored(item.id); // 🔥 İZLEME KONTROLÜ
+                
+                // Parametre olarak subTab ve isMonitored eklendi
+                const tr = this.renderer.renderStandardRow(item, this.state.activeTab === 'trademark', isSelected, this.state.subTab, isMonitored);
                 frag.appendChild(tr);
 
                 if ((item.origin === 'WIPO' || item.origin === 'ARIPO') && item.transactionHierarchy === 'parent') {
-                    // 🔥 ÇÖZÜM 1: Artık irNo değil, doğrudan ana kaydın ID'si ile çocukları çekiyoruz
                     const children = this.dataManager.getWipoChildren(item.id);
                     if (children && children.length > 0) {
                         children.forEach(child => {
                             const childIsSelected = this.state.selectedRecords.has(String(child.id));
-                            const childTr = this.renderer.renderStandardRow(child, this.state.activeTab === 'trademark', childIsSelected);
+                            const childIsMonitored = this.dataManager.isRecordMonitored(child.id); // 🔥 ALT KAYIT İÇİN İZLEME KONTROLÜ
+                            
+                            const childTr = this.renderer.renderStandardRow(child, this.state.activeTab === 'trademark', childIsSelected, this.state.subTab, childIsMonitored);
                             
                             childTr.classList.add('child-row');
-                            childTr.dataset.parentId = item.id; // 🔥 irNo yerine ana kaydın ID'sini bağlıyoruz
+                            childTr.dataset.parentId = item.id; 
                             childTr.style.display = 'none'; 
                             childTr.style.backgroundColor = '#ffffff'; 
                             
@@ -755,7 +835,10 @@ class PortfolioController {
         if (tab === 'trademark') {
             columns.push({ key: 'brandImage', label: 'Görsel', width: '90px' });
             columns.push({ key: 'origin', label: 'Menşe', sortable: true, width: '140px' });
-            columns.push({ key: 'country', label: 'Ülke', sortable: true, width: '130px' });
+            // 🔥 ÇÖZÜM: Sadece alt sekme TÜRKPATENT "değilse" ülke kolonunu göster
+            if (this.state.subTab !== 'turkpatent') {
+                columns.push({ key: 'country', label: 'Ülke', sortable: true, width: '130px' });
+            }
         }
 
         columns.push(

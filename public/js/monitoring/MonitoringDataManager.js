@@ -1,4 +1,5 @@
-import { supabase } from '../../supabase-config.js';
+// public/js/monitoring/MonitoringDataManager.js
+import { supabase, ipRecordsService } from '../../supabase-config.js';
 
 export class MonitoringDataManager {
     constructor() {
@@ -23,21 +24,30 @@ export class MonitoringDataManager {
 
     async fetchMonitoringData() {
         try {
-            // 🔥 ÇÖZÜM 1: Tüm verileri tek bir dev JOIN sorgusuyla en baştan çekiyoruz!
-            const { data, error } = await supabase
+            // 1. URL'den belirli bir markaya (Göz ikonuna) tıklanıp gelinmiş mi kontrol et
+            const urlParams = new URLSearchParams(window.location.search);
+            const filterId = urlParams.get('filterId');
+
+            // 2. SADECE monitoring tablosunu çekiyoruz (Hata veren SQL JOIN'leri tamamen kaldırıldı)
+            let query = supabase
                 .from('monitoring_trademarks')
-                .select(`
-                    *,
-                    ip_records (
-                        *,
-                        ip_record_trademark_details (*),
-                        ip_record_applicants ( persons ( name ) ),
-                        ip_record_classes ( class_no )
-                    )
-                `)
+                .select('*')
                 .order('created_at', { ascending: false });
 
+            if (filterId) {
+                query = query.eq('ip_record_id', String(filterId));
+            }
+
+            const { data: monitoringData, error } = await query;
             if (error) throw error;
+
+            // 3. ✨ SİHİRLİ DOKUNUŞ: Karmaşık verileri zaten hazırlayan ve önbellekleyen servisi kullanıyoruz!
+            const recordsRes = await ipRecordsService.getRecords();
+            const allIpRecords = recordsRes.success ? recordsRes.data : [];
+
+            // Hızlı eşleştirme için Map (Sözlük) oluştur
+            const ipRecordsMap = new Map();
+            allIpRecords.forEach(r => ipRecordsMap.set(r.id, r));
 
             const ensureArray = (val) => {
                 if (!val) return [];
@@ -46,41 +56,29 @@ export class MonitoringDataManager {
                 return [val];
             };
 
-            this.allMonitoringData = data.map(d => {
-                const ip = d.ip_records || {};
+            // 4. Verileri JavaScript tarafında saniyeler içinde birleştir
+            this.allMonitoringData = monitoringData.map(d => {
+                // İlgili ana marka kaydını servisten gelen verilerin içinden bul
+                const ipRecord = ipRecordsMap.get(d.ip_record_id) || {};
                 
-                let tmDetails = ip.ip_record_trademark_details || {};
-                if (Array.isArray(tmDetails)) tmDetails = tmDetails.length > 0 ? tmDetails[0] : {};
-
-                let applicantsArray = ip.ip_record_applicants
-                    ? ip.ip_record_applicants.filter(rel => rel && rel.persons).map(rel => ({ name: rel.persons.name })) : [];
-                let resolvedOwnerName = applicantsArray.map(a => a.name).join(', ') || '-';
-
-                let classesArray = ip.ip_record_classes ? ip.ip_record_classes.map(c => parseInt(c.class_no)).filter(n => !isNaN(n)) : [];
-
-                let imageUrl = tmDetails.brand_image_url || d.image_path;
-                if (!imageUrl || imageUrl.trim() === '') {
-                    imageUrl = ip.id ? `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${ip.id}/logo.png` : '';
-                }
-
                 const bts = ensureArray(d.brand_text_search);
 
                 return {
                     id: d.id,
                     ipRecordId: d.ip_record_id,
-                    title: tmDetails.brand_name || ip.title || d.mark_name || '-',
-                    markName: tmDetails.brand_name || ip.title || d.mark_name || '-',
-                    applicationNumber: ip.application_number || d.application_no || '-',
-                    applicationDate: ip.application_date,
-                    status: ip.status || 'unknown',
-                    brandImageUrl: imageUrl,
-                    ownerName: resolvedOwnerName,
-                    niceClasses: classesArray,
+                    title: ipRecord.title || d.mark_name || '-',
+                    markName: ipRecord.title || d.mark_name || '-',
+                    applicationNumber: ipRecord.applicationNumber || d.application_no || '-',
+                    applicationDate: ipRecord.applicationDate || null,
+                    status: ipRecord.status || 'unknown',
+                    brandImageUrl: ipRecord.brandImageUrl || d.image_path || '',
+                    ownerName: ipRecord.applicantName || '-',
+                    niceClasses: ipRecord.niceClasses || [],
                     brandTextSearch: bts,
                     searchMarkName: bts.length > 0 ? bts[0] : (d.mark_name || ''),
                     niceClassSearch: ensureArray(d.nice_class_search),
                     createdAt: d.created_at,
-                    applicants: applicantsArray
+                    applicants: ipRecord.applicants || []
                 };
             });
 
@@ -92,43 +90,22 @@ export class MonitoringDataManager {
         }
     }
     
+    // Eski SQL sorgusu yerine bu da servise bağlandı
     async fetchIpRecordByIdCached(recordId) {
         if (!recordId) return null;
         if (this.ipRecordCache.has(recordId)) return this.ipRecordCache.get(recordId);
         
         try {
-            const { data, error } = await supabase.from('ip_records').select(`
-                *,
-                ip_record_trademark_details (*),
-                ip_record_applicants ( persons ( name ) ),
-                ip_record_classes ( class_no )
-            `).eq('id', recordId).single();
+            // Ayrı SQL yazmak yerine merkezi servisi kullanıyoruz
+            const res = await ipRecordsService.getRecordById(recordId);
             
-            if (error || !data) return null;
+            if (!res.success || !res.data) return null;
             
-            let tmDetails = data.ip_record_trademark_details || {};
-            if (Array.isArray(tmDetails)) tmDetails = tmDetails.length > 0 ? tmDetails[0] : {};
-
-            let applicantsArray = data.ip_record_applicants
-                ? data.ip_record_applicants.filter(rel => rel.persons).map(rel => ({ name: rel.persons.name })) : [];
-
-            let resolvedOwnerName = applicantsArray.map(a => a.name).join(', ') || '-';
-            let classesArray = data.ip_record_classes ? data.ip_record_classes.map(c => parseInt(c.class_no)).filter(n => !isNaN(n)) : [];
-
-            let imageUrl = tmDetails.brand_image_url;
-            if (!imageUrl || imageUrl.trim() === '') imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${data.id}/logo.png`;
-
+            const data = res.data;
             const rec = {
                 ...data,
-                title: tmDetails.brand_name || data.title || '-',
-                markName: tmDetails.brand_name || data.title || '-',
-                applicationNumber: data.application_number || '-',
-                applicationDate: data.application_date,
-                brandImageUrl: imageUrl,
-                applicants: applicantsArray,
-                ownerName: resolvedOwnerName,
-                status: data.status || 'unknown',
-                niceClasses: classesArray
+                markName: data.title || '-',
+                ownerName: data.applicantName || '-',
             };
             
             this.ipRecordCache.set(recordId, rec);
@@ -139,21 +116,10 @@ export class MonitoringDataManager {
     }
 
     getOwnerNames(item) {
-        try {
-            if (item.ownerName && typeof item.ownerName === 'string' && item.ownerName.trim() !== '' && item.ownerName.trim() !== '-') {
-                return item.ownerName;
-            }
-            if (item.applicants && Array.isArray(item.applicants) && item.applicants.length > 0) {
-                return item.applicants.map(applicant => {
-                    if (typeof applicant === 'object' && applicant.id) {
-                        const match = this.allPersons.find(p => p.id === applicant.id);
-                        return match ? match.name : applicant.name || '';
-                    }
-                    if (typeof applicant === 'object' && applicant.name) return applicant.name;
-                    return String(applicant);
-                }).filter(name => name && name.trim() !== '').join(', ');
-            }
-        } catch (error) { console.error('getOwnerNames hatası:', error); }
+        // Zaten ipRecordsService 'applicantName' formatını mükemmel ayarlıyor
+        if (item.ownerName && item.ownerName !== '-') {
+            return item.ownerName;
+        }
         return '-';
     }
 
@@ -180,7 +146,7 @@ export class MonitoringDataManager {
                 if (!hasMatch) return false;
             }
             
-            // 🔥 ÇÖZÜM 4: Durum (Status) filtrelemesi sisteme dahil edildi
+            // Durum (Status) filtrelemesi
             if (filters.status && filters.status !== 'all') {
                 const itemStatusVal = this.getNormalizedStatus(item.status);
                 if (itemStatusVal !== filters.status) return false;
@@ -191,7 +157,6 @@ export class MonitoringDataManager {
         return this.sortData();
     }
 
-    // Durumları veritabanı kelimelerinden HTML select value'larına çevirir
     getNormalizedStatus(status) {
         if (!status) return 'unknown';
         const s = String(status).toLowerCase();

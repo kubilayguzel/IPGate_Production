@@ -98,7 +98,7 @@ export class PortfolioRenderer {
         });
     }
 
-    renderStandardRow(record, isTrademarkTab, isSelected) {
+    renderStandardRow(record, isTrademarkTab, isSelected, subTab = null, isMonitored = false) {
         const tr = document.createElement('tr');
         tr.dataset.id = record.id;
         
@@ -106,13 +106,11 @@ export class PortfolioRenderer {
         const isChild = record.transactionHierarchy === 'child'; 
         
         if (isWipoParent) {
-            // 🔥 ÇÖZÜM: WIPO Numarası değil, kendi ID'si referans alınıyor
             tr.dataset.groupId = record.id;
             tr.className = 'group-header';
             tr.style.backgroundColor = '#e3f2fd'; 
         } else if (isChild) {
              tr.style.backgroundColor = '#ffffff';
-             // 🔥 ÇÖZÜM: Akordeonun çalışması için gereken Child (Alt) sınıfları ve gizleme özelliği
              tr.className = 'group-row child-row';
              tr.dataset.parentId = record.parentId;
              tr.style.display = 'none'; 
@@ -135,14 +133,18 @@ export class PortfolioRenderer {
                 <button class="action-btn delete-btn btn btn-sm btn-danger" data-id="${record.id}" title="Sil"><i class="fas fa-trash"></i></button>
             </div>`;
 
-        // Ok (caret) işareti artık numaraya bağlı değil, sadece WIPO Parent ise direkt çıkar
         const caret = isWipoParent ? `<i class="fas fa-chevron-right row-caret" style="cursor:pointer; padding: 5px;"></i>` : '';
         const titleText = record.title || record.brandText || '-';
-        
-        // Numara yoksa da (null) sorunsuz - bassın
         const appNoText = record.applicationNumber || record.wipoIR || record.aripoIR || '-'; 
-        
         const applicantText = record.formattedApplicantName || record.applicantName || '-';
+
+        // 🔥 İZLEME LİSTESİ İKONU VE RENKLENDİRMESİ
+        const monitorHtml = isMonitored 
+            ? `<a href="monitoring-trademarks.html?filterId=${record.id}" target="_blank" data-toggle="tooltip" title="İzleme Detayını Aç">
+                 <i class="fas fa-eye text-success mr-2" style="font-size: 1.15em; cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'"></i>
+               </a>` 
+            : '';
+        const titleColorClass = isMonitored ? 'text-success' : '';
 
         let html = `
             <td><input type="checkbox" class="record-checkbox" data-id="${record.id}" ${isSelected ? 'checked' : ''}></td>
@@ -151,15 +153,19 @@ export class PortfolioRenderer {
 
         if (!isTrademarkTab) html += `<td>${record.type || '-'}</td>`;
 
-        // 🔥 Alt işlemler (Child) için metne estetik girinti oku eklendi (↳)
-        html += `<td title="${titleText}" ${isChild ? 'style="padding-left: 25px; border-left: 3px solid #6c757d;"' : ''}>
-                    ${isChild ? '↳ ' : ''}<strong>${titleText}</strong>
+        // Başlığa rengi ve göz ikonunu ekledik
+        html += `<td class="record-title-cell" title="${titleText}" ${isChild ? 'style="padding-left: 25px; border-left: 3px solid #6c757d;"' : ''}>
+                    ${isChild ? '↳ ' : ''}${monitorHtml}<strong class="${titleColorClass}">${titleText}</strong>
                  </td>`;
 
         if (isTrademarkTab) {
             html += imgHtml;
             html += `<td>${record.origin || '-'}</td>`;
-            html += `<td title="${countryName}">${countryName}</td>`;
+            
+            // 🔥 ÇÖZÜM: Sadece alt sekme turkpatent değilse Ülke kodunu çiz!
+            if (subTab !== 'turkpatent') {
+                html += `<td title="${countryName}">${countryName}</td>`;
+            }
         }
 
         if (appNoText && appNoText !== '-') {

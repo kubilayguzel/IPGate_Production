@@ -7,7 +7,7 @@
     
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Segoe+UI:wght@400;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     
     <link rel="stylesheet" href="css/shared-styles.css">
@@ -16,6 +16,9 @@
 <body>
 <div id="layout-placeholder"></div>
     <div class="page-wrapper">
+        <div id="left-sidebar-container"></div>
+        <div id="top-bar-container"></div>
+
         <div class="main-container container">
             
             <div class="page-header mb-4">
@@ -29,8 +32,8 @@
                 <div class="row">
                     <div class="col-12">
                         
-                        <div class="premium-card">
-                            <div class="card-header-custom">
+                        <div class="premium-card section-card">
+                            <div class="card-header-custom section-title">
                                 <span><i class="fas fa-info-circle mr-2 text-primary"></i> Genel Bilgiler</span>
                             </div>
                             <div class="card-body-custom">
@@ -88,8 +91,8 @@
                             </div>
                         </div>
 
-                        <div class="premium-card">
-                            <div class="card-header-custom">
+                        <div class="premium-card section-card">
+                            <div class="card-header-custom section-title">
                                 <span><i class="fas fa-cube mr-2 text-info"></i> İlgili Varlık</span>
                             </div>
                             <div class="card-body-custom">
@@ -101,8 +104,8 @@
                             </div>
                         </div>
 
-                        <div class="premium-card">
-                            <div class="card-header-custom">
+                        <div class="premium-card section-card">
+                            <div class="card-header-custom section-title">
                                 <span><i class="fas fa-user-tie mr-2 text-success"></i> İlgili Taraf</span>
                             </div>
                             <div class="card-body-custom">
@@ -114,8 +117,8 @@
                             </div>
                         </div>
 
-                        <div class="premium-card">
-                            <div class="card-header-custom">
+                        <div class="premium-card section-card">
+                            <div class="card-header-custom section-title">
                                 <span>
                                     <i class="fas fa-folder-open mr-2 text-warning"></i> Belgeler & Dosyalar
                                     <small class="text-muted ml-2" style="font-size: 0.7em; font-weight: 500;">Genel belgeler</small>
@@ -132,8 +135,8 @@
                             </div>
                         </div>
 
-                        <div class="premium-card" style="border-left: 5px solid #d63384;"> 
-                            <div class="card-header-custom" style="color: #d63384;">
+                        <div class="premium-card section-card" style="border-left: 5px solid #d63384;"> 
+                            <div class="card-header-custom section-title" style="color: #d63384;">
                                 <span><i class="fas fa-file-signature mr-2"></i> Resmi Kurum (EPATS) Evrakı</span>
                             </div>
                             <div class="card-body-custom">
@@ -176,8 +179,8 @@
                             </div>
                         </div>
 
-                        <div class="premium-card">
-                            <div class="card-header-custom">
+                        <div class="premium-card section-card">
+                            <div class="card-header-custom section-title">
                                 <span><i class="fas fa-file-invoice-dollar mr-2 text-success"></i> Finansal Hareketler</span>
                                 <button type="button" class="btn btn-sm btn-success rounded-pill px-3" id="addAccrualBtn">
                                     <i class="fas fa-plus mr-1"></i> Yeni Ekle
@@ -190,7 +193,8 @@
 
                     </div>
                 </div> 
-                <div class="form-actions-footer premium-card p-4 d-flex justify-content-end align-items-center mt-4" style="gap: 15px;"></div>
+                
+                <div class="premium-footer-actions">
                     <button type="button" class="btn btn-secondary btn-lg rounded-pill px-4" id="cancelEditBtn">
                         <i class="fas fa-times mr-2"></i>İptal
                     </button>
@@ -215,12 +219,11 @@
                 </div>
                 <div class="modal-body p-0" style="overflow-y: auto;"> 
                     <div id="accrualFormContainer" class="p-4"></div>
-                    <div class="premium-footer-actions">
-                    <button type="button" class="btn btn-secondary btn-lg rounded-pill px-4" id="cancelEditBtn">
-                        <i class="fas fa-times mr-2"></i>İptal
-                    </button>
-                    <button type="button" class="btn btn-primary btn-lg rounded-pill px-5 shadow" id="saveTaskChangesBtn">
-                        <i class="fas fa-save mr-2"></i>Değişiklikleri Kaydet
+                </div>
+                <div class="modal-footer bg-light" style="border-radius: 0 0 16px 16px;">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-dismiss="modal" onclick="$('#accrualModal').modal('hide')">İptal</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4" id="saveAccrualBtn">
+                        <i class="fas fa-check mr-2"></i>Kaydet
                     </button>
                 </div>
             </div>

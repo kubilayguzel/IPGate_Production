@@ -849,7 +849,6 @@ class PortfolioController {
                     processedIds.add(String(parent.id));
 
                     if ((parent.origin === 'WIPO' || parent.origin === 'ARIPO') && parent.transactionHierarchy === 'parent') {
-                        // 🔥 ÇÖZÜM 2: Excel'e aktarırken de irNo yerine parent.id'yi kullanıyoruz
                         const children = this.dataManager.getWipoChildren(parent.id);
                         if (children && children.length > 0) {
                             children.forEach(child => {
@@ -905,6 +904,12 @@ class PortfolioController {
             headerRow.height = 30;
             headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
 
+            // 🔥 ÇÖZÜM 2: Yüksek verilerde donmayı ve çökmeyi önleyen Akıllı Onay Sistemi
+            let includeImages = true;
+            if (imageColumnIndex !== -1 && sortedData.length > 100) {
+                includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nExcel dosyasına MARKA GÖRSELLERİ de eklensin mi?\n\n(İPTAL derseniz görselsiz olarak anında indirilir. TAMAM derseniz işlem birkaç dakika sürebilir ve dosya boyutu büyük olur.)`);
+            }
+
             for (let i = 0; i < sortedData.length; i++) {
                 const record = sortedData[i];
                 const rowData = {};
@@ -914,10 +919,8 @@ class PortfolioController {
                         rowData[col.key] = ''; 
                     } else {
                         let val = record[col.key];
-                        
                         if (col.key === 'country' && record.formattedCountryName) val = record.formattedCountryName;
                         if (Array.isArray(val)) val = val.join(', ');
-
                         rowData[col.key] = (val === null || val === undefined || val === '') ? '-' : val;
                     }
                 });
@@ -947,9 +950,10 @@ class PortfolioController {
                     }
                 });
 
-                if (imageColumnIndex !== -1 && record.brandImageUrl) {
+                // Görseller sadece izin verilirse (includeImages === true) indirilir
+                if (includeImages && imageColumnIndex !== -1 && record.brandImageUrl) {
                     try {
-                        const response = await fetch(record.brandImageUrl);
+                        const response = await fetch(record.brandImageUrl, { cache: 'force-cache' });
                         if (response.ok) {
                             const buffer = await response.arrayBuffer();
                             let ext = 'png';
@@ -983,6 +987,7 @@ class PortfolioController {
             const fileName = type === 'selected' ? `Secili_${currentTabName}_${dateStr}.xlsx` : `Tum_${currentTabName}_${dateStr}.xlsx`;
             
             window.saveAs(blob, fileName);
+            if(typeof showNotification === 'function') showNotification('Excel raporu başarıyla indirildi.', 'success');
             
         } catch (error) {
             console.error('Excel hatası:', error);

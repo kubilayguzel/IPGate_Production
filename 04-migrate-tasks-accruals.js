@@ -78,20 +78,35 @@ async function batchInsertNoId(tableName, dataArray, batchSize = 500) {
     return successCount;
 }
 
+// 🔥 YENİ EKLENEN FONKSİYON: Supabase limitlerine (1000) takılmadan tüm ID'leri güvenle çeker
+async function fetchAllIds(tableName) {
+    let allIds = [];
+    let start = 0;
+    const limit = 1000;
+    while (true) {
+        const { data, error } = await supabase.from(tableName).select('id').range(start, start + limit - 1);
+        if (error) {
+            console.error(`❌ ${tableName} ID'leri çekilirken hata:`, error.message);
+            break;
+        }
+        if (!data || data.length === 0) break;
+        allIds.push(...data.map(r => r.id));
+        if (data.length < limit) break;
+        start += limit;
+    }
+    return allIds;
+}
+
 async function migrateStep4() {
     console.log("🚀 ADIM 4: Görevler (Tasks) ve Tahakkuklar (Accruals) Taşınıyor...\n");
 
-    const [users, persons, ipRecords, transactions] = await Promise.all([
-        supabase.from('users').select('id'),
-        supabase.from('persons').select('id'),
-        supabase.from('ip_records').select('id'),
-        supabase.from('transactions').select('id')
-    ]);
+    console.log("⏳ Supabase'den geçerli ID'ler limitlere takılmadan toplanıyor...");
+    const validUserIds = new Set(await fetchAllIds('users'));
+    const validPersonIds = new Set(await fetchAllIds('persons'));
+    const validIpIds = new Set(await fetchAllIds('ip_records'));
+    const validTxIds = new Set(await fetchAllIds('transactions'));
 
-    const validUserIds = new Set(users.data?.map(u => u.id) || []);
-    const validPersonIds = new Set(persons.data?.map(p => p.id) || []);
-    const validIpIds = new Set(ipRecords.data?.map(i => i.id) || []);
-    const validTxIds = new Set(transactions.data?.map(t => t.id) || []);
+    console.log(`ℹ️ ${validIpIds.size} IP Kaydı ve ${validTxIds.size} İşlem hafızaya alındı.`);
 
     // 1. GÖREVLER (TASKS)
     console.log("\n⏳ 'tasks' koleksiyonu Firestore'dan çekiliyor...");
@@ -107,8 +122,6 @@ async function migrateStep4() {
         const taskId = doc.id;
         createdTaskIds.add(taskId);
 
-        const ipRecordId = (d.relatedIpRecordId || d.relatedRecordId);
-        const finalIpRecordId = validIpIds.has(ipRecordId) ? ipRecordId : null;
         const txId = validTxIds.has(d.transactionId) ? d.transactionId : null;
         
         let ownerId = null;
@@ -126,12 +139,22 @@ async function migrateStep4() {
         if (d.targetAppNo) detailsObj.targetAppNo = d.targetAppNo;
         if (d.bulletinNo) detailsObj.bulletinNo = d.bulletinNo;
         if (d.bulletinDate) detailsObj.bulletinDate = d.bulletinDate;
-        
-        // 🔥 YENİ EKLENEN KISIM: relatedTaskId'yi details içine alıyoruz
         if (d.relatedTaskId) detailsObj.relatedTaskId = d.relatedTaskId;
-        
-        // (Opsiyonel) Eski veriden kaybetmek istemediğiniz diğer başlıkları da buraya ekleyebilirsiniz:
         if (d.iprecordApplicationNo) detailsObj.iprecordApplicationNo = d.iprecordApplicationNo;
+
+        // 🔥 GÜNCEL KISIM: IP Record eşleşmesini kontrol et ve yedeğe al
+        const ipRecordId = (d.relatedIpRecordId || d.relatedRecordId);
+        let finalIpRecordId = null;
+
+        if (ipRecordId) {
+            if (validIpIds.has(ipRecordId)) {
+                finalIpRecordId = ipRecordId;
+            } else {
+                // Eğer ID validIpIds içinde bulunamazsa null kalacak, AMA veriyi details'a kaydediyoruz!
+                detailsObj.unlinked_ip_record_id = ipRecordId;
+                if (d.relatedIpRecordTitle) detailsObj.unlinked_ip_record_title = d.relatedIpRecordTitle;
+            }
+        }
 
         tasksData.push({
             id: taskId,
@@ -235,8 +258,6 @@ async function migrateStep4() {
             vat_rate: parseFloat(a.vatRate || a.vat_rate) || 0,
             apply_vat_to_official_fee: a.applyVatToOfficialFee === true || a.apply_vat_to_official_fee === true,
             is_foreign_transaction: a.isForeignTransaction === true || a.is_foreign_transaction === true,
-            
-            // 🔥 details objesi buradan tamamen kaldırıldı!
 
             created_at: safeDate(a.createdAt) || new Date().toISOString(),
             updated_at: safeDate(a.updatedAt) || new Date().toISOString()

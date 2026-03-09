@@ -131,7 +131,16 @@ export class PortfolioDataManager {
     _resolveStatusText(record) {
         const rawStatus = record.status;
         if (!rawStatus) return '-';
+        
+        // 🔥 ÇÖZÜM 1: Önce kaydın "kendi türündeki" (marka, patent, dava) listeye bakıyoruz
+        if (record.type && STATUSES[record.type]) {
+            const found = STATUSES[record.type].find(s => s.value === rawStatus);
+            if (found) return found.text;
+        }
+
+        // Kendi türünde yoksa genel listeye (statusMap) bak
         if (this.statusMap.has(rawStatus)) return this.statusMap.get(rawStatus);
+        
         return rawStatus;
     }
 

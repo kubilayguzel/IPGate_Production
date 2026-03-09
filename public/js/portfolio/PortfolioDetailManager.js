@@ -268,6 +268,13 @@ export class PortfolioDetailManager {
 
     async populateTaskDocsAsync(queue) {
         if (!queue.length) return;
+        
+        // 🔥 GLOBAL FİLTRE: Sayfada bir kez basılan belgenin URL'si buraya yazılacak
+        // Böylece aynı task_id başka bir işleme (child vs) bağlı olsa bile ikinci kez basılmayacak.
+        if (!window.globalRenderedDocs) {
+            window.globalRenderedDocs = new Set();
+        }
+
         const worker = async (item) => {
             const { tx, containerId, hasAnyDirect } = item;
             const container = document.getElementById(containerId);
@@ -281,39 +288,26 @@ export class PortfolioDetailManager {
                 return;
             }
 
-            // 🔥 ÇİFT KAYIT ÖNLEYİCİ (Akıllı Filtreleme)
-            // 1. DOM'da halihazırda var olan (TransactionHelper'dan gelen) evrakların URL'lerini ve isimlerini topla
-            const existingUrls = new Set();
-            const existingNames = new Set();
-            
+            // O anki satırda (DOM'da) olanları da toplayalım (Direct Docs'tan gelenler için)
             container.querySelectorAll('a').forEach(a => {
                 const href = a.getAttribute('href') || '';
-                const title = a.getAttribute('title') || '';
-                // URL'nin sonundaki ?t=... gibi değişken tokenleri atarak ana dosya yolunu al
-                existingUrls.add(href.split('?')[0].toLowerCase());
-                existingNames.add(title.trim().toLowerCase());
+                window.globalRenderedDocs.add(href.split('?')[0].toLowerCase());
             });
             
-            // 2. Yeni eklenecek (Görevden gelen) evrakları filtrele
+            // Görevden gelen belgeleri filtrele
             const icons = taskDocs.filter(d => {
                 if (!d?.url) return false;
                 
                 const cleanUrl = d.url.split('?')[0].toLowerCase();
-                const cleanName = (d.name || '').trim().toLowerCase();
-                const isGenericName = cleanName === 'belge' || cleanName === 'görev belgesi' || cleanName === 'epats belgesi';
 
-                // Eğer ana URL (tokensiz hali) zaten varsa, EKLEME
-                if (existingUrls.has(cleanUrl)) return false;
-                
-                // Eğer URL farklı ama ismi aynıysa (ve jenerik bir isim değilse), EKLEME
-                if (!isGenericName && existingNames.has(cleanName)) return false;
+                // Eğer bu belge (URL) bu SAYFADA daha önce herhangi bir işleme eklendiyse, TEKRAR EKLEME!
+                if (window.globalRenderedDocs.has(cleanUrl)) return false;
 
-                // Testi geçerse setlere ekle (aynı döngüde ardışık gelirse diye)
-                existingUrls.add(cleanUrl);
-                if (!isGenericName) existingNames.add(cleanName);
+                // Testi geçerse global listeye ekle
+                window.globalRenderedDocs.add(cleanUrl);
                 
                 return true;
-            }).map((d, i) => this.createDocIcon(d, i === 0 && existingUrls.size === 1)).join(' ');
+            }).map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
             
             if (icons) container.insertAdjacentHTML('beforeend', icons);
             
@@ -321,6 +315,8 @@ export class PortfolioDetailManager {
                 container.innerHTML = '<span class="text-muted small">-</span>';
             }
         };
+
+        // Her işlemi sırayla işle
         for (const item of queue) { await worker(item); }
     }
 

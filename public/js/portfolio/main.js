@@ -963,6 +963,7 @@ class PortfolioController {
             const excelColumns = [];
             let imageColumnIndex = -1; 
 
+            // Ekranda görünen kolonları al
             screenColumns.forEach((col) => {
                 if (!excludeKeys.includes(col.key)) {
                     let colWidth = 20; 
@@ -979,6 +980,15 @@ class PortfolioController {
                 }
             });
 
+            // 🔥 YENİ: Sadece Excel Raporuna Özel "Yenileme Tarihi" Kolonu Ekleme
+            if (['trademark', 'patent', 'design'].includes(this.state.activeTab)) {
+                excelColumns.push({
+                    header: 'Yenileme Tarihi',
+                    key: 'renewalDate',
+                    width: 20
+                });
+            }
+
             worksheet.columns = excelColumns;
 
             const headerRow = worksheet.getRow(1);
@@ -987,7 +997,6 @@ class PortfolioController {
             headerRow.height = 30;
             headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
 
-            // 🔥 ÇÖZÜM 2: Yüksek verilerde donmayı ve çökmeyi önleyen Akıllı Onay Sistemi
             let includeImages = true;
             if (imageColumnIndex !== -1 && sortedData.length > 100) {
                 includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nExcel dosyasına MARKA GÖRSELLERİ de eklensin mi?\n\n(İPTAL derseniz görselsiz olarak anında indirilir. TAMAM derseniz işlem birkaç dakika sürebilir ve dosya boyutu büyük olur.)`);
@@ -1000,6 +1009,16 @@ class PortfolioController {
                 excelColumns.forEach(col => {
                     if (col.key === 'brandImage') {
                         rowData[col.key] = ''; 
+                    } else if (col.key === 'renewalDate') {
+                        // 🔥 YENİ: Yenileme Tarihi Formatlama (GG.AA.YYYY)
+                        let val = record.renewalDate;
+                        if (val && val !== '-') {
+                            try {
+                                const d = new Date(val);
+                                if (!isNaN(d.getTime())) val = d.toLocaleDateString('tr-TR');
+                            } catch(e) {}
+                        }
+                        rowData[col.key] = (val === null || val === undefined || val === '') ? '-' : val;
                     } else {
                         let val = record[col.key];
                         if (col.key === 'country' && record.formattedCountryName) val = record.formattedCountryName;
@@ -1033,7 +1052,6 @@ class PortfolioController {
                     }
                 });
 
-                // Görseller sadece izin verilirse (includeImages === true) indirilir
                 if (includeImages && imageColumnIndex !== -1 && record.brandImageUrl) {
                     try {
                         const response = await fetch(record.brandImageUrl, { cache: 'force-cache' });

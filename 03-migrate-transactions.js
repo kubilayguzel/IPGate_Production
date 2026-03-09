@@ -46,18 +46,6 @@ async function migrateStep3() {
     const validIpIds = new Set(ipRecordsData.map(p => p.id));
     console.log(`ℹ️ ${validIpIds.size} geçerli ana kayıt bulundu.`);
 
-    // 🌟 YENİ: Geçerli Kullanıcı (User) ID'lerini Çekelim
-    console.log("\n⏳ 1.5. Supabase'den geçerli Kullanıcı (Users) ID'leri kontrol ediliyor...");
-    let validUserIds = new Set();
-    const { data: usersData, error: usersError } = await supabase.from('users').select('id'); 
-    
-    if (usersError) {
-         console.warn("⚠️ 'users' tablosundan kullanıcılar çekilemedi. Hata:", usersError.message);
-    } else if (usersData) {
-         validUserIds = new Set(usersData.map(u => u.id));
-         console.log(`ℹ️ ${validUserIds.size} geçerli kullanıcı bulundu.`);
-    }
-
     // =========================================================================
     // A) ESKİ GEÇMİŞ (oldTransactions) -> ip_records.old_transactions JSONB GÜNCELLEMESİ
     // =========================================================================
@@ -103,17 +91,8 @@ async function migrateStep3() {
 
         if (validIpIds.has(ipRecordId)) {
             
-            // 🌟 YENİ: user_id doğrulama ve OTOMATİK DÖNÜŞÜM
-            let safeUserId = d.userId;
-            
-            // AZ ÖNCEKİ SQL GÜNCELLEMESİNE UYUM SAĞLAMASI İÇİN:
-            if (safeUserId === '6aBctYpERaeTqwfSSwVZGiZjHe33') {
-                safeUserId = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
-            }
-
-            if (safeUserId && !validUserIds.has(safeUserId)) {
-                safeUserId = null; // Geçersizse null atıyoruz
-            }
+            // 🔥 ÇÖZÜM: user_id doğrulama kaldırıldı, direkt ham Firebase ID alınıyor.
+            let rawUserId = d.userId || null;
 
             const txObj = {
                 id: doc.id,
@@ -124,7 +103,7 @@ async function migrateStep3() {
                 description: d.description || d.designation || null,
                 note: d.note || null,
                 transaction_date: safeDate(d.date || d.timestamp) || null,
-                user_id: safeUserId, // 🌟 Kontrol edilmiş ID eklendi
+                user_id: rawUserId, // 🔥 Ham (Raw) Firebase ID'si
                 user_email: d.userEmail || null,
                 user_name: d.userName || null,
                 task_id: d.taskId || null,
@@ -139,7 +118,6 @@ async function migrateStep3() {
                 parentTransactions.push(txObj);
             }
 
-            // 🌟 EKLENEN KISIM: İtiraz dilekçelerini evraklar tablosuna yönlendir
             if (d.oppositionPetitionFileUrl) {
                 transactionDocuments.push({
                     transaction_id: doc.id,
@@ -192,7 +170,6 @@ async function migrateStep3() {
 
     console.log("\n⏳ 6. İşlem Dosyaları (Documents) aktarılıyor...");
     
-    // 🔥 ÇİFT KAYDI ÖNLEMEK İÇİN: Önce eski aktarılan belgeleri siliyoruz
     console.log("🧹 Önceki aktarımdan kalan eski belgeler temizleniyor...");
     await supabase.from('transaction_documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     
@@ -217,7 +194,7 @@ async function migrateStep3() {
         console.log("ℹ️ Aktarılacak belge bulunamadı.");
     }
 
-    console.log("\n🎉 ADIM 3 BAŞARIYLA TAMAMLANDI! İşlem Geçmişiniz (eski JSONB formatında ve yeni tablolar halinde) Supabase'e taşındı.");
+    console.log("\n🎉 ADIM 3 BAŞARIYLA TAMAMLANDI!");
 }
 
 migrateStep3().catch(console.error);

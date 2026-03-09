@@ -78,7 +78,7 @@ async function batchInsertNoId(tableName, dataArray, batchSize = 500) {
     return successCount;
 }
 
-// 🔥 YENİ EKLENEN FONKSİYON: Supabase limitlerine (1000) takılmadan tüm ID'leri güvenle çeker
+// Supabase limitlerine takılmadan tüm ID'leri çeken fonksiyon
 async function fetchAllIds(tableName) {
     let allIds = [];
     let start = 0;
@@ -100,13 +100,10 @@ async function fetchAllIds(tableName) {
 async function migrateStep4() {
     console.log("🚀 ADIM 4: Görevler (Tasks) ve Tahakkuklar (Accruals) Taşınıyor...\n");
 
-    console.log("⏳ Supabase'den geçerli ID'ler limitlere takılmadan toplanıyor...");
-    const validUserIds = new Set(await fetchAllIds('users'));
+    console.log("⏳ Sadece Marka/İşlem vb. geçerlilik kontrolü için ID'ler toplanıyor (Kullanıcılar direkt aktarılacak)...");
     const validPersonIds = new Set(await fetchAllIds('persons'));
     const validIpIds = new Set(await fetchAllIds('ip_records'));
     const validTxIds = new Set(await fetchAllIds('transactions'));
-
-    console.log(`ℹ️ ${validIpIds.size} IP Kaydı ve ${validTxIds.size} İşlem hafızaya alındı.`);
 
     // 1. GÖREVLER (TASKS)
     console.log("\n⏳ 'tasks' koleksiyonu Firestore'dan çekiliyor...");
@@ -142,19 +139,19 @@ async function migrateStep4() {
         if (d.relatedTaskId) detailsObj.relatedTaskId = d.relatedTaskId;
         if (d.iprecordApplicationNo) detailsObj.iprecordApplicationNo = d.iprecordApplicationNo;
 
-        // 🔥 GÜNCEL KISIM: IP Record eşleşmesini kontrol et ve yedeğe al
         const ipRecordId = (d.relatedIpRecordId || d.relatedRecordId);
         let finalIpRecordId = null;
-
         if (ipRecordId) {
             if (validIpIds.has(ipRecordId)) {
                 finalIpRecordId = ipRecordId;
             } else {
-                // Eğer ID validIpIds içinde bulunamazsa null kalacak, AMA veriyi details'a kaydediyoruz!
                 detailsObj.unlinked_ip_record_id = ipRecordId;
                 if (d.relatedIpRecordTitle) detailsObj.unlinked_ip_record_title = d.relatedIpRecordTitle;
             }
         }
+
+        const rawAssignedTo = d.assignedToUid || d.assignedTo_uid || d.assignedTo || null;
+        const rawCreatedBy = d.createdByUid || d.created_by_uid || d.createdBy || null;
 
         tasksData.push({
             id: taskId,
@@ -166,8 +163,8 @@ async function migrateStep4() {
             ip_record_id: finalIpRecordId,
             transaction_id: txId,
             task_owner_id: validPersonIds.has(ownerId) ? ownerId : null,
-            created_by: d.createdByUid || null,
-            assigned_to: validUserIds.has(d.assignedToUid || d.assignedTo_uid) ? (d.assignedToUid || d.assignedTo_uid) : null,
+            created_by: rawCreatedBy, 
+            assigned_to: rawAssignedTo, 
             delivery_date: safeDate(d.deliveryDate),
             official_due_date: safeDate(d.officialDueDate),
             operational_due_date: safeDate(d.operationalDueDate) || safeDate(d.dueDate),
@@ -178,10 +175,11 @@ async function migrateStep4() {
 
         if (Array.isArray(d.history)) {
             d.history.forEach(h => {
+                const rawHistUser = h.userId || h.uid || null;
                 taskHistoryData.push({
                     task_id: taskId,
                     action: h.action || h.status || 'system_update',
-                    user_id: validUserIds.has(h.userId || h.uid) ? (h.userId || h.uid) : null,
+                    user_id: rawHistUser, 
                     details: h.details || {},
                     created_at: safeDate(h.timestamp || h.createdAt) || new Date().toISOString()
                 });
@@ -203,6 +201,11 @@ async function migrateStep4() {
             });
         }
     });
+
+    // 🔥 ÇİFTLENME KORUMASI: Kayıt yapmadan önce eski history ve document satırlarını temizle
+    console.log("\n🧹 Önceki aktarımdan kalan eski Görev Geçmişi ve Belgeleri temizleniyor...");
+    await supabase.from('task_history').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('task_documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     console.log("\n⏳ 'tasks' tablosu ve alt tabloları yazılıyor...");
     await batchUpsert('tasks', tasksData);
@@ -230,7 +233,7 @@ async function migrateStep4() {
         if (a.serviceInvoiceParty && a.serviceInvoiceParty.id) srvParty = a.serviceInvoiceParty.id;
         else srvParty = a.serviceInvoicePartyId || a.service_invoice_party_id;
 
-        const creatorUid = a.createdBy_uid || a.createdByUid || a.created_by_uid;
+        const rawCreatorUid = a.createdBy_uid || a.createdByUid || a.created_by_uid || a.createdBy || null;
         const accType = a.type || a.accrualType || a.accrual_type || null;
 
         accrualsData.push({
@@ -244,13 +247,13 @@ async function migrateStep4() {
             
             tp_invoice_party_id: validPersonIds.has(tpParty) ? tpParty : null,
             service_invoice_party_id: validPersonIds.has(srvParty) ? srvParty : null,
-            created_by_uid: creatorUid || null,
+            created_by_uid: rawCreatorUid, 
 
             official_fee_amount: parseAmount(a.officialFee || a.official_fee),
             official_fee_currency: parseCurrency(a.officialFee || a.official_fee, 'TRY'),
             
             service_fee_amount: parseAmount(a.serviceFee || a.service_fee),
-            service_fee_currency: parseCurrency(a.serviceFee || a.service_fee, 'TRY'),
+            service_fee_currency: parseCurrency(a.serviceFee || a.serviceFee, 'TRY'),
             
             total_amount: parseCurrencyArray(a.totalAmount || a.total_amount),
             remaining_amount: parseCurrencyArray(a.remainingAmount || a.remaining_amount),
@@ -279,15 +282,15 @@ async function migrateStep4() {
         }
     });
 
-    console.log(`\n📌 Yazılacak Veri Özeti (Finans):
-    - Ana Tahakkuklar: ${accrualsData.length}
-    - Tahakkuk Belgeleri: ${accrualDocsData.length}`);
+    // 🔥 ÇİFTLENME KORUMASI: Kayıt yapmadan önce eski tahakkuk evraklarını temizle
+    console.log("\n🧹 Önceki aktarımdan kalan eski Tahakkuk Belgeleri temizleniyor...");
+    await supabase.from('accrual_documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     console.log("\n⏳ 'accruals' tablosu ve belgeleri yazılıyor...");
     await batchUpsert('accruals', accrualsData);
     await batchInsertNoId('accrual_documents', accrualDocsData);
 
-    console.log("\n🎉 ADIM 4 TAMAMLANDI! Görevler ve Finans (Tahakkuk) verileri başarıyla aktarıldı.");
+    console.log("\n🎉 ADIM 4 TAMAMLANDI! Görevler ve Tahakkuklar (Duplikasyonsuz şekilde) Firebase ID'leri korunarak aktarıldı.");
 }
 
 migrateStep4().catch(console.error);

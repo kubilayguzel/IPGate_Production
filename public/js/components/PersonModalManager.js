@@ -760,7 +760,19 @@ export class PersonModalManager {
     // YENİ ŞEMA UYUMU: getPersons() yerine getPersonById() kullanılarak evraklar dahil tüm veriler çekiliyor
     async loadPersonData(id) {
         const res = await personService.getPersonById(id); 
-        if (!res.success) return;
+        
+        // 🔥 YENİ: Veri çekilemezse sessizce durmak yerine ekrana hata uyarısı ver
+        if (!res.success) {
+            console.error("Kişi bilgileri yüklenemedi:", res.error);
+            if (typeof showNotification === 'function') {
+                showNotification('Kişi bilgileri yüklenemedi: ' + res.error, 'error');
+            } else {
+                alert('Kişi bilgileri yüklenemedi: ' + res.error);
+            }
+            window.$('#personModal').modal('hide'); // Hata varsa modalı kapat
+            return;
+        }
+        
         const p = res.data;
 
         document.getElementById('personType').value = p.type || 'gercek';

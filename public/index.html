@@ -565,8 +565,13 @@
             this.setLoading('signin', true);
 
             try {
-                localStorage.removeItem('currentUser');
-                localStorage.removeItem('app_layout_v2_menu');
+                // 🔥 SİSTEM TEMİZLİĞİ: Yeni girişte tarayıcıdaki tüm eski çerezleri/verileri yokediyoruz!
+                // Bu sayede "telefonda giriyor, pc'de girmiyor" tarzı cache sorunları yaşanmaz.
+                localStorage.clear();
+                sessionStorage.clear();
+                if (window.localCache) {
+                    try { await window.localCache.remove('ip_records_cache'); } catch(e) {}
+                }
 
                 const { data, error } = await supabase.auth.signInWithPassword({ 
                     email: email, 
@@ -577,7 +582,7 @@
 
                 showNotification('Giriş başarılı! Yönlendiriliyorsunuz...', 'success');
                 
-                // 🔥 DÜZELTME: Doğrudan portfolio.html'e atmıyoruz, Akıllı Yönlendiriciyi çağırıyoruz
+                // Akıllı Yönlendiriciyi çağır
                 setTimeout(() => this.routeUser(data.user.id), 1000);
 
             } catch (error) {

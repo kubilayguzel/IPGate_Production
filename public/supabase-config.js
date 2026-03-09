@@ -1440,7 +1440,10 @@ export const taskService = {
 
     async getTasksByStatus(status, uid = null) {
         let query = supabase.from('tasks').select('*').eq('status', status).order('created_at', { ascending: false });
-        if (uid) query = query.eq('assigned_to_uid', uid);
+        
+        // 🔥 KRİTİK DÜZELTME: assigned_to_uid yerine veritabanındaki doğru kolon olan assigned_to kullanıldı
+        if (uid) query = query.eq('assigned_to', uid); 
+        
         const { data, error } = await query;
         if (error) return { success: false, error: error.message };
         return { success: true, data: await this._enrichTasksWithRelations(data) };

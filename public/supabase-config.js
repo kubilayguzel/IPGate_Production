@@ -763,7 +763,8 @@ export const ipRecordsService = {
         if (applicantsRes.data && applicantsRes.data.length > 0) {
             const personIds = applicantsRes.data.map(a => a.person_id).filter(Boolean);
             if (personIds.length > 0) {
-                const { data: personsData } = await supabase.from('persons').select('id, name, type, address, email').in('id', personIds);
+                // 🔥 YENİ: birth_date kolonu da eklendi
+                const { data: personsData } = await supabase.from('persons').select('id, name, type, address, email, tckn, tax_no, tpe_no, birth_date').in('id', personIds);
                 if (personsData) {
                     applicantsArray = applicantsRes.data.map(app => {
                         const person = personsData.find(p => p.id === app.person_id);
@@ -771,7 +772,11 @@ export const ipRecordsService = {
                             id: person.id, 
                             name: person.name, 
                             email: person.email,
-                            address: person.address
+                            address: person.address,
+                            tckn: person.tckn,
+                            taxNo: person.tax_no,
+                            tpeNo: person.tpe_no,
+                            birthDate: person.birth_date // 🔥 YENİ: Objeye eklendi
                         } : null;
                     }).filter(Boolean);
                 }
@@ -1510,6 +1515,10 @@ export const taskService = {
 
     async addTask(taskData) {
         try {
+            // 🔥 YENİ: Oturumu alıp created_by (Oluşturan) bilgisini kesin olarak kaydediyoruz
+            const { data: { session } } = await supabase.auth.getSession();
+            const createdByUser = session?.user?.email || 'Sistem';
+
             const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id);
             const payload = {
                 id: nextId, 
@@ -1524,14 +1533,14 @@ export const taskService = {
                 ip_record_id: taskData.relatedIpRecordId || taskData.ip_record_id ? String(taskData.relatedIpRecordId || taskData.ip_record_id) : null,
                 task_owner_id: taskData.relatedPartyId || taskData.task_owner_id || null,
                 transaction_id: taskData.transactionId || taskData.transaction_id ? String(taskData.transactionId || taskData.transaction_id) : null,
-                details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null }
+                details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null },
+                created_by: taskData.createdBy || taskData.created_by || createdByUser // 🔥 EKLENDİ
             };
             
             Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
             const { data, error } = await supabase.from('tasks').insert(payload).select('id').single();
             if (error) throw error;
 
-            // İlk oluşturma geçmişi
             if (taskData.history && taskData.history.length > 0) {
                 const histToInsert = taskData.history.map(h => ({
                     task_id: data.id, action: h.action, user_id: h.userEmail, created_at: h.timestamp || new Date().toISOString(), details: {}

@@ -303,7 +303,11 @@ class NotificationsManager {
             btn.disabled = true;
             this.showOverlay(isSend ? 'E-posta gönderiliyor...' : 'Hatırlatma gönderiliyor...');
             
-            // 🔥 YENİ: Cache kurbanı isek Task ID'yi veritabanından garantiye alalım
+            // 🔥 YENİ: Butona basan kullanıcının oturum bilgilerini (Email) alıyoruz
+            const { data: { session } } = await supabase.auth.getSession();
+            const senderEmail = session?.user?.email || null;
+
+            // Cache kurbanı isek Task ID'yi veritabanından garantiye alalım
             let activeTaskId = notification.associated_task_id;
             if (!activeTaskId) {
                 const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notification.id).single();
@@ -316,17 +320,20 @@ class NotificationsManager {
                 activeTaskId
             );
 
+            // 🔥 YENİ: senderEmail bilgisini Edge Function'a (Backend) paketliyoruz
             const payload = { 
                 notificationId: notification.id,
-                attachments: attachments // Backend'e evrak URL'leri gidiyor
+                attachments: attachments,
+                senderEmail: senderEmail 
             };
+            
             if (!isSend) payload.mode = 'reminder';
 
             const { error } = await supabase.functions.invoke('process-mail-notification', { body: payload });
             if (error) throw error;
             
             alert(isSend ? "E-posta başarıyla gönderildi!" : "Hatırlatma e-postası başarıyla gönderildi.");
-            // Tablonun otomatik yenilenmesi Supabase realtime servisi tarafından yapılacak.
+            
         } catch (err) { 
             alert("Hata oluştu: " + err.message); 
         } finally { 

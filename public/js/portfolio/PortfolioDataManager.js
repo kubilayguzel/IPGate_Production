@@ -19,7 +19,6 @@ export class PortfolioDataManager {
         this._buildStatusMap();
     }
 
-    // 🔥 HIZ OPTİMİZASYONU 1: RAM şişiren kopya objeler yaratmak yerine, doğrudan var olan veriyi günceller.
     async _mapRawToProcessed(rawData) {
         for (let i = 0; i < rawData.length; i++) {
             const record = rawData[i];
@@ -32,7 +31,6 @@ export class PortfolioDataManager {
             record.statusText = this._resolveStatusText(record);
             record.formattedCountryName = this.getCountryName(record.country || record.countryCode);
             
-            // 🔥 HIZ OPTİMİZASYONU 2: Arama motoru için önceden indekslenmiş tek bir string oluşturur.
             record.searchString = `${record.title || ''} ${record.brandText || ''} ${record.applicationNumber || ''} ${record.formattedApplicantName || ''} ${record.formattedCountryName || ''} ${record.statusText || ''} ${record.formattedNiceClasses || ''} ${record.registrationNumber || ''}`.toLowerCase();
         }
         return rawData;
@@ -43,7 +41,7 @@ export class PortfolioDataManager {
         await Promise.all([
             this.loadTransactionTypes(),
             this.loadCountries(),
-            this.loadMonitoredIds() // 🔥 YENİ EKLENDİ
+            this.loadMonitoredIds()
         ]);
         return this.allRecords;
     }
@@ -78,7 +76,6 @@ export class PortfolioDataManager {
         }
     }
 
-    // 🔥 YENİ: Hangi markaların izlemede olduğunu Supabase'den çeker
     async loadMonitoredIds() {
         try {
             const { data, error } = await supabase.from('monitoring_trademarks').select('ip_record_id');
@@ -90,7 +87,6 @@ export class PortfolioDataManager {
         }
     }
 
-    // 🔥 YENİ: Arayüze bu markanın izlenip izlenmediğini söyler
     isRecordMonitored(id) {
         return this.monitoredRecordIds ? this.monitoredRecordIds.has(String(id)) : false;
     }
@@ -106,7 +102,6 @@ export class PortfolioDataManager {
         }
     }
 
-    // 🔥 RİSKLİ CACHE İPTALİ: forceRefresh istenirse veritabanına gider, aksi halde RAM'deki hazır veriyi anında döner.
     async loadRecords({ type = null, forceRefresh = false } = {}) {
         if (!forceRefresh && this.allRecords.length > 0) {
             return this.allRecords;
@@ -151,13 +146,11 @@ export class PortfolioDataManager {
         const rawStatus = record.status;
         if (!rawStatus) return '-';
         
-        // 🔥 ÇÖZÜM 1: Önce kaydın "kendi türündeki" (marka, patent, dava) listeye bakıyoruz
         if (record.type && STATUSES[record.type]) {
             const found = STATUSES[record.type].find(s => s.value === rawStatus);
             if (found) return found.text;
         }
 
-        // Kendi türünde yoksa genel listeye (statusMap) bak
         if (this.statusMap.has(rawStatus)) return this.statusMap.get(rawStatus);
         
         return rawStatus;
@@ -171,7 +164,6 @@ export class PortfolioDataManager {
         this.wipoGroups = { parents: new Map(), children: new Map() };
         this.allRecords.forEach(r => {
             if (r.origin === 'WIPO' || r.origin === 'ARIPO') {
-                // 🔥 ÇÖZÜM: Artık irNo (WIPO Numarası) yerine doğrudan kayıtların veritabanı ID'lerini (id ve parentId) kullanıyoruz!
                 if (r.transactionHierarchy === 'parent') {
                     this.wipoGroups.parents.set(r.id, r);
                 } else if (r.transactionHierarchy === 'child' && r.parentId) {
@@ -211,34 +203,26 @@ export class PortfolioDataManager {
         }
     }
 
-    prefetchObjectionData() {
-        const PARENT_TYPES = ['7', '19', '20'];
-        return {
-            parentPromise: supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').in('transaction_type_id', PARENT_TYPES).limit(10000),
-            childPromise: supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').eq('transaction_hierarchy', 'child').limit(10000)
-        };
-    }
-
-    async buildObjectionRows(prefetchPromise = null, forceRefresh = false) {
+    async buildObjectionRows(forceRefresh = false) {
         if (!forceRefresh && this.objectionRows.length > 0) return this.objectionRows;
 
         try {
-            const prefetch = prefetchPromise || this.prefetchObjectionData();
-            const [parentRes, childRes] = await Promise.all([prefetch.parentPromise, prefetch.childPromise]);
+            const result = await transactionService.getObjectionData();
             
-            const parentsData = parentRes.data || [];
-            const childrenData = childRes.data || [];
+            if (!result.success) {
+                this.objectionRows = [];
+                return [];
+            }
+
+            const parentsData = result.parents || [];
+            const childrenData = result.children || [];
 
             if (parentsData.length === 0) {
                 this.objectionRows = [];
                 return [];
             }
 
-            const parentIds = new Set();
-            const parents = parentsData.map(p => { 
-                parentIds.add(String(p.id)); 
-                return p; 
-            });
+            const parentIds = new Set(parentsData.map(p => String(p.id)));
 
             const childrenMap = {};
             childrenData.forEach(child => {
@@ -251,7 +235,7 @@ export class PortfolioDataManager {
 
             const recordsMap = new Map(this.allRecords.map(r => [String(r.id), r]));
             
-            const localRows = parents.map(parent => {
+            const localRows = parentsData.map(parent => {
                 const recId = String(parent.ip_record_id);
                 let record = recordsMap.get(recId) || { id: recId, isMissing: true };
                 
@@ -280,7 +264,7 @@ export class PortfolioDataManager {
     }
 
     async loadObjectionRows(forceRefresh = false) {
-        return this.buildObjectionRows(null, forceRefresh);
+        return this.buildObjectionRows(forceRefresh);
     }
 
     _createObjectionRowDataFast(record, tx, typeInfo, isParent, hasChildren, parentId = null) {
@@ -426,7 +410,6 @@ export class PortfolioDataManager {
         return this.countriesMap.get(code) || code || '-';
     }
 
-    // 🔥 HIZ OPTİMİZASYONU 3: Filtreleme esnasında sadece önceden hazırlanan searchString'e bakar.
     filterRecords(typeFilter, searchTerm, columnFilters = {}, subTab = null) {
         const s = searchTerm ? searchTerm.toLowerCase() : null;
         
@@ -497,7 +480,6 @@ export class PortfolioDataManager {
         });
     }
 
-    // 🔥 HIZ OPTİMİZASYONU 4: Yavaş Intl.Collator iptal edildi, ham string karşılaştırması kullanılıyor. (100 Kat Hızlı)
     sortRecords(data, column, direction) {
         const isDate = String(column).toLowerCase().includes('date') || String(column).toLowerCase().includes('tarih');
         const isAppDate = column === 'applicationDate' || column === 'formattedApplicationDate';

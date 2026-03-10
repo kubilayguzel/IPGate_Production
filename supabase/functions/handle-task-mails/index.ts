@@ -42,10 +42,8 @@ serve(async (req: Request) => {
 
     const transactionDate = new Date().toLocaleDateString('tr-TR');
 
-    // 🔥 ÇÖZÜM 1: Sadece URL'yi alıyoruz (HTML tagi basmıyoruz)
     const imgUrl = viewData?.brand_image_url || record.details?.brandImageUrl || "";
 
-    // 🔥 ÇÖZÜM 2: Sizin şablonunuzla eşleşen {{markImageUrl}} parametresi eklendi
     const emailParams: Record<string, string> = {
         "{{applicationNo}}": appNo,
         "{{markName}}": brandName,
@@ -57,7 +55,8 @@ serve(async (req: Request) => {
         "{{markImageUrl}}": imgUrl 
     };
 
-    async function getRecipients(viewData: any, record: any) {
+    // 🔥 ÇÖZÜM: Evreka İçi CC Listesi (evreka_mail_cc_list) koda dahil edildi
+    async function getRecipients(viewData: any, record: any, currentTaskType: string) {
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
@@ -68,18 +67,39 @@ serve(async (req: Request) => {
             personIds = viewData.applicants_json.map((a: any) => a.id).filter(Boolean);
         }
         
-        if (!personIds || personIds.length === 0) return { to, cc };
-        const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
-        if (prData) {
-            for (const pr of prData) {
-                if (pr.email) {
-                    if (pr.notify_trademark_to) to.push(pr.email);
-                    if (pr.notify_trademark_cc) cc.push(pr.email);
-                    if (!pr.notify_trademark_to && !pr.notify_trademark_cc) to.push(pr.email); 
+        // 1. Müşteri (Client) Tarafındaki Alıcılar (TO ve CC)
+        if (personIds && personIds.length > 0) {
+            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
+            if (prData) {
+                for (const pr of prData) {
+                    if (pr.email) {
+                        if (pr.notify_trademark_to) to.push(pr.email);
+                        if (pr.notify_trademark_cc) cc.push(pr.email);
+                        if (!pr.notify_trademark_to && !pr.notify_trademark_cc) to.push(pr.email); 
+                    }
                 }
             }
         }
-        return { to: [...new Set(to)].filter(Boolean), cc: [...new Set(cc)].filter(Boolean) };
+
+        // 2. Evreka İçi Otomatik CC Listesi (evreka_mail_cc_list)
+        const { data: internalCcs } = await supabaseAdmin.from('evreka_mail_cc_list').select('email, transaction_types');
+        if (internalCcs && internalCcs.length > 0) {
+            internalCcs.forEach((internal: any) => {
+                if (internal.email) {
+                    const types = internal.transaction_types || [];
+                    // Görev tipi eşleşiyorsa veya "All" ise CC'ye ekle
+                    if (types.includes('All') || types.includes(currentTaskType) || types.includes(Number(currentTaskType))) {
+                        cc.push(internal.email.trim().toLowerCase());
+                    }
+                }
+            });
+        }
+
+        // Tekilleştirme: Aynı kişi iki kere yazılmasın ve TO listesinde olan biri CC'de gözükmesin
+        const finalTo = [...new Set(to)].filter(Boolean);
+        const finalCc = [...new Set(cc)].filter(Boolean).filter(e => !finalTo.includes(e));
+
+        return { to: finalTo, cc: finalCc };
     }
 
     // YENİ GÖREV (INSERT)
@@ -103,7 +123,7 @@ serve(async (req: Request) => {
             }
         }
 
-        let { to, cc } = await getRecipients(viewData, record);
+        let { to, cc } = await getRecipients(viewData, record, taskTypeId);
         const missingFields = [];
         if (to.length === 0 && cc.length === 0) missingFields.push("recipients");
 
@@ -172,7 +192,7 @@ serve(async (req: Request) => {
                 }
             }
 
-            let { to, cc } = await getRecipients(viewData, record);
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
             const missingFields = [];
             if (to.length === 0 && cc.length === 0) missingFields.push("recipients");
             if (!hasTemplate) missingFields.push("template");
@@ -235,7 +255,7 @@ serve(async (req: Request) => {
                 body = body.replaceAll(k, String(v));
             }
 
-            let { to, cc } = await getRecipients(viewData, record);
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
             await supabaseAdmin.from('mail_notifications').insert({
                 id: crypto.randomUUID(),
                 associated_task_id: record.id,
@@ -261,7 +281,7 @@ serve(async (req: Request) => {
                 body = body.replaceAll(k, String(v));
             }
 
-            let { to, cc } = await getRecipients(viewData, record);
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
             await supabaseAdmin.from('mail_notifications').insert({
                 id: crypto.randomUUID(),
                 associated_task_id: record.id,

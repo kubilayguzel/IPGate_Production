@@ -1,4 +1,3 @@
-// supabase/functions/process-mail-notification/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import nodemailer from "npm:nodemailer" 
@@ -12,7 +11,8 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { notificationId, mode, attachments } = await req.json();
+    // 🔥 YENİ: Arayüzden gönderilen 'senderEmail' bilgisini yakalıyoruz
+    const { notificationId, mode, attachments, senderEmail } = await req.json();
     if (!notificationId) throw new Error("Bildirim ID'si eksik.");
 
     const supabaseClient = createClient(
@@ -29,7 +29,6 @@ serve(async (req: Request) => {
 
     if (fetchErr || !notification) throw new Error("Bildirim bulunamadı.");
 
-    // 🔥 DÜZELTME 1: Eski recipient stringi yerine yeni Array (to_list ve cc_list) sütunlarını kullanıyoruz
     const toList = Array.isArray(notification.to_list) ? notification.to_list : [];
     const ccList = Array.isArray(notification.cc_list) ? notification.cc_list : [];
 
@@ -40,33 +39,36 @@ serve(async (req: Request) => {
         finalSubject = `HATIRLATMA: ${finalSubject}`;
     }
 
-    // 🔥 DÜZELTME 2: Gelen PDF'leri URL'den indirip mail eklentisine dönüştürme
+    // Ekleri (PDF vb.) URL'den indirip hazırlama
     const finalAttachments: any[] = [];
-    
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
         console.log(`📎 Toplam ${attachments.length} adet evrak indiriliyor...`);
-        
         for (const file of attachments) {
             try {
                 if (!file.url) continue;
-                
-                // Supabase Storage veya dış URL üzerinden dosyayı fetch ile indiriyoruz
                 const fileResponse = await fetch(file.url);
                 if (!fileResponse.ok) throw new Error(`Dosya indirilemedi. HTTP Status: ${fileResponse.status}`);
                 
                 const arrayBuffer = await fileResponse.arrayBuffer();
                 const buffer = new Uint8Array(arrayBuffer);
 
-                // Nodemailer'ın anlayacağı formata ekle
                 finalAttachments.push({
                     filename: file.name || 'Evrak.pdf',
-                    content: buffer // Nodemailer Buffer/Uint8Array kabul eder
+                    content: buffer 
                 });
-                console.log(`✅ Evrak başarıyla eklendi: ${file.name}`);
             } catch (err) {
                 console.error(`❌ Evrak yükleme hatası (${file.name}):`, err);
             }
         }
+    }
+
+    // 🔥 DİNAMİK GÖNDERİCİ (REPLY-TO) AYARLARI
+    const senderName = "IPGATE - EVREKA GROUP"; // İsim hep sabit ve kurumsal kalır
+    const systemEmail = Deno.env.get('SMTP_USER') || 'info@evrekagroup.com'; // Ana gönderici adres
+    let replyToAddress = systemEmail; // Varsayılan yanıt adresi
+
+    if (senderEmail) {
+        replyToAddress = senderEmail; // Müşteri yanıtla dediğinde mail doğrudan uzmana (size) gelir
     }
 
     // 2. Mail Gönderim Ayarları
@@ -80,16 +82,17 @@ serve(async (req: Request) => {
       },
     });
 
-    console.log(`📤 Mail gönderiliyor... Alıcı: ${toList.join(',')}`);
+    console.log(`📤 Mail gönderiliyor... Görünür İsim: ${senderName} | Reply-To: ${replyToAddress}`);
 
-    // 3. Maili Gönder (Ekleri de dahil ederek)
+    // 3. Maili Gönder (Dinamik Gönderici ve Reply-To eklendi)
     const info = await transporter.sendMail({
-      from: '"Evreka Patent" <info@evrekagroup.com>',
+      from: `"${senderName}" <${systemEmail}>`, // 🔥 Spam koruması için sistem maili
+      replyTo: replyToAddress,                  // 🔥 Müşteri yanıtla dediğinde uzmana gidecek adres
       to: [...new Set(toList)].join(','),
       cc: [...new Set(ccList)].join(','),
       subject: finalSubject,
       html: notification.body,
-      attachments: finalAttachments // 🔥 İndirilen evraklar buraya ekleniyor!
+      attachments: finalAttachments 
     });
 
     console.log(`✅ Mail başarıyla iletildi! MessageID: ${info.messageId}`);
@@ -100,7 +103,6 @@ serve(async (req: Request) => {
         sent_at: new Date().toISOString()
     };
 
-    // 🔥 DÜZELTME 3: lastReminderAt json içine değil, doğrudan native sütuna yazılıyor
     if (mode === 'reminder') {
         updatePayload.last_reminder_at = new Date().toISOString(); 
     }

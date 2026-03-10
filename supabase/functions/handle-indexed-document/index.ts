@@ -25,9 +25,12 @@ serve(async (req: Request) => {
     const payload = await req.json();
     const { type, record, old_record } = payload;
 
-    // Sadece incoming_documents tablosunda status 'indexed' olduğunda çalış
-    if (type !== 'UPDATE' || old_record.status === 'indexed' || record.status !== 'indexed') {
-        return new Response("İşlem atlandı. Sadece yeni indekslenen evraklar.", { status: 200 });
+    // 🔥 ÇÖZÜM 1: Hem INSERT hem de UPDATE durumlarında "indexed" statüsünü güvenle yakala
+    const isNewIndexed = type === 'INSERT' && record.status === 'indexed';
+    const isUpdatedToIndexed = type === 'UPDATE' && record.status === 'indexed' && old_record?.status !== 'indexed';
+
+    if (!isNewIndexed && !isUpdatedToIndexed) {
+        return new Response("İşlem atlandı. Sadece yeni indekslenen evraklar için çalışır.", { status: 200 });
     }
 
     console.log(`🚀 [OTOMASYON] Belge Endekslendi: ${record.id}`);
@@ -56,26 +59,18 @@ serve(async (req: Request) => {
 
     // İşlem (Transaction) Detayını Çek
     let transactionData = null;
-    let parentTransactionData = null;
     if (transactionId) {
         const { data: tx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
-        if (tx) {
-            transactionData = tx;
-            if (tx.parent_id) {
-                const { data: pTx } = await supabaseAdmin.from('transactions').select('*').eq('id', tx.parent_id).single();
-                parentTransactionData = pTx;
-            }
-        }
+        if (tx) transactionData = tx;
     }
 
     // Temel Değişkenler
     const brandName = ipRecord.ip_record_trademark_details?.[0]?.brand_name || "-";
-    const brandImageUrl = ipRecord.ip_record_trademark_details?.[0]?.brand_image_url || "";
     const appNo = ipRecord.application_number || "-";
     const isPortfolio = ipRecord.record_owner_type === 'self';
     const applicants = ipRecord.ip_record_applicants || [];
     
-    // Müşteri tespiti ve Değerlendirme zorunluluğu
+    // Müşteri tespiti
     const clientId = applicants.length > 0 ? applicants[0].person_id : null;
     const isEvaluationRequired = applicants.length > 0 ? applicants[0].persons?.is_evaluation_required : false;
     const applicantNames = applicants.map((a: any) => a.persons?.name).filter(Boolean).join(', ') || "-";
@@ -92,7 +87,6 @@ serve(async (req: Request) => {
         boxColor: "#e8f0fe", boxBorder: "#0d6efd"      
     };
 
-    // Tip 31-36 ve 29-30 (Karar tipleri)
     if (["31", "32", "33", "34", "35", "36"].includes(txTypeId)) {
         if (txTypeId === "31") {
             decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ KABUL";
@@ -160,7 +154,7 @@ serve(async (req: Request) => {
     }
 
     // ==========================================
-    // 4. ALICILARI (TO/CC) BELİRLEME
+    // 4. ALICILARI (TO/CC) BELİRLEME (SABAHKİ SAĞLAM MANTIK)
     // ==========================================
     const toRecipients: string[] = [];
     const ccRecipients: string[] = [];
@@ -176,13 +170,20 @@ serve(async (req: Request) => {
                 }
             });
         }
-    } else if (!isPortfolio) {
-        console.log(`⚠️ Rakip dosyası olduğu için rakibe mail atılması engellendi.`);
     }
 
-    // Evreka CC Listesi
-    const { data: ccData } = await supabaseAdmin.from('evreka_mail_cc_list').select('email').contains('transaction_types', [txTypeId]);
-    if (ccData) ccData.forEach(c => ccRecipients.push(c.email));
+    // 🔥 ÇÖZÜM 2: Evreka İçi Otomatik CC Listesi (Sabahki mantıkla aynı)
+    const { data: internalCcs } = await supabaseAdmin.from('evreka_mail_cc_list').select('email, transaction_types');
+    if (internalCcs && internalCcs.length > 0) {
+        internalCcs.forEach((internal: any) => {
+            if (internal.email) {
+                const types = internal.transaction_types || [];
+                if (types.includes('All') || types.includes(txTypeId) || types.includes(Number(txTypeId))) {
+                    ccRecipients.push(internal.email.trim().toLowerCase());
+                }
+            }
+        });
+    }
 
     const finalTo = [...new Set(toRecipients)].filter(Boolean);
     const finalCc = [...new Set(ccRecipients)].filter(e => !finalTo.includes(e));
@@ -208,7 +209,6 @@ serve(async (req: Request) => {
             subject = template.subject || template.mail_subject || subject;
             let rawBody = template.body || body;
 
-            // Self vs Third Party İçerik Seçimi
             if (templateId === 'tmpl_50_document') {
                 if (isPortfolio && template.body1) rawBody = template.body1;
                 else if (!isPortfolio && template.body2) rawBody = template.body2;
@@ -242,7 +242,7 @@ serve(async (req: Request) => {
     }
 
     // ==========================================
-    // 6. STATÜ BELİRLEME VE TASK 66 (DEĞERLENDİRME)
+    // 6. STATÜ BELİRLEME VE KAYIT İŞLEMİ
     // ==========================================
     const SENSITIVE_TASK_TYPES = ['7', '19', '49', '54'];
     const isSensitive = SENSITIVE_TASK_TYPES.includes(txTypeId); 
@@ -252,11 +252,10 @@ serve(async (req: Request) => {
         if (isSensitive && isEvaluationRequired) {
             finalStatus = "evaluation_pending";
         } else {
-            finalStatus = "awaiting_client_approval"; // Taslak olarak onaya düşer
+            finalStatus = "awaiting_client_approval"; 
         }
     }
 
-    // 🔥 DB GÜNCELLEMESİ: Eksik Sütunlar Tamamlandı (client_id, mode, objection_deadline)
     const mailId = crypto.randomUUID();
     await supabaseAdmin.from('mail_notifications').insert({
         id: mailId,
@@ -266,19 +265,18 @@ serve(async (req: Request) => {
         template_id: templateId,
         to_list: finalTo,
         cc_list: finalCc,
-        client_id: clientId, // <--- Eklendi
+        client_id: clientId, 
         subject: subject,
         body: body,
         status: finalStatus,
-        mode: "draft", // <--- Eklendi
-        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, // <--- Eklendi
+        mode: "draft", 
+        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
         notification_type: 'marka',
         source: 'document_index',
         is_draft: true,
         missing_fields: finalTo.length === 0 ? ['recipients'] : []
     });
 
-    // Ek Dosyayı (Attachment) Kaydet
     if (record.file_url) {
         await supabaseAdmin.from('mail_attachments').insert({
             notification_id: mailId,
@@ -288,37 +286,31 @@ serve(async (req: Request) => {
         });
     }
 
-    // Değerlendirme Görevi (Task 66) Oluşturulacak Mı?
     if (finalStatus === "evaluation_pending") {
         console.log(`⚖️ Hassas işlem tespit edildi. Task 66 (Değerlendirme) açılıyor...`);
-        
         const { data: counterData } = await supabaseAdmin.from('counters').select('last_id').eq('id', 'tasks').single();
         let currentId = counterData ? Number(counterData.last_id) : 0;
         currentId++;
-        const newTaskId = String(currentId);
-
+        
         const { data: assignData } = await supabaseAdmin.from('task_assignments').select('assignee_ids').eq('id', '66').single();
-        const assignedUid = assignData?.assignee_ids?.[0] || null;
-
+        
         let taskDueDate = new Date(tebligDate);
         taskDueDate.setDate(taskDueDate.getDate() + 10);
-
         if (calculatedDeadlineDate && taskDueDate >= calculatedDeadlineDate) {
             taskDueDate = new Date(calculatedDeadlineDate);
             taskDueDate.setDate(taskDueDate.getDate() - 5); 
         }
 
-        // 🔥 DB GÜNCELLEMESİ: task_owner_id eklendi
         await supabaseAdmin.from('tasks').insert({
-            id: newTaskId,
+            id: String(currentId),
             task_type_id: "66",
             status: "open",
             priority: "high",
             title: `Değerlendirme: ${subject}`,
             description: `Müvekkil hassas gruptadır. Taslağı düzenleyip onaylayın.`,
             ip_record_id: ipRecordId,
-            assigned_to: assignedUid,
-            task_owner_id: clientId, // <--- Eklendi
+            assigned_to: assignData?.assignee_ids?.[0] || null,
+            task_owner_id: clientId, 
             official_due_date: taskDueDate.toISOString(),
             operational_due_date: taskDueDate.toISOString(),
             details: {
@@ -328,7 +320,6 @@ serve(async (req: Request) => {
                 iprecordApplicantName: applicantNames
             }
         });
-
         await supabaseAdmin.from('counters').update({ last_id: currentId }).eq('id', 'tasks');
     }
 

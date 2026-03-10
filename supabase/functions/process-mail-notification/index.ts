@@ -63,23 +63,21 @@ serve(async (req: Request) => {
     }
 
     // 🔥 DİNAMİK GÖNDERİCİ (REPLY-TO) AYARLARI
-    const senderName = "IPGATE - EVREKA GROUP"; // İsim hep sabit ve kurumsal kalır
-    const systemEmail = Deno.env.get('SMTP_USER') || 'info@evrekagroup.com'; // Ana gönderici adres
-    let replyToAddress = systemEmail; // Varsayılan yanıt adresi
+    const senderName = "IPGATE - EVREKA GROUP"; 
+    const systemEmail = "kubilayguzel@evrekapatent.com"; // BURASI GÜNCELLENDİ
+    let replyToAddress = systemEmail; 
 
     if (senderEmail) {
-        replyToAddress = senderEmail; // Müşteri yanıtla dediğinde mail doğrudan uzmana (size) gelir
+        replyToAddress = senderEmail; 
     }
 
     // 2. Mail Gönderim Ayarları
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
+      service: "gmail",
       auth: {
-        user: Deno.env.get('SMTP_USER'),
-        pass: Deno.env.get('SMTP_PASS'),
-      },
+        user: "kubilayguzel@evrekapatent.com",
+        pass: "rqvl tpbm vkmu lmxi"
+      }
     });
 
     console.log(`📤 Mail gönderiliyor... Görünür İsim: ${senderName} | Reply-To: ${replyToAddress}`);

@@ -1257,43 +1257,46 @@ export const suitService = {
 // ==========================================
 // 7. İŞLEMLER (TRANSACTIONS) SERVİSİ
 // ==========================================
-
 export const transactionService = {
     async getObjectionData() {
         const PARENT_TYPES = ['7', '19', '20'];
         
-        // 🔥 ÇÖZÜM 2: transaction_documents(*) eklendi
-        const { data: parents, error: parentError } = await supabase
-            .from('transactions')
-            .select('*, transaction_documents(*)')
-            .in('transaction_type_id', PARENT_TYPES)
-            .limit(10000); 
+        try {
+            // Veritabanı şemasını düzelttiğimiz için artık tüm ilişkileri TEK SORGUDAN çekebiliriz!
+            const [parentRes, childRes] = await Promise.all([
+                supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').in('transaction_type_id', PARENT_TYPES).limit(10000),
+                supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').eq('transaction_hierarchy', 'child').limit(10000)
+            ]);
+
+            if (parentRes.error) throw parentRes.error;
+            if (childRes.error) throw childRes.error;
+
+            const parents = parentRes.data || [];
+            const children = childRes.data || [];
             
-        if (parentError) return { success: false, error: parentError.message };
+            const formatData = (rows) => rows.map(r => ({
+                ...r,
+                id: r.id,
+                recordId: r.ip_record_id,
+                parentId: r.parent_id || (r.details && r.details.parentId) || null,
+                type: r.transaction_type_id || (r.details && r.details.type), 
+                transactionHierarchy: r.transaction_hierarchy,
+                timestamp: r.transaction_date || r.created_at,
+                oppositionOwner: r.opposition_owner,
+                documents: r.transaction_documents || [], 
+                ...r.details 
+            }));
 
-        const { data: children, error: childError } = await supabase
-            .from('transactions')
-            .select('*, transaction_documents(*)')
-            .eq('transaction_hierarchy', 'child')
-            .limit(10000); 
-
-        const formatData = (rows) => rows.map(r => ({
-            id: r.id,
-            recordId: r.ip_record_id,
-            parentId: r.parent_id || (r.details && r.details.parentId) || null,
-            type: r.transaction_type_id || (r.details && r.details.type), 
-            transactionHierarchy: r.transaction_hierarchy,
-            timestamp: r.transaction_date || r.created_at,
-            oppositionOwner: r.opposition_owner,
-            documents: r.transaction_documents || [], // Evraklar eklendi
-            ...r.details 
-        }));
-
-        return { 
-            success: true, 
-            parents: formatData(parents || []), 
-            children: formatData(children || []) 
-        };
+            return { 
+                success: true, 
+                parents: formatData(parents), 
+                children: formatData(children) 
+            };
+            
+        } catch (error) {
+            console.error("İtiraz verileri servisten çekilirken hata:", error);
+            return { success: false, error: error.message };
+        }
     }
 };
 

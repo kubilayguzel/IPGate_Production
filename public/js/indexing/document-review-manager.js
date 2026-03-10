@@ -1053,36 +1053,10 @@ export class DocumentReviewManager {
                 ip_record_id: this.matchedRecord.id
             }).eq('id', String(this.pdfId));
 
-            try {
-                const tebligTarihiStr = document.getElementById('detectedDate').value; 
-                const sonItirazTarihiStr = document.getElementById('calculatedDeadlineDisplay')?.value || '';
-
-                console.log(`[INDEXING] Posta alıcıları merkezden hesaplanıyor... TaskOwnerID:`, finalTaskOwnerId);
-                
-                // 🔥 ÇÖZÜM 3: Artık finalTaskOwnerId dolu ve ulaşılabiliyor
-                const mailRecipients = await mailService.resolveMailRecipients(
-                    this.matchedRecord.id, 
-                    childTypeId, 
-                    finalTaskOwnerId
-                );
-
-                await supabase.functions.invoke('send-indexing-notification', {
-                    body: {
-                        recordId: this.matchedRecord.id, 
-                        childTypeId: childTypeId,
-                        transactionId: childTransactionId,
-                        tebligTarihi: tebligTarihiStr,
-                        sonItirazTarihi: sonItirazTarihiStr,
-                        pdfId: this.pdfId,
-                        toList: mailRecipients.to, 
-                        ccList: mailRecipients.cc  
-                    }
-                });
-            } catch (notifyErr) {
-                console.error("Mail bildirim Edge Function hatası:", notifyErr);
-            }
+            // 🔥 ÇÖZÜM: Manuel mail tetikleme kodları tamamen SİLİNDİ!
+            // Artık statü 'indexed' olduğu için Supabase Trigger devreye girip her şeyi arka planda (tek merkezden) halledecek.
             
-            showNotification('İşlem başarıyla tamamlandı!', 'success');
+            showNotification('İşlem başarıyla tamamlandı ve arka planda bildirim kuyruğuna alındı!', 'success');
             setTimeout(() => window.location.href = 'bulk-indexing-page.html', 1500);
 
         } catch (error) {

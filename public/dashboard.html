@@ -3,206 +3,156 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IPGATE - Dashboard</title>
+    <title>IPGATE - Executive Dashboard</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="stylesheet" href="./css/shared-styles.css">
     <style>
-        /* Bu sayfaya özel stiller */
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            color: #333; 
-            display: flex; 
-            overflow: hidden; 
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #2c3e50; background-color: #f4f7fa; overflow-x: hidden; }
         
-        /* === ANA SAYFA YAPISI === */
-        .page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
-        .main-container { width: 100%; max-width: 1400px; margin: 30px auto; padding: 0 30px; padding-top: 120px; }
+        .page-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; padding-top: 80px; }
+        .main-container { width: 100%; max-width: 1500px; margin: 0 auto; padding: 20px 30px; }
         
-        /* === DASHBOARD SAYFASINA ÖZEL STİLLER === */
-        .welcome-section { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
-        .welcome-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; }
-        .welcome-subtitle { color: #666; font-size: 1.1em; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 25px; margin-bottom: 40px; }
-        .stat-card { background: rgba(255, 255, 255, 0.95); padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease; border-left: 5px solid; }
-        .stat-card:hover { transform: translateY(-5px); }
-        .stat-card.patents { border-left-color: #ff6b6b; }
-        .stat-card.trademarks { border-left-color: #4ecdc4; }
-        .stat-card.copyrights { border-left-color: #45b7d1; }
-        .stat-card.designs { border-left-color: #96ceb4; }
-        .stat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .stat-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5em; color: white; }
-        .stat-icon.patents { background: #ff6b6b; }
-        .stat-icon.trademarks { background: #4ecdc4; }
-        .stat-icon.copyrights { background: #45b7d1; }
-        .stat-icon.designs { background: #96ceb4; }
-        .stat-value { font-size: 2.5em; font-weight: bold; color: #1e3c72; }
-        .stat-label { color: #666; font-size: 1.1em; margin-bottom: 10px; }
-        .stat-change { font-size: 0.9em; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
-        .stat-change.positive { background: #d4edda; color: #155724; }
-        .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 30px; margin-bottom: 40px; }
-        .chart-section { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
-        .chart-title { font-size: 1.3em; color: #1e3c72; margin-bottom: 20px; }
-        .chart-container { height: 300px; position: relative; }
-        .recent-activities { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); }
-        .activity-item { display: flex; align-items: center; padding: 15px 0; border-bottom: 1px solid #eee; }
-        .activity-item:last-child { border-bottom: none; }
-        .activity-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 1.2em; color: white; }
-        .activity-content { flex: 1; }
-        .activity-title { font-weight: 600; color: #333; }
-        .activity-time { font-size: 0.9em; color: #666; }
-        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-        .action-btn { background: linear-gradient(45deg, #1e3c72, #2a5298); color: white; padding: 20px; border: none; border-radius: 15px; cursor: pointer; font-size: 1em; font-weight: 600; transition: all 0.3s ease; text-align: center; text-decoration: none; }
-        .action-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(30, 60, 114, 0.3); }
-        .loading-animation { display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #1e3c72; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @media (max-width: 992px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        /* HEADER & WELCOME */
+        .dashboard-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; background: #fff; padding: 25px 35px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+        .welcome-title { font-size: 2.2em; font-weight: 800; color: #1a2b4c; margin-bottom: 5px; }
+        .welcome-subtitle { color: #7f8c8d; font-size: 1.1em; }
+        .date-display { font-size: 1.1em; font-weight: 600; color: #34495e; background: #f8f9fa; padding: 10px 20px; border-radius: 12px; border: 1px solid #e9ecef; }
 
-        /* Yeni Finans Durumu Bölümü Stilleri */
-        .financial-status-section {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-            margin-bottom: 40px;
-        }
-        .financial-status-title {
-            font-size: 1.8em;
-            color: #1e3c72;
-            margin-bottom: 25px;
-            text-align: center;
-        }
-        .financial-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 30px;
-        }
-        .financial-card {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-            border-left: 5px solid;
-        }
-        .financial-card.income { border-left-color: #28a745; } 
-        .financial-card.unpaid { border-left-color: #dc3545; } 
+        /* KPI CARDS (Executive Metrics) */
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .kpi-card { background: #fff; padding: 25px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); position: relative; overflow: hidden; transition: transform 0.3s; }
+        .kpi-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+        .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; width: 5px; height: 100%; }
+        .kpi-card.primary::before { background: linear-gradient(180deg, #4facfe 0%, #00f2fe 100%); }
+        .kpi-card.success::before { background: linear-gradient(180deg, #43e97b 0%, #38f9d7 100%); }
+        .kpi-card.warning::before { background: linear-gradient(180deg, #f6d365 0%, #fda085 100%); }
+        .kpi-card.danger::before { background: linear-gradient(180deg, #ff0844 0%, #ffb199 100%); }
+        
+        .kpi-title { font-size: 0.95em; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; font-weight: 600; }
+        .kpi-value { font-size: 2.2em; font-weight: 800; color: #2c3e50; margin-bottom: 5px; }
+        .kpi-subtext { font-size: 0.9em; color: #95a5a6; display: flex; align-items: center; gap: 5px; }
+        .kpi-badge { padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.8em; }
+        .badge-green { background: #e8f8f5; color: #1abc9c; }
+        .badge-red { background: #fdedec; color: #e74c3c; }
 
-        .financial-card h3 {
-            font-size: 1.3em;
-            color: #1e3c72;
-            margin-bottom: 15px;
-        }
-        .financial-summary {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        .financial-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #333;
-        }
-        .financial-label {
-            font-size: 0.9em;
-            color: #666;
-        }
-        .chart-small-container {
-            height: 200px;
-            margin-top: 15px;
-        }
-        .client-list {
-            list-style: none;
-            padding: 0;
-            margin-top: 15px;
-            max-height: 150px;
-            overflow-y: auto;
-            border-top: 1px dashed #e1e8ed;
-            padding-top: 10px;
-        }
-        .client-list li {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px dotted #eee;
-            font-size: 0.9em;
-            color: #555;
-        }
-        .client-list li:last-child {
-            border-bottom: none;
-        }
-        .client-name {
-            font-weight: 600;
-        }
-        .client-amount {
-            color: #1e3c72;
-            font-weight: bold;
-        }
+        /* CHARTS SECTION */
+        .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .chart-card { background: #fff; padding: 25px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+        .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .chart-title { font-size: 1.2em; font-weight: 700; color: #34495e; }
+        .chart-container { position: relative; height: 320px; width: 100%; }
+        
+        /* INTELLIGENCE LISTS */
+        .lists-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .list-card { background: #fff; padding: 25px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+        .list-title { font-size: 1.1em; font-weight: 700; color: #1a2b4c; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .intelligence-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+        .intelligence-list li { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f2f6; }
+        .intelligence-list li:last-child { border-bottom: none; }
+        .item-main { font-weight: 600; color: #2c3e50; font-size: 0.95em; }
+        .item-sub { color: #7f8c8d; font-size: 0.85em; }
+        .item-value { font-weight: 700; color: #e74c3c; background: #fdedec; padding: 4px 10px; border-radius: 6px; font-size: 0.9em;}
+        .item-value-green { font-weight: 700; color: #27ae60; background: #e8f8f5; padding: 4px 10px; border-radius: 6px; font-size: 0.9em;}
 
-        @media (max-width: 992px) {
-            .financial-grid {
-                grid-template-columns: 1fr;
-            }
-        }
+        /* CUSTOM SCROLLBAR */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+
+        @media (max-width: 1200px) { .charts-grid, .lists-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div id="notification-container" class="notification-container"></div> <div id="layout-placeholder"></div>
     <div class="page-wrapper">
         <main class="main-container">
-            <section class="welcome-section">
-                <h1 class="welcome-title">Hoş Geldiniz! 👋</h1>
-                <p class="welcome-subtitle">Fikri mülkiyet haklarınızın güncel durumunu görüntüleyin ve yönetin.</p>
-            </section>
-            <section class="stats-grid">
-                 <div class="stat-card patents"><div class="stat-header"><div class="stat-icon patents">📋</div><div class="stat-change positive" id="patentChange">+0</div></div><div class="stat-value" id="patentCount">0</div><div class="stat-label">Patent</div></div>
-                 <div class="stat-card trademarks"><div class="stat-header"><div class="stat-icon trademarks">🏷️</div><div class="stat-change positive" id="trademarkChange">+0</div></div><div class="stat-value" id="trademarkCount">0</div><div class="stat-label">Marka</div></div>
-                 <div class="stat-card copyrights"><div class="stat-header"><div class="stat-icon copyrights">©</div><div class="stat-change positive" id="copyrightChange">+0</div></div><div class="stat-value" id="copyrightCount">0</div><div class="stat-label">Telif Hakkı</div></div>
-                 <div class="stat-card designs"><div class="stat-header"><div class="stat-icon designs">🎨</div><div class="stat-change positive" id="designChange">+0</div></div><div class="stat-value" id="designCount">0</div><div class="stat-label">Tasarım</div></div>
-            </section>
+            
+            <div class="dashboard-header">
+                <div>
+                    <h1 class="welcome-title">Executive Dashboard</h1>
+                    <p class="welcome-subtitle">Finansal ve Operasyonel Performans Özeti</p>
+                </div>
+                <div class="date-display" id="currentDate">--</div>
+            </div>
 
-            <section class="financial-status-section">
-                <h2 class="financial-status-title">Finans Durumu (Son 8 Hafta)</h2>
-                <div class="financial-grid">
-                    <div class="financial-card income">
-                        <h3>Tahsilat Raporu</h3>
-                        <div class="financial-summary">
-                            <div class="financial-value" id="totalIncome">0.00 TL</div>
-                            <div class="financial-label">Toplam Gelir</div>
-                        </div>
-                        <div class="chart-small-container"><canvas id="incomeTrendChart"></canvas></div>
-                        <h4>En Çok Ödeme Yapanlar</h4>
-                        <ul class="client-list" id="topIncomeClients">
-                            <li>Veri Yok</li>
-                        </ul>
-                    </div>
-                    <div class="financial-card unpaid">
-                        <h3>Ödenmeyen Alacaklar Raporu</h3>
-                        <div class="financial-summary">
-                            <div class="financial-value" id="totalUnpaid">0.00 TL</div>
-                            <div class="financial-label">Toplam Alacak</div>
-                        </div>
-                        <div class="chart-small-container"><canvas id="unpaidTrendChart"></canvas></div>
-                        <h4>En Çok Borcu Olanlar</h4>
-                        <ul class="client-list" id="topUnpaidClients">
-                            <li>Veri Yok</li>
-                        </ul>
+            <div class="kpi-grid">
+                <div class="kpi-card success">
+                    <div class="kpi-title">Tahsilat Performansı</div>
+                    <div class="kpi-value" id="kpiCollectionRate">%0</div>
+                    <div class="kpi-subtext">
+                        <span class="kpi-badge badge-green" id="kpiTotalPaid">0 TL Tahsilat</span>
+                        <span style="margin-left:5px;">Toplam Kesilen Faturadan</span>
                     </div>
                 </div>
-            </section>
-            <section class="dashboard-grid">
-                <div class="chart-section"><h2 class="chart-title">Aylık Başvuru Trendi</h2><div class="chart-container"><canvas id="trendChart"></canvas></div></div>
-                <div class="recent-activities"><h2 class="chart-title">Son Aktiviteler</h2><div id="activitiesList"></div></div>
-            </section>
-            <section class="quick-actions">
-                <a href="data-entry.html?type=patent" class="action-btn">📋 Yeni Patent Başvurusu</a>
-                <a href="data-entry.html?type=trademark" class="action-btn">🏷️ Yeni Marka Başvurusu</a>
-                <a href="portfolio.html" class="action-btn">📊 Portföyü Görüntüle</a>
-                <a href="persons.html" class="action-btn">👥 Kişileri Yönet</a>
-            </section>
+
+                <div class="kpi-card primary">
+                    <div class="kpi-title">Hizmet Karlılık Oranı</div>
+                    <div class="kpi-value" id="kpiProfitMargin">%0</div>
+                    <div class="kpi-subtext">Cironun ne kadarı size (Hizmet Bedeli) kalıyor?</div>
+                </div>
+
+                <div class="kpi-card danger">
+                    <div class="kpi-title">Bekleyen Toplam Alacak (Risk)</div>
+                    <div class="kpi-value" id="kpiTotalUnpaid">0 TL</div>
+                    <div class="kpi-subtext">
+                        <span class="kpi-badge badge-red" id="kpiUnpaidCount">0 Fatura</span>
+                        <span style="margin-left:5px;">Tahsilat bekliyor</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card warning">
+                    <div class="kpi-title">Aktif Portföy Büyüklüğü</div>
+                    <div class="kpi-value" id="kpiTotalPortfolio">0</div>
+                    <div class="kpi-subtext">
+                        <span class="kpi-badge badge-green" id="kpiForeignRatio">%0 Yurtdışı</span>
+                        <span style="margin-left:5px;">WIPO / Yabancı Menşe</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="chart-title">Aylık Tahsilat ve Alacak Trendi (Son 6 Ay)</div>
+                    </div>
+                    <div class="chart-container"><canvas id="financialTrendChart"></canvas></div>
+                </div>
+                
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="chart-title">Portföy Dağılımı</div>
+                    </div>
+                    <div class="chart-container"><canvas id="portfolioDistributionChart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="lists-grid">
+                <div class="list-card">
+                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Açık Bakiyeler</div>
+                    <ul class="intelligence-list" id="topDebtorsList">
+                        <li>Yükleniyor...</li>
+                    </ul>
+                </div>
+
+                <div class="list-card">
+                    <div class="list-title"><i class="fas fa-coins text-warning"></i> Bekleyen Alacaklar (Döviz Bazlı)</div>
+                    <ul class="intelligence-list" id="currencyRiskList">
+                        <li>Yükleniyor...</li>
+                    </ul>
+                </div>
+
+                <div class="list-card">
+                    <div class="list-title"><i class="fas fa-clock text-info"></i> Yaklaşan Yenilemeler (Son 90 Gün)</div>
+                    <ul class="intelligence-list" id="upcomingRenewalsList">
+                        <li>Yükleniyor...</li>
+                    </ul>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -212,300 +162,256 @@
         import { showNotification } from './utils.js';
         import { loadSharedLayout } from './js/layout-loader.js';
 
-        class DashboardController {
+        class ExecutiveDashboard {
             constructor() {
-                this.currentUser = null;
-                this.applicationTrendChart = null;
-                this.incomeTrendChart = null;
-                this.unpaidTrendChart = null;
+                this.financialTrendChart = null;
+                this.portfolioChart = null;
             }
 
             async init(user) {
-                this.currentUser = user;
-                await this.loadDashboardData();
+                document.getElementById('currentDate').textContent = new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                await this.loadData();
             }
 
-            async loadDashboardData() {
+            async loadData() {
                 const [ipRecordsResult, accrualsResult] = await Promise.all([
                     ipRecordsService.getRecords(),
                     accrualService.getAccruals()
                 ]);
 
-                if (ipRecordsResult.success) {
-                    // 🔥 1. KORUMA KALKANI: IP Kayıtlarını Normalleştir (Snake Case -> Camel Case)
-                    const normalizedRecords = ipRecordsResult.data.map(r => {
-                        const d = r.details || {};
-                        return {
-                            ...r,
-                            ...d, // Eski esnek verileri (JSON) dışarı çıkar
-                            type: String(r.ip_type || r.type || d.type || d.ipType || '').toLowerCase(),
-                            createdAt: r.created_at || r.createdAt || d.createdAt || new Date().toISOString(),
-                            applicationDate: r.application_date || r.applicationDate || d.applicationDate,
-                            title: r.brand_name || r.title || d.title || d.markName || 'İsimsiz Kayıt'
-                        };
-                    });
+                let records = [];
+                let accruals = [];
 
-                    this.updateStats(normalizedRecords);
-                    this.updateActivities(normalizedRecords);
-                    this.renderApplicationTrendChart(normalizedRecords);
-                } else {
-                    console.error('IP Kayıtları yüklenemedi:', ipRecordsResult.error);
-                    document.getElementById('activitiesList').innerHTML = '<p>IP Kayıtları verileri yüklenemedi.</p>';
+                if (ipRecordsResult.success) {
+                    records = ipRecordsResult.data.map(r => ({ ...r, ...(r.details || {}) }));
                 }
 
                 if (accrualsResult.success) {
-                    // 🔥 2. KORUMA KALKANI: Tahakkukları Normalleştir (Details içindeki JSON'u çöz)
-                    const normalizedAccruals = accrualsResult.data.map(row => {
-                        const d = row.details || {};
-                        return {
-                            ...row,
-                            ...d, // officialFee, serviceFee, party bilgilerini dışarı yay
-                            id: String(row.id),
-                            status: row.status || d.status || 'unpaid',
-                            createdAt: row.created_at || row.createdAt || d.createdAt || new Date().toISOString(),
-                            updatedAt: row.updated_at || row.updatedAt || d.updatedAt,
-                            isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
-                            
-                            // Finansal objeleri garanti altına al
-                            officialFee: d.officialFee || { amount: row.official_fee_amount || 0 },
-                            serviceFee: d.serviceFee || { amount: row.service_fee_amount || 0 },
-                            vatRate: d.vatRate || row.vat_rate || 20,
-                            applyVatToOfficialFee: d.applyVatToOfficialFee ?? row.apply_vat_to_official_fee ?? false,
-                            
-                            tpInvoiceParty: d.tpInvoiceParty || { name: 'TÜRKPATENT / Resmi Kurum' },
-                            serviceInvoiceParty: d.serviceInvoiceParty || { name: 'Müvekkil / Diğer' },
-                        };
+                    accruals = accrualsResult.data.map(r => ({ ...r, ...(r.details || {}) }));
+                }
+
+                this.processExecutiveMetrics(records, accruals);
+            }
+
+            // Mükemmel Para Birimi Formatlayıcı
+            formatMoney(amount, currency = 'TRY') {
+                return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
+            }
+
+            processExecutiveMetrics(records, accruals) {
+                // --- 1. FİNANSAL HESAPLAMALAR ---
+                let totalBilledTRY = 0, totalPaidTRY = 0, totalUnpaidTRY = 0;
+                let totalOfficialFeeTRY = 0, totalServiceFeeTRY = 0;
+                let unpaidCount = 0;
+                
+                const currencyRisk = { 'TRY': 0, 'USD': 0, 'EUR': 0, 'GBP': 0, 'CHF': 0 };
+                const debtors = {};
+                const monthlyTrend = {}; // YYYY-MM formatında
+                
+                // Son 6 ayın aylarını oluştur
+                for(let i=5; i>=0; i--) {
+                    let d = new Date(); d.setMonth(d.getMonth() - i);
+                    monthlyTrend[d.toISOString().slice(0,7)] = { paid: 0, unpaid: 0 };
+                }
+
+                accruals.forEach(acc => {
+                    const clientName = acc.serviceInvoiceParty?.name || acc.paymentParty || acc.tpInvoiceParty?.name || 'Bilinmeyen Müşteri';
+                    const createdAt = acc.created_at || acc.createdAt || new Date().toISOString();
+                    const monthKey = createdAt.slice(0, 7);
+
+                    // Toplam Tutar ve Para Birimi Ayrıştırma
+                    let totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{ amount: acc.totalAmount || 0, currency: 'TRY' }];
+                    let remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{ amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY' }]);
+
+                    let accTotalTRY = 0, accRemTRY = 0, accPaidTRY = 0;
+
+                    // Basit TRY'ye çevrim (Sadece oransal analizler için varsayılan kurlar)
+                    const rates = { 'TRY': 1, 'USD': 35, 'EUR': 38, 'GBP': 44, 'CHF': 39 };
+
+                    totalArr.forEach(t => { 
+                        let curr = t.currency || 'TRY';
+                        accTotalTRY += (t.amount || 0) * (rates[curr] || 1); 
                     });
 
-                    this.processFinancialData(normalizedAccruals);
-                } else {
-                    console.error('Tahakkuk verileri yüklenemedi:', accrualsResult.error);
-                    document.getElementById('totalIncome').textContent = '0,00 ₺';
-                    document.getElementById('totalUnpaid').textContent = '0,00 ₺';
-                }
-            }
-            
-            updateStats(records = []) {
-                const counts = { patent: 0, trademark: 0, copyright: 0, design: 0 };
-                records.forEach(r => { 
-                    const type = r.type;
-                    if(counts[type] !== undefined) counts[type]++; 
-                });
-                document.getElementById('patentCount').textContent = counts.patent;
-                document.getElementById('trademarkCount').textContent = counts.trademark;
-                document.getElementById('copyrightCount').textContent = counts.copyright;
-                document.getElementById('designCount').textContent = counts.design;
-            }
+                    remArr.forEach(r => { 
+                        let curr = r.currency || 'TRY';
+                        let amt = r.amount || 0;
+                        accRemTRY += amt * (rates[curr] || 1); 
+                        currencyRisk[curr] = (currencyRisk[curr] || 0) + amt; // Gerçek döviz riskini topla
+                    });
 
-            updateActivities(records = []) {
-                const list = document.getElementById('activitiesList');
-                list.innerHTML = '';
-                
-                const recent = records.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
-                
-                if(recent.length === 0) {
-                    list.innerHTML = '<p>Henüz aktivite yok.</p>';
-                    return;
-                }
-                const icons = {patent:'📋',trademark:'🏷️',copyright:'©',design:'🎨'}; 
-                recent.forEach(record => {
-                    const rType = record.type;
-                    const item = document.createElement('div');
-                    item.className = 'activity-item';
-                    item.innerHTML = `<div class="activity-icon ${rType}">${icons[rType] || '📄'}</div>
-                                <div class="activity-content">
-                                <div class="activity-title">${record.title}</div>
-                                <div class="activity-time">${new Date(record.createdAt).toLocaleDateString('tr-TR')}</div>
-                                </div>`;
-                    list.appendChild(item);
-                });
-            }
+                    accPaidTRY = accTotalTRY - accRemTRY;
 
-            renderApplicationTrendChart(records = []) {
-                const ctx = document.getElementById('trendChart').getContext('2d');
-                const monthlyData = {};
-                
-                records.forEach(record => {
-                    let rawDate = record.applicationDate;
+                    totalBilledTRY += accTotalTRY;
+                    totalPaidTRY += accPaidTRY;
+                    totalUnpaidTRY += accRemTRY;
+
+                    if (accRemTRY > 0) {
+                        unpaidCount++;
+                        debtors[clientName] = (debtors[clientName] || 0) + accRemTRY;
+                    }
+
+                    // Karlılık Analizi (Service vs Official) - Oranlama için TRY bazında
+                    const offAmt = acc.officialFee?.amount || 0;
+                    const offCur = acc.officialFee?.currency || 'TRY';
+                    const srvAmt = acc.serviceFee?.amount || 0;
+                    const srvCur = acc.serviceFee?.currency || 'TRY';
                     
-                    if (rawDate && rawDate !== '-' && rawDate !== '') {
-                        let dateObj = null;
-                        try {
-                            if (typeof rawDate.toDate === 'function') dateObj = rawDate.toDate();
-                            else if (rawDate instanceof Date) dateObj = rawDate;
-                            else if (typeof rawDate === 'string') {
-                                if (rawDate.includes('.')) {
-                                    const parts = rawDate.split('.');
-                                    if (parts.length === 3) dateObj = new Date(parts[2], parts[1] - 1, parts[0]);
-                                } else {
-                                    dateObj = new Date(rawDate);
-                                }
-                            } else if (typeof rawDate === 'number') {
-                                dateObj = new Date(rawDate);
-                            }
+                    totalOfficialFeeTRY += offAmt * (rates[offCur] || 1);
+                    totalServiceFeeTRY += srvAmt * (rates[srvCur] || 1);
 
-                            if (dateObj && !isNaN(dateObj.getTime())) {
-                                const month = dateObj.toISOString().slice(0, 7); 
-                                if(!monthlyData[month]) monthlyData[month] = 0;
-                                monthlyData[month]++;
-                            }
-                        } catch (e) {}
+                    // Trend Verisi
+                    if (monthlyTrend[monthKey]) {
+                        monthlyTrend[monthKey].paid += accPaidTRY;
+                        monthlyTrend[monthKey].unpaid += accRemTRY;
                     }
                 });
 
-                const sortedMonths = Object.keys(monthlyData).sort();
-                if(this.applicationTrendChart) this.applicationTrendChart.destroy();
-                this.applicationTrendChart = new Chart(ctx, {
+                // --- 2. OPERASYONEL HESAPLAMALAR ---
+                const activeStatus = ['filed', 'published', 'registered', 'partially_registered'];
+                const activeRecords = records.filter(r => activeStatus.includes(r.status || r.portfoyStatus));
+                
+                const typeCount = { 'trademark': 0, 'patent': 0, 'design': 0 };
+                let foreignCount = 0;
+                const upcomingRenewals = [];
+                const today = new Date();
+                const next90Days = new Date(); next90Days.setDate(today.getDate() + 90);
+
+                records.forEach(r => {
+                    const type = String(r.ip_type || r.type || '').toLowerCase();
+                    if(typeCount[type] !== undefined) typeCount[type]++;
+                    
+                    const origin = r.origin || r.countryCode;
+                    if(origin === 'WIPO' || origin === 'ARIPO' || origin === 'FOREIGN_NATIONAL' || (origin && origin !== 'TR' && origin !== 'TÜRKPATENT')) {
+                        foreignCount++;
+                    }
+
+                    // Yenileme Radarı
+                    if(r.renewalDate && r.status !== 'dead' && r.status !== 'rejected') {
+                        const rDate = new Date(r.renewalDate);
+                        if(rDate >= today && rDate <= next90Days) {
+                            upcomingRenewals.push({
+                                title: r.brand_name || r.title || r.name,
+                                type: type,
+                                date: rDate,
+                                daysLeft: Math.ceil((rDate - today) / (1000 * 60 * 60 * 24))
+                            });
+                        }
+                    }
+                });
+
+                // --- 3. ARAYÜZ (UI) GÜNCELLEMELERİ ---
+                
+                // KPI 1: Tahsilat Performansı
+                const collectionRate = totalBilledTRY > 0 ? (totalPaidTRY / totalBilledTRY) * 100 : 0;
+                document.getElementById('kpiCollectionRate').textContent = `%${collectionRate.toFixed(1)}`;
+                document.getElementById('kpiTotalPaid').textContent = this.formatMoney(totalPaidTRY);
+
+                // KPI 2: Karlılık
+                const totalBase = totalOfficialFeeTRY + totalServiceFeeTRY;
+                const profitMargin = totalBase > 0 ? (totalServiceFeeTRY / totalBase) * 100 : 0;
+                document.getElementById('kpiProfitMargin').textContent = `%${profitMargin.toFixed(1)}`;
+
+                // KPI 3: Açık Bakiye
+                document.getElementById('kpiTotalUnpaid').textContent = this.formatMoney(totalUnpaidTRY);
+                document.getElementById('kpiUnpaidCount').textContent = `${unpaidCount} Fatura`;
+
+                // KPI 4: Portföy
+                document.getElementById('kpiTotalPortfolio').textContent = records.length;
+                const foreignRatio = records.length > 0 ? (foreignCount / records.length) * 100 : 0;
+                document.getElementById('kpiForeignRatio').textContent = `%${foreignRatio.toFixed(1)} Yurtdışı`;
+
+                // --- 4. LİSTELERİ DOLDURMA ---
+                
+                // Borçlular Listesi
+                const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
+                const debtorsHtml = topDebtors.length > 0 ? topDebtors.map(d => `
+                    <li><div class="item-main">${d[0]}</div><div class="item-value">${this.formatMoney(d[1])}</div></li>
+                `).join('') : '<li>Tebrikler, bekleyen yüksek riskli bakiye yok.</li>';
+                document.getElementById('topDebtorsList').innerHTML = debtorsHtml;
+
+                // Döviz Listesi
+                const activeCurrencies = Object.entries(currencyRisk).filter(c => c[1] > 0).sort((a,b) => b[1] - a[1]);
+                const currencyHtml = activeCurrencies.length > 0 ? activeCurrencies.map(c => `
+                    <li>
+                        <div class="item-main">Açık Bakiye (${c[0]})</div>
+                        <div class="item-value" style="background:#fff3cd; color:#856404;">${this.formatMoney(c[1], c[0])}</div>
+                    </li>
+                `).join('') : '<li>Döviz bazlı alacak bulunmuyor.</li>';
+                document.getElementById('currencyRiskList').innerHTML = currencyHtml;
+
+                // Yenileme Listesi
+                upcomingRenewals.sort((a,b) => a.date - b.date);
+                const renewalsHtml = upcomingRenewals.length > 0 ? upcomingRenewals.slice(0,6).map(r => `
+                    <li>
+                        <div>
+                            <div class="item-main">${r.title || 'İsimsiz'}</div>
+                            <div class="item-sub">${r.date.toLocaleDateString('tr-TR')}</div>
+                        </div>
+                        <div class="item-value-green">${r.daysLeft} Gün Kaldı</div>
+                    </li>
+                `).join('') : '<li>Yakın zamanda yenileme işlemi bulunmuyor.</li>';
+                document.getElementById('upcomingRenewalsList').innerHTML = renewalsHtml;
+
+                // --- 5. GRAFİKLERİ ÇİZ ---
+                this.renderTrendChart(monthlyTrend);
+                this.renderPortfolioChart(typeCount);
+            }
+
+            renderTrendChart(monthlyTrend) {
+                const ctx = document.getElementById('financialTrendChart').getContext('2d');
+                const labels = Object.keys(monthlyTrend).sort();
+                
+                const monthNames = labels.map(l => {
+                    const d = new Date(l + '-01');
+                    return d.toLocaleDateString('tr-TR', { month: 'short', year:'numeric' });
+                });
+
+                const paidData = labels.map(l => monthlyTrend[l].paid);
+                const unpaidData = labels.map(l => monthlyTrend[l].unpaid);
+
+                if(this.financialTrendChart) this.financialTrendChart.destroy();
+                this.financialTrendChart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: sortedMonths,
+                        labels: monthNames,
+                        datasets: [
+                            { label: 'Tahsil Edilen (₺)', data: paidData, borderColor: '#27ae60', backgroundColor: 'rgba(39, 174, 96, 0.1)', fill: true, tension: 0.4, borderWidth: 3 },
+                            { label: 'Oluşan Açık Bakiye (₺)', data: unpaidData, borderColor: '#e74c3c', borderDash: [5, 5], fill: false, tension: 0.4, borderWidth: 2 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+
+            renderPortfolioChart(typeCount) {
+                const ctx = document.getElementById('portfolioDistributionChart').getContext('2d');
+                if(this.portfolioChart) this.portfolioChart.destroy();
+                
+                this.portfolioChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Marka', 'Patent', 'Tasarım'],
                         datasets: [{
-                            label: 'Aylık Başvuru Sayısı',
-                            data: sortedMonths.map(month => monthlyData[month]),
-                            borderColor: '#1e3c72',
-                            backgroundColor: 'rgba(30, 60, 114, 0.1)',
-                            fill: true,
-                            tension: 0.4
+                            data: [typeCount.trademark || 0, typeCount.patent || 0, typeCount.design || 0],
+                            backgroundColor: ['#4ecdc4', '#ff6b6b', '#feca57'],
+                            borderWidth: 0,
+                            hoverOffset: 10
                         }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-            }
-
-            processFinancialData(accruals = []) {
-                const today = new Date();
-                const eightWeeksAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 56);
-
-                let totalIncomeAmount = 0;
-                let totalUnpaidAmount = 0;
-
-                const weeklyIncome = {};
-                const weeklyUnpaid = {};
-
-                const incomeByClient = {};
-                const unpaidByClient = {};
-
-                accruals.forEach(accrual => {
-                    const clientName = accrual.serviceInvoiceParty?.name || accrual.tpInvoiceParty?.name || 'Bilinmeyen Taraf';
-                    
-                    let actualPaid = 0;
-                    let totalTarget = 0;
-                    let actualUnpaid = 0;
-
-                    if (accrual.isForeignTransaction || accrual.foreignStatus) {
-                        totalTarget = (accrual.officialFee?.amount || 0) + (accrual.serviceFee?.amount || 0);
-                        if (totalTarget === 0) totalTarget = accrual.totalAmount || 0; 
-                        actualPaid = (accrual.foreignPaidOfficialAmount || 0) + (accrual.foreignPaidServiceAmount || 0);
-                        if ((accrual.foreignStatus || accrual.status) === 'paid' && actualPaid === 0) actualPaid = totalTarget;
-                    } else {
-                        const vatMultiplier = 1 + ((accrual.vatRate || 0) / 100);
-                        const offTarget = accrual.applyVatToOfficialFee ? (accrual.officialFee?.amount || 0) * vatMultiplier : (accrual.officialFee?.amount || 0);
-                        const srvTarget = (accrual.serviceFee?.amount || 0) * vatMultiplier;
-                        
-                        totalTarget = offTarget + srvTarget;
-                        if (totalTarget === 0) totalTarget = accrual.totalAmount || 0; 
-                        actualPaid = (accrual.paidOfficialAmount || 0) + (accrual.paidServiceAmount || 0);
-                        if (accrual.status === 'paid' && actualPaid === 0) actualPaid = totalTarget;
-                    }
-
-                    actualUnpaid = Math.max(0, totalTarget - actualPaid);
-
-                    if (actualPaid > 0) {
-                        const paymentDate = accrual.paymentDate || accrual.foreignPaymentDate 
-                            ? new Date(accrual.paymentDate || accrual.foreignPaymentDate) 
-                            : new Date(accrual.updatedAt || accrual.createdAt);
-
-                        if (paymentDate >= eightWeeksAgo) {
-                            totalIncomeAmount += actualPaid;
-                            const weekKey = this.getWeekNumber(paymentDate);
-                            weeklyIncome[weekKey] = (weeklyIncome[weekKey] || 0) + actualPaid;
-                            incomeByClient[clientName] = (incomeByClient[clientName] || 0) + actualPaid;
-                        }
-                    }
-
-                    if (actualUnpaid > 0) {
-                        const createdAt = accrual.createdAt ? new Date(accrual.createdAt) : new Date();
-                        
-                        if (createdAt >= eightWeeksAgo) {
-                            totalUnpaidAmount += actualUnpaid;
-                            const weekKey = this.getWeekNumber(createdAt);
-                            weeklyUnpaid[weekKey] = (weeklyUnpaid[weekKey] || 0) + actualUnpaid;
-                            unpaidByClient[clientName] = (unpaidByClient[clientName] || 0) + actualUnpaid;
-                        }
-                    }
-                });
-
-                document.getElementById('totalIncome').textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalIncomeAmount);
-                document.getElementById('totalUnpaid').textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalUnpaidAmount);
-
-                this.renderFinancialTrendCharts(weeklyIncome, weeklyUnpaid, eightWeeksAgo);
-                this.renderTopClients(incomeByClient, 'topIncomeClients');
-                this.renderTopClients(unpaidByClient, 'topUnpaidClients');
-            }
-
-            getWeekNumber(d) {
-                d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-                d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-                const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-                const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-                return `${d.getUTCFullYear()}-${String(weekNo).padStart(2, '0')}`;
-            }
-
-            renderFinancialTrendCharts(weeklyIncome, weeklyUnpaid, startDate) {
-                const incomeCtx = document.getElementById('incomeTrendChart').getContext('2d');
-                const unpaidCtx = document.getElementById('unpaidTrendChart').getContext('2d');
-
-                const labels = [];
-                let currentWeek = new Date(startDate);
-                for (let i = 0; i < 8; i++) {
-                    labels.push(this.getWeekNumber(currentWeek));
-                    currentWeek.setDate(currentWeek.getDate() + 7);
-                }
-                labels.sort();
-
-                const incomeData = labels.map(label => weeklyIncome[label] || 0);
-                const unpaidData = labels.map(label => weeklyUnpaid[label] || 0);
-
-                if (this.incomeTrendChart) this.incomeTrendChart.destroy();
-                if (this.unpaidTrendChart) this.unpaidTrendChart.destroy();
-
-                this.incomeTrendChart = new Chart(incomeCtx, {
-                    type: 'bar',
-                    data: { labels: labels, datasets: [{ label: 'Haftalık Tahsilat', data: incomeData, backgroundColor: '#4ecdc4', borderColor: '#218838', borderWidth: 1 }] },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
-                });
-
-                this.unpaidTrendChart = new Chart(unpaidCtx, {
-                    type: 'bar',
-                    data: { labels: labels, datasets: [{ label: 'Haftalık Ödenmeyen Alacak', data: unpaidData, backgroundColor: '#ff6b6b', borderColor: '#c82333', borderWidth: 1 }] },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
-                });
-            }
-
-            renderTopClients(clientData, elementId) {
-                const listElement = document.getElementById(elementId);
-                listElement.innerHTML = '';
-                const sortedClients = Object.entries(clientData).sort(([, a], [, b]) => b - a).slice(0, 5);
-
-                if (sortedClients.length === 0) { listElement.innerHTML = '<li>Veri Yok</li>'; return; }
-                sortedClients.forEach(([clientName, amount]) => {
-                    const listItem = document.createElement('li');
-                    listItem.innerHTML = `<span class="client-name">${clientName}</span><span class="client-amount">${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(amount)}</span>`;
-                    listElement.appendChild(listItem);
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'bottom' } } }
                 });
             }
         }
 
-        // DOM Yüklendiğinde Başlat
         document.addEventListener('DOMContentLoaded', async function() {
             try { await loadSharedLayout({ activeMenuLink: 'dashboard.html' }); } 
-            catch (error) { console.error("Layout yüklenirken hata:", error); }
+            catch (error) { console.error("Layout hatası:", error); }
 
             const user = await waitForAuthUser({ requireAuth: true, redirectTo: 'index.html', graceMs: 500 });
             if (!user) return; 
 
-            const dashboard = new DashboardController();
-            window.dashboard = dashboard;
+            const dashboard = new ExecutiveDashboard();
             await dashboard.init(user);
         });
     </script>

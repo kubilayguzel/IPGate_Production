@@ -1932,43 +1932,49 @@ export const mailService = {
 // 11. MERKEZİ EVRAK (ATTACHMENT) ÇÖZÜMLEME SERVİSİ
 // ==========================================
 export const attachmentService = {
-    // 🔥 YENİ: taskId parametresi eklendi!
     async resolveAttachments(transactionId, sourceDocumentId, taskId = null) {
+        console.log(`[ATTACHMENT SERVICE] Başladı -> txId: ${transactionId}, sourceId: ${sourceDocumentId}, taskId: ${taskId}`);
         let attachments = [];
+        let transactionIdsToFetch = [];
+        let activeTaskId = taskId;
 
         try {
-            // 1. ÖNCE "TASK DOCUMENTS" (Görevin tamamlandığında yüklenen evraklar)
-            if (taskId) {
-                const { data: taskDocs } = await supabase
-                    .from('task_documents')
-                    .select('document_name, document_url')
-                    .eq('task_id', taskId);
-
-                if (taskDocs && taskDocs.length > 0) {
-                    taskDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
+            // 1. Transaction'dan Task ID kurtarma (Arayüz cache'e takılırsa Yedek Plan)
+            if (transactionId) {
+                transactionIdsToFetch.push(transactionId);
+                const { data: txData } = await supabase.from('transactions').select('parent_id, task_id').eq('id', transactionId).maybeSingle();
+                if (txData) {
+                    if (txData.parent_id) transactionIdsToFetch.push(txData.parent_id);
+                    if (!activeTaskId && txData.task_id) activeTaskId = txData.task_id; 
                 }
             }
 
-            // 2. TRANSACTION DOCUMENTS (Ana işlem veya alt işlem evrakları)
-            let transactionIdsToFetch = [];
-            if (transactionId) {
-                transactionIdsToFetch.push(transactionId);
-                const { data: txData } = await supabase.from('transactions').select('parent_id').eq('id', transactionId).maybeSingle();
-                if (txData && txData.parent_id) transactionIdsToFetch.push(txData.parent_id);
+            console.log(`[ATTACHMENT SERVICE] Evrakları aranacak Task ID: ${activeTaskId}`);
 
+            // 2. TASK DOCUMENTS (Görevin kendi evrakları - ÖNCELİKLİ)
+            if (activeTaskId) {
+                const { data: taskDocs } = await supabase.from('task_documents').select('document_name, document_url').eq('task_id', activeTaskId);
+                if (taskDocs && taskDocs.length > 0) {
+                    taskDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
+                    console.log(`[ATTACHMENT SERVICE] ${taskDocs.length} adet Task Evrakı Bulundu!`);
+                }
+            }
+
+            // 3. TRANSACTION DOCUMENTS (İşlem evrakları)
+            if (transactionIdsToFetch.length > 0) {
                 const { data: txDocs } = await supabase.from('transaction_documents').select('document_name, document_url').in('transaction_id', transactionIdsToFetch);
                 if (txDocs && txDocs.length > 0) {
                     txDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
                 }
             }
 
-            // 3. INCOMING DOCUMENTS (Tebliğ Evrakı)
+            // 4. INCOMING DOCUMENTS (Tebliğ Evrakı)
             if (sourceDocumentId) {
                 const { data: docData } = await supabase.from('incoming_documents').select('file_name, file_url').eq('id', sourceDocumentId).maybeSingle();
                 if (docData && docData.file_url) attachments.push({ name: docData.file_name || 'Tebliğ Evrakı.pdf', url: docData.file_url });
             }
 
-            // 4. TEKİLLEŞTİRME (Aynı dosya mükerrer gelmesin)
+            // 5. TEKİLLEŞTİRME (Aynı dosyayı mükerrer göstermemek için)
             const uniqueAttachments = [];
             const urls = new Set();
             for (const att of attachments) {
@@ -1977,6 +1983,7 @@ export const attachmentService = {
                     uniqueAttachments.push(att);
                 }
             }
+            
             return uniqueAttachments;
         } catch (err) {
             console.error(`[ATTACHMENT SERVICE] Hata:`, err);

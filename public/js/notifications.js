@@ -303,10 +303,17 @@ class NotificationsManager {
             btn.disabled = true;
             this.showOverlay(isSend ? 'E-posta gönderiliyor...' : 'Hatırlatma gönderiliyor...');
             
-            // 🔥 YENİ: Göndermeden hemen önce evrakları merkezi servisten çekiyoruz!
+            // 🔥 YENİ: Cache kurbanı isek Task ID'yi veritabanından garantiye alalım
+            let activeTaskId = notification.associated_task_id;
+            if (!activeTaskId) {
+                const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notification.id).single();
+                if (data) activeTaskId = data.associated_task_id;
+            }
+
             const attachments = await attachmentService.resolveAttachments(
                 notification.associated_transaction_id, 
-                notification.source_document_id
+                notification.source_document_id,
+                activeTaskId
             );
 
             const payload = { 
@@ -512,23 +519,32 @@ class NotificationsManager {
             });
         });
     }
-    // 🔥 YENİ EKLENEN METOD: Evrakları Listeye Asenkron (Gecikmeli) Yükler
     loadAttachmentsForCells() {
-        // Henüz yüklenmemiş hücreleri bul
         const cells = document.querySelectorAll('.attachment-cell:not(.loaded)');
         
-        cells.forEach(cell => {
-            cell.classList.add('loaded'); // Çift yüklemeyi engelle
+        cells.forEach(async (cell) => {
+            cell.classList.add('loaded'); 
             const txId = cell.dataset.txId;
             const docId = cell.dataset.docId;
+            let taskId = cell.dataset.taskId; 
             
-            if (!txId && !docId) {
+            // 🔥 ÇÖZÜM: View cache yüzünden taskId gelmediyse, doğrudan ana tablodan çekeriz
+            if (!taskId) {
+                const notifId = cell.closest('tr')?.querySelector('.hold-checkbox')?.dataset?.id;
+                if (notifId) {
+                    try {
+                        const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notifId).single();
+                        if (data && data.associated_task_id) taskId = data.associated_task_id;
+                    } catch(e) {}
+                }
+            }
+
+            if (!txId && !docId && !taskId) {
                 cell.innerHTML = '-';
                 return;
             }
 
-            // Arka planda evrakları çek
-            attachmentService.resolveAttachments(txId, docId)
+            attachmentService.resolveAttachments(txId, docId, taskId)
                 .then(attachments => {
                     if (attachments && attachments.length > 0) {
                         cell.innerHTML = attachments.map(a => 

@@ -44,13 +44,15 @@ serve(async (req: Request) => {
     // ==========================================
     const ipRecordId = record.ip_record_id;
     const transactionId = record.created_transaction_id;
-    const txTypeId = String(record.transaction_type_id || '');
+    
+    // 🔥 ÇÖZÜM 3a: 'const' yerine 'let' yapıyoruz ki sonradan doldurabilelim
+    let txTypeId = String(record.transaction_type_id || '');
 
     if (!ipRecordId) throw new Error("Evrak bir Marka/Patent kaydına bağlı değil.");
 
     let viewData: any = null;
-    const { data } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', ipRecordId).single();
-    if (data) viewData = data;
+    const { data: vwData } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', ipRecordId).single();
+    if (vwData) viewData = vwData;
 
     if (!viewData) throw new Error(`Veritabanında '${ipRecordId}' ID'li kayıt bulunamadı.`);
 
@@ -61,10 +63,15 @@ serve(async (req: Request) => {
         if (tx) {
             transactionData = tx;
             taskId = tx.task_id;
+
+            // 🔥 ÇÖZÜM 3b (GÜVENLİK AĞI): Eğer incoming_documents'da Tip ID eksikse, Transactions tablosundan çek!
+            if (!txTypeId) {
+                txTypeId = String(tx.transaction_type_id || tx.type || '');
+                console.log(`[DEBUG] Tip ID incoming_documents'dan bulunamadı, Transaction üzerinden kurtarıldı: ${txTypeId}`);
+            }
             
-            // 🔥 YENİ EKLENEN KISIM (Fallback): Eğer bu işlemin kendi görevi yoksa, Ebeveyn (Parent) işleminin görevine bak! (Rakip dosyalar için kritik)
+            // Rakip dosyalar için görev sahibi bulucu (Önceki başarılı güncellememiz)
             if (!taskId && tx.parent_id) {
-                console.log(`[DEBUG] Kendi Task ID'si yok, Parent işlemine (${tx.parent_id}) bakılıyor...`);
                 const { data: pTx } = await supabaseAdmin.from('transactions').select('task_id').eq('id', tx.parent_id).maybeSingle();
                 if (pTx && pTx.task_id) taskId = pTx.task_id;
             }

@@ -1932,55 +1932,43 @@ export const mailService = {
 // 11. MERKEZİ EVRAK (ATTACHMENT) ÇÖZÜMLEME SERVİSİ
 // ==========================================
 export const attachmentService = {
-    async resolveAttachments(transactionId, sourceDocumentId) {
-        console.log(`[ATTACHMENT SERVICE] Evraklar çözümleniyor... txId: ${transactionId}, sourceId: ${sourceDocumentId}`);
+    // 🔥 YENİ: taskId parametresi eklendi!
+    async resolveAttachments(transactionId, sourceDocumentId, taskId = null) {
         let attachments = [];
-        let transactionIdsToFetch = [];
 
         try {
+            // 1. ÖNCE "TASK DOCUMENTS" (Görevin tamamlandığında yüklenen evraklar)
+            if (taskId) {
+                const { data: taskDocs } = await supabase
+                    .from('task_documents')
+                    .select('document_name, document_url')
+                    .eq('task_id', taskId);
+
+                if (taskDocs && taskDocs.length > 0) {
+                    taskDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
+                }
+            }
+
+            // 2. TRANSACTION DOCUMENTS (Ana işlem veya alt işlem evrakları)
+            let transactionIdsToFetch = [];
             if (transactionId) {
                 transactionIdsToFetch.push(transactionId);
-                
-                // 1. İşlem Tipini (Type) ve Ana İşlemi (Parent) Bul
-                const { data: txData } = await supabase
-                    .from('transactions')
-                    .select('transaction_type_id, parent_id')
-                    .eq('id', transactionId)
-                    .maybeSingle();
-                
-                // 🔥 KURAL: Sadece Tip 27 ise Parent evraklarını çek
-                if (txData && String(txData.transaction_type_id) === '27' && txData.parent_id) {
-                    transactionIdsToFetch.push(txData.parent_id);
-                    console.log(`[ATTACHMENT SERVICE] Tip 27 algılandı. Ana İşlem (Parent) evrakları listeye eklendi: ${txData.parent_id}`);
-                } else {
-                    console.log(`[ATTACHMENT SERVICE] Tip 27 değil (İşlem Tipi: ${txData?.transaction_type_id || 'Bilinmiyor'}). Sadece kendi evrakı alınacak.`);
-                }
+                const { data: txData } = await supabase.from('transactions').select('parent_id').eq('id', transactionId).maybeSingle();
+                if (txData && txData.parent_id) transactionIdsToFetch.push(txData.parent_id);
 
-                // 2. Belirlenen işlemlerin evraklarını çek
-                const { data: txDocs } = await supabase
-                    .from('transaction_documents')
-                    .select('document_name, document_url')
-                    .in('transaction_id', transactionIdsToFetch);
-                    
+                const { data: txDocs } = await supabase.from('transaction_documents').select('document_name, document_url').in('transaction_id', transactionIdsToFetch);
                 if (txDocs && txDocs.length > 0) {
                     txDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
                 }
             }
 
-            // 3. Gelen ana evrakı (Tebliğ edilen PDF) kontrol et
+            // 3. INCOMING DOCUMENTS (Tebliğ Evrakı)
             if (sourceDocumentId) {
-                const { data: docData } = await supabase
-                    .from('incoming_documents')
-                    .select('file_name, file_url')
-                    .eq('id', sourceDocumentId)
-                    .maybeSingle();
-                    
-                if (docData && docData.file_url) {
-                    attachments.push({ name: docData.file_name || 'Tebliğ Evrakı.pdf', url: docData.file_url });
-                }
+                const { data: docData } = await supabase.from('incoming_documents').select('file_name, file_url').eq('id', sourceDocumentId).maybeSingle();
+                if (docData && docData.file_url) attachments.push({ name: docData.file_name || 'Tebliğ Evrakı.pdf', url: docData.file_url });
             }
 
-            // 4. Temizlik (Aynı URL'ye sahip dosyaları teke düşür - Deduplication)
+            // 4. TEKİLLEŞTİRME (Aynı dosya mükerrer gelmesin)
             const uniqueAttachments = [];
             const urls = new Set();
             for (const att of attachments) {
@@ -1989,8 +1977,6 @@ export const attachmentService = {
                     uniqueAttachments.push(att);
                 }
             }
-
-            console.log(`[ATTACHMENT SERVICE] Toplam ${uniqueAttachments.length} benzersiz evrak bulundu.`);
             return uniqueAttachments;
         } catch (err) {
             console.error(`[ATTACHMENT SERVICE] Hata:`, err);

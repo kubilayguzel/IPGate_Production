@@ -62,30 +62,54 @@ serve(async (req: Request) => {
         }
     }
 
-    // 🔥 DİNAMİK GÖNDERİCİ (REPLY-TO) AYARLARI
-    const senderName = "IPGATE - EVREKA GROUP"; 
-    const systemEmail = "kubilayguzel@evrekapatent.com"; // BURASI GÜNCELLENDİ
-    let replyToAddress = systemEmail; 
+    // 🔥 DİNAMİK GÖNDERİCİ VE YANITLAMA (REPLY-TO) AYARLARI
 
+    // 1. SMTP'ye giriş yapacak ve maili fiziksel olarak çıkaracak adres (Spam koruması için tek hesap yeterli)
+    const systemEmail = "info@evrekagroup.com"; 
+    
+    // 2. Müşteri "Yanıtla" dediğinde cevapların HER ZAMAN düşeceği adres
+    const replyToAddress = "selcanakoglu@evrekagroup.com"; 
+
+    // 3. Müşterinin göreceği İsim (Varsayılan)
+    let senderName = "IPGATE - EVREKA GROUP";
+
+    // Eğer butona basan kişinin e-postası (senderEmail) arayüzden geldiyse, veritabanından adını bulalım
     if (senderEmail) {
-        replyToAddress = senderEmail; 
+        const { data: userData } = await supabaseClient
+            .from('users')
+            .select('display_name')
+            .eq('email', senderEmail)
+            .maybeSingle();
+
+        if (userData && userData.display_name) {
+            // Örn: "Kubilay Güzel | IPGATE - EVREKA GROUP"
+            senderName = `${userData.display_name} | IPGATE - EVREKA GROUP`;
+        } else {
+            // İsmi veritabanında yoksa mailden isim üretir
+            const namePart = senderEmail.split('@')[0];
+            const capitalized = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+            senderName = `${capitalized} | IPGATE - EVREKA GROUP`;
+        }
     }
 
-    // 2. Mail Gönderim Ayarları
+    // 2. Mail Gönderim Ayarları (Sistemin çıkış kapısı)
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: "kubilayguzel@evrekapatent.com",
-        pass: "rqvl tpbm vkmu lmxi"
-      }
+        // DİKKAT: info hesabından çıkış yapacaksak, info hesabının şifresini buraya girmelisiniz.
+        // Daha önce kubilayguzel@.. için şifre girmiştik. info hesabı için Gmail'den yeni bir 
+        // 16 haneli uygulama şifresi alıp buraya boşluksuz yapıştırmalısınız.
+        user: "info@evrekagroup.com", 
+        pass: "urpl kfoj idye jgyp" 
+      },
     });
 
     console.log(`📤 Mail gönderiliyor... Görünür İsim: ${senderName} | Reply-To: ${replyToAddress}`);
 
-    // 3. Maili Gönder (Dinamik Gönderici ve Reply-To eklendi)
+    // 3. Maili Gönder
     const info = await transporter.sendMail({
-      from: `"${senderName}" <${systemEmail}>`, // 🔥 Spam koruması için sistem maili
-      replyTo: replyToAddress,                  // 🔥 Müşteri yanıtla dediğinde uzmana gidecek adres
+      from: `"${senderName}" <${systemEmail}>`, // Görünür İsim + Gerçek Çıkış Maili
+      replyTo: replyToAddress,                  // Yanıtlar her zaman Selcan Hanım'a
       to: [...new Set(toList)].join(','),
       cc: [...new Set(ccList)].join(','),
       subject: finalSubject,

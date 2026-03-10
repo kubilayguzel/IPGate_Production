@@ -670,10 +670,10 @@ export class ManuelPdfTransactionManager {
                 finalParentId = pResult.id;
             }
 
-            const targetTypeId = isChild ? childTypeId : parentTypeId;
+const targetTypeId = isChild ? childTypeId : parentTypeId;
             const typeObj = this.allTransactionTypes.find(t => String(t.id) === String(targetTypeId));
 
-            await this._addTransaction(this.selectedRecordManual.id, {
+            const txResult = await this._addTransaction(this.selectedRecordManual.id, {
                 type: targetTypeId,
                 transactionHierarchy: isChild ? 'child' : 'parent',
                 parentId: finalParentId,
@@ -682,6 +682,41 @@ export class ManuelPdfTransactionManager {
                 notes: notes,
                 documents: uploadedDocuments
             });
+
+            // 🔥 ÇÖZÜM 2: Manuel işlem sonrası Trigger'ın (Backend) uyanması için kayıt atıyoruz
+            if (txResult && txResult.success) {
+                const newTransactionId = txResult.id;
+                
+                if (uploadedDocuments.length > 0) {
+                    for (const doc of uploadedDocuments) {
+                        await supabase.from(INCOMING_DOCS_COLLECTION).insert({
+                            id: generateUUID(),
+                            file_name: doc.name,
+                            file_url: doc.url,
+                            document_source: 'manual_entry',
+                            status: 'indexed',
+                            ip_record_id: this.selectedRecordManual.id,
+                            created_transaction_id: newTransactionId,
+                            transaction_type_id: targetTypeId,
+                            user_id: this.currentUser.id,
+                            indexed_at: new Date().toISOString()
+                        });
+                    }
+                } else {
+                    // Eğer PDF yüklenmeden sadece işlem girildiyse bile mail atılabilmesi için sanal kayıt
+                    await supabase.from(INCOMING_DOCS_COLLECTION).insert({
+                        id: generateUUID(),
+                        file_name: typeObj ? typeObj.name : 'Sisteme manuel işlem girildi',
+                        document_source: 'manual_entry',
+                        status: 'indexed',
+                        ip_record_id: this.selectedRecordManual.id,
+                        created_transaction_id: newTransactionId,
+                        transaction_type_id: targetTypeId,
+                        user_id: this.currentUser.id,
+                        indexed_at: new Date().toISOString()
+                    });
+                }
+            }
 
             showNotification('İşlem başarıyla kaydedildi!', 'success');
             this.resetForm();

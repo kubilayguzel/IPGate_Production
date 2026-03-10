@@ -239,7 +239,10 @@ serve(async (req: Request) => {
                 "{{aksiyon_kutusu_border}}": decisionAnalysis.boxBorder,
                 "{{karar_ozeti_detay}}": decisionAnalysis.summaryText + (decisionAnalysis.isLawsuitRequired ? "<br><br>Bu karara karşı belirtilen tarihe kadar <strong>YİDK Kararının İptali davası</strong> açma hakkınız bulunmaktadır." : ""),
                 "{{dava_son_tarihi}}": davaSonTarihi,
-                "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none"
+                "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
+                "{{markImageUrl}}": viewData?.brand_image_url || "",
+                "{{itiraz_sahibi}}": transactionData?.opposition_owner || "Belirtilmemiş",
+                "{{resmi_son_cevap_tarihi}}": davaSonTarihi !== "-" ? davaSonTarihi : "Belirtilmemiş"
             };
 
             for (const [k, v] of Object.entries(placeholders)) {

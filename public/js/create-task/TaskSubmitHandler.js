@@ -550,6 +550,13 @@ export class TaskSubmitHandler {
                     const { data: urlData } = supabase.storage.from('brand_images').getPublicUrl(storagePath);
                     if (urlData && urlData.publicUrl) {
                         brandImageUrl = urlData.publicUrl;
+                        
+                        // 🔥 ÇÖZÜM 1: Görevin (Task) detaylarına görseli ekliyoruz ki ekranda kaybolmasın
+                        if (taskData && taskData.details) {
+                            taskData.details.brand_image_url = brandImageUrl;
+                            taskData.details.image_url = brandImageUrl;
+                        }
+                        
                         console.log("✅ Marka görseli 'brand_images' bucket'ına yüklendi:", brandImageUrl);
                     }
                 } else {
@@ -567,7 +574,7 @@ export class TaskSubmitHandler {
         
         let cleanBrandName = visualDescription;
         if (!cleanBrandName && taskData.title) {
-                cleanBrandName = taskData.title.replace(/ Marka Başvurusu$/i, '').trim();
+            cleanBrandName = taskData.title.replace(/ Marka Başvurusu$/i, '').trim();
         }
 
         // 🔥 ÇÖZÜM 1: Ülke ve Menşe (Origin) atamaları WIPO/ARIPO'ya uygun hale getirildi
@@ -645,7 +652,12 @@ export class TaskSubmitHandler {
             brandType: brandType,
             brandCategory: brandCategory,
             nonLatinAlphabet: nonLatin !== '', 
+            
+            // 🔥 ÇÖZÜM 2: Veritabanının beklediği tüm potansiyel (snake_case vb.) kolon isimlerini yedekli gönderiyoruz!
             brandImageUrl: brandImageUrl, 
+            brand_image_url: brandImageUrl, 
+            image_url: brandImageUrl,
+            
             origin: origin,
             countryCode: originCountry,
             createdFrom: 'create_task', 
@@ -682,7 +694,6 @@ export class TaskSubmitHandler {
                 const childResult = await ipRecordsService.createRecordFromDataEntry(childData);
                 if (childResult.success) {
                     console.log(`✅ ${childCountryCode} için alt kayıt başarıyla oluşturuldu (ID: ${childId})`);
-                    // 🔥 Başarıyla oluşan child ID'sini listeye ekle
                     state.createdChildRecordIds.push(childId);
                 } else {
                     console.error(`❌ ${childCountryCode} alt kaydı oluşturulamadı:`, childResult.error);

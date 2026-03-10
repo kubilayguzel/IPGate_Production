@@ -1050,7 +1050,9 @@ export class DocumentReviewManager {
                 file_path: finalPdfPath, 
                 indexed_at: new Date().toISOString(),
                 created_transaction_id: childTransactionId,
-                ip_record_id: this.matchedRecord.id
+                ip_record_id: this.matchedRecord.id,
+                // 🔥 ÇÖZÜM 1: İşlem tipi DB'ye yazıldı ki backend şablonu bulabilsin!
+                transaction_type_id: childTypeId 
             }).eq('id', String(this.pdfId));
 
             // 🔥 ÇÖZÜM: Manuel mail tetikleme kodları tamamen SİLİNDİ!

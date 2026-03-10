@@ -329,10 +329,22 @@ class NotificationsManager {
     }
 
     // --- MODAL (DÜZENLEME & EKSİK) YÖNETİMİ ---
-    openEditModal(notification) {
+    async openEditModal(notification) {
         this.currentEditNotification = notification;
         this.elements.editSubject.value = notification.subject || "";
         
+        // 🔥 ÇÖZÜM: View içinde 'body' olmadığı için modal açıldığında anlık olarak çekiyoruz
+        let mailBody = "";
+        try {
+            this.showOverlay('İçerik yükleniyor...');
+            const { data, error } = await supabase.from('mail_notifications').select('body').eq('id', notification.id).single();
+            if (data && !error) mailBody = data.body || "";
+        } catch (err) {
+            console.error("Mail içeriği alınamadı:", err);
+        } finally {
+            this.hideOverlay();
+        }
+
         if (tinymce.get("modal-body")) tinymce.get("modal-body").remove();
         
         tinymce.init({
@@ -340,7 +352,7 @@ class NotificationsManager {
             toolbar: "undo redo | bold italic underline | bullist numlist | link", branding: false, language: "tr",
             setup: (editor) => {
                 editor.on("init", () => {
-                    editor.setContent(notification.body || "");
+                    editor.setContent(mailBody); // Çekilen datayı editöre basıyoruz
                     this.elements.editModal.style.display = "flex";
                 });
             }

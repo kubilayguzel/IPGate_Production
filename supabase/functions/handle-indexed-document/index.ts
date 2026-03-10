@@ -47,15 +47,27 @@ serve(async (req: Request) => {
     const transactionId = record.created_transaction_id;
     const txTypeId = String(record.transaction_type_id || '');
 
+    console.log(`🔍 Aranan IP Record ID: ${ipRecordId}`);
+
     if (!ipRecordId) throw new Error("Evrak bir Marka/Patent kaydına bağlı değil.");
 
-    // IP Kaydını, Sahipleri ve Müşteriyi Çek
-    const { data: ipRecord } = await supabaseAdmin.from('ip_records')
-        .select('*, ip_record_trademark_details(brand_name, brand_image_url), ip_record_applicants(person_id, persons(name, is_evaluation_required))')
+    // 🔥 HARİKA ÇÖZÜM: Karmaşık JOIN'ler yerine doğrudan View kullanıyoruz
+    const { data: viewData, error: viewError } = await supabaseAdmin
+        .from('portfolio_list_view')
+        .select('*')
         .eq('id', ipRecordId)
-        .single();
+        .maybeSingle();
 
-    if (!ipRecord) throw new Error("IP Kaydı bulunamadı.");
+    if (viewError) {
+        console.error("❌ View Sorgu Hatası:", viewError);
+        throw new Error(`Veritabanı hatası: ${viewError.message}`);
+    }
+
+    if (!viewData) {
+        throw new Error(`Veritabanında '${ipRecordId}' ID'li bir kayıt bulunamadı (View üzerinden).`);
+    }
+
+    console.log(`✅ IP Kaydı Bulundu: ${viewData.application_number || 'No yok'}`);
 
     // İşlem (Transaction) Detayını Çek
     let transactionData = null;
@@ -64,16 +76,23 @@ serve(async (req: Request) => {
         if (tx) transactionData = tx;
     }
 
-    // Temel Değişkenler
-    const brandName = ipRecord.ip_record_trademark_details?.[0]?.brand_name || "-";
-    const appNo = ipRecord.application_number || "-";
-    const isPortfolio = ipRecord.record_owner_type === 'self';
-    const applicants = ipRecord.ip_record_applicants || [];
+    // Temel Değişkenleri View'dan Çıkar
+    const brandName = viewData.brand_name || "-";
+    const appNo = viewData.application_number || "-";
+    const isPortfolio = viewData.record_owner_type === 'self';
+    const applicantNames = viewData.applicant_names || "-";
     
-    // Müşteri tespiti
-    const clientId = applicants.length > 0 ? applicants[0].person_id : null;
-    const isEvaluationRequired = applicants.length > 0 ? applicants[0].persons?.is_evaluation_required : false;
-    const applicantNames = applicants.map((a: any) => a.persons?.name).filter(Boolean).join(', ') || "-";
+    // Müşteri (Client) Tespiti (View içindeki JSON'dan)
+    const clientId = viewData.applicants_json && viewData.applicants_json.length > 0 
+        ? viewData.applicants_json[0].id 
+        : null;
+
+    // Değerlendirme zorunluluğu bilgisi view'da yoksa, müşteri tablosundan hızlıca çekelim
+    let isEvaluationRequired = false;
+    if (clientId) {
+        const { data: personData } = await supabaseAdmin.from('persons').select('is_evaluation_required').eq('id', clientId).maybeSingle();
+        if (personData) isEvaluationRequired = personData.is_evaluation_required;
+    }
 
     const tebligDate = record.teblig_tarihi ? new Date(record.teblig_tarihi) : new Date();
     

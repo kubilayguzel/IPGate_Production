@@ -1654,9 +1654,6 @@ export const taskService = {
 // ==========================================
 // 9. TAHAKKUK (ACCRUAL) SERVİSİ
 // ==========================================
-// ==========================================
-// 9. TAHAKKUK (ACCRUAL) SERVİSİ
-// ==========================================
 export const accrualService = {
     
     async _getNextAccrualId() {
@@ -1700,12 +1697,8 @@ export const accrualService = {
                 official_fee_currency: accrualData.officialFeeCurrency || 'TRY',
                 service_fee_amount: accrualData.serviceFeeAmount || 0,
                 service_fee_currency: accrualData.serviceFeeCurrency || 'TRY',
-                
-                // 🔥 YENİ DB MANTIĞI: Dizi (Array) formatını doğrudan kaydediyoruz. 
-                // Eğer formdan boş gelirse varsayılan olarak [{ amount: 0, currency: 'TRY' }] yazar.
                 total_amount: accrualData.totalAmount || [{ amount: 0, currency: 'TRY' }],
                 remaining_amount: accrualData.remainingAmount || [{ amount: 0, currency: 'TRY' }],
-                
                 vat_rate: accrualData.vatRate || 0,
                 apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
                 is_foreign_transaction: accrualData.isForeignTransaction || false
@@ -1736,11 +1729,8 @@ export const accrualService = {
                 official_fee_currency: updateData.officialFeeCurrency,
                 service_fee_amount: updateData.serviceFeeAmount,
                 service_fee_currency: updateData.serviceFeeCurrency,
-                
-                // 🔥 YENİ DB MANTIĞI: Sadece diziyi güncelliyoruz, ayrı currency kolonları yok.
                 total_amount: updateData.totalAmount,
                 remaining_amount: updateData.remainingAmount,
-                
                 vat_rate: updateData.vatRate,
                 apply_vat_to_official_fee: updateData.applyVatToOfficialFee,
                 is_foreign_transaction: updateData.isForeignTransaction,
@@ -1759,26 +1749,17 @@ export const accrualService = {
     },
 
     async getAccrualsByTaskId(taskId) {
-        console.log(`=== TAHAKKUK (ACCRUAL) DEBUG - TASK ID: ${taskId} ===`);
         try {
             const { data, error } = await supabase.from('accruals').select('*').eq('task_id', String(taskId));
-            
-            if (error) {
-                console.error("Supabase'den çekerken hata:", error);
-                throw error;
-            }
+            if (error) throw error;
             
             const mappedData = data.map(acc => ({
                 id: acc.id,
                 taskId: acc.task_id,
                 status: acc.status,
                 accrualType: acc.accrual_type,
-                
-                // 🔥 YENİ DB MANTIĞI: Supabase'den gelen JSONB dizisini OLDUĞU GİBİ arayüze paslıyoruz.
-                // TaskDetailManager'daki _formatMoney() fonksiyonu bu diziyi otomatik olarak "15150 TRY" şekline çevirecek.
                 totalAmount: acc.total_amount, 
                 remainingAmount: acc.remaining_amount,
-                
                 officialFeeAmount: acc.official_fee_amount,
                 officialFeeCurrency: acc.official_fee_currency,
                 serviceFeeAmount: acc.service_fee_amount,
@@ -1789,18 +1770,72 @@ export const accrualService = {
                 updatedAt: acc.updated_at
             }));
             
-            console.log("UI İçin Haritalanmış Veri:", mappedData);
             return { success: true, data: mappedData };
         } catch (error) {
             console.error("Tahakkukları getirme hatası:", error);
             return { success: false, error: error.message, data: [] };
         }
+    },
+
+    // 🔥 YENİ EKLENEN KISIM: Dashboard ve Raporların çalışmasını sağlayan ANA fonksiyon
+    async getAccruals() {
+        try {
+            // 1. Tüm tahakkuk kayıtlarını en yeniden eskiye çek
+            const { data, error } = await supabase.from('accruals').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+
+            // 2. Faturalandırılan müşterilerin (persons) isimlerini bulmak için ID'lerini topla
+            const personIds = [...new Set([
+                ...data.map(a => a.tp_invoice_party_id).filter(Boolean),
+                ...data.map(a => a.service_invoice_party_id).filter(Boolean)
+            ])];
+
+            let personsMap = {};
+            if (personIds.length > 0) {
+                // Supabase'i yormadan tek bir sorgu ile tüm müşteri isimlerini al
+                const { data: persons } = await supabase.from('persons').select('id, name').in('id', personIds);
+                if (persons) persons.forEach(p => personsMap[p.id] = p.name);
+            }
+
+            // 3. Verileri arayüzün (Dashboard'un) anlayacağı şekilde haritala
+            const mappedData = data.map(acc => ({
+                id: acc.id,
+                taskId: acc.task_id,
+                status: acc.status,
+                accrualType: acc.accrual_type,
+                totalAmount: acc.total_amount,
+                remainingAmount: acc.remaining_amount,
+                
+                // Dashboard Finansal Hesaplamaları için Objeler:
+                officialFeeAmount: acc.official_fee_amount,
+                officialFeeCurrency: acc.official_fee_currency,
+                officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },
+                
+                serviceFeeAmount: acc.service_fee_amount,
+                serviceFeeCurrency: acc.service_fee_currency,
+                serviceFee: { amount: acc.service_fee_amount, currency: acc.service_fee_currency },
+                
+                vatRate: acc.vat_rate,
+                applyVatToOfficialFee: acc.apply_vat_to_official_fee,
+                
+                // Müşteri İsim Eşleştirmeleri
+                tpInvoicePartyId: acc.tp_invoice_party_id,
+                serviceInvoicePartyId: acc.service_invoice_party_id,
+                tpInvoiceParty: acc.tp_invoice_party_id ? { name: personsMap[acc.tp_invoice_party_id] || 'Bilinmiyor' } : null,
+                serviceInvoiceParty: acc.service_invoice_party_id ? { name: personsMap[acc.service_invoice_party_id] || 'Bilinmiyor' } : null,
+                paymentParty: personsMap[acc.service_invoice_party_id] || personsMap[acc.tp_invoice_party_id] || 'Bilinmeyen Müşteri',
+                
+                createdAt: acc.created_at,
+                updatedAt: acc.updated_at
+            }));
+
+            return { success: true, data: mappedData };
+        } catch (error) {
+            console.error("Tüm tahakkukları getirme hatası:", error);
+            return { success: false, error: error.message, data: [] };
+        }
     }
 };
-
-// ==========================================
-// 10. MERKEZİ MAİL ALICISI HESAPLAMA SERVİSİ
-// ==========================================
 
 // ==========================================
 // 10. MERKEZİ MAİL ALICISI HESAPLAMA SERVİSİ

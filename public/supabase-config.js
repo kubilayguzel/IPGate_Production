@@ -966,15 +966,22 @@ export const ipRecordsService = {
             if (error) return { success: false, error: error.message };
         }
 
-        // 2. MARKA DETAYLARI GÜNCELLEMESİ
+        // 2. MARKA DETAYLARI GÜNCELLEMESİ (🔥 LOGO ÇÖZÜMÜ BURADA)
         const isTrademark = updateData.ipType === 'trademark' || updateData.type === 'trademark' || (updateData.title !== undefined);
-        if (isTrademark) {
+        
+        // Marka veya marka logosu gelmişse
+        if (isTrademark || updateData.brandImageUrl || updateData.brand_image_url || updateData.image_url) {
             const tmPayload = { ip_record_id: id };
             if (updateData.title !== undefined || updateData.brandText !== undefined) tmPayload.brand_name = updateData.title || updateData.brandText;
             if (updateData.brandType !== undefined) tmPayload.brand_type = updateData.brandType;
             if (updateData.brandCategory !== undefined) tmPayload.brand_category = updateData.brandCategory;
-            if (updateData.brandImageUrl !== undefined) tmPayload.brand_image_url = updateData.brandImageUrl;
             if (updateData.description !== undefined) tmPayload.description = updateData.description;
+
+            // 🔥 ÇÖZÜM: Tüm potansiyel isimleri yakalayıp veritabanındaki tek sütuna atıyoruz
+            const incomingImage = updateData.brandImageUrl || updateData.brand_image_url || updateData.image_url;
+            if (incomingImage !== undefined) {
+                tmPayload.brand_image_url = incomingImage;
+            }
 
             Object.keys(tmPayload).forEach(k => tmPayload[k] === undefined && delete tmPayload[k]);
 
@@ -997,7 +1004,7 @@ export const ipRecordsService = {
             await supabase.from('ip_record_classes').delete().eq('ip_record_id', id);
             if (updateData.goodsAndServicesByClass.length > 0) {
                 const classRows = updateData.goodsAndServicesByClass.map(c => ({ 
-                    id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                    id: crypto.randomUUID(), 
                     ip_record_id: id, 
                     class_no: parseInt(c.classNo), 
                     items: Array.isArray(c.items) ? c.items : [] 
@@ -1011,7 +1018,7 @@ export const ipRecordsService = {
             await supabase.from('ip_record_priorities').delete().eq('ip_record_id', id);
             if (updateData.priorities.length > 0) {
                 const priorityRows = updateData.priorities.map(p => ({ 
-                    id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                    id: crypto.randomUUID(), 
                     ip_record_id: id, 
                     priority_country: p.country, 
                     priority_date: p.date, 

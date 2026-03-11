@@ -353,8 +353,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const safePriority = (task.priority || 'normal').toString();
                 const priorityClass = `priority-${safePriority.toLowerCase()}`;
 
+                // 🔥 ÇÖZÜM 2a: Undefined hatası giderildi, doğru tarih objeleri kullanıldı
+                const opDueISO = task.operationalDueObj ? task.operationalDueObj.toISOString().slice(0,10) : '';
+                const offDueISO = task.officialDueObj ? task.officialDueObj.toISOString().slice(0,10) : '';
+
+                // 🔥 ÇÖZÜM 2b: <tr> etiketine class ve data-status eklendi ki Highlighter okuyabilsin
                 html += `
-                    <tr>
+                    <tr class="task-row ${statusClass}" data-status="${safeStatus}">
                         <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
                         <td>${task.id}</td>
                         <td>
@@ -365,8 +370,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <td>${task.taskTypeDisplay}</td>
                         <td><span class="priority-badge ${priorityClass}">${safePriority}</span></td>
                         <td>${task.assignedToDisplay}</td>
-                        <td data-field="operationalDue" data-date="${task.operationalDue}">${task.operationalDueDisplay}</td>
-                        <td data-field="officialDue" data-date="${task.officialDue}">${task.officialDueDisplay}</td>
+                        <td data-field="operationalDue" data-date="${opDueISO}">${task.operationalDueDisplay}</td>
+                        <td data-field="officialDue" data-date="${offDueISO}">${task.officialDueDisplay}</td>
                         <td><span class="status-badge ${statusClass}">${task.statusText}</span></td>
                         <td class="text-center" style="overflow:visible;">${this.getActionButtonsHtml(task)}</td>
                     </tr>
@@ -1189,7 +1194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (window.DeadlineHighlighter) {
         window.DeadlineHighlighter.init();
         window.DeadlineHighlighter.registerList('taskManagement', {
-            container: '#taskManagementTable',
+            container: 'table', // 🔥 ÇÖZÜM 2c: Container genişletildi (ID uyuşmazlığını çözer)
             rowSelector: '#tasksTableBody tr',
             dateFields: [
                 { name: 'operationalDue', selector: '[data-field="operationalDue"]' },

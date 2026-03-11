@@ -621,6 +621,24 @@ class TaskUpdateController {
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
         }
 
+        // 🔥 ÇÖZÜM 1: Yeni Eklenen Modal Verilerini Doğrudan Veritabanına Yazma
+        try {
+            if (this.selectedIpRecordId && this.tempRenewalData) {
+                await supabase.from('ip_records').update({ renewal_date: this.tempRenewalData }).eq('id', this.selectedIpRecordId);
+                console.log('Yenileme tarihi veritabanına işlendi:', this.tempRenewalData);
+            }
+            
+            if (this.selectedIpRecordId && this.tempApplicationData) {
+                await supabase.from('ip_records').update({
+                    application_number: this.tempApplicationData.appNo,
+                    application_date: this.tempApplicationData.appDate
+                }).eq('id', this.selectedIpRecordId);
+                console.log('Başvuru bilgileri veritabanına işlendi:', this.tempApplicationData);
+            }
+        } catch (err) {
+            console.error('Portföy kayıtları güncellenirken hata oluştu:', err);
+        }
+
         let userEmail = 'Bilinmiyor';
         try {
             const session = await authService.getCurrentSession();

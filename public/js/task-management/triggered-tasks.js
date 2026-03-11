@@ -592,7 +592,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         ],
                         strategy: 'earliest',
                         applyTo: 'cell', // Tüm satırı değil, sadece hücreyi boyar
-                        addBadgeTo: '[data-field="operationalDue"]', // Vurguyu ve ikonu Operasyonel Tarih hücresine ekler
+                        addBadgeTo: '[data-field="officialDue"]', // Vurguyu ve ikonu Operasyonel Tarih hücresine ekler
                         showLegend: true
                     });
                 }

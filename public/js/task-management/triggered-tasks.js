@@ -235,6 +235,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const row = document.createElement('tr');
                 const statusClass = `status-${task.status.replace(/ /g, '_').toLowerCase()}`;
                 
+                // 🔥 ÇÖZÜM 1: Highlighter'ın satırı ve statüyü tanıması için eklendi
+                row.className = `task-row ${statusClass}`;
+                row.setAttribute('data-status', task.status || '');
+                
                 const opDate = formatToTRDate(task.operationalDueObj);
                 const offDate = formatToTRDate(task.officialDueObj);
 
@@ -573,6 +577,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     btn.innerHTML = originalHtml;
                 }
             });
+            if (window.DeadlineHighlighter) {
+                window.DeadlineHighlighter.init();
+                window.DeadlineHighlighter.registerList('triggeredTasks', {
+                    container: 'table',
+                    rowSelector: 'tbody tr',
+                    dateFields: [
+                        { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
+                        { name: 'officialDue',    selector: '[data-field="officialDue"]' }
+                    ],
+                    strategy: 'earliest',
+                    applyTo: 'row',
+                    showLegend: true
+                });
+            }
         }
 
         closeModal(modalId) {

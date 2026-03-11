@@ -482,6 +482,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 `;
 
                 const row = document.createElement('tr');
+                
+                // 🔥 ÇÖZÜM 3: Highlighter'ın tamamlananları atlaması için durum bilgisini satıra gömdük
+                row.className = `task-row ${statusClass}`;
+                row.setAttribute('data-status', task.status || '');
+                
                 row.innerHTML = `
                     <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
                     <td>${task.id}</td>
@@ -931,7 +936,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (window.DeadlineHighlighter) {
         window.DeadlineHighlighter.init();
         window.DeadlineHighlighter.registerList('islerim', {
-            container: '#myTasksTable',
+            container: 'table', // 🔥 ÇÖZÜM: Genişletildi
             rowSelector: 'tbody tr',
             dateFields: [
                 { name: 'operationalDue', selector: '[data-field="operationalDue"]' },

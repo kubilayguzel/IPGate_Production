@@ -551,20 +551,14 @@ export class TaskSubmitHandler {
                     if (urlData && urlData.publicUrl) {
                         brandImageUrl = urlData.publicUrl;
                         
-                        // 🔥 ÇÖZÜM 1: Görevin (Task) detaylarına görseli ekliyoruz ki ekranda kaybolmasın
+                        // 🔥 ÇÖZÜM: Görev detaylarına da URL'yi mutlaka ekliyoruz!
                         if (taskData && taskData.details) {
                             taskData.details.brand_image_url = brandImageUrl;
                             taskData.details.image_url = brandImageUrl;
                         }
-                        
-                        console.log("✅ Marka görseli 'brand_images' bucket'ına yüklendi:", brandImageUrl);
                     }
-                } else {
-                    console.error("❌ Marka görseli yükleme hatası:", uploadError);
                 }
-            } catch (e) {
-                console.error("❌ Marka görseli yüklenirken hata oluştu:", e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         const brandType = document.getElementById('brandType')?.value || '';
@@ -654,10 +648,7 @@ export class TaskSubmitHandler {
             nonLatinAlphabet: nonLatin !== '', 
             
             // 🔥 ÇÖZÜM 2: Veritabanının beklediği tüm potansiyel (snake_case vb.) kolon isimlerini yedekli gönderiyoruz!
-            brandImageUrl: brandImageUrl, 
-            brand_image_url: brandImageUrl, 
-            image_url: brandImageUrl,
-            
+            brand_image_url: brandImageUrl,          
             origin: origin,
             countryCode: originCountry,
             createdFrom: 'create_task', 

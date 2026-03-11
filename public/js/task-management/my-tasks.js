@@ -943,16 +943,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (window.DeadlineHighlighter) {
         window.DeadlineHighlighter.init();
-        window.DeadlineHighlighter.registerList('işlerim', { // my-tasks.js için 'islerim'
+        window.DeadlineHighlighter.registerList('islerim', {
             container: 'table',
             rowSelector: 'tbody tr',
             dateFields: [
-                { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
-                { name: 'officialDue',    selector: '[data-field="officialDue"]' }
+                { name: 'officialDue', selector: '[data-field="officialDue"]' }
             ],
             strategy: 'earliest',
-            applyTo: 'cell', // 🔥 ÇÖZÜM 1: Tüm satırı değil, sadece hücreyi boya
-            addBadgeTo: '[data-field="officialDue"]', // 🔥 Hangi hücreye ekleneceğini belirtin
+            applyTo: 'cell',
+            addBadgeTo: '[data-field="officialDue"]', 
             showLegend: true
         });
     }

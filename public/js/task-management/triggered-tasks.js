@@ -583,16 +583,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             if (window.DeadlineHighlighter) {
                     window.DeadlineHighlighter.init();
-                    window.DeadlineHighlighter.registerList('triggeredTasks', { // 🔥 İsim triggeredTasks olarak değiştirildi
+                    window.DeadlineHighlighter.registerList('triggeredTasks', {
                         container: 'table',
                         rowSelector: 'tbody tr',
                         dateFields: [
-                            { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
-                            { name: 'officialDue',    selector: '[data-field="officialDue"]' }
+                            { name: 'officialDue', selector: '[data-field="officialDue"]' }
                         ],
                         strategy: 'earliest',
-                        applyTo: 'cell', // Tüm satırı değil, sadece hücreyi boyar
-                        addBadgeTo: '[data-field="officialDue"]', // Vurguyu ve ikonu Operasyonel Tarih hücresine ekler
+                        applyTo: 'cell',
+                        addBadgeTo: '[data-field="officialDue"]', 
                         showLegend: true
                     });
                 }

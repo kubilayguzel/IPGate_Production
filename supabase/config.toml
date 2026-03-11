@@ -108,3 +108,25 @@ entrypoint = "./functions/handle-indexed-document/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/handle-indexed-document/*.html" ]
+
+[functions.fetch-bulletin-data]
+enabled = true
+verify_jwt = true
+import_map = "./functions/fetch-bulletin-data/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/fetch-bulletin-data/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/fetch-bulletin-data/*.html" ]
+
+[functions.fetch-bulletin-test]
+enabled = true
+verify_jwt = true
+import_map = "./functions/fetch-bulletin-test/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/fetch-bulletin-test/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/fetch-bulletin-test/*.html" ]

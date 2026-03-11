@@ -54,7 +54,7 @@ serve(async (req) => {
         // 🔥 2. ATAMA (DÜZELTİLDİ)
         // İş "awaiting_client_approval" statüsünde açıldığı için task_assignments tablosundaki 
         // standart kuralı eziyoruz ve doğrudan onay sürecinden sorumlu kişiye atıyoruz.
-        const assignedUid = "dqk6yRN7Kwgf6HIJldLt9Uz77RU2"; 
+        const assignedUid = "788e10fb-f137-4a78-b03d-840b14a14b87"; 
         const assignedEmail = "selcanakoglu@evrekapatent.com";
 
         // 3. RESMİ SON TARİH HESAPLAMA

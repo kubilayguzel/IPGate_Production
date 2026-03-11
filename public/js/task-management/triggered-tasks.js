@@ -181,12 +181,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const isEmptyB = (valB === null || valB === undefined || valB === '');
 
                 if (isEmptyA && isEmptyB) return 0;
-                if (isEmptyA) return -1;
-                if (isEmptyB) return 1;
 
-                if (valA instanceof Date && valB instanceof Date) return (valA - valB) * multiplier;
-                if (valA instanceof Date) return -1 * multiplier; 
-                if (valB instanceof Date) return 1 * multiplier;
+                // 🔥 ÇÖZÜM: Boş Tarihleri En Üste Alma Algoritması
+                if ((valA instanceof Date || isEmptyA) && (valB instanceof Date || isEmptyB)) {
+                    if (isEmptyA) return -1 * multiplier; 
+                    if (isEmptyB) return 1 * multiplier;
+                    return (valA - valB) * multiplier;
+                }
+
+                if (isEmptyA) return 1;
+                if (isEmptyB) return -1;
 
                 if (key === 'id') {
                     const numA = parseInt(String(valA), 10);
@@ -578,19 +582,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
             if (window.DeadlineHighlighter) {
-                window.DeadlineHighlighter.init();
-                window.DeadlineHighlighter.registerList('triggeredTasks', {
-                    container: 'table',
-                    rowSelector: 'tbody tr',
-                    dateFields: [
-                        { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
-                        { name: 'officialDue',    selector: '[data-field="officialDue"]' }
-                    ],
-                    strategy: 'earliest',
-                    applyTo: 'row',
-                    showLegend: true
-                });
-            }
+                    window.DeadlineHighlighter.init();
+                    window.DeadlineHighlighter.registerList('triggeredTasks', { // 🔥 İsim triggeredTasks olarak değiştirildi
+                        container: 'table',
+                        rowSelector: 'tbody tr',
+                        dateFields: [
+                            { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
+                            { name: 'officialDue',    selector: '[data-field="officialDue"]' }
+                        ],
+                        strategy: 'earliest',
+                        applyTo: 'cell', // Tüm satırı değil, sadece hücreyi boyar
+                        addBadgeTo: '[data-field="operationalDue"]', // Vurguyu ve ikonu Operasyonel Tarih hücresine ekler
+                        showLegend: true
+                    });
+                }
         }
 
         closeModal(modalId) {

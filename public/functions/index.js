@@ -40,7 +40,7 @@ const adminAuth = admin.auth();
 const adminDb = admin.firestore();
 const db        = adminDb;
 const secretClient = new SecretManagerServiceClient();
-const selcanUserId = "dqk6yRN7Kwgf6HIJldLt9Uz77RU2"; // <<< BURAYA SELCAN'IN GERÇEK ID'SİNİ YAPIŞTIRIN
+const selcanUserId = "788e10fb-f137-4a78-b03d-840b14a14b87"; // <<< BURAYA SELCAN'IN GERÇEK ID'SİNİ YAPIŞTIRIN
 const selcanUserEmail = "selcanakoglu@evrekapatent.com"; // <<< BURAYA SELCAN'IN E-POSTA ADRESİNİ YAZIN
 
 // 🔐 SA_MAILER_KEY'i Secret Manager'dan çek
@@ -7552,7 +7552,7 @@ export const createAccrualTaskOnClientApprovalV2 = onDocumentUpdated(
         console.log(`🔔 Task ${taskId} onaylandı. ID üretiliyor...`);
 
         // --- 1. ATAMA MANTIĞI (DB'den veya Varsayılan) ---
-        let assignedUid = "dqk6yRN7Kwgf6HIJldLt9Uz77RU2"; // Varsayılan (Selcan Hn.)
+        let assignedUid = "788e10fb-f137-4a78-b03d-840b14a14b87"; // Varsayılan (Selcan Hn.)
         let assignedEmail = "selcanakoglu@evrekapatent.com";
 
         try {

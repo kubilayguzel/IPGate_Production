@@ -27,7 +27,7 @@ const STORAGE_BUCKET = 'documents';
 
 // ⚠️ LÜTFEN DİKKAT: Eski Firebase UID'si (dqk6...) Supabase'de ÇALIŞMAZ. 
 // Görevlerin (Task) doğru kişiye atanması için Selcan Hanım'ın Supabase'deki yeni UUID'sini buraya yapıştırın.
-const SELCAN_UID = 'dqk6yRN7Kwgf6HIJldLt9Uz77RU2'; 
+const SELCAN_UID = '788e10fb-f137-4a78-b03d-840b14a14b87'; 
 const SELCAN_EMAIL = 'selcanakoglu@evrekapatent.com';
 
 export class DocumentReviewManager {

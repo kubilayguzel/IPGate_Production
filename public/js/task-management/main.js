@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.filteredData = [];
 
             // Sıralama ve Sayfalama Durumu
-            this.sortState = { key: 'id', direction: 'desc' }; // Varsayılan: En yeni ID en üstte
+            this.sortState = { key: 'officialDueObj', direction: 'asc' };
             this.pagination = null;
 
             // Seçili İşlem Durumları
@@ -292,12 +292,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let valA = a[key];
                 let valB = b[key];
 
-                if (valA == null) valA = '';
-                if (valB == null) valB = '';
+                const isEmptyA = (valA === null || valA === undefined || valA === '');
+                const isEmptyB = (valB === null || valB === undefined || valB === '');
 
-                if (valA instanceof Date && valB instanceof Date) return (valA - valB) * multiplier;
-                if (valA instanceof Date) return -1 * multiplier; 
-                if (valB instanceof Date) return 1 * multiplier;
+                if (isEmptyA && isEmptyB) return 0;
+
+                // 🔥 ÇÖZÜM: Eğer tarihleri sıralıyorsak boşları EN ÜSTE at
+                if ((valA instanceof Date || isEmptyA) && (valB instanceof Date || isEmptyB)) {
+                    if (isEmptyA) return -1 * multiplier; // A boşsa A'yı üste al
+                    if (isEmptyB) return 1 * multiplier;  // B boşsa B'yi üste al
+                    return (valA - valB) * multiplier;    // İkisi de doluysa tarihe göre sırala
+                }
+
+                // String (Metin) sıralamalarında boş olanları alta at (Görsellik için)
+                if (isEmptyA) return 1; 
+                if (isEmptyB) return -1;
 
                 if (key === 'id') {
                     const numA = parseFloat(String(valA).replace(/[^0-9]/g, ''));
@@ -1193,15 +1202,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (window.DeadlineHighlighter) {
         window.DeadlineHighlighter.init();
-        window.DeadlineHighlighter.registerList('taskManagement', {
-            container: 'table', // 🔥 ÇÖZÜM 2c: Container genişletildi (ID uyuşmazlığını çözer)
-            rowSelector: '#tasksTableBody tr',
+        window.DeadlineHighlighter.registerList('taskManagement', { // my-tasks.js için 'islerim'
+            container: 'table',
+            rowSelector: 'tbody tr',
             dateFields: [
                 { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
                 { name: 'officialDue',    selector: '[data-field="officialDue"]' }
             ],
             strategy: 'earliest',
-            applyTo: 'row',
+            applyTo: 'cell', // 🔥 ÇÖZÜM 1: Tüm satırı değil, sadece hücreyi boya
+            addBadgeTo: '[data-field="officialDue"]', // 🔥 Hangi hücreye ekleneceğini belirtin
             showLegend: true
         });
     }

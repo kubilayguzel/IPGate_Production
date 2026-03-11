@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.filteredData = [];
             this.activeTab = 'active';
 
-            this.sortState = { key: 'createdAtObj', direction: 'desc' };
+            this.sortState = { key: 'officialDueObj', direction: 'asc' };
 
             this.pagination = null;
             this.currentTaskForAccrual = null;
@@ -186,12 +186,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let valA = a[key];
                 let valB = b[key];
 
-                if (valA == null) valA = '';
-                if (valB == null) valB = '';
+                const isEmptyA = (valA === null || valA === undefined || valA === '');
+                const isEmptyB = (valB === null || valB === undefined || valB === '');
 
-                if (valA instanceof Date && valB instanceof Date) return (valA - valB) * multiplier;
-                if (valA instanceof Date) return -1 * multiplier; 
-                if (valB instanceof Date) return 1 * multiplier;
+                if (isEmptyA && isEmptyB) return 0;
+
+                // 🔥 ÇÖZÜM: Boş Tarihleri En Üste Alma Algoritması
+                if ((valA instanceof Date || isEmptyA) && (valB instanceof Date || isEmptyB)) {
+                    if (isEmptyA) return -1 * multiplier; 
+                    if (isEmptyB) return 1 * multiplier;
+                    return (valA - valB) * multiplier;
+                }
+
+                if (isEmptyA) return 1;
+                if (isEmptyB) return -1;
 
                 if (key === 'id') {
                     const numA = parseFloat(String(valA).replace(/[^0-9]/g, ''));
@@ -935,15 +943,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (window.DeadlineHighlighter) {
         window.DeadlineHighlighter.init();
-        window.DeadlineHighlighter.registerList('islerim', {
-            container: 'table', // 🔥 ÇÖZÜM: Genişletildi
+        window.DeadlineHighlighter.registerList('işlerim', { // my-tasks.js için 'islerim'
+            container: 'table',
             rowSelector: 'tbody tr',
             dateFields: [
                 { name: 'operationalDue', selector: '[data-field="operationalDue"]' },
                 { name: 'officialDue',    selector: '[data-field="officialDue"]' }
             ],
             strategy: 'earliest',
-            applyTo: 'row',
+            applyTo: 'cell', // 🔥 ÇÖZÜM 1: Tüm satırı değil, sadece hücreyi boya
+            addBadgeTo: '[data-field="officialDue"]', // 🔥 Hangi hücreye ekleneceğini belirtin
             showLegend: true
         });
     }

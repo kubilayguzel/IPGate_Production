@@ -256,13 +256,23 @@ serve(async (req: Request) => {
     // ==========================================
     // 6. STATÜ BELİRLEME VE KAYIT İŞLEMİ
     // ==========================================
-    const SENSITIVE_TASK_TYPES = ['7', '19', '49', '54'];
-    const isSensitive = SENSITIVE_TASK_TYPES.includes(txTypeId); 
+    
+    // 🔥 ÇÖZÜM 1: Bu işlemle beraber bir "66 (Değerlendirme)" görevi tetiklenmiş mi kontrol et
+    const { data: evalTasks } = await supabaseAdmin.from('tasks')
+        .select('id')
+        .eq('transaction_id', transactionId)
+        .eq('task_type_id', '66')
+        .limit(1);
+    
+    const hasEvalTask = evalTasks && evalTasks.length > 0;
 
     let finalStatus = "missing_info";
     if (finalTo.length > 0 || finalCc.length > 0) {
-        if (isSensitive && isEvaluationRequired) finalStatus = "evaluation_pending";
-        else finalStatus = "awaiting_client_approval"; 
+        if (hasEvalTask) {
+            finalStatus = "evaluation_pending"; // 66 Görevi varsa maili kilitle
+        } else {
+            finalStatus = "awaiting_client_approval"; // Görev yoksa direkt onaya aç
+        }
     }
 
     const mailId = crypto.randomUUID();
@@ -284,7 +294,7 @@ serve(async (req: Request) => {
         objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
         notification_type: 'marka',
         source: 'document_index',
-        is_draft: true,
+        is_draft: finalStatus === "missing_info",
         missing_fields: (finalTo.length === 0 && finalCc.length === 0) ? ['recipients'] : []
     });
 
@@ -297,41 +307,8 @@ serve(async (req: Request) => {
         });
     }
 
-    if (finalStatus === "evaluation_pending") {
-        const { data: counterData } = await supabaseAdmin.from('counters').select('last_id').eq('id', 'tasks').single();
-        let currentId = counterData ? Number(counterData.last_id) : 0;
-        currentId++;
-        
-        const { data: assignData } = await supabaseAdmin.from('task_assignments').select('assignee_ids').eq('id', '66').single();
-        
-        let taskDueDate = new Date(tebligDate);
-        taskDueDate.setDate(taskDueDate.getDate() + 10);
-        if (calculatedDeadlineDate && taskDueDate >= calculatedDeadlineDate) {
-            taskDueDate = new Date(calculatedDeadlineDate);
-            taskDueDate.setDate(taskDueDate.getDate() - 5); 
-        }
-
-        await supabaseAdmin.from('tasks').insert({
-            id: String(currentId),
-            task_type_id: "66",
-            status: "open",
-            priority: "high",
-            title: `Değerlendirme: ${finalSubject}`,
-            description: `Müvekkil hassas gruptadır. Taslağı düzenleyip onaylayın.`,
-            ip_record_id: ipRecordId,
-            assigned_to: assignData?.assignee_ids?.[0] || null,
-            task_owner_id: primaryClientId, 
-            official_due_date: taskDueDate.toISOString(),
-            operational_due_date: taskDueDate.toISOString(),
-            details: {
-                parent_task_id: taskId, 
-                iprecordApplicationNo: appNo,
-                iprecordTitle: brandName,
-                iprecordApplicantName: applicantNames
-            }
-        });
-        await supabaseAdmin.from('counters').update({ last_id: currentId }).eq('id', 'tasks');
-    }
+    // 🔥 ÇÖZÜM 2: Buradaki 66 Görevi oluşturma kodları TAMAMEN SİLDİK.
+    // Çünkü 'document-review-manager.js' tarafında müvekkil analizi yapılarak bu görev hatasız oluşturuluyor. (Çift kayıt engellendi)
 
     return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 

@@ -1,11 +1,21 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-// TODO: Kendi URL ve Anon Key'inizi buraya girin
-const supabaseUrl = 'https://kadxvkejzctwymzeyrrl.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzg0NDgsImV4cCI6MjA4Nzc1NDQ0OH0.PFSzq8hOc14HgYwwF_ZR3v82ZzegKcoN4Vqw2wR2ZP0';
+// 1. Uygulamanın şu an nerede çalıştığını tespit et
+const hostname = window.location.hostname;
+const isTestEnvironment = hostname === 'localhost' || hostname.includes('ip-manager-production-aab4b');
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
-console.log('🚀 Supabase Motoru Başarıyla Çalıştı!');
+// 2. Ortama göre Supabase URL ve Key belirle
+const SUPABASE_URL = isTestEnvironment 
+    ? 'https://guicrctynauzxhyfpdfe.supabase.co' // TEST Supabase URL'si
+    : 'https://kadxvkejzctwymzeyrrl.supabase.co';    // CANLI Supabase URL'si
+
+const SUPABASE_KEY = isTestEnvironment 
+    ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1aWNyY3R5bmF1enhoeWZwZGZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MDQ3MjcsImV4cCI6MjA4NzI4MDcyN30.Zp1ZoXfsz6y6UcZtOAWlIWY2USjJ8x-0iogtizX0EkQ'                     // TEST Supabase Anon Key
+    : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzg0NDgsImV4cCI6MjA4Nzc1NDQ0OH0.PFSzq8hOc14HgYwwF_ZR3v82ZzegKcoN4Vqw2wR2ZP0'; // CANLI Supabase Anon Key
+
+// 3. Dinamik bilgilerle Client oluştur
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log(`🚀 Supabase Motoru Çalıştı! Ortam: ${isTestEnvironment ? 'TEST' : 'CANLI'}`);
 
 // --- YENİ: Sınırsız ve Işık Hızında Önbellek (IndexedDB) Motoru ---
 export const localCache = {

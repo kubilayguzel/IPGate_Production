@@ -6,6 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -18,7 +20,7 @@ serve(async (req) => {
             .from('bulletin_fetch_queue')
             .select('*')
             .eq('status', 'pending')
-            .limit(10);
+            .limit(20); // 🔥 OTOMASYON İÇİN 20'YE ÇIKARILDI
 
         if (!queueItems || queueItems.length === 0) {
             return new Response(JSON.stringify({ success: true, message: "Kuyruk boş" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -31,7 +33,7 @@ serve(async (req) => {
 
         for (const item of queueItems) {
             try {
-                console.log(`[TEST] ${item.application_number} API'den çekiliyor...`);
+                console.log(`[HAYALET MOD] ${item.application_number} çekiliyor...`);
                 
                 const epatsRes = await fetch("https://opts.turkpatent.gov.tr/api/trademark-search/mark", {
                     method: "POST",
@@ -41,11 +43,15 @@ serve(async (req) => {
                         "Content-Type": "application/json",
                         "Origin": "https://opts.turkpatent.gov.tr",
                         "Referer": "https://opts.turkpatent.gov.tr/trademark",
-                        "Sec-Fetch-Dest": "empty",
-                        "Sec-Fetch-Mode": "cors",
-                        "Sec-Fetch-Site": "same-origin",
-                        // DİKKAT: Güncel Cookie'nizi buraya yapıştırın
-                        "Cookie": "JSESSIONID=D1AAEBC5C13313773BE5F74FECAD995D; TS01249912=0187428d31851f723addcdf8ae0834afea9b9908a5f3b805b849877af5b30a578052e23c910809dc8dca3c4acaa4d3da8bf885144a194edb068d9a25bd9c184ebc14f30728; _ga=GA1.1.810903385.1765797994; _ga_RSBG2H3YFV=GS2.1.s1773303164$o155$g0$t1773303164$j60$l0$h0; access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZTY3ZjgyMy1lNDBjLTRkNDAtYTM4OS1lZWYzMDE2NjI1ZjgiLCJyb2xlcyI6WyJQQVRFTlRfVFJBQ0tFUiIsIlRSQURFTUFSS19TRUFSQ0hFUiJdLCJpYXQiOjE3NzMzMDMxOTAsImV4cCI6MTc3MzMwNTg5MH0.zEGiS4r49u1TIJy9K2dKXiN7D02P9G1sW7q25t64lpE; TS01777e0b=0187428d319534fbe3acda051da39f6766fde30bb8f3b805b849877af5b30a578052e23c915d6066059fedd7f74f8ebaf0398b30cc484a9ac4dfd121c9bdfec7b20595d3dd", 
+                        "sec-ch-ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
+                        "sec-ch-ua-mobile": "?0",
+                        "sec-ch-ua-platform": "\"Windows\"",
+                        "sec-fetch-dest": "empty",
+                        "sec-fetch-mode": "cors",
+                        "sec-fetch-site": "same-origin",
+                        "Connection": "keep-alive",
+                        // DİKKAT: Geçerli Cookie'nizi buraya yapıştırın.
+                        "Cookie": "JSESSIONID=BBDAB0E8FEFC8954CFE380F2DD447A05; TS01249912=0187428d31fa9357fb13a0836815415c3af9495418f3b805b849877af5b30a578052e23c910809dc8dca3c4acaa4d3da8bf885144a8e9900ebfbd03650cb56f3c01d3d0d4c; _ga=GA1.1.810903385.1765797994; _ga_RSBG2H3YFV=GS2.1.s1773303164$o155$g1$t1773305761$j51$l0$h0; access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZTY3ZjgyMy1lNDBjLTRkNDAtYTM4OS1lZWYzMDE2NjI1ZjgiLCJyb2xlcyI6WyJQQVRFTlRfVFJBQ0tFUiIsIlRSQURFTUFSS19TRUFSQ0hFUiJdLCJpYXQiOjE3NzMzMDYyNTUsImV4cCI6MTc3MzMwODk1NX0.eguOYzkCA1yYGda68GX0-_cJJw1-wlsKs7WMt0U-9Fs; TS01777e0b=0187428d31ac757ca3a3a105c1a48b8699969a57997353c28e39909a2fad806d49fca9d5bf73a6670c640642e3200c873768dd99213b0c27e33410e3f9f1b9de1205291ebb", 
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     },
                     body: JSON.stringify({
@@ -61,16 +67,15 @@ serve(async (req) => {
                 try {
                     responseJson = JSON.parse(rawText);
                 } catch(e) {
-                    throw new Error("EPATS'tan dönen veri JSON formatında değil. (Cookie süresi bitmiş olabilir).");
+                    console.error(`[WAF ENGELİ - ${item.application_number}]:`, rawText.substring(0, 500));
+                    throw new Error("WAF Engeli veya Cookie Süresi Doldu.");
                 }
                 
                 const markInfo = responseJson?.data?.markInformation;
-                // 🔥 YENİ: Eşya Listesi (Sınıf detayları) dizisini alıyoruz
                 const niceInfoArray = responseJson?.data?.niceInformation || [];
 
                 if (!markInfo || !markInfo.markName) throw new Error("Veri çekildi ama markName bulunamadı.");
 
-                // 1. Logoyu Storage'a Kaydet
                 let logoUrl = null;
                 if (markInfo.figure) {
                     const base64Data = markInfo.figure.replace(/^data:image\/\w+;base64,/, "");
@@ -89,7 +94,6 @@ serve(async (req) => {
                     }
                 }
 
-                // --- VERİTABANI İŞLEMLERİ ---
                 const bulletinNo = markInfo.bulletinNumber || item.bulletin_no || 'BILINMIYOR';
                 const mainBulletinId = `bulletin_main_${bulletinNo}`;
                 const appNoFormatted = item.application_number.replace('/', '_');
@@ -101,7 +105,6 @@ serve(async (req) => {
 
                 const holdersArray = markInfo.holdName ? [{ name: markInfo.holdName }] : [];
 
-                // 2. trademark_bulletins Tablosuna Ekle
                 const { error: bulletinError } = await supabase.from('trademark_bulletins').upsert({
                     id: mainBulletinId,
                     bulletin_no: bulletinNo,
@@ -109,7 +112,6 @@ serve(async (req) => {
                 });
                 if (bulletinError) throw bulletinError;
 
-                // 3. trademark_bulletin_records Tablosuna Ekle
                 const { error: recordError } = await supabase.from('trademark_bulletin_records').upsert({
                     id: bulletinRecordId,
                     bulletin_id: mainBulletinId,
@@ -123,27 +125,34 @@ serve(async (req) => {
                 });
                 if (recordError) throw recordError;
 
-                // 4. 🔥 trademark_bulletin_goods Tablosuna Ekle (EŞYA LİSTESİ İLE)
                 if (niceInfoArray.length > 0) {
-                    // EPATS'tan detaylı eşya listesi geldiyse
-                    const goodsPayload = niceInfoArray.map((info: any) => ({
-                        id: `${bulletinRecordId}_class_${info.classNo}`,
-                        bulletin_record_id: bulletinRecordId,
-                        class_number: String(info.classNo),
-                        class_text: info.goodsAndServices || info.description || "Açıklama bulunamadı."
-                    }));
+                    const goodsPayload = niceInfoArray.map((info: any, index: number) => {
+                        // 🔥 ÇÖZÜM: niceCode ve niceDescription eklendi
+                        let cNum = parseInt(info.niceCode || info.classNo || info.niceClass || info.classNumber || info.no, 10);
+                        if (isNaN(cNum)) cNum = parseInt(niceClassesArray[index], 10);
+                        if (isNaN(cNum)) cNum = 0;
+
+                        return {
+                            id: `${bulletinRecordId}_class_${cNum}`,
+                            bulletin_record_id: bulletinRecordId,
+                            class_number: cNum,
+                            class_text: info.niceDescription || info.goodsAndServices || info.description || info.className || "Açıklama bulunamadı."
+                        };
+                    });
 
                     const { error: goodsError } = await supabase.from('trademark_bulletin_goods').upsert(goodsPayload);
                     if (goodsError) throw goodsError;
 
                 } else if (niceClassesArray.length > 0) {
-                    // Eğer detaylı liste gelmezse (sadece sınıf numarası varsa) Fallback
-                    const goodsPayload = niceClassesArray.map((cls: string) => ({
-                        id: `${bulletinRecordId}_class_${cls}`,
-                        bulletin_record_id: bulletinRecordId,
-                        class_number: cls,
-                        class_text: "Eşya listesi detayı EPATS API'den çekilemedi."
-                    }));
+                    const goodsPayload = niceClassesArray.map((cls: string) => {
+                        let cNum = parseInt(cls, 10);
+                        return {
+                            id: `${bulletinRecordId}_class_${cNum}`,
+                            bulletin_record_id: bulletinRecordId,
+                            class_number: isNaN(cNum) ? 0 : cNum,
+                            class_text: "Eşya listesi detayı EPATS API'den çekilemedi."
+                        };
+                    });
 
                     const { error: goodsError } = await supabase.from('trademark_bulletin_goods').upsert(goodsPayload);
                     if (goodsError) throw goodsError;
@@ -151,6 +160,10 @@ serve(async (req) => {
                 
                 await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', item.id);
                 successCount++;
+
+                const randomDelay = Math.floor(Math.random() * 1000) + 1000;
+                console.log(`[BEKLEME] WAF'ı atlatmak için ${randomDelay}ms bekleniyor...`);
+                await sleep(randomDelay);
 
             } catch (err: any) {
                 console.error(`[HATA - ${item.application_number}]:`, err.message);

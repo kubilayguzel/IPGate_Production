@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "IPGate Bülten Motoru",
+  "version": "1.0.0",
+  "description": "TÜRKPATENT bülten listesini sayfa sayfa tarayıp Supabase'e fırlatır.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "*://www.turkpatent.gov.tr/*",
+    "*://opts.turkpatent.gov.tr/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://www.turkpatent.gov.tr/*",
+        "*://opts.turkpatent.gov.tr/*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

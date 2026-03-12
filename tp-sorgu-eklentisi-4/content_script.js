@@ -13,7 +13,6 @@ function injectUI() {
             <h3 style="margin:0 0 10px 0; font-size:16px;">🚀 IPGate Bülten Motoru</h3>
             <input type="text" id="ipgate-bulletin-no" placeholder="Bülten No (Örn: 484)" style="padding:5px; width:100%; margin-bottom:5px; border:none; border-radius:4px; color:black; box-sizing:border-box;">
             <input type="text" id="ipgate-bulletin-date" placeholder="Bülten Tarihi (Örn: 26.12.2025)" style="padding:5px; width:100%; margin-bottom:5px; border:none; border-radius:4px; color:black; box-sizing:border-box;">
-            
             <input type="number" id="ipgate-skip-count" placeholder="Kaldığın Yer (Opsiyonel, Örn: 1220)" style="padding:5px; width:100%; margin-bottom:10px; border:none; border-radius:4px; color:black; box-sizing:border-box;">
             
             <button id="ipgate-start-btn" style="background:#4caf50; color:white; border:none; padding:8px 15px; width:100%; border-radius:4px; cursor:pointer; font-weight:bold;">Taramayı Başlat</button>
@@ -41,7 +40,6 @@ function injectUI() {
     });
 }
 
-// Background'dan gelen "Veritabanına Yazıldı" mesajlarını dinler ve barı doldurur
 chrome.runtime.onMessage.addListener((request) => {
     if (request.type === 'DB_SAVE_SUCCESS') {
         dbSavedCount += request.processedCount;
@@ -56,28 +54,49 @@ function getExpectedTotalCount() {
     const nodes = Array.from(document.querySelectorAll('p, span, div'));
     const node = nodes.find(n => !!n && (n.textContent || '').toLowerCase().includes('kayıt bulundu'));
     if (!node) return null;
-    
-    // 🔥 ÇÖZÜM BURADA: Sayının içindeki noktaları da regex'e dahil ettik
     const m = (node.textContent || '').match(/([\d.,]+)\s*kayıt\s*b[uü]lundu/i);
     if (m) {
-        // "5.930" gibi bir metnin içindeki rakam olmayan her şeyi (nokta/virgül) silip tam sayıya çeviririz.
         return parseInt(m[1].replace(/[^\d]/g, ''), 10);
     }
     return null;
 }
 
+// 🔥 YENİ: Hafıza Temizleme (Budama) Fonksiyonu
+function pruneRow(tr) {
+    if (!tr || tr.getAttribute('data-pruned') === 'true') return;
+    
+    // İşlendi olarak işaretle
+    tr.setAttribute('data-pruned', 'true'); 
+    
+    // RAM'i en çok şişiren Base64 resimleri HTML'den sil!
+    const imgEl = tr.querySelector('td[role="image"] img');
+    if (imgEl) {
+        imgEl.src = '';
+        imgEl.removeAttribute('src');
+    }
+    
+    // İşlenen satırların rengini soluklaştır (Hem görsel takip sağlar, hem GPU'yu rahatlatır)
+    tr.style.opacity = '0.3';
+}
+
 function parseRow(tr) {
+    // Eğer bu satır daha önce budanmışsa (alınmışsa) bir daha bakma
+    if (tr.getAttribute('data-pruned') === 'true') return null;
+
     const getRoleTxt = (role) => (tr.querySelector(`td[role="${role}"]`)?.textContent || '').trim();
     const appNo = getRoleTxt('applicationNo');
     if (!appNo) return null;
+    
     const imgEl = tr.querySelector('td[role="image"] img');
+    
     return {
         application_number: appNo,
         brand_name: getRoleTxt('markName'),
         owner_name: getRoleTxt('holdName').replace(/\s*\(\d+\)\s*$/, ''),
         application_date: getRoleTxt('applicationDate'),
         nice_classes: getRoleTxt('niceClasses'),
-        image_base64: imgEl ? imgEl.src : null
+        image_base64: imgEl ? imgEl.src : null,
+        _trRef: tr // Silmek için referansını tutuyoruz
     };
 }
 
@@ -96,18 +115,23 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
     let isScraping = true;
     let retryCount = 0;
 
-    // 1. AŞAMA: HIZLI SARMA (FAST-FORWARD)
+    // 1. AŞAMA: HIZLI SARMA
     if (skipCount > 0) {
         document.getElementById('ipgate-status').innerText = `Kaldığı yere (Satır ${skipCount}) hızla iniliyor...`;
         
         while(true) {
             const rows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root');
-            if (rows.length >= skipCount) {
-                // Atlanan satırların numaralarını hafızaya al ki bir daha göndermesin
-                for(let i = 0; i < skipCount; i++) {
+            
+            // Hızlı sararken de RAM şişmemesi için üstte kalanları buda!
+            for(let i = 0; i < rows.length - 10; i++) {
+                if(rows[i].getAttribute('data-pruned') !== 'true') {
                     const parsed = parseRow(rows[i]);
                     if (parsed) processedApps.add(parsed.application_number);
+                    pruneRow(rows[i]); // SİL
                 }
+            }
+
+            if (rows.length >= skipCount) {
                 break; 
             }
             
@@ -119,7 +143,7 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
         }
     }
 
-    // 2. AŞAMA: NORMAL KAZIMA VE GÖNDERME
+    // 2. AŞAMA: KAZIMA, GÖNDERME VE TEMİZLEME
     let totalSent = skipCount;
 
     while(isScraping && totalSent < targetTotal) {
@@ -130,7 +154,18 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
             const parsed = parseRow(tr);
             if(parsed && !processedApps.has(parsed.application_number)) {
                 processedApps.add(parsed.application_number);
-                batch.push(parsed);
+                
+                // Referansı paketten çıkar (Memory Leak önlemi)
+                const dataToPush = {...parsed};
+                delete dataToPush._trRef;
+                batch.push(dataToPush);
+                
+                // 🔥 SİHİRLİ VURUŞ: Veriyi aldık, ekrandaki resmi/yükü yok et!
+                pruneRow(parsed._trRef);
+
+            } else if (parsed && processedApps.has(parsed.application_number)) {
+                // Önceden alınmış ama budanmayı unutmuş bir satırsa
+                pruneRow(parsed._trRef);
             }
         });
 
@@ -158,7 +193,7 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
             window.scrollTo(0, document.body.scrollHeight);
             await sleep(2000);
 
-            if(retryCount >= 4) {
+            if(retryCount >= 5) { // Toleransı 5'e çıkardım
                 isScraping = false;
                 console.log("Yeni veri gelmedi, tarama sonlandırılıyor.");
             }

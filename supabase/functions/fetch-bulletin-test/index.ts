@@ -31,8 +31,9 @@ serve(async (req) => {
 
         for (const item of queueItems) {
             try {
-                console.log(`[TEST] ${item.application_number} için EPATS'a istek atılıyor...`);
+                console.log(`[TEST] ${item.application_number} YENİ ŞEMA için sorgulanıyor...`);
                 
+                // EPATS İSTEĞİ (Güvenlik Duvarı Aşma Başlıklarıyla)
                 const epatsRes = await fetch("https://opts.turkpatent.gov.tr/api/trademark-search/mark", {
                     method: "POST",
                     headers: { 
@@ -44,8 +45,8 @@ serve(async (req) => {
                         "Sec-Fetch-Dest": "empty",
                         "Sec-Fetch-Mode": "cors",
                         "Sec-Fetch-Site": "same-origin",
-                        // DİKKAT: Yeni ve güncel Cookie değerini buraya yapıştırın
-                        "Cookie": "JSESSIONID=444AD658B0242957DD92547836E58AF1; TS01249912=0187428d3194ed97ade148b75d30f4afb9f00cf74cacdc42e5dedf4ecd9ee6071bbb3a07f2789333a0e9bdef99ddfb551cf5aa6b5046b96a6e8cfebc925d1d1c13ba143bfb; _ga=GA1.1.810903385.1765797994; _ga_RSBG2H3YFV=GS2.1.s1773235707$o153$g1$t1773235712$j55$l0$h0; access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZTY3ZjgyMy1lNDBjLTRkNDAtYTM4OS1lZWYzMDE2NjI1ZjgiLCJyb2xlcyI6WyJQQVRFTlRfVFJBQ0tFUiIsIlRSQURFTUFSS19TRUFSQ0hFUiJdLCJpYXQiOjE3NzMyMzU4OTAsImV4cCI6MTc3MzIzODU5MH0.JH0xZmiIBwZZX-5mW3zAOmzQsxwECdDimheVS2KzqA0; TS01777e0b=0187428d31bc1df41587659a1b43b4cc7fdc33377262eb9a5bc485fb0c6e26737b266421ea1d45ec56ed1de68a745699aa6137bffbeb2affe960f16009e709522df141a963", 
+                        // DİKKAT: EPATS'tan aldığınız güncel Cookie'yi buraya yapıştırın:
+                        "Cookie": "JSESSIONID=D1AAEBC5C13313773BE5F74FECAD995D; TS01249912=0187428d31851f723addcdf8ae0834afea9b9908a5f3b805b849877af5b30a578052e23c910809dc8dca3c4acaa4d3da8bf885144a194edb068d9a25bd9c184ebc14f30728; _ga=GA1.1.810903385.1765797994; _ga_RSBG2H3YFV=GS2.1.s1773303164$o155$g0$t1773303164$j60$l0$h0; access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZTY3ZjgyMy1lNDBjLTRkNDAtYTM4OS1lZWYzMDE2NjI1ZjgiLCJyb2xlcyI6WyJQQVRFTlRfVFJBQ0tFUiIsIlRSQURFTUFSS19TRUFSQ0hFUiJdLCJpYXQiOjE3NzMzMDMxOTAsImV4cCI6MTc3MzMwNTg5MH0.zEGiS4r49u1TIJy9K2dKXiN7D02P9G1sW7q25t64lpE; TS01777e0b=0187428d319534fbe3acda051da39f6766fde30bb8f3b805b849877af5b30a578052e23c915d6066059fedd7f74f8ebaf0398b30cc484a9ac4dfd121c9bdfec7b20595d3dd", 
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     },
                     body: JSON.stringify({
@@ -56,25 +57,20 @@ serve(async (req) => {
 
                 const status = epatsRes.status;
                 const rawText = await epatsRes.text(); 
-                console.log(`[EPATS YANITI] HTTP Status: ${status}`);
 
-                if (status !== 200) {
-                    throw new Error(`EPATS ${status} hatası döndürdü.`);
-                }
+                if (status !== 200) throw new Error(`EPATS ${status} hatası döndürdü.`);
 
                 let responseJson;
                 try {
                     responseJson = JSON.parse(rawText);
                 } catch(e) {
-                    throw new Error("EPATS'tan dönen veri JSON formatında değil. Muhtemelen Cookie süresi doldu ve giriş sayfasına yönlendirdi.");
+                    throw new Error("EPATS'tan dönen veri JSON formatında değil. (Cookie süresi bitmiş olabilir).");
                 }
                 
                 const markInfo = responseJson?.data?.markInformation;
+                if (!markInfo || !markInfo.markName) throw new Error("Veri çekildi ama markName bulunamadı.");
 
-                if (!markInfo || !markInfo.markName) {
-                    throw new Error("Veri çekildi ama markName bulunamadı.");
-                }
-
+                // 1. Logoyu Storage'a Kaydet
                 let logoUrl = null;
                 if (markInfo.figure) {
                     const base64Data = markInfo.figure.replace(/^data:image\/\w+;base64,/, "");
@@ -93,45 +89,58 @@ serve(async (req) => {
                     }
                 }
 
-                // 🔥 ÇÖZÜM: 'ip_records' tablosundaki 'id' kolonu 'text' formatında ve null olamaz. 
-                // Bu yüzden rastgele benzersiz bir UUID'yi metin olarak üretiyoruz.
-                const generatedId = crypto.randomUUID();
+                // --- YENİ ŞEMA İÇİN VERİ HAZIRLIĞI ---
+                const bulletinNo = markInfo.bulletinNumber || item.bulletin_no || 'BILINMIYOR';
+                const mainBulletinId = `bulletin_main_${bulletinNo}`;
+                const appNoFormatted = item.application_number.replace('/', '_');
+                const bulletinRecordId = `bull_${bulletinNo}_app_${appNoFormatted}`;
 
-                // 1. Ana Portföy Kaydı
-                const { error: ipError } = await supabase.from('ip_records').insert({
-                    id: generatedId, // Üretilen metin tabanlı ID
-                    application_number: item.application_number,
-                    application_date: markInfo.applicationDate,
-                    record_owner_type: 'other', 
-                    status: 'published',
-                    ip_type: 'trademark'
-                });
+                // "29 / 30 / " formatını diziye çevir: ["29", "30"]
+                const niceClassesArray = markInfo.niceClasses 
+                    ? markInfo.niceClasses.split('/').map((c: string) => c.trim()).filter((c: string) => c.length > 0)
+                    : [];
 
-                if (ipError) throw ipError;
+                // Sahipleri JSONB nesnesine çevir
+                const holdersArray = markInfo.holdName ? [{ name: markInfo.holdName }] : [];
 
-                // 2. Marka Detayları Kaydı
-                const { error: detailError } = await supabase.from('ip_record_trademark_details').insert({
-                    ip_record_id: generatedId, // Aynı ID ile bağlıyoruz
-                    brand_name: markInfo.markName,
-                    brand_type: markInfo.markType || 'Ticaret-Hizmet',
-                    brand_image_url: logoUrl
-                });
-                
-                if (detailError) throw detailError;
-
-                // 3. Bülten Bilgilerini Kaydetme
-                const { error: bulletinError } = await supabase.from('ip_record_bulletins').insert({
-                    id: crypto.randomUUID(), // Bu tablo da text ID istiyor
-                    ip_record_id: generatedId, // Aynı ID ile bağlıyoruz
-                    bulletin_no: markInfo.bulletinNumber || item.bulletin_no,
+                // 2. trademark_bulletins Tablosuna Ekle (Ana Bülten)
+                const { error: bulletinError } = await supabase.from('trademark_bulletins').upsert({
+                    id: mainBulletinId,
+                    bulletin_no: bulletinNo,
                     bulletin_date: markInfo.bulletinDate || null
                 });
-                
                 if (bulletinError) throw bulletinError;
+
+                // 3. trademark_bulletin_records Tablosuna Ekle (Marka Kaydı)
+                const { error: recordError } = await supabase.from('trademark_bulletin_records').upsert({
+                    id: bulletinRecordId,
+                    bulletin_id: mainBulletinId,
+                    application_number: item.application_number,
+                    brand_name: markInfo.markName,
+                    application_date: markInfo.applicationDate,
+                    nice_classes: niceClassesArray,
+                    holders: holdersArray,
+                    image_url: logoUrl,
+                    source: 'turkpatent_api' // Orijinal bültenlerden ayırmak için etiket
+                });
+                if (recordError) throw recordError;
+
+                // 4. trademark_bulletin_goods Tablosuna Ekle (Sınıflar)
+                if (niceClassesArray.length > 0) {
+                    const goodsPayload = niceClassesArray.map((cls: string) => ({
+                        id: `${bulletinRecordId}_class_${cls}`,
+                        bulletin_record_id: bulletinRecordId,
+                        class_number: cls,
+                        class_text: "Eşya listesi EPATS API'den çekilmedi." // İleride doldurulabilir
+                    }));
+
+                    const { error: goodsError } = await supabase.from('trademark_bulletin_goods').upsert(goodsPayload);
+                    if (goodsError) throw goodsError;
+                }
                 
+                // Tamamlandı işaretle
                 await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', item.id);
                 successCount++;
-                console.log(`✔️ ${item.application_number} başarıyla kaydedildi!`);
 
             } catch (err: any) {
                 console.error(`[HATA - ${item.application_number}]:`, err.message);
@@ -146,5 +155,3 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: corsHeaders });
     }
 });
-
-

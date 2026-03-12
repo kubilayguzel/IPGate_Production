@@ -1539,36 +1539,63 @@ export const taskService = {
             const { data: { session } } = await supabase.auth.getSession();
             const createdByUser = session?.user?.email || 'Sistem';
 
-            const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id);
-            const payload = {
-                id: nextId, 
-                title: taskData.title,
-                description: taskData.description || null,
-                task_type_id: String(taskData.taskType || taskData.task_type_id),
-                status: taskData.status || 'open',
-                priority: taskData.priority || 'normal',
-                official_due_date: taskData.officialDueDate || taskData.official_due_date || null,
-                operational_due_date: taskData.operationalDueDate || taskData.operational_due_date || null,
-                assigned_to: taskData.assignedTo_uid || taskData.assigned_to || null,
-                ip_record_id: taskData.relatedIpRecordId || taskData.ip_record_id ? String(taskData.relatedIpRecordId || taskData.ip_record_id) : null,
-                task_owner_id: taskData.relatedPartyId || taskData.task_owner_id || null,
-                transaction_id: taskData.transactionId || taskData.transaction_id ? String(taskData.transactionId || taskData.transaction_id) : null,
-                details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null },
-                created_by: taskData.createdBy || taskData.created_by || createdByUser // 🔥 EKLENDİ
-            };
-            
-            Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
-            const { data, error } = await supabase.from('tasks').insert(payload).select('id').single();
-            if (error) throw error;
+            // 🔥 ÇÖZÜM: 409 Conflict (ID Çakışması) önlemek için Güvenli Yeniden Deneme (Retry) Mekanizması
+            let isInserted = false;
+            let insertedData = null;
+            let retryCount = 0;
+            const maxRetries = 5;
+
+            while (!isInserted && retryCount < maxRetries) {
+                const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id);
+                const payload = {
+                    id: nextId, 
+                    title: taskData.title,
+                    description: taskData.description || null,
+                    task_type_id: String(taskData.taskType || taskData.task_type_id),
+                    status: taskData.status || 'open',
+                    priority: taskData.priority || 'normal',
+                    official_due_date: taskData.officialDueDate || taskData.official_due_date || null,
+                    operational_due_date: taskData.operationalDueDate || taskData.operational_due_date || null,
+                    assigned_to: taskData.assignedTo_uid || taskData.assigned_to || null,
+                    ip_record_id: taskData.relatedIpRecordId || taskData.ip_record_id ? String(taskData.relatedIpRecordId || taskData.ip_record_id) : null,
+                    task_owner_id: taskData.relatedPartyId || taskData.task_owner_id || null,
+                    transaction_id: taskData.transactionId || taskData.transaction_id ? String(taskData.transactionId || taskData.transaction_id) : null,
+                    details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null },
+                    created_by: taskData.createdBy || taskData.created_by || createdByUser
+                };
+                
+                Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
+                
+                const { data, error } = await supabase.from('tasks').insert(payload).select('id').single();
+                
+                if (error) {
+                    // 23505 PostgreSQL'de Unique Violation (Çakışma / 409) kodudur
+                    if (error.code === '23505' || error.message?.includes('duplicate')) {
+                        console.warn(`[TASK SERVICE] 409 ID Çakışması! Yeni ID alınıyor... Deneme: ${retryCount + 1}`);
+                        retryCount++;
+                        // Sisteme nefes aldırıp (100-500ms) döngüyü yeniden başlatır
+                        await new Promise(r => setTimeout(r, Math.random() * 400 + 100)); 
+                        continue; 
+                    }
+                    throw error;
+                }
+                
+                insertedData = data;
+                isInserted = true;
+            }
+
+            if (!isInserted) {
+                throw new Error("Görev ID'si alınamadı, sistemde yoğun çakışma var. Lütfen tekrar deneyin.");
+            }
 
             if (taskData.history && taskData.history.length > 0) {
                 const histToInsert = taskData.history.map(h => ({
-                    task_id: data.id, action: h.action, user_id: h.userEmail, created_at: h.timestamp || new Date().toISOString(), details: {}
+                    task_id: insertedData.id, action: h.action, user_id: h.userEmail, created_at: h.timestamp || new Date().toISOString(), details: {}
                 }));
                 await supabase.from('task_history').insert(histToInsert);
             }
 
-            return { success: true, data: { id: data.id } };
+            return { success: true, data: { id: insertedData.id } };
         } catch (error) { return { success: false, error: error.message }; }
     },
     
@@ -1698,34 +1725,59 @@ export const accrualService = {
 
     async addAccrual(accrualData) {
         try {
-            const nextId = await this._getNextAccrualId();
-            
-            const payload = { 
-                id: nextId,
-                task_id: String(accrualData.taskId),
-                status: accrualData.status || 'unpaid',
-                accrual_type: accrualData.accrualType || null,
-                payment_date: accrualData.paymentDate || null,
-                evreka_invoice_no: accrualData.evrekaInvoiceNo || null,
-                tpe_invoice_no: accrualData.tpeInvoiceNo || null,
-                tp_invoice_party_id: accrualData.tpInvoicePartyId || null,
-                service_invoice_party_id: accrualData.serviceInvoicePartyId || null,
-                official_fee_amount: accrualData.officialFeeAmount || 0,
-                official_fee_currency: accrualData.officialFeeCurrency || 'TRY',
-                service_fee_amount: accrualData.serviceFeeAmount || 0,
-                service_fee_currency: accrualData.serviceFeeCurrency || 'TRY',
-                total_amount: accrualData.totalAmount || [{ amount: 0, currency: 'TRY' }],
-                remaining_amount: accrualData.remainingAmount || [{ amount: 0, currency: 'TRY' }],
-                vat_rate: accrualData.vatRate || 0,
-                apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
-                is_foreign_transaction: accrualData.isForeignTransaction || false
-            };
+            // 🔥 ÇÖZÜM: Tahakkuklar için de Güvenli Yeniden Deneme (Retry) Mekanizması
+            let isInserted = false;
+            let insertedData = null;
+            let retryCount = 0;
+            const maxRetries = 5;
 
-            Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
+            while (!isInserted && retryCount < maxRetries) {
+                const nextId = await this._getNextAccrualId();
+                
+                const payload = { 
+                    id: nextId,
+                    task_id: String(accrualData.taskId),
+                    status: accrualData.status || 'unpaid',
+                    accrual_type: accrualData.accrualType || null,
+                    payment_date: accrualData.paymentDate || null,
+                    evreka_invoice_no: accrualData.evrekaInvoiceNo || null,
+                    tpe_invoice_no: accrualData.tpeInvoiceNo || null,
+                    tp_invoice_party_id: accrualData.tpInvoicePartyId || null,
+                    service_invoice_party_id: accrualData.serviceInvoicePartyId || null,
+                    official_fee_amount: accrualData.officialFeeAmount || 0,
+                    official_fee_currency: accrualData.officialFeeCurrency || 'TRY',
+                    service_fee_amount: accrualData.serviceFeeAmount || 0,
+                    service_fee_currency: accrualData.serviceFeeCurrency || 'TRY',
+                    total_amount: accrualData.totalAmount || [{ amount: 0, currency: 'TRY' }],
+                    remaining_amount: accrualData.remainingAmount || [{ amount: 0, currency: 'TRY' }],
+                    vat_rate: accrualData.vatRate || 0,
+                    apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
+                    is_foreign_transaction: accrualData.isForeignTransaction || false
+                };
 
-            const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
-            if (error) throw error;
-            return { success: true, data: { id: data.id } };
+                Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
+
+                const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
+                
+                if (error) {
+                    if (error.code === '23505' || error.message?.includes('duplicate')) {
+                        console.warn(`[ACCRUAL SERVICE] 409 ID Çakışması! Yeni ID alınıyor... Deneme: ${retryCount + 1}`);
+                        retryCount++;
+                        await new Promise(r => setTimeout(r, Math.random() * 400 + 100)); 
+                        continue;
+                    }
+                    throw error;
+                }
+                
+                insertedData = data;
+                isInserted = true;
+            }
+
+            if (!isInserted) {
+                throw new Error("Tahakkuk ID'si alınamadı, sistemde yoğun çakışma var.");
+            }
+
+            return { success: true, data: { id: insertedData.id } };
         } catch (error) {
             console.error("Tahakkuk ekleme hatası:", error);
             return { success: false, error: error.message };

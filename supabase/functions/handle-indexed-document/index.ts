@@ -78,6 +78,15 @@ serve(async (req: Request) => {
         }
     }
 
+    // 🔥 ÇÖZÜM 4: Bulunan taskId gerçekten Tasks tablosunda var mı kontrol et (Foreign Key Constraint hatasını önler)
+    if (taskId) {
+        const { data: checkTask } = await supabaseAdmin.from('tasks').select('id').eq('id', taskId).maybeSingle();
+        if (!checkTask) {
+            console.warn(`[UYARI] İşlemde task_id (${taskId}) var ancak Tasks tablosunda bulunamadı. Hata vermemesi için null yapılıyor.`);
+            taskId = null;
+        }
+    }
+
     const brandName = viewData?.brand_name || "-";
     const appNo = viewData?.application_number || viewData?.registration_number || "-";
     const applicantNames = viewData?.applicant_names || "-";
@@ -275,43 +284,62 @@ serve(async (req: Request) => {
         }
     }
 
-    const mailId = crypto.randomUUID();
-    
-    await supabaseAdmin.from('mail_notifications').insert({
-        id: mailId,
-        related_ip_record_id: ipRecordId,
-        associated_task_id: taskId,
-        source_document_id: record.id,
-        associated_transaction_id: transactionId,
-        template_id: templateId,
-        to_list: finalTo,
-        cc_list: finalCc,
-        client_id: primaryClientId, 
-        subject: finalSubject,
-        body: finalBody,
-        status: finalStatus,
-        mode: "draft", 
-        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
-        notification_type: 'marka',
-        source: 'document_index',
-        is_draft: finalStatus === "missing_info",
-        missing_fields: (finalTo.length === 0 && finalCc.length === 0) ? ['recipients'] : []
-    });
+        const mailId = crypto.randomUUID();
+        
+        const mailPayload = {
+            id: mailId,
+            related_ip_record_id: ipRecordId,
+            associated_task_id: taskId,
+            source_document_id: record.id,
+            associated_transaction_id: transactionId,
+            template_id: templateId,
+            to_list: finalTo,
+            cc_list: finalCc,
+            client_id: primaryClientId, 
+            subject: finalSubject,
+            body: finalBody,
+            status: finalStatus,
+            mode: "draft", 
+            objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
+            notification_type: 'marka',
+            source: 'document_index',
+            is_draft: finalStatus === "missing_info",
+            missing_fields: (finalTo.length === 0 && finalCc.length === 0) ? ['recipients'] : []
+        };
 
-    if (record.file_url) {
-        await supabaseAdmin.from('mail_attachments').insert({
-            notification_id: mailId,
-            file_name: record.file_name || "Evrak.pdf",
-            storage_path: record.file_path,
-            url: record.file_url
-        });
-    }
+        console.log(`[DEBUG] Mail Payload Hazır. Statü: ${finalStatus}, Alıcı Sayısı: ${finalTo.length}`);
 
-    // 🔥 ÇÖZÜM 2: Buradaki 66 Görevi oluşturma kodları TAMAMEN SİLDİK.
-    // Çünkü 'document-review-manager.js' tarafında müvekkil analizi yapılarak bu görev hatasız oluşturuluyor. (Çift kayıt engellendi)
+        // Hata kontrolü ile insert işlemi yapıyoruz
+        const { error: mailInsertError } = await supabaseAdmin
+            .from('mail_notifications')
+            .insert(mailPayload);
 
-    return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (mailInsertError) {
+            console.error("❌ Mail_notifications Insert Hatası:", JSON.stringify(mailInsertError));
+            throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
+        } else {
+            console.log("✅ Mail bildirimi başarıyla oluşturuldu! ID:", mailId);
+        }
 
+        if (record.file_url) {
+            const { error: attachmentError } = await supabaseAdmin.from('mail_attachments').insert({
+                notification_id: mailId,
+                file_name: record.file_name || "Evrak.pdf",
+                storage_path: record.file_path || null,
+                url: record.file_url
+            });
+            
+            if (attachmentError) {
+                console.error("⚠️ Ek dosyası kaydedilemedi:", JSON.stringify(attachmentError));
+            } else {
+                console.log("✅ Mail eki (PDF) başarıyla bağlandı.");
+            }
+        }
+
+        // 🔥 ÇÖZÜM 2: Buradaki 66 Görevi oluşturma kodları TAMAMEN SİLDİK.
+        // Çünkü 'document-review-manager.js' tarafında müvekkil analizi yapılarak bu görev hatasız oluşturuluyor. (Çift kayıt engellendi)
+
+        return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error("❌ Evrak Endeksleme Hatası:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: corsHeaders });

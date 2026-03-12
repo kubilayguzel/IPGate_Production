@@ -656,7 +656,8 @@ export class ManuelPdfTransactionManager {
                 
                 await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
                 const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
-                uploadedDocuments.push({ id: generateUUID(), name: file.name, url: urlData.publicUrl, type: 'application/pdf' });
+                // BURAYA path: storagePath EKLENDİ
+                uploadedDocuments.push({ id: generateUUID(), name: file.name, url: urlData.publicUrl, type: 'application/pdf', path: storagePath });
             }
 
             let finalParentId = existingParentId === "CREATE_NEW" ? null : existingParentId;
@@ -687,22 +688,23 @@ const targetTypeId = isChild ? childTypeId : parentTypeId;
             if (txResult && txResult.success) {
                 const newTransactionId = txResult.id;
                 
-                if (uploadedDocuments.length > 0) {
-                    for (const doc of uploadedDocuments) {
-                        await supabase.from(INCOMING_DOCS_COLLECTION).insert({
-                            id: generateUUID(),
-                            file_name: doc.name,
-                            file_url: doc.url,
-                            document_source: 'manual_entry',
-                            status: 'indexed',
-                            ip_record_id: this.selectedRecordManual.id,
-                            created_transaction_id: newTransactionId,
-                            transaction_type_id: targetTypeId,
-                            user_id: this.currentUser.id,
-                            indexed_at: new Date().toISOString()
-                        });
-                    }
-                } else {
+                    if (uploadedDocuments.length > 0) {
+                        for (const doc of uploadedDocuments) {
+                            await supabase.from(INCOMING_DOCS_COLLECTION).insert({
+                                id: generateUUID(),
+                                file_name: doc.name,
+                                file_url: doc.url,
+                                file_path: doc.path, // <--- BU SATIR EKLENDİ
+                                document_source: 'manual_entry',
+                                status: 'indexed',
+                                ip_record_id: this.selectedRecordManual.id,
+                                created_transaction_id: newTransactionId,
+                                transaction_type_id: targetTypeId,
+                                user_id: this.currentUser.id,
+                                indexed_at: new Date().toISOString()
+                            });
+                        }
+                    } else {
                     // Eğer PDF yüklenmeden sadece işlem girildiyse bile mail atılabilmesi için sanal kayıt
                     await supabase.from(INCOMING_DOCS_COLLECTION).insert({
                         id: generateUUID(),

@@ -2,7 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 // 1. Uygulamanın şu an nerede çalıştığını tespit et
 const hostname = window.location.hostname;
-const isTestEnvironment = hostname === 'localhost' || hostname.includes('ip-manager-production-aab4b');
+const isTestEnvironment = hostname === 'localhost' || hostname.includes('ipgate-supa-test.web.app');
 
 // 2. Ortama göre Supabase URL ve Key belirle
 const SUPABASE_URL = isTestEnvironment 

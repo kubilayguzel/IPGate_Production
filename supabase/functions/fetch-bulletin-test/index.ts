@@ -31,9 +31,8 @@ serve(async (req) => {
 
         for (const item of queueItems) {
             try {
-                console.log(`[TEST] ${item.application_number} YENİ ŞEMA için sorgulanıyor...`);
+                console.log(`[TEST] ${item.application_number} API'den çekiliyor...`);
                 
-                // EPATS İSTEĞİ (Güvenlik Duvarı Aşma Başlıklarıyla)
                 const epatsRes = await fetch("https://opts.turkpatent.gov.tr/api/trademark-search/mark", {
                     method: "POST",
                     headers: { 
@@ -45,7 +44,7 @@ serve(async (req) => {
                         "Sec-Fetch-Dest": "empty",
                         "Sec-Fetch-Mode": "cors",
                         "Sec-Fetch-Site": "same-origin",
-                        // DİKKAT: EPATS'tan aldığınız güncel Cookie'yi buraya yapıştırın:
+                        // DİKKAT: Güncel Cookie'nizi buraya yapıştırın
                         "Cookie": "JSESSIONID=D1AAEBC5C13313773BE5F74FECAD995D; TS01249912=0187428d31851f723addcdf8ae0834afea9b9908a5f3b805b849877af5b30a578052e23c910809dc8dca3c4acaa4d3da8bf885144a194edb068d9a25bd9c184ebc14f30728; _ga=GA1.1.810903385.1765797994; _ga_RSBG2H3YFV=GS2.1.s1773303164$o155$g0$t1773303164$j60$l0$h0; access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZTY3ZjgyMy1lNDBjLTRkNDAtYTM4OS1lZWYzMDE2NjI1ZjgiLCJyb2xlcyI6WyJQQVRFTlRfVFJBQ0tFUiIsIlRSQURFTUFSS19TRUFSQ0hFUiJdLCJpYXQiOjE3NzMzMDMxOTAsImV4cCI6MTc3MzMwNTg5MH0.zEGiS4r49u1TIJy9K2dKXiN7D02P9G1sW7q25t64lpE; TS01777e0b=0187428d319534fbe3acda051da39f6766fde30bb8f3b805b849877af5b30a578052e23c915d6066059fedd7f74f8ebaf0398b30cc484a9ac4dfd121c9bdfec7b20595d3dd", 
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     },
@@ -55,11 +54,9 @@ serve(async (req) => {
                     })
                 });
 
-                const status = epatsRes.status;
+                if (epatsRes.status !== 200) throw new Error(`EPATS ${epatsRes.status} hatası döndürdü.`);
+
                 const rawText = await epatsRes.text(); 
-
-                if (status !== 200) throw new Error(`EPATS ${status} hatası döndürdü.`);
-
                 let responseJson;
                 try {
                     responseJson = JSON.parse(rawText);
@@ -68,6 +65,9 @@ serve(async (req) => {
                 }
                 
                 const markInfo = responseJson?.data?.markInformation;
+                // 🔥 YENİ: Eşya Listesi (Sınıf detayları) dizisini alıyoruz
+                const niceInfoArray = responseJson?.data?.niceInformation || [];
+
                 if (!markInfo || !markInfo.markName) throw new Error("Veri çekildi ama markName bulunamadı.");
 
                 // 1. Logoyu Storage'a Kaydet
@@ -89,21 +89,19 @@ serve(async (req) => {
                     }
                 }
 
-                // --- YENİ ŞEMA İÇİN VERİ HAZIRLIĞI ---
+                // --- VERİTABANI İŞLEMLERİ ---
                 const bulletinNo = markInfo.bulletinNumber || item.bulletin_no || 'BILINMIYOR';
                 const mainBulletinId = `bulletin_main_${bulletinNo}`;
                 const appNoFormatted = item.application_number.replace('/', '_');
                 const bulletinRecordId = `bull_${bulletinNo}_app_${appNoFormatted}`;
 
-                // "29 / 30 / " formatını diziye çevir: ["29", "30"]
                 const niceClassesArray = markInfo.niceClasses 
                     ? markInfo.niceClasses.split('/').map((c: string) => c.trim()).filter((c: string) => c.length > 0)
                     : [];
 
-                // Sahipleri JSONB nesnesine çevir
                 const holdersArray = markInfo.holdName ? [{ name: markInfo.holdName }] : [];
 
-                // 2. trademark_bulletins Tablosuna Ekle (Ana Bülten)
+                // 2. trademark_bulletins Tablosuna Ekle
                 const { error: bulletinError } = await supabase.from('trademark_bulletins').upsert({
                     id: mainBulletinId,
                     bulletin_no: bulletinNo,
@@ -111,7 +109,7 @@ serve(async (req) => {
                 });
                 if (bulletinError) throw bulletinError;
 
-                // 3. trademark_bulletin_records Tablosuna Ekle (Marka Kaydı)
+                // 3. trademark_bulletin_records Tablosuna Ekle
                 const { error: recordError } = await supabase.from('trademark_bulletin_records').upsert({
                     id: bulletinRecordId,
                     bulletin_id: mainBulletinId,
@@ -121,24 +119,36 @@ serve(async (req) => {
                     nice_classes: niceClassesArray,
                     holders: holdersArray,
                     image_url: logoUrl,
-                    source: 'turkpatent_api' // Orijinal bültenlerden ayırmak için etiket
+                    source: 'turkpatent_api'
                 });
                 if (recordError) throw recordError;
 
-                // 4. trademark_bulletin_goods Tablosuna Ekle (Sınıflar)
-                if (niceClassesArray.length > 0) {
+                // 4. 🔥 trademark_bulletin_goods Tablosuna Ekle (EŞYA LİSTESİ İLE)
+                if (niceInfoArray.length > 0) {
+                    // EPATS'tan detaylı eşya listesi geldiyse
+                    const goodsPayload = niceInfoArray.map((info: any) => ({
+                        id: `${bulletinRecordId}_class_${info.classNo}`,
+                        bulletin_record_id: bulletinRecordId,
+                        class_number: String(info.classNo),
+                        class_text: info.goodsAndServices || info.description || "Açıklama bulunamadı."
+                    }));
+
+                    const { error: goodsError } = await supabase.from('trademark_bulletin_goods').upsert(goodsPayload);
+                    if (goodsError) throw goodsError;
+
+                } else if (niceClassesArray.length > 0) {
+                    // Eğer detaylı liste gelmezse (sadece sınıf numarası varsa) Fallback
                     const goodsPayload = niceClassesArray.map((cls: string) => ({
                         id: `${bulletinRecordId}_class_${cls}`,
                         bulletin_record_id: bulletinRecordId,
                         class_number: cls,
-                        class_text: "Eşya listesi EPATS API'den çekilmedi." // İleride doldurulabilir
+                        class_text: "Eşya listesi detayı EPATS API'den çekilemedi."
                     }));
 
                     const { error: goodsError } = await supabase.from('trademark_bulletin_goods').upsert(goodsPayload);
                     if (goodsError) throw goodsError;
                 }
                 
-                // Tamamlandı işaretle
                 await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', item.id);
                 successCount++;
 

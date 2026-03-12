@@ -314,11 +314,19 @@ class NotificationsManager {
                 if (data) activeTaskId = data.associated_task_id;
             }
 
-            const attachments = await attachmentService.resolveAttachments(
-                notification.associated_transaction_id, 
-                notification.source_document_id,
-                activeTaskId
-            );
+            // 🔥 ÇÖZÜM 2a: Sadece indekslenen evrak (source_document_id) varsa diğerlerini yoksay
+            let attachments = [];
+            if (notification.source_document_id) {
+                // Sadece spesifik evrağı al
+                attachments = await attachmentService.resolveAttachments(null, notification.source_document_id, null);
+            } else {
+                // Spesifik evrak yoksa (manuel mail ise) bağlı görevdeki tüm evrakları al
+                attachments = await attachmentService.resolveAttachments(
+                    notification.associated_transaction_id, 
+                    null,
+                    activeTaskId
+                );
+            }
 
             // 🔥 YENİ: senderEmail bilgisini Edge Function'a (Backend) paketliyoruz
             const payload = { 
@@ -551,7 +559,11 @@ class NotificationsManager {
                 return;
             }
 
-            attachmentService.resolveAttachments(txId, docId, taskId)
+            // 🔥 ÇÖZÜM 2b: Arayüz listesinde gösterirken de sadece docId baz al (varsa)
+            const queryTxId = docId ? null : txId;
+            const queryTaskId = docId ? null : taskId;
+
+            attachmentService.resolveAttachments(queryTxId, docId, queryTaskId)
                 .then(attachments => {
                     if (attachments && attachments.length > 0) {
                         cell.innerHTML = attachments.map(a => 

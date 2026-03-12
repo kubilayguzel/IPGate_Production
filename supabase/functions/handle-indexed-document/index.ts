@@ -193,17 +193,19 @@ serve(async (req: Request) => {
 
     if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
 
+    // 🔥 ÇÖZÜM 1: 2 Aylık genel süreyi (ödeme/itiraz) her halükarda hesapla
+    let calculatedDeadlineDate = new Date(tebligDate);
+    calculatedDeadlineDate.setMonth(calculatedDeadlineDate.getMonth() + 2);
+    let iter = 0;
+    while ((isWeekend(calculatedDeadlineDate) || isHoliday(calculatedDeadlineDate)) && iter < 30) {
+        calculatedDeadlineDate.setDate(calculatedDeadlineDate.getDate() + 1);
+        iter++;
+    }
+    const genelSonTarih = calculatedDeadlineDate.toLocaleDateString('tr-TR');
+
     let davaSonTarihi = "-";
-    let calculatedDeadlineDate = null;
     if (decisionAnalysis.isLawsuitRequired) {
-        calculatedDeadlineDate = new Date(tebligDate);
-        calculatedDeadlineDate.setMonth(calculatedDeadlineDate.getMonth() + 2);
-        let iter = 0;
-        while ((isWeekend(calculatedDeadlineDate) || isHoliday(calculatedDeadlineDate)) && iter < 30) {
-            calculatedDeadlineDate.setDate(calculatedDeadlineDate.getDate() + 1);
-            iter++;
-        }
-        davaSonTarihi = calculatedDeadlineDate.toLocaleDateString('tr-TR');
+        davaSonTarihi = genelSonTarih;
     }
 
     // ==========================================
@@ -251,7 +253,8 @@ serve(async (req: Request) => {
                 "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
                 "{{markImageUrl}}": viewData?.brand_image_url || "",
                 "{{itiraz_sahibi}}": transactionData?.opposition_owner || "Belirtilmemiş",
-                "{{resmi_son_cevap_tarihi}}": davaSonTarihi !== "-" ? davaSonTarihi : "Belirtilmemiş"
+                "{{resmi_son_cevap_tarihi}}": genelSonTarih,
+                "{{son_odeme_tarihi}}": genelSonTarih
             };
 
             for (const [k, v] of Object.entries(placeholders)) {

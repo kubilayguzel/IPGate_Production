@@ -706,7 +706,7 @@ export const ipRecordsService = {
             // brand_image_url fallback
             let imageUrl = record.brand_image_url;
             if (!imageUrl || imageUrl.trim() === '') {
-                imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
+            imageUrl = `${SUPABASE_URL}/storage/v1/object/public/brand_images/${record.id}/logo.png`;
             }
 
             return {
@@ -807,7 +807,7 @@ export const ipRecordsService = {
 
         let imageUrl = tmDetails.brand_image_url;
         if (!imageUrl || imageUrl.trim() === '') {
-            imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
+        imageUrl = `${SUPABASE_URL}/storage/v1/object/public/brand_images/${record.id}/logo.png`;
         }
 
         const mappedData = {

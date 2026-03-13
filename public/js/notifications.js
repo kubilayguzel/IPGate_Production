@@ -185,8 +185,11 @@ class NotificationsManager {
             const tr = document.createElement('tr');
             
             const statusMap = {
-                'sent': 'Gönderildi', 'failed': 'Hata Oluştu', 'pending': 'Bekliyor',
-                'missing_info': 'Eksik Bilgi', 'awaiting_client_approval': 'Onay Bekliyor',
+                'sent': 'Gönderildi', 
+                'failed': 'Hata Oluştu', 
+                'pending': 'Gönderime Hazır', 
+                'missing_info': 'Eksik Bilgi', 
+                'awaiting_client_approval': 'Gönderime Hazır',
                 'evaluation_pending': 'Değerlendirme Bekliyor'
             };
 
@@ -439,8 +442,15 @@ class NotificationsManager {
             if (this.elements.ccInput.value.trim()) this.addEmailToChip(this.elements.ccInput, this.currentCc);
 
             const missing = [];
-            if (this.currentTo.length === 0) missing.push("to_list");
-            const newStatus = missing.length > 0 ? 'missing_info' : 'pending';
+            if (this.currentTo.length === 0) missing.push("to_list"); // Sadece To alanına bakar, CC boş olabilir.
+            
+            let newStatus = 'pending';
+            if (missing.length > 0) {
+                newStatus = 'missing_info';
+            } else if (this.currentEditNotification.status === 'awaiting_client_approval' || this.currentEditNotification.status === 'evaluation_pending') {
+                // Eğer statü zaten onay bekliyor ise veya değerlemedeyse, "pending" statüsüne düşürmemek için orijinali koru
+                newStatus = this.currentEditNotification.status;
+            }
 
             const updatePayload = {
                 subject: this.elements.editSubject.value.trim(),

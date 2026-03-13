@@ -194,7 +194,7 @@ serve(async (req: Request) => {
 
             let { to, cc } = await getRecipients(viewData, record, taskTypeId);
             const missingFields = [];
-            if (to.length === 0 && cc.length === 0) missingFields.push("recipients");
+            if (to.length === 0) missingFields.push("recipients"); // 🔥 CC kontrolü kaldırıldı
             if (!hasTemplate) missingFields.push("template");
 
             await supabaseAdmin.from('mail_notifications').insert({

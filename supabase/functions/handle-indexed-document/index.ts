@@ -279,7 +279,7 @@ serve(async (req: Request) => {
     const hasEvalTask = evalTasks && evalTasks.length > 0;
 
     let finalStatus = "missing_info";
-    if (finalTo.length > 0 || finalCc.length > 0) {
+    if (finalTo.length > 0) { // 🔥 SADECE "finalTo" (Kime) kısmını kontrol ediyoruz
         if (hasEvalTask) {
             finalStatus = "evaluation_pending"; // 66 Görevi varsa maili kilitle
         } else {
@@ -307,7 +307,7 @@ serve(async (req: Request) => {
             notification_type: 'marka',
             source: 'document_index',
             is_draft: finalStatus === "missing_info",
-            missing_fields: (finalTo.length === 0 && finalCc.length === 0) ? ['recipients'] : []
+            missing_fields: finalTo.length === 0 ? ['recipients'] : []
         };
 
         console.log(`[DEBUG] Mail Payload Hazır. Statü: ${finalStatus}, Alıcı Sayısı: ${finalTo.length}`);

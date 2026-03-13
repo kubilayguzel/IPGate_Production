@@ -1347,17 +1347,17 @@ const handleReportGeneration = async (event, options = {}) => {
                     const { data: insertedMail, error: mailError } = await supabase.from('mail_notifications').insert({
                         related_ip_record_id: targetRecordId,
                         client_id: finalClientId,
-                        // Şemada olmayan kolonları dynamic_parent_context'e gömüyoruz
                         dynamic_parent_context: JSON.stringify({ bulletin_no: bulletinNo, applicant_name: firstMark.ownerName }),
                         subject: subject,
                         body: body,
                         template_id: "tmpl_watchnotice",
                         to_list: finalTo, 
                         cc_list: finalCc, 
-                        status: "awaiting_client_approval", 
+                        status: finalTo.length === 0 ? "missing_info" : "awaiting_client_approval", // 🔥 DÜZELTME
+                        missing_fields: finalTo.length === 0 ? ['to_list'] : [], // 🔥 DÜZELTME
                         notification_type: "marka",
                         source: "bulletin_watch_system",
-                        is_draft: true
+                        is_draft: finalTo.length === 0 // 🔥 DÜZELTME
                     }).select('id').single();
 
                     if (mailError) throw mailError;

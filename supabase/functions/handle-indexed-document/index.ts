@@ -254,7 +254,8 @@ serve(async (req: Request) => {
                 "{{markImageUrl}}": viewData?.brand_image_url || "",
                 "{{itiraz_sahibi}}": transactionData?.opposition_owner || "Belirtilmemiş",
                 "{{resmi_son_cevap_tarihi}}": genelSonTarih,
-                "{{son_odeme_tarihi}}": genelSonTarih
+                "{{son_odeme_tarihi}}": genelSonTarih,
+                "{{son_itiraz_tarihi}}": genelSonTarih
             };
 
             for (const [k, v] of Object.entries(placeholders)) {

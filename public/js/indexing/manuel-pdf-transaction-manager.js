@@ -1,6 +1,6 @@
 // public/js/indexing/manuel-pdf-transaction-manager.js
 
-import { authService, ipRecordsService, supabase } from '../../supabase-config.js';
+import { authService, ipRecordsService, supabase, taskService } from '../../supabase-config.js';
 import { showNotification, debounce } from '../../utils.js';
 
 const INCOMING_DOCS_COLLECTION = 'incoming_documents';
@@ -50,7 +50,6 @@ export class ManuelPdfTransactionManager {
             const recordsResult = await ipRecordsService.getRecords();
             this.allRecords = recordsResult?.data || recordsResult?.items || recordsResult || [];
 
-            // 🔥 ÇÖZÜM 3: Alt işlemlerin açılması için işlem tiplerini doğrudan Supabase'den ham haliyle çekiyoruz
             const { data: txTypes } = await supabase.from('transaction_types').select('*');
             this.allTransactionTypes = txTypes || [];
             
@@ -62,7 +61,6 @@ export class ManuelPdfTransactionManager {
     }
 
     setupEventListeners() {
-        // --- 1. SÜRÜKLE-BIRAK (UPLOAD) DİNLEYİCİLERİ ---
         const uploadButton = document.getElementById('bulkFilesButton');
         const fileInput = document.getElementById('bulkFiles');
 
@@ -78,7 +76,6 @@ export class ManuelPdfTransactionManager {
             fileInput.addEventListener('change', (e) => this.processFiles(Array.from(e.target.files)));
         }
 
-        // Sekme Navigasyonu Dinleyicisi
         document.querySelectorAll('.tab-navigation .nav-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 this.activeTab = e.currentTarget.getAttribute('data-tab');
@@ -86,7 +83,6 @@ export class ManuelPdfTransactionManager {
             });
         });
 
-        // --- 2. MANUEL İŞLEM (TRANSACTION) FORMU DİNLEYİCİLERİ ---
         document.getElementById('saveManualTransactionBtn')?.addEventListener('click', () => this.handleManualTransactionSubmit());
         
         document.getElementById('specificManualTransactionType')?.addEventListener('change', () => {
@@ -163,17 +159,12 @@ export class ManuelPdfTransactionManager {
         });
     }
 
-    // ==============================================================
-    // BÖLÜM 1: SÜRÜKLE-BIRAK VE DOSYA YÜKLEME (UPLOAD)
-    // ==============================================================
-
     async processFiles(files) {
         if (window.SimpleLoadingController) window.SimpleLoadingController.show({ text: 'Dosyalar Yükleniyor' });
         try {
             for (const file of files) await this.uploadFileToSupabase(file);
             if (window.SimpleLoadingController) window.SimpleLoadingController.showSuccess(`${files.length} dosya başarıyla yüklendi.`);
             
-            // 🔥 ÇÖZÜM: Yükleme biter bitmez listeyi zorla yenile
             await this.fetchManualFiles();
 
             const mainTabBtn = document.querySelector('[data-tab="bulk-indexing-pane"]');
@@ -261,10 +252,8 @@ export class ManuelPdfTransactionManager {
     setupRealtimeListener() {
         if (!this.currentUser) return;
 
-        // Sayfa ilk açıldığında listeyi doldur
         this.fetchManualFiles(); 
 
-        // Eğer Supabase'de Realtime açıksa otomatik dinler
         this.unsubscribe = supabase.channel('incoming_documents_changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: INCOMING_DOCS_COLLECTION, filter: `user_id=eq.${this.currentUser.id}` }, () => {
                 this.fetchManualFiles();
@@ -294,7 +283,6 @@ export class ManuelPdfTransactionManager {
         }
 
         container.innerHTML = pendingFiles.map(file => {
-            // 🔥 ÇÖZÜM: Varsa evrak numarasını "q" parametresiyle İndeksleme sayfasına paslıyoruz (Otomatik arama yapar)
             const qParam = file.extractedAppNumber ? `&q=${encodeURIComponent(file.extractedAppNumber)}` : '';
             
             return `
@@ -331,18 +319,15 @@ export class ManuelPdfTransactionManager {
             const fileToDelete = this.uploadedFiles.find(f => f.id === fileId);
             if (!fileToDelete) return;
 
-            // 1. Önce Storage'dan (documents kovanızdan) fiziksel PDF'i siler
             if (fileToDelete.filePath) {
                 await supabase.storage.from(STORAGE_BUCKET).remove([fileToDelete.filePath]);
             }
             
-            // 2. Sonra veritabanındaki kaydını (incoming_documents) siler
             const { error } = await supabase.from(INCOMING_DOCS_COLLECTION).delete().eq('id', fileId);
             if (error) throw error;
             
             showNotification('Dosya başarıyla silindi.', 'success');
 
-            // 🔥 ÇÖZÜM: Silme işlemi biter bitmez listeyi ekrandan anında kaldır
             await this.fetchManualFiles();
 
         } catch (error) { 
@@ -351,11 +336,6 @@ export class ManuelPdfTransactionManager {
         }
     }
 
-    // ==============================================================
-    // BÖLÜM 2: MANUEL İŞLEM FORMU YÖNETİMİ
-    // ==============================================================
-
-    // 🔥 ÇÖZÜM 2b: Marka Görseli Yükleyici (Silinmişti, Geri Eklendi)
     async _resolveRecordImageUrl(record) {
         const potentialPath = record.imagePath || record.brandImageUrl || record.image || record.logo || record.imageUrl;
         if (!potentialPath) return null;
@@ -426,7 +406,6 @@ export class ManuelPdfTransactionManager {
             const originStr = record.origin || (record._isBulletin ? 'TÜRKPATENT' : 'TR');
             const badge = record._isBulletin ? '<span class="badge badge-warning mr-2">BÜLTEN</span>' : '<span class="badge badge-primary mr-2">PORTFÖY</span>';
 
-            // 🔥 ÇÖZÜM 2a: Orijin (origin) değeri arama sonuçlarına eklendi
             item.innerHTML = `
                 <div style="flex-grow: 1;">
                     <div style="font-weight: 600; color: #1e3c72;">${badge}${title}</div>
@@ -448,7 +427,6 @@ export class ManuelPdfTransactionManager {
         document.getElementById('selectedRecordLabelManual').textContent = record.title || record.markName || '(İsimsiz)';
         document.getElementById('selectedRecordNumberManual').textContent = record.applicationNumber || record.applicationNo || '-';
 
-        // 🔥 ÇÖZÜM 2c: Seçilen kaydın görselini kartın içine çekiyoruz
         const imgEl = document.getElementById('selectedRecordImageManual');
         const phEl = document.getElementById('selectedRecordPlaceholderManual');
         if (imgEl) { imgEl.style.display = 'none'; imgEl.src = ''; }
@@ -502,7 +480,6 @@ export class ManuelPdfTransactionManager {
         const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === parentTypeSelect.value);
         if (!parentTypeObj) return; 
 
-        // 🔥 ÇÖZÜM 3: Doğrudan SQL'den gelen (kırpılmamış) veride sütun isimlerine bakıyoruz
         let allowedChildIds = [];
         if (Array.isArray(parentTypeObj.index_manuel) && parentTypeObj.index_manuel.length > 0) {
             allowedChildIds = parentTypeObj.index_manuel.map(String);
@@ -598,11 +575,17 @@ export class ManuelPdfTransactionManager {
     async _addTransaction(recordId, txData) {
         const txId = generateUUID();
         const payload = {
-            id: txId, ip_record_id: recordId, transaction_type_id: String(txData.type),
-            transaction_hierarchy: txData.transactionHierarchy || 'parent', parent_id: txData.parentId || null,
-            description: txData.description || '', note: txData.notes || null,
+            id: txId, 
+            ip_record_id: recordId, 
+            transaction_type_id: String(txData.type),
+            transaction_hierarchy: txData.transactionHierarchy || 'parent', 
+            parent_id: txData.parentId || null,
+            description: txData.description || '', 
+            note: txData.notes || null,
             transaction_date: txData.date || new Date().toISOString(),
-            user_id: this.currentUser.id, user_email: this.currentUser.email,
+            user_id: this.currentUser.id, 
+            user_email: this.currentUser.email,
+            task_id: txData.taskId || null, // 🔥 GÖREV BAĞLANTISI
             created_at: new Date().toISOString()
         };
         
@@ -656,7 +639,6 @@ export class ManuelPdfTransactionManager {
                 
                 await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
                 const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
-                // BURAYA path: storagePath EKLENDİ
                 uploadedDocuments.push({ id: generateUUID(), name: file.name, url: urlData.publicUrl, type: 'application/pdf', path: storagePath });
             }
 
@@ -671,9 +653,75 @@ export class ManuelPdfTransactionManager {
                 finalParentId = pResult.id;
             }
 
-const targetTypeId = isChild ? childTypeId : parentTypeId;
+            const targetTypeId = isChild ? childTypeId : parentTypeId;
             const typeObj = this.allTransactionTypes.find(t => String(t.id) === String(targetTypeId));
 
+            let createdTaskId = null;
+            
+            // 🔥 GÖREV (TASK) OLUŞTURMA VE BAĞLAMA BLOĞU
+            if (typeObj && typeObj.task_triggered) {
+                const baseDate = deliveryDateStr ? new Date(deliveryDateStr) : new Date();
+                const duePeriod = typeObj.due_period ? Number(typeObj.due_period) : 60;
+                baseDate.setDate(baseDate.getDate() + duePeriod);
+
+                // MÜVEKKİL (TASK OWNER) BULMA
+                let taskOwnerId = null;
+                
+                try {
+                    let apps = this.selectedRecordManual.applicants_json;
+                    if (apps) {
+                        if (typeof apps === 'string') apps = JSON.parse(apps);
+                        if (Array.isArray(apps) && apps.length > 0 && apps[0].id) {
+                            taskOwnerId = apps[0].id;
+                        }
+                    }
+                } catch(e) { console.error("JSON parse hatası:", e); }
+
+                if (!taskOwnerId && this.selectedRecordManual.client_id) {
+                    taskOwnerId = this.selectedRecordManual.client_id;
+                }
+
+                if (!taskOwnerId && this.selectedRecordManual.applicants && this.selectedRecordManual.applicants.length > 0) {
+                    const app = this.selectedRecordManual.applicants[0];
+                    taskOwnerId = app.id || app.person_id || (app.persons && app.persons.id);
+                }
+
+                console.log(`⏳ [SİSTEM] ${typeObj.task_triggered} ID'li görev oluşturuluyor... (Müvekkil ID: ${taskOwnerId || 'BULUNAMADI!'})`);
+
+                if (!taskOwnerId) {
+                    console.error("❌ DİKKAT: task_owner_id (Müvekkil) bulunamadı! Görev tabloya yazılamayacak.");
+                    showNotification("Bu evrak bir müvekkile bağlı değil. Görev oluşturulamadı!", "error");
+                } else {
+                    console.log(`⏳ [SİSTEM] taskService.createTask tetikleniyor...`);
+                    
+                    // 🔥 TASK SERVICE ÜZERİNDEN SAYAÇLI (COUNTER) GÜVENLİ OLUŞTURMA
+                    const taskResult = await taskService.createTask({
+                        title: `${typeObj.name || 'Manuel İşlem'} Görevi`,
+                        description: `Manuel evrak yüklemesi sonucunda otomatik oluşturuldu.`,
+                        task_type_id: String(typeObj.task_triggered),
+                        status: 'pending',
+                        priority: 'medium',
+                        ip_record_id: String(this.selectedRecordManual.id),
+                        created_by: this.currentUser.id,
+                        task_owner_id: String(taskOwnerId),
+                        transaction_id: finalParentId ? String(finalParentId) : null,
+                        official_due_date: baseDate.toISOString()
+                    });
+
+                    if (taskResult.success) {
+                        createdTaskId = taskResult.data.id;
+                        console.log(`✅ Görev BAŞARIYLA oluşturuldu! Task ID: ${createdTaskId}`);
+                    } else {
+                        console.error("❌ GÖREV TABLOYA YAZILAMADI! SERVİS HATASI:", taskResult.error);
+                        let errorMsg = typeof taskResult.error === 'object' ? JSON.stringify(taskResult.error) : taskResult.error;
+                        showNotification("Görev tablosuna kayıt yapılamadı! Hata: " + errorMsg, "error");
+                    }
+                }
+            } else {
+                console.warn(`ℹ️ [BİLGİ] Seçilen işlem tipi (${typeObj?.name}) için 'task_triggered' BOŞ. Görev oluşturulmadı.`);
+            }
+
+            // İŞLEMİ (TRANSACTION) KAYDET VE GÖREVİ BAĞLA
             const txResult = await this._addTransaction(this.selectedRecordManual.id, {
                 type: targetTypeId,
                 transactionHierarchy: isChild ? 'child' : 'parent',
@@ -681,36 +729,37 @@ const targetTypeId = isChild ? childTypeId : parentTypeId;
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : null,
                 description: typeObj ? typeObj.name : notes,
                 notes: notes,
+                taskId: createdTaskId, // 🔥 GÖREV BAŞARILIYSA ID GİDER, DEĞİLSE NULL GİDER
                 documents: uploadedDocuments
             });
 
-            // 🔥 ÇÖZÜM 2: Manuel işlem sonrası Trigger'ın (Backend) uyanması için kayıt atıyoruz
             if (txResult && txResult.success) {
                 const newTransactionId = txResult.id;
                 
-                    if (uploadedDocuments.length > 0) {
-                        for (const doc of uploadedDocuments) {
-                            await supabase.from(INCOMING_DOCS_COLLECTION).insert({
-                                id: generateUUID(),
-                                file_name: doc.name,
-                                file_url: doc.url,
-                                file_path: doc.path, // <--- BU SATIR EKLENDİ
-                                document_source: 'manual_entry',
-                                status: 'indexed',
-                                ip_record_id: this.selectedRecordManual.id,
-                                created_transaction_id: newTransactionId,
-                                transaction_type_id: targetTypeId,
-                                user_id: this.currentUser.id,
-                                indexed_at: new Date().toISOString()
-                            });
-                        }
-                    } else {
-                    // Eğer PDF yüklenmeden sadece işlem girildiyse bile mail atılabilmesi için sanal kayıt
+                if (uploadedDocuments.length > 0) {
+                    for (const doc of uploadedDocuments) {
+                        await supabase.from(INCOMING_DOCS_COLLECTION).insert({
+                            id: generateUUID(),
+                            file_name: doc.name,
+                            file_url: doc.url,
+                            file_path: doc.path, 
+                            document_source: 'manual_entry',
+                            status: 'indexed',
+                            teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
+                            ip_record_id: this.selectedRecordManual.id,
+                            created_transaction_id: newTransactionId,
+                            transaction_type_id: targetTypeId,
+                            user_id: this.currentUser.id,
+                            indexed_at: new Date().toISOString()
+                        });
+                    }
+                } else {
                     await supabase.from(INCOMING_DOCS_COLLECTION).insert({
                         id: generateUUID(),
                         file_name: typeObj ? typeObj.name : 'Sisteme manuel işlem girildi',
                         document_source: 'manual_entry',
                         status: 'indexed',
+                        teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
                         ip_record_id: this.selectedRecordManual.id,
                         created_transaction_id: newTransactionId,
                         transaction_type_id: targetTypeId,

@@ -98,14 +98,26 @@ serve(async (req: Request) => {
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
+
+        // 🔥 YENİ: applicants_json'ı güvenle parse et
+        let parsedApplicants = [];
+        try {
+            parsedApplicants = typeof viewData?.applicants_json === 'string' 
+                ? JSON.parse(viewData.applicants_json) 
+                : (viewData?.applicants_json || []);
+        } catch(e) { console.error("JSON parse hatası:", e); }
         
-        if (viewData?.record_owner_type === 'third_party' && currentTaskId) {
-            const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
-            if (taskData && taskData.task_owner_id) {
-                personIds = [taskData.task_owner_id];
+        if (viewData?.record_owner_type === 'third_party') {
+            // Rakip markaysa ve bir görev oluştuysa görev sahibine bildirim at
+            if (currentTaskId) {
+                const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
+                if (taskData && taskData.task_owner_id) personIds = [taskData.task_owner_id];
             }
-        } else if (viewData?.applicants_json) {
-            personIds = viewData.applicants_json.map((a: any) => a.id).filter(Boolean);
+        } else {
+            // Kendi müvekkilimizse (third_party değilse) personId'leri güvenle array'den çek
+            if (parsedApplicants.length > 0) {
+                personIds = parsedApplicants.map((a: any) => a.id).filter(Boolean);
+            }
         }
         
         // 1. Müşteri Tarafındaki Alıcılar (TO ve CC)

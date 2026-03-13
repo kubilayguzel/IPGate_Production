@@ -1534,20 +1534,39 @@ export const taskService = {
     },
 
     async addTask(taskData) {
+        console.log(`\n=================================================`);
+        console.log(`[TASK SERVICE] 🚀 addTask BAŞLADI.`);
+        console.log(`[TASK SERVICE] 📦 Gelen Ham Veri (taskData):`, taskData);
         try {
-            // 🔥 YENİ: Oturumu alıp created_by (Oluşturan) bilgisini kesin olarak kaydediyoruz
             const { data: { session } } = await supabase.auth.getSession();
-            const createdByUser = session?.user?.email || 'Sistem';
+            
+            // 🔥 KORUMA 1: created_by (Oluşturan) her zaman UUID olmak zorundadır. Email yazılırsa DB reddeder!
+            const createdByUser = session?.user?.id || null;
 
-            // 🔥 ÇÖZÜM: 409 Conflict (ID Çakışması) önlemek için Güvenli Yeniden Deneme (Retry) Mekanizması
+            // 🔥 KORUMA 2: assigned_to (Atanan) kişi veritabanında gerçekten var mı?
+            // Test ortamında hardcoded ID'ler (örn: Selcan Hanım) bulunmayabilir. Sistem çökmek yerine işlemi yapana atar.
+            let finalAssignedTo = taskData.assignedTo_uid || taskData.assigned_to || null;
+            
+            if (finalAssignedTo) {
+                const { data: checkUser } = await supabase.from('users').select('id').eq('id', finalAssignedTo).maybeSingle();
+                if (!checkUser) {
+                    console.warn(`[TASK SERVICE] ⚠️ Atanan kullanıcı (${finalAssignedTo}) 'users' tablosunda yok! Görev size atanıyor.`);
+                    finalAssignedTo = createdByUser; 
+                }
+            } else {
+                finalAssignedTo = createdByUser; 
+            }
+
             let isInserted = false;
             let insertedData = null;
             let retryCount = 0;
-            const maxRetries = 5;
+            const maxRetries = 15;
 
             while (!isInserted && retryCount < maxRetries) {
-                const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id);
-                const payload = {
+                const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id, retryCount);
+                console.log(`[TASK SERVICE] 🎫 Üretilen / Denenecek Task ID: ${nextId}`);
+                
+                const payload = { 
                     id: nextId, 
                     title: taskData.title,
                     description: taskData.description || null,
@@ -1556,47 +1575,63 @@ export const taskService = {
                     priority: taskData.priority || 'normal',
                     official_due_date: taskData.officialDueDate || taskData.official_due_date || null,
                     operational_due_date: taskData.operationalDueDate || taskData.operational_due_date || null,
-                    assigned_to: taskData.assignedTo_uid || taskData.assigned_to || null,
+                    assigned_to: finalAssignedTo, // 🛡️ Koruma 2 burada kullanıldı
                     ip_record_id: taskData.relatedIpRecordId || taskData.ip_record_id ? String(taskData.relatedIpRecordId || taskData.ip_record_id) : null,
                     task_owner_id: taskData.relatedPartyId || taskData.task_owner_id || null,
                     transaction_id: taskData.transactionId || taskData.transaction_id ? String(taskData.transactionId || taskData.transaction_id) : null,
                     details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null },
-                    created_by: taskData.createdBy || taskData.created_by || createdByUser
+                    created_by: taskData.createdBy || taskData.created_by || createdByUser // 🛡️ Koruma 1 burada kullanıldı
                 };
-                
+
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
-                
+                console.log(`[TASK SERVICE] 📤 Supabase'e Gönderilecek INSERT Payload'u:`, payload);
+
                 const { data, error } = await supabase.from('tasks').insert(payload).select('id').single();
                 
                 if (error) {
-                    // 23505 PostgreSQL'de Unique Violation (Çakışma / 409) kodudur
+                    console.error(`[TASK SERVICE] ❌ INSERT HATASI ALINDI! (Deneme ${retryCount + 1})`);
+                    console.error(`[TASK SERVICE] 🚨 HATA DETAYI:`, JSON.stringify(error, null, 2));
+
                     if (error.code === '23505' || error.message?.includes('duplicate')) {
-                        console.warn(`[TASK SERVICE] 409 ID Çakışması! Yeni ID alınıyor... Deneme: ${retryCount + 1}`);
+                        console.warn(`[TASK SERVICE] ⚠️ 409 Çakışması! Yeni ID için retry yapılacak...`);
                         retryCount++;
-                        // Sisteme nefes aldırıp (100-500ms) döngüyü yeniden başlatır
-                        await new Promise(r => setTimeout(r, Math.random() * 400 + 100)); 
-                        continue; 
+                        await new Promise(r => setTimeout(r, 100)); 
+                        continue;
                     }
-                    throw error;
+                    
+                    // Foreign Key veya başka bir hataysa fırlat
+                    throw error; 
                 }
                 
+                console.log(`[TASK SERVICE] ✅ INSERT BAŞARILI! Dönen Data:`, data);
                 insertedData = data;
                 isInserted = true;
             }
 
             if (!isInserted) {
-                throw new Error("Görev ID'si alınamadı, sistemde yoğun çakışma var. Lütfen tekrar deneyin.");
+                console.error(`[TASK SERVICE] ❌ ${maxRetries} deneme yapıldı ama başarılı olunamadı.`);
+                throw new Error("Görev ID'si alınamadı, sistemde yoğun çakışma var.");
             }
 
             if (taskData.history && taskData.history.length > 0) {
+                console.log(`[TASK SERVICE] 📜 Geçmiş (History) tablosuna yazılıyor...`);
                 const histToInsert = taskData.history.map(h => ({
-                    task_id: insertedData.id, action: h.action, user_id: h.userEmail, created_at: h.timestamp || new Date().toISOString(), details: {}
+                    task_id: insertedData.id, 
+                    action: h.action, 
+                    user_id: createdByUser, // 🛡️ History tablosunda da UUID zorunlu
+                    created_at: h.timestamp || new Date().toISOString(), 
+                    details: { user_email: h.userEmail }
                 }));
                 await supabase.from('task_history').insert(histToInsert);
             }
 
+            console.log(`[TASK SERVICE] 🎉 İŞLEM TAMAMLANDI.`);
+            console.log(`=================================================\n`);
             return { success: true, data: { id: insertedData.id } };
-        } catch (error) { return { success: false, error: error.message }; }
+        } catch (error) { 
+            console.error(`[TASK SERVICE] 💥 CATCH BLOĞU (KRİTİK HATA):`, error);
+            return { success: false, error: error }; 
+        }
     },
     
     async createTask(taskData) { return await this.addTask(taskData); },
@@ -1668,27 +1703,27 @@ export const taskService = {
         }
     },
 
-    async _getNextTaskId(taskType) {
+    async _getNextTaskId(taskType, currentRetry = 0) {
+        console.log(`[TASK SERVICE] 🔢 _getNextTaskId Çalıştı -> type: ${taskType}, retry: ${currentRetry}`);
         try {
             const isAccrualTask = String(taskType) === '53';
             const counterId = isAccrualTask ? 'tasks_accruals' : 'tasks';
             const prefix = isAccrualTask ? 'T-' : '';
 
-            const { data: counterData } = await supabase.from('counters').select('last_id').eq('id', counterId).single();
-
-            let nextNum = (counterData?.last_id || 0) + 1;
-            let isFree = false;
-            let finalId = '';
+            const { data: counterData, error: counterErr } = await supabase.from('counters').select('last_id').eq('id', counterId).maybeSingle();
             
-            while (!isFree) {
-                finalId = `${prefix}${nextNum}`; 
-                const { data: existingTask } = await supabase.from('tasks').select('id').eq('id', finalId).maybeSingle(); 
-                if (!existingTask) isFree = true; else nextNum++; 
-            }
+            if (counterErr) console.error(`[TASK SERVICE] ❌ Counter okuma hatası:`, counterErr);
 
-            await supabase.from('counters').upsert({ id: counterId, last_id: nextNum }, { onConflict: 'id' });
-            return finalId;
+            let nextNum = (counterData?.last_id || 0) + 1 + currentRetry;
+            console.log(`[TASK SERVICE] 📊 Veritabanındaki last_id: ${counterData?.last_id || 0} | Hesaplanıp Denenecek Olan: ${nextNum}`);
+
+            const { error: upsertErr } = await supabase.from('counters').upsert({ id: counterId, last_id: nextNum }, { onConflict: 'id' });
+            
+            if (upsertErr) console.error(`[TASK SERVICE] ❌ Counter güncelleme (upsert) hatası:`, upsertErr);
+
+            return `${prefix}${nextNum}`;
         } catch (e) {
+            console.error("[TASK SERVICE] 💥 _getNextTaskId Kritik Hata:", e);
             const fallbackId = String(Date.now()).slice(-6); 
             return String(taskType) === '53' ? `T-${fallbackId}` : fallbackId;
         }

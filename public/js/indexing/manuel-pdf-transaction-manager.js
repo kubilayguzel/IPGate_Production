@@ -655,70 +655,94 @@ export class ManuelPdfTransactionManager {
 
             const targetTypeId = isChild ? childTypeId : parentTypeId;
             const typeObj = this.allTransactionTypes.find(t => String(t.id) === String(targetTypeId));
-
+           
             let createdTaskId = null;
             
             // 🔥 GÖREV (TASK) OLUŞTURMA VE BAĞLAMA BLOĞU
+            let tasksToCreate = [];
             if (typeObj && typeObj.task_triggered) {
-                const baseDate = deliveryDateStr ? new Date(deliveryDateStr) : new Date();
-                const duePeriod = typeObj.due_period ? Number(typeObj.due_period) : 60;
-                baseDate.setDate(baseDate.getDate() + duePeriod);
+                tasksToCreate.push(String(typeObj.task_triggered));
+            }
 
-                // MÜVEKKİL (TASK OWNER) BULMA
-                let taskOwnerId = null;
-                
-                try {
-                    let apps = this.selectedRecordManual.applicants_json;
-                    if (apps) {
-                        if (typeof apps === 'string') apps = JSON.parse(apps);
-                        if (Array.isArray(apps) && apps.length > 0 && apps[0].id) {
-                            taskOwnerId = apps[0].id;
-                        }
+            // MÜVEKKİL (TASK OWNER) BULMA
+            let taskOwnerId = null;
+            try {
+                let apps = this.selectedRecordManual.applicants_json;
+                if (apps) {
+                    if (typeof apps === 'string') apps = JSON.parse(apps);
+                    if (Array.isArray(apps) && apps.length > 0 && apps[0].id) {
+                        taskOwnerId = apps[0].id;
                     }
-                } catch(e) { console.error("JSON parse hatası:", e); }
+                }
+            } catch(e) { console.error("JSON parse hatası:", e); }
 
-                if (!taskOwnerId && this.selectedRecordManual.client_id) {
-                    taskOwnerId = this.selectedRecordManual.client_id;
+            if (!taskOwnerId && this.selectedRecordManual.client_id) taskOwnerId = this.selectedRecordManual.client_id;
+            if (!taskOwnerId && this.selectedRecordManual.applicants && this.selectedRecordManual.applicants.length > 0) {
+                const app = this.selectedRecordManual.applicants[0];
+                taskOwnerId = app.id || app.person_id || (app.persons && app.persons.id);
+            }
+
+            // 🔥 66 (DEĞERLENDİRME) GÖREVİ İÇİN KONTROL (Burada yoktu, eklendi!)
+            if (taskOwnerId && targetTypeId) {
+                const recOwnerType = this.selectedRecordManual.recordOwnerType || this.selectedRecordManual.record_owner_type || 'self';
+                let isEligibleFor66 = false;
+                const cIdStr = String(targetTypeId);
+
+                if (['30', '31', '42', '43'].includes(cIdStr)) {
+                    isEligibleFor66 = true;
+                } else if (recOwnerType === 'self' && ['32', '33', '34', '35', '50', '51'].includes(cIdStr)) {
+                    isEligibleFor66 = true;
+                } else if (recOwnerType === 'third_party' && ['51', '52', '31', '32', '35', '36'].includes(cIdStr)) {
+                    isEligibleFor66 = true;
                 }
 
-                if (!taskOwnerId && this.selectedRecordManual.applicants && this.selectedRecordManual.applicants.length > 0) {
-                    const app = this.selectedRecordManual.applicants[0];
-                    taskOwnerId = app.id || app.person_id || (app.persons && app.persons.id);
+                if (isEligibleFor66) {
+                    try {
+                        const { data: personData } = await supabase.from('persons').select('is_evaluation_required').eq('id', taskOwnerId).single();
+                        if (personData && personData.is_evaluation_required && !tasksToCreate.includes("66")) {
+                            tasksToCreate.push("66");
+                            console.log("🎯 [SİSTEM] Müvekkil için 66 nolu Değerlendirme görevi tetiklendi!");
+                        }
+                    } catch (e) {}
                 }
+            }
 
-                console.log(`⏳ [SİSTEM] ${typeObj.task_triggered} ID'li görev oluşturuluyor... (Müvekkil ID: ${taskOwnerId || 'BULUNAMADI!'})`);
-
+            // GÖREVLERİ VERİTABANINA YAZ
+            if (tasksToCreate.length > 0) {
                 if (!taskOwnerId) {
                     console.error("❌ DİKKAT: task_owner_id (Müvekkil) bulunamadı! Görev tabloya yazılamayacak.");
                     showNotification("Bu evrak bir müvekkile bağlı değil. Görev oluşturulamadı!", "error");
                 } else {
-                    console.log(`⏳ [SİSTEM] taskService.createTask tetikleniyor...`);
-                    
-                    // 🔥 TASK SERVICE ÜZERİNDEN SAYAÇLI (COUNTER) GÜVENLİ OLUŞTURMA
-                    const taskResult = await taskService.createTask({
-                        title: `${typeObj.name || 'Manuel İşlem'} Görevi`,
-                        description: `Manuel evrak yüklemesi sonucunda otomatik oluşturuldu.`,
-                        task_type_id: String(typeObj.task_triggered),
-                        status: 'pending',
-                        priority: 'medium',
-                        ip_record_id: String(this.selectedRecordManual.id),
-                        created_by: this.currentUser.id,
-                        task_owner_id: String(taskOwnerId),
-                        transaction_id: finalParentId ? String(finalParentId) : null,
-                        official_due_date: baseDate.toISOString()
-                    });
+                    const baseDate = deliveryDateStr ? new Date(deliveryDateStr) : new Date();
+                    const duePeriod = typeObj.due_period ? Number(typeObj.due_period) : 60;
+                    baseDate.setDate(baseDate.getDate() + duePeriod);
 
-                    if (taskResult.success) {
-                        createdTaskId = taskResult.data.id;
-                        console.log(`✅ Görev BAŞARIYLA oluşturuldu! Task ID: ${createdTaskId}`);
-                    } else {
-                        console.error("❌ GÖREV TABLOYA YAZILAMADI! SERVİS HATASI:", taskResult.error);
-                        let errorMsg = typeof taskResult.error === 'object' ? JSON.stringify(taskResult.error) : taskResult.error;
-                        showNotification("Görev tablosuna kayıt yapılamadı! Hata: " + errorMsg, "error");
+                    for (const tType of tasksToCreate) {
+                        console.log(`⏳ [SİSTEM] ${tType} numaralı görev oluşturuluyor...`);
+                        
+                        const taskResult = await taskService.createTask({
+                            title: `${tType === "66" ? "Uzman Değerlendirmesi" : typeObj.name || 'Manuel İşlem'} Görevi`,
+                            description: tType === "66" ? `Müvekkil değerlendirme ayarı açık olduğu için tetiklendi.` : `Manuel evrak yüklemesi sonucunda otomatik oluşturuldu.`,
+                            task_type_id: String(tType),
+                            status: tType === "66" ? 'open' : 'pending',
+                            priority: 'medium',
+                            ip_record_id: String(this.selectedRecordManual.id),
+                            created_by: this.currentUser.id,
+                            task_owner_id: String(taskOwnerId),
+                            transaction_id: finalParentId ? String(finalParentId) : null,
+                            official_due_date: baseDate.toISOString()
+                        });
+
+                        if (taskResult.success) {
+                            if (tType !== "66") createdTaskId = taskResult.data.id; // Ana görevi transaction'a bağlamak için sakla
+                            console.log(`✅ ${tType} Görevi BAŞARIYLA oluşturuldu! Task ID: ${taskResult.data.id}`);
+                        } else {
+                            console.error(`❌ ${tType} GÖREVİ YAZILAMADI! HATA:`, taskResult.error);
+                        }
                     }
                 }
             } else {
-                console.warn(`ℹ️ [BİLGİ] Seçilen işlem tipi (${typeObj?.name}) için 'task_triggered' BOŞ. Görev oluşturulmadı.`);
+                console.warn(`ℹ️ [BİLGİ] Seçilen işlem tipi için görev oluşturulmadı.`);
             }
 
             // İŞLEMİ (TRANSACTION) KAYDET VE GÖREVİ BAĞLA
@@ -729,7 +753,7 @@ export class ManuelPdfTransactionManager {
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : null,
                 description: typeObj ? typeObj.name : notes,
                 notes: notes,
-                taskId: createdTaskId, // 🔥 GÖREV BAŞARILIYSA ID GİDER, DEĞİLSE NULL GİDER
+                taskId: createdTaskId, // 🔥 SADECE ANA GÖREV ID'Sİ GİDER (66 GİTMEZ)
                 documents: uploadedDocuments
             });
 

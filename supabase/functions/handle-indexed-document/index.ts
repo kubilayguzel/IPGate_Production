@@ -6,16 +6,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// --- TATİL VE TARİH YARDIMCILARI ---
 const TURKEY_HOLIDAYS = [
     "2025-01-01", "2025-03-30", "2025-03-31", "2025-04-01", "2025-04-23", "2025-05-01", "2025-05-19", "2025-06-06", "2025-06-07", "2025-06-08", "2025-06-09", "2025-07-15", "2025-08-30", "2025-10-29",
     "2026-01-01", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-04-23", "2026-05-01", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-07-15", "2026-08-30", "2026-10-29"
 ];
 
 function isWeekend(date: Date) { return date.getDay() === 0 || date.getDay() === 6; }
-function isHoliday(date: Date) {
-    const d = date.toISOString().split('T')[0];
-    return TURKEY_HOLIDAYS.includes(d);
+function isHoliday(date: Date) { return TURKEY_HOLIDAYS.includes(date.toISOString().split('T')[0]); }
+
+// 🔥 TARİHLERİ %100 TÜRKİYE FORMATINA ÇEVİREN GARANTİ FONKSİYON
+function formatTR(date: Date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${day}.${month}.${date.getFullYear()}`;
 }
 
 serve(async (req: Request) => {
@@ -28,33 +31,20 @@ serve(async (req: Request) => {
     const isNewIndexed = type === 'INSERT' && record.status === 'indexed';
     const isUpdatedToIndexed = type === 'UPDATE' && record.status === 'indexed' && old_record?.status !== 'indexed';
 
-    if (!isNewIndexed && !isUpdatedToIndexed) {
-        return new Response("İşlem atlandı.", { status: 200 });
-    }
-
-    console.log(`🚀 [OTOMASYON] Belge Endekslendi: ${record.id}`);
+    if (!isNewIndexed && !isUpdatedToIndexed) return new Response("İşlem atlandı.", { status: 200 });
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // ==========================================
-    // 1. GEREKLİ VERİLERİ TOPLAMA
-    // ==========================================
     const ipRecordId = record.ip_record_id;
     const transactionId = record.created_transaction_id;
-    
-    // 🔥 ÇÖZÜM 3a: 'const' yerine 'let' yapıyoruz ki sonradan doldurabilelim
     let txTypeId = String(record.transaction_type_id || '');
-
-    if (!ipRecordId) throw new Error("Evrak bir Marka/Patent kaydına bağlı değil.");
 
     let viewData: any = null;
     const { data: vwData } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', ipRecordId).single();
     if (vwData) viewData = vwData;
-
-    if (!viewData) throw new Error(`Veritabanında '${ipRecordId}' ID'li kayıt bulunamadı.`);
 
     let transactionData = null;
     let taskId = null;
@@ -63,14 +53,7 @@ serve(async (req: Request) => {
         if (tx) {
             transactionData = tx;
             taskId = tx.task_id;
-
-            // 🔥 ÇÖZÜM 3b (GÜVENLİK AĞI): Eğer incoming_documents'da Tip ID eksikse, Transactions tablosundan çek!
-            if (!txTypeId) {
-                txTypeId = String(tx.transaction_type_id || tx.type || '');
-                console.log(`[DEBUG] Tip ID incoming_documents'dan bulunamadı, Transaction üzerinden kurtarıldı: ${txTypeId}`);
-            }
-            
-            // Rakip dosyalar için görev sahibi bulucu (Önceki başarılı güncellememiz)
+            if (!txTypeId) txTypeId = String(tx.transaction_type_id || tx.type || '');
             if (!taskId && tx.parent_id) {
                 const { data: pTx } = await supabaseAdmin.from('transactions').select('task_id').eq('id', tx.parent_id).maybeSingle();
                 if (pTx && pTx.task_id) taskId = pTx.task_id;
@@ -78,63 +61,82 @@ serve(async (req: Request) => {
         }
     }
 
-    // 🔥 ÇÖZÜM 4: Bulunan taskId gerçekten Tasks tablosunda var mı kontrol et (Foreign Key Constraint hatasını önler)
     if (taskId) {
         const { data: checkTask } = await supabaseAdmin.from('tasks').select('id').eq('id', taskId).maybeSingle();
-        if (!checkTask) {
-            console.warn(`[UYARI] İşlemde task_id (${taskId}) var ancak Tasks tablosunda bulunamadı. Hata vermemesi için null yapılıyor.`);
-            taskId = null;
-        }
+        if (!checkTask) taskId = null;
     }
 
+    // 🔥 BENİM YANLIŞLIKLA SİLDİĞİM 4 KRİTİK SATIR GERİ GELDİ!
     const brandName = viewData?.brand_name || "-";
     const appNo = viewData?.application_number || viewData?.registration_number || "-";
     const applicantNames = viewData?.applicant_names || "-";
     const isPortfolio = viewData?.record_owner_type === 'self';
-    const tebligDate = record.teblig_tarihi ? new Date(record.teblig_tarihi) : new Date();
 
-    // 🔥 DİĞER FONKSİYONDAKİ (handle-task-mails) KUSURSUZ ÇALIŞAN MANTIĞIN BİREBİR AYNISI
+    let tebligDate = new Date();
+    if (record.teblig_tarihi) {
+        const dString = record.teblig_tarihi.split('T')[0];
+        const [y, m, d] = dString.split('-');
+        tebligDate = new Date(Number(y), Number(m) - 1, Number(d));
+    }
+
+    // 🔥 GÜÇLENDİRİLMİŞ ALICI BULMA (TO/CC)
     async function getRecipients(viewData: any, currentTaskId: any, currentTaskType: string) {
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
+        let debugLog = ""; 
 
-        // 🔥 YENİ: applicants_json'ı güvenle parse et
-        let parsedApplicants = [];
-        try {
-            parsedApplicants = typeof viewData?.applicants_json === 'string' 
-                ? JSON.parse(viewData.applicants_json) 
-                : (viewData?.applicants_json || []);
-        } catch(e) { console.error("JSON parse hatası:", e); }
-        
-        if (viewData?.record_owner_type === 'third_party') {
-            // Rakip markaysa ve bir görev oluştuysa görev sahibine bildirim at
-            if (currentTaskId) {
-                const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
-                if (taskData && taskData.task_owner_id) personIds = [taskData.task_owner_id];
-            }
-        } else {
-            // Kendi müvekkilimizse (third_party değilse) personId'leri güvenle array'den çek
-            if (parsedApplicants.length > 0) {
-                personIds = parsedApplicants.map((a: any) => a.id).filter(Boolean);
-            }
+        const ipType = viewData?.ip_type || 'trademark';
+
+        if (currentTaskId) {
+            const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
+            if (taskData && taskData.task_owner_id) personIds.push(String(taskData.task_owner_id));
+        }
+
+        if (personIds.length === 0 && viewData?.applicants_json) {
+            let parsedApplicants = [];
+            try { parsedApplicants = typeof viewData.applicants_json === 'string' ? JSON.parse(viewData.applicants_json) : viewData.applicants_json; } catch(e) {}
+            if (Array.isArray(parsedApplicants)) personIds = parsedApplicants.map((a: any) => String(a.id)).filter(Boolean);
         }
         
-        // 1. Müşteri Tarafındaki Alıcılar (TO ve CC)
-        if (personIds && personIds.length > 0) {
-            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
-            if (prData) {
+        debugLog += `Aranan Person IDs: ${JSON.stringify(personIds)} | IP Type: ${ipType} <br>`;
+
+        if (personIds.length > 0) {
+            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds);
+
+            if (prData && prData.length > 0) {
+                debugLog += `Bulunan Persons Related: ${JSON.stringify(prData.map((p:any)=>p.email))} <br>`;
                 for (const pr of prData) {
                     if (pr.email) {
-                        if (pr.notify_trademark_to) to.push(pr.email);
-                        if (pr.notify_trademark_cc) cc.push(pr.email);
-                        if (!pr.notify_trademark_to && !pr.notify_trademark_cc) to.push(pr.email); 
+                        let isResponsible = false, notifyTo = false, notifyCc = false;
+
+                        if (ipType === 'trademark') { isResponsible = pr.resp_trademark; notifyTo = pr.notify_trademark_to; notifyCc = pr.notify_trademark_cc; } 
+                        else if (ipType === 'patent') { isResponsible = pr.resp_patent; notifyTo = pr.notify_patent_to; notifyCc = pr.notify_patent_cc; } 
+                        else if (ipType === 'design') { isResponsible = pr.resp_design; notifyTo = pr.notify_design_to; notifyCc = pr.notify_design_cc; }
+
+                        if (isResponsible) {
+                            if (notifyTo) to.push(pr.email.trim());
+                            if (notifyCc) cc.push(pr.email.trim());
+                            if (!notifyTo && !notifyCc) to.push(pr.email.trim());
+                        }
                     }
+                }
+            }
+            
+            if (to.length === 0 && cc.length > 0) {
+                to.push(cc[0]);
+                debugLog += `Sadece CC seçilmiş, ilk CC kişisi mecburen TO yapıldı.<br>`;
+            }
+
+            if (to.length === 0) {
+                debugLog += `TO listesi hala BOŞ! Ana persons tablosuna bakılıyor...<br>`;
+                const { data: pData } = await supabaseAdmin.from('persons').select('email').in('id', personIds);
+                if (pData && pData.length > 0) {
+                    pData.forEach((p: any) => { if (p.email) to.push(p.email.trim()); });
                 }
             }
         }
 
-        // 2. Evreka İçi Otomatik CC Listesi
         const { data: internalCcs } = await supabaseAdmin.from('evreka_mail_cc_list').select('email, transaction_types');
         if (internalCcs && internalCcs.length > 0) {
             internalCcs.forEach((internal: any) => {
@@ -147,23 +149,16 @@ serve(async (req: Request) => {
             });
         }
 
-        const finalTo = [...new Set(to)].filter(Boolean);
-        const finalCc = [...new Set(cc)].filter(Boolean).filter(e => !finalTo.includes(e));
-
-        return { to: finalTo, cc: finalCc, primaryClientId: personIds.length > 0 ? personIds[0] : null };
+        return { 
+            to: [...new Set(to)].filter(Boolean), 
+            cc: [...new Set(cc)].filter(Boolean).filter(e => !to.includes(e)), 
+            primaryClientId: personIds.length > 0 ? personIds[0] : null,
+            debugInfo: debugLog
+        };
     }
 
-    const { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskId, txTypeId);
+    const { to: finalTo, cc: finalCc, primaryClientId, debugInfo } = await getRecipients(viewData, taskId, txTypeId);
 
-    let isEvaluationRequired = false;
-    if (primaryClientId) {
-        const { data: personData } = await supabaseAdmin.from('persons').select('is_evaluation_required').eq('id', primaryClientId).maybeSingle();
-        if (personData) isEvaluationRequired = personData.is_evaluation_required;
-    }
-
-    // ==========================================
-    // 2. KARAR VE DAVA ANALİZİ MANTIĞI
-    // ==========================================
     let decisionAnalysis = {
         isLawsuitRequired: false,
         resultText: "-", statusText: "-", statusColor: "#333", 
@@ -197,15 +192,14 @@ serve(async (req: Request) => {
             if (isPortfolio) { decisionAnalysis.statusText = "LEHİMİZE (İtiraz Reddedildi)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "İtiraz sahibinin talebi reddedilmiştir. Karar lehimizedir."; } 
             else { decisionAnalysis.statusText = "ALEYHİMİZE (İtirazımız Reddedildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Yaptığımız itiraz nihai olarak reddedilmiştir. Dava açma hakkınız bulunmaktadır."; }
         }
-    } else if (txTypeId === "29") {
+    } else if (txTypeId === "29" || txTypeId === "42") { 
         decisionAnalysis = { isLawsuitRequired: true, resultText: "KISMEN KABUL", statusText: "KISMEN RET", statusColor: "#d97706", summaryText: "Karara itirazımız kısmen kabul edilmiştir.", boxColor: "#fff2f0", boxBorder: "#ff4d4f" };
-    } else if (txTypeId === "30") {
+    } else if (txTypeId === "30" || txTypeId === "43") { 
         decisionAnalysis = { isLawsuitRequired: true, resultText: "RET", statusText: "NİHAİ RET", statusColor: "#d32f2f", summaryText: "Karara itirazımız reddedilmiştir.", boxColor: "#fff2f0", boxBorder: "#ff4d4f" };
     }
 
     if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
 
-    // 🔥 ÇÖZÜM 1: 2 Aylık genel süreyi (ödeme/itiraz) her halükarda hesapla
     let calculatedDeadlineDate = new Date(tebligDate);
     calculatedDeadlineDate.setMonth(calculatedDeadlineDate.getMonth() + 2);
     let iter = 0;
@@ -213,25 +207,20 @@ serve(async (req: Request) => {
         calculatedDeadlineDate.setDate(calculatedDeadlineDate.getDate() + 1);
         iter++;
     }
-    const genelSonTarih = calculatedDeadlineDate.toLocaleDateString('tr-TR');
+    
+    const genelSonTarih = formatTR(calculatedDeadlineDate);
+    const formattedTeblig = formatTR(tebligDate);
 
     let davaSonTarihi = "-";
     if (decisionAnalysis.isLawsuitRequired) {
         davaSonTarihi = genelSonTarih;
     }
 
-    // ==========================================
-    // 5. ŞABLON EŞLEŞTİRME VE İÇERİK OLUŞTURMA
-    // ==========================================
     let finalSubject = "Yeni Evrak Bildirimi";
     let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
     let templateId = null;
 
-    const { data: rule } = await supabaseAdmin.from('template_rules')
-        .select('template_id')
-        .eq('source_type', 'document')
-        .eq('sub_process_type', txTypeId)
-        .maybeSingle();
+    const { data: rule } = await supabaseAdmin.from('template_rules').select('template_id').eq('source_type', 'document').eq('sub_process_type', txTypeId).maybeSingle();
 
     if (rule && rule.template_id) {
         templateId = rule.template_id;
@@ -251,7 +240,7 @@ serve(async (req: Request) => {
                 "{{markName}}": brandName,
                 "{{basvuru_no}}": appNo,
                 "{{proje_adi}}": brandName,
-                "{{teblig_tarihi}}": tebligDate.toLocaleDateString('tr-TR'),
+                "{{teblig_tarihi}}": formattedTeblig, 
                 "{{islem_turu_adi}}": record.description || txTypeId,
                 "{{epats_evrak_no}}": record.document_number || "-",
                 "{{applicantNames}}": applicantNames,
@@ -265,7 +254,7 @@ serve(async (req: Request) => {
                 "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
                 "{{markImageUrl}}": viewData?.brand_image_url || "",
                 "{{itiraz_sahibi}}": transactionData?.opposition_owner || "Belirtilmemiş",
-                "{{resmi_son_cevap_tarihi}}": genelSonTarih,
+                "{{resmi_son_cevap_tarihi}}": genelSonTarih, 
                 "{{son_odeme_tarihi}}": genelSonTarih,
                 "{{son_itiraz_tarihi}}": genelSonTarih
             };
@@ -278,84 +267,48 @@ serve(async (req: Request) => {
         }
     }
 
-    // ==========================================
-    // 6. STATÜ BELİRLEME VE KAYIT İŞLEMİ
-    // ==========================================
-    
-    // 🔥 ÇÖZÜM 1: Bu işlemle beraber bir "66 (Değerlendirme)" görevi tetiklenmiş mi kontrol et
-    const { data: evalTasks } = await supabaseAdmin.from('tasks')
-        .select('id')
-        .eq('transaction_id', transactionId)
-        .eq('task_type_id', '66')
-        .limit(1);
-    
-    const hasEvalTask = evalTasks && evalTasks.length > 0;
-
-    let finalStatus = "missing_info";
-    if (finalTo.length > 0) { // 🔥 SADECE "finalTo" (Kime) kısmını kontrol ediyoruz
-        if (hasEvalTask) {
-            finalStatus = "evaluation_pending"; // 66 Görevi varsa maili kilitle
-        } else {
-            finalStatus = "awaiting_client_approval"; // Görev yoksa direkt onaya aç
-        }
+    if (finalTo.length === 0) {
+        finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
     }
 
-        const mailId = crypto.randomUUID();
-        
-        const mailPayload = {
-            id: mailId,
-            related_ip_record_id: ipRecordId,
-            associated_task_id: taskId,
-            source_document_id: record.id,
-            associated_transaction_id: transactionId,
-            template_id: templateId,
-            to_list: finalTo,
-            cc_list: finalCc,
-            client_id: primaryClientId, 
-            subject: finalSubject,
-            body: finalBody,
-            status: finalStatus,
-            mode: "draft", 
-            objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
-            notification_type: 'marka',
-            source: 'document_index',
-            is_draft: finalStatus === "missing_info",
-            missing_fields: finalTo.length === 0 ? ['recipients'] : []
-        };
+    // 🔥 ÇÖZÜM: 66 Görevinin sadece var olup olmadığına değil, doğrudan ID'sine ulaşıyoruz
+    const evalTasksRes = await supabaseAdmin.from('tasks').select('id').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
+    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
 
-        console.log(`[DEBUG] Mail Payload Hazır. Statü: ${finalStatus}, Alıcı Sayısı: ${finalTo.length}`);
+    let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
+    const mailId = crypto.randomUUID();
+    
+    const mailPayload = {
+        id: mailId, 
+        related_ip_record_id: ipRecordId, 
+        // 🔥 KRİTİK NOKTA: Eğer 66 görevi (evalTaskId) varsa maili doğrudan ona bağla, yoksa ana göreve (taskId) bağla!
+        associated_task_id: evalTaskId || taskId, 
+        source_document_id: record.id, 
+        associated_transaction_id: transactionId,
+        template_id: templateId, 
+        to_list: finalTo, 
+        cc_list: finalCc, 
+        client_id: primaryClientId, 
+        subject: finalSubject, 
+        body: finalBody, 
+        status: finalStatus, 
+        mode: "draft", 
+        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
+        notification_type: 'marka', 
+        source: 'document_index', 
+        is_draft: finalStatus === "missing_info", 
+        missing_fields: finalTo.length === 0 ? ['recipients'] : []
+    };
 
-        // Hata kontrolü ile insert işlemi yapıyoruz
-        const { error: mailInsertError } = await supabaseAdmin
-            .from('mail_notifications')
-            .insert(mailPayload);
+    const { error: mailInsertError } = await supabaseAdmin.from('mail_notifications').insert(mailPayload);
 
-        if (mailInsertError) {
-            console.error("❌ Mail_notifications Insert Hatası:", JSON.stringify(mailInsertError));
-            throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
-        } else {
-            console.log("✅ Mail bildirimi başarıyla oluşturuldu! ID:", mailId);
-        }
+    if (mailInsertError) throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
 
-        if (record.file_url) {
-            const { error: attachmentError } = await supabaseAdmin.from('mail_attachments').insert({
-                notification_id: mailId,
-                file_name: record.file_name || "Evrak.pdf",
-                storage_path: record.file_path || null,
-                url: record.file_url
-            });
-            
-            if (attachmentError) {
-                console.error("⚠️ Ek dosyası kaydedilemedi:", JSON.stringify(attachmentError));
-            } else {
-                console.log("✅ Mail eki (PDF) başarıyla bağlandı.");
-            }
-        }
+    if (record.file_url) {
+        await supabaseAdmin.from('mail_attachments').insert({ notification_id: mailId, file_name: record.file_name || "Evrak.pdf", storage_path: record.file_path || null, url: record.file_url });
+    }
 
-        // 🔥 ÇÖZÜM 2: Buradaki 66 Görevi oluşturma kodları TAMAMEN SİLDİK.
-        // Çünkü 'document-review-manager.js' tarafında müvekkil analizi yapılarak bu görev hatasız oluşturuluyor. (Çift kayıt engellendi)
-
-        return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error("❌ Evrak Endeksleme Hatası:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: corsHeaders });

@@ -476,11 +476,17 @@ export class TaskDetailManager {
 
 
     // --- YARDIMCI FONKSİYONLAR AŞAĞIDA DEVAM EDİYOR ---
-
     async _renderEvaluationEditor(task) {
         this.showLoading();
         try {
-            const { data: mail } = await supabase.from('mail_notifications').select('*').eq('id', task.mail_notification_id).maybeSingle();
+            // 🔥 ÇÖZÜM: Mail taslağını task içinden değil, doğrudan mail tablosundaki 'associated_task_id' üzerinden buluyoruz!
+            const { data: mail } = await supabase.from('mail_notifications')
+                .select('*')
+                .eq('associated_task_id', String(task.id))
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
             if (!mail) throw new Error("İlişkili mail taslağı bulunamadı.");
 
             this.container.innerHTML = `
@@ -512,21 +518,30 @@ export class TaskDetailManager {
                 </div>
             `;
             
-            document.getElementById('btn-save-draft').onclick = () => this._saveEvaluationDraft(task);
-            document.getElementById('btn-submit-final').onclick = () => this._submitEvaluationFinal(task);
+            // mail.id bilgisini kaydetme ve bitirme fonksiyonlarına aktarıyoruz
+            document.getElementById('btn-save-draft').onclick = () => this._saveEvaluationDraft(task, mail.id);
+            document.getElementById('btn-submit-final').onclick = () => this._submitEvaluationFinal(task, mail.id);
         } catch (e) { 
             this.showError("Hata: " + e.message); 
         }
     }
 
-    async _saveEvaluationDraft(task) {
+    async _saveEvaluationDraft(task, mailId) {
         const newBody = document.getElementById('eval-body-editor').innerHTML;
         const btn = document.getElementById('btn-save-draft');
         const originalText = btn.innerHTML;
         try {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Kaydediliyor...';
-            await supabase.from('mail_notifications').update({ body: newBody, updated_at: new Date().toISOString() }).eq('id', task.mail_notification_id);
+            
+            // 🔥 ÇÖZÜM: 'updated_at' sütunu olmadığı için payload'dan çıkarıldı.
+            const { data, error } = await supabase.from('mail_notifications').update({ 
+                body: newBody
+            }).eq('id', mailId).select('id');
+            
+            if (error) throw new Error(error.message);
+            if (!data || data.length === 0) throw new Error("Veritabanı kısıtlaması: Mail taslağı güncellenemedi.");
+            
             btn.innerHTML = '<i class="fas fa-check mr-2"></i>Kaydedildi';
             btn.classList.replace('btn-secondary', 'btn-info');
             setTimeout(() => {
@@ -541,19 +556,53 @@ export class TaskDetailManager {
         }
     }
 
-    async _submitEvaluationFinal(task) {
+    async _submitEvaluationFinal(task, mailId) {
         const newBody = document.getElementById('eval-body-editor').innerHTML;
         const btn = document.getElementById('btn-submit-final');
         if (!confirm("İşi tamamlayıp taslağı onaya göndermek üzeresiniz. Emin misiniz?")) return;
+        
         try {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>İşleniyor...';
-            await supabase.from('mail_notifications').update({ body: newBody, status: "awaiting_client_approval", updated_at: new Date().toISOString() }).eq('id', task.mail_notification_id);
-            await supabase.from('tasks').update({ status: "completed", updated_at: new Date().toISOString() }).eq('id', String(task.id));
-            alert("İşlem başarıyla tamamlandı. Mail onaya sunuldu.");
+            
+            // 🔥 ÇÖZÜM: 'updated_at' sütunu mail tablosunda olmadığı için buradan silindi.
+            const updatePayload = { 
+                body: newBody, 
+                status: "pending", 
+                mode: "auto",
+                is_draft: false,
+                is_held: false
+            };
+            
+            const { data: mailData, error: mailErr } = await supabase
+                .from('mail_notifications')
+                .update(updatePayload)
+                .eq('id', mailId)
+                .select(); 
+            
+            if (mailErr) throw new Error("Mail tablosu hatası: " + mailErr.message);
+            if (!mailData || mailData.length === 0) {
+                throw new Error("Veritabanı kısıtlaması: Güncelleme yapılmadı.");
+            }
+
+            // Görevler tablosunda updated_at var, o yüzden burada kalabilir.
+            const { data: taskData, error: taskErr } = await supabase
+                .from('tasks')
+                .update({ 
+                    status: "completed", 
+                    updated_at: new Date().toISOString() 
+                })
+                .eq('id', String(task.id))
+                .select();
+
+            if (taskErr) throw new Error("Görev tablosu hatası: " + taskErr.message);
+            
+            alert("İşlem başarıyla tamamlandı. Mail gönderime hazır.");
             window.location.reload(); 
+
         } catch (e) {
-            alert("Güncelleme hatası: " + e.message);
+            console.error("Hata Detayı:", e);
+            alert("Hata: " + e.message);
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Kaydet ve İşi Bitir';
         }

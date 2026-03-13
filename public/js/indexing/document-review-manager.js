@@ -302,6 +302,11 @@ export class DocumentReviewManager {
             const { data: docSnap, error } = await supabase.from(INCOMING_DOCS_COLLECTION).select('*').eq('id', String(this.pdfId)).single();
             if (error || !docSnap) throw new Error('PDF kaydı bulunamadı.');
             
+            // 🔥 UX ÇÖZÜMÜ: Kullanıcıya anında, detaylı ve net bir uyarı veriyoruz!
+            if (docSnap.status === 'indexed') {
+                showNotification('⚠️ BİLGİ: Bu evrak daha önce indekslenmiş ve maili atılmış! İşlemi tekrarlarsanız MÜŞTERİYE YENİ BİR MAİL BİLDİRİMİ GİTMEYECEKTİR.', 'warning');
+            }
+            
             this.pdfData = { 
                 id: docSnap.id, 
                 ...docSnap,
@@ -360,7 +365,7 @@ export class DocumentReviewManager {
             const pdfViewerEl = document.getElementById('pdfViewer');
             if (pdfViewerEl) {
                 const onLoaded = () => {
-                    if (window.SimpleLoadingController && typeof window.SimpleLoadingController.hide === 'function') {
+                    if (window.SimpleLoadingController && typeof window.SimpleLoadingController.show === 'function') {
                         window.SimpleLoadingController.hide();
                     }
                     pdfViewerEl.removeEventListener('load', onLoaded);
@@ -382,10 +387,6 @@ export class DocumentReviewManager {
                 await this.selectRecord(this.pdfData.matchedRecordId);
             } else {
                 this.renderHeader();
-            }
-
-            if (this.pdfData.status === 'indexed') {
-                showNotification('⚠️ DİKKAT: Bu belge daha önce indekslenmiş!', 'warning');
             }
 
         } catch (error) {
@@ -943,11 +944,12 @@ export class DocumentReviewManager {
                 const recOwnerType = this.matchedRecord.recordOwnerType;
                 let isEligibleFor66 = false;
 
-                if (['30', '31'].includes(currentChildIdStr)) {
+                // 🔥 ÇÖZÜM: Portföy / 3. Taraf durumuna göre 66'yı tetikleyecek işlemler
+                if (['30', '31', '42', '43'].includes(currentChildIdStr)) {
                     isEligibleFor66 = true;
-                } else if (recOwnerType === 'self' && ['32', '33', '34', '35', '50', '51'].includes(currentChildIdStr)) {
+                } else if (recOwnerType === 'self' && ['7', '8', '9', '10', '32', '33', '34', '35', '50', '51'].includes(currentChildIdStr)) {
                     isEligibleFor66 = true;
-                } else if (recOwnerType === 'third_party' && ['51', '52', '31', '32', '35', '36'].includes(currentChildIdStr)) {
+                } else if (recOwnerType === 'third_party' && ['7', '8', '9', '10', '51', '52', '31', '32', '35', '36'].includes(currentChildIdStr)) {
                     isEligibleFor66 = true;
                 }
 
@@ -956,6 +958,7 @@ export class DocumentReviewManager {
                         const { data: personData } = await supabase.from('persons').select('is_evaluation_required').eq('id', finalTaskOwnerId).single();
                         if (personData && personData.is_evaluation_required && !tasksToCreate.includes("66")) {
                             tasksToCreate.push("66");
+                            console.log("🎯 [SİSTEM] Müvekkil için 66 nolu Değerlendirme görevi tetiklendi!");
                         }
                     } catch (e) {}
                 }
@@ -1051,8 +1054,9 @@ export class DocumentReviewManager {
                 indexed_at: new Date().toISOString(),
                 created_transaction_id: childTransactionId,
                 ip_record_id: this.matchedRecord.id,
-                // 🔥 ÇÖZÜM 1: İşlem tipi DB'ye yazıldı ki backend şablonu bulabilsin!
-                transaction_type_id: childTypeId 
+                transaction_type_id: childTypeId,
+                // 🔥 TARİH EKLENDİ
+                teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString()
             }).eq('id', String(this.pdfId));
 
             // 🔥 ÇÖZÜM: Manuel mail tetikleme kodları tamamen SİLİNDİ!

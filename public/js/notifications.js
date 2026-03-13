@@ -344,8 +344,11 @@ class NotificationsManager {
             if (error) throw error;
             
             alert(isSend ? "E-posta başarıyla gönderildi!" : "Hatırlatma e-postası başarıyla gönderildi.");
+
+            // 🔥 ÇÖZÜM: İşlem başarılı olduğunda verileri veritabanından tekrar çekip ekranı anında tazeler!
+            await this.loadData(); 
             
-        } catch (err) { 
+        } catch (err) {
             alert("Hata oluştu: " + err.message); 
         } finally { 
             this.hideOverlay(); 
@@ -467,7 +470,11 @@ class NotificationsManager {
 
             this.closeEditModal();
             alert("Bildirim başarıyla güncellendi.");
-            // Tabloyu realtime listener otomatik güncelleyecektir, manuel tetiklemeye gerek yok.
+            
+            // 🔥 ÇÖZÜM: Realtime dinleyicisinin gecikmesine ihtimal vermemek için, 
+            // modal kapandığı anda veritabanından en güncel listeyi çekip arayüzü yeniliyoruz!
+            await this.loadData();
+            
         } catch (err) { 
             alert("Hata: " + err.message); 
         } finally { 

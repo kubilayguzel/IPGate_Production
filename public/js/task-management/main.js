@@ -736,15 +736,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (confirm('Bu görevi ve ilişkili verileri silmek istediğinize emin misiniz?')) {
                 let loader = window.showSimpleLoading ? window.showSimpleLoading('Siliniyor') : null;
                 
-                // Supabase: Görev silme (taskService içinde deleteTask metodunuz olduğunu varsayarak)
-                const { error } = await supabase.from('tasks').delete().eq('id', String(taskId));
-                
-                if (loader) loader.hide();
-                
-                if (!error) { 
+                try {
+                    // 🔥 YENİ: Görev silinmeden önce bağlı evrakları bul ve Storage'dan temizle
+                    const { data: docs } = await supabase.from('task_documents').select('document_url').eq('task_id', String(taskId));
+                    
+                    if (docs && docs.length > 0) {
+                        for (const doc of docs) {
+                            if (doc.document_url && doc.document_url.includes('/documents/')) {
+                                let filePath = doc.document_url.split('/documents/')[1];
+                                filePath = decodeURIComponent(filePath);
+                                // Sadece fiziksel dosyayı siliyoruz, DB kaydı görev silinince otomatik (CASCADE) olarak gidecek.
+                                await supabase.storage.from('documents').remove([filePath]);
+                            }
+                        }
+                    }
+
+                    // Görevi sil
+                    const { error } = await supabase.from('tasks').delete().eq('id', String(taskId));
+                    if (error) throw error;
+                    
+                    if (loader) loader.hide();
                     showNotification('Silindi.', 'success'); 
                     await this.loadAllData(); 
-                } else { 
+
+                } catch (error) {
+                    if (loader) loader.hide();
                     showNotification('Hata: ' + error.message, 'error'); 
                 }
             }
@@ -797,63 +813,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return; 
             }
 
-            const formData = result.data;
             let loader = window.showSimpleLoading ? window.showSimpleLoading('Tahakkuk Kaydediliyor') : null;
 
-            const { files, ...formDataNoFiles } = formData;
-
-            // 🔥 Supabase Storage Dosya Yükleme
-            let uploadedFiles = [];
-            if (files && files.length > 0) {
-                try {
-                    const file = files[0];
-                    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                    const filePath = `foreign_invoices/${Date.now()}_${cleanFileName}`;
-                    
-                    const { error: uploadError } = await supabase.storage.from('accruals').upload(filePath, file);
-                    if (uploadError) throw uploadError;
-
-                    const { data: urlData } = supabase.storage.from('accruals').getPublicUrl(filePath);
-
-                    uploadedFiles.push({ 
-                        name: file.name, 
-                        url: urlData.publicUrl, 
-                        type: 'foreign_invoice', 
-                        documentDesignation: 'Yurtdışı Fatura/Debit', 
-                        uploadedAt: new Date().toISOString() 
-                    });
-                } catch(err) { 
-                    if (loader) loader.hide(); 
-                    showNotification("Dosya yüklenemedi.", "error"); 
-                    if (btn) btn.disabled = false;
-                    return; 
-                }
-            }
-
-            // JSONB'ye uyumlu hale getirilmiş payload
+            // 🔥 ÇÖZÜM: Manuel dosya yükleme kodları tamamen silindi!
+            // Tüm veriyi (seçilen files dahil) doğrudan Merkezi Servise yolluyoruz.
             const newAccrual = {
                 taskId: this.currentTaskForAccrual.id,
                 taskTitle: this.currentTaskForAccrual.title,
-
-                ...formDataNoFiles,
-                
-                // 🔥 ÇÖZÜM BURADA: İç içe objeyi, veritabanının beklediği flat (düz) yapıya çeviriyoruz
-                officialFeeAmount: formDataNoFiles.officialFee?.amount || 0,
-                officialFeeCurrency: formDataNoFiles.officialFee?.currency || 'TRY',
-                serviceFeeAmount: formDataNoFiles.serviceFee?.amount || 0,
-                serviceFeeCurrency: formDataNoFiles.serviceFee?.currency || 'TRY',
-
-                tpeInvoiceNo: formDataNoFiles.tpeInvoiceNo?.trim() || null,
-                evrekaInvoiceNo: formDataNoFiles.evrekaInvoiceNo?.trim() || null,
-                totalAmountCurrency: formDataNoFiles.totalAmountCurrency || 'TRY',
-                remainingAmount: formDataNoFiles.totalAmount,
-
+                ...result.data, 
                 status: 'unpaid',
-                createdAt: new Date().toISOString(),
-                files: uploadedFiles
+                remainingAmount: result.data.totalAmount
             };
 
             try {
+                // Her şeyi servis otomatik yapacak (ID üretme, dosya yükleme, veritabanı yazma)
                 const res = await accrualService.addAccrual(newAccrual); 
                 if (loader) loader.hide();
 
@@ -965,48 +938,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const formData = result.data;
-            const { files, ...formDataNoFiles } = formData; 
-
             let loader = window.showSimpleLoading ? window.showSimpleLoading('İşlem Tamamlanıyor') : null;
-
-            // 🔥 Supabase Storage Dosya Yükleme
-            let uploadedFiles = [];
-            if (files && files.length > 0) {
-                try {
-                    const file = files[0];
-                    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                    const filePath = `foreign_invoices/${Date.now()}_${cleanFileName}`;
-                    
-                    const { error: uploadError } = await supabase.storage.from('accruals').upload(filePath, file);
-                    if (uploadError) throw uploadError;
-
-                    const { data: urlData } = supabase.storage.from('accruals').getPublicUrl(filePath);
-                    
-                    uploadedFiles.push({
-                        name: file.name,
-                        url: urlData.publicUrl,
-                        type: 'foreign_invoice',
-                        documentDesignation: 'Yurtdışı Fatura/Debit',
-                        uploadedAt: new Date().toISOString()
-                    });
-                } catch (err) {
-                    if (loader) loader.hide();
-                    showNotification("Dosya yükleme hatası.", "error");
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-            }
 
             let detailsObj = {};
             if (task.details) {
-                if (typeof task.details === 'string') {
-                    try { detailsObj = JSON.parse(task.details); } catch(e) {}
-                } else {
-                    detailsObj = task.details;
-                }
+                if (typeof task.details === 'string') { try { detailsObj = JSON.parse(task.details); } catch(e) {} } 
+                else { detailsObj = task.details; }
             }
             
+            const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id;
             const parentId = detailsObj.relatedTaskId || task.relatedTaskId || detailsObj.parent_task_id;
             let targetTaskId = parentId ? String(parentId) : taskId;
             let targetTaskTitle = task.title ? task.title.replace('Tahakkuk Oluşturma: ', '') : 'Tahakkuk';
@@ -1018,59 +958,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } catch(e) {}
             }
 
+            // 🔥 YİNE MANUEL YÜKLEME YOK: Servise emanet ediyoruz
             const basePayload = {
                 taskId: targetTaskId, 
                 taskTitle: targetTaskTitle,
-                ...formDataNoFiles,
-                
-                // 🔥 ÇÖZÜM BURADA: İç içe objeyi flat alanlara dönüştürüyoruz
-                officialFeeAmount: formDataNoFiles.officialFee?.amount || 0,
-                officialFeeCurrency: formDataNoFiles.officialFee?.currency || 'TRY',
-                serviceFeeAmount: formDataNoFiles.serviceFee?.amount || 0,
-                serviceFeeCurrency: formDataNoFiles.serviceFee?.currency || 'TRY',
-
-                tpeInvoiceNo: formDataNoFiles.tpeInvoiceNo?.trim() || null,
-                evrekaInvoiceNo: formDataNoFiles.evrekaInvoiceNo?.trim() || null
+                ...result.data
             };
 
-            const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id;
-
             try {
+                let currentAccrualId = targetAccrualId;
+
                 if (targetAccrualId) {
-                    const { data: existing } = await supabase.from('accruals').select('*').eq('id', String(targetAccrualId)).single();
-                    if (!existing) throw new Error('Güncellenecek tahakkuk bulunamadı.');
-
-                    const mergedFiles = uploadedFiles.length > 0
-                        ? [ ...(existing.files || []), ...uploadedFiles ]
-                        : (existing.files || []);
-
-                    let remainingAmountUpdate = {};
-                    try {
-                        const sameRemaining = JSON.stringify(existing.remaining_amount || null) === JSON.stringify(existing.total_amount || null);
-                        if (sameRemaining) remainingAmountUpdate = { remainingAmount: basePayload.totalAmount };
-                    } catch (_) {}
-
-                    const updates = {
-                        ...basePayload,
-                        files: mergedFiles,
-                        ...remainingAmountUpdate
-                    };
-
-                    const updRes = await accrualService.updateAccrual(String(targetAccrualId), updates);
+                    const updRes = await accrualService.updateAccrual(targetAccrualId, basePayload);
                     if (!updRes.success) throw new Error(updRes.error);
-
                 } else {
-                    const newAccrual = {
-                        ...basePayload,
-                        status: 'unpaid',
-                        remainingAmount: basePayload.totalAmount,
-                        files: uploadedFiles
-                    };
-
+                    const newAccrual = { ...basePayload, status: 'unpaid', remainingAmount: basePayload.totalAmount };
                     const addRes = await accrualService.addAccrual(newAccrual);
                     if (!addRes.success) throw new Error(addRes.error);
-
-                    await taskService.updateTask(taskId, { target_accrual_id: addRes.data.id });
+                    
+                    currentAccrualId = addRes.data.id;
+                    await taskService.updateTask(taskId, { target_accrual_id: currentAccrualId });
                 }
 
                 let historyArray = task.history ? [...task.history] : [];
@@ -1080,12 +987,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     userEmail: this.currentUser?.email || 'Bilinmeyen Kullanıcı'
                 });
 
-                const updateData = {
-                    status: 'completed',
-                    updatedAt: new Date().toISOString(),
-                    history: historyArray
-                };
-
+                const updateData = { status: 'completed', updatedAt: new Date().toISOString(), history: historyArray };
                 const taskResult = await taskService.updateTask(taskId, updateData);
                 
                 if (!taskResult.success) {

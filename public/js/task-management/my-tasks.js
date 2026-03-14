@@ -606,79 +606,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         async handleSaveNewAccrual() { 
             if (!this.currentTaskForAccrual) return;
-
             const btn = document.getElementById('saveNewAccrualBtn') || document.getElementById('submitNewAccrualBtn');
             if (btn) btn.disabled = true;
 
             const result = this.accrualFormManager.getData();
-            if (!result.success) { 
-                showNotification(result.error, 'error'); 
-                if (btn) btn.disabled = false;
-                return; 
-            }
+            if (!result.success) { showNotification(result.error, 'error'); if(btn) btn.disabled = false; return; }
 
-            const formData = result.data;
             let loader = window.showSimpleLoading ? window.showSimpleLoading('Tahakkuk Kaydediliyor') : null;
 
-            const { files, ...formDataNoFiles } = formData;
-
-            const generateUUID = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).substr(2, 16);
-            const newAccrualId = generateUUID();
-
-            // 🔥 ÇÖZÜM: Description (Açıklama) artık doğrudan nesnenin içinde (Servis onu DB'ye yazacak)
+            // Formdan gelen veriyi doğrudan Servise yolla! Bitti.
             const newAccrual = {
-                id: newAccrualId, 
                 taskId: this.currentTaskForAccrual.id,
                 taskTitle: this.currentTaskForAccrual.title,
-                ...formDataNoFiles,
-                description: formData.description, // <--- DOĞRUDAN SERVİSE GİDİYOR
-                
-                officialFeeAmount: formDataNoFiles.officialFee?.amount || 0,
-                officialFeeCurrency: formDataNoFiles.officialFee?.currency || 'TRY',
-                serviceFeeAmount: formDataNoFiles.serviceFee?.amount || 0,
-                serviceFeeCurrency: formDataNoFiles.serviceFee?.currency || 'TRY',
-                tpeInvoiceNo: formDataNoFiles.tpeInvoiceNo?.trim() || null,
-                evrekaInvoiceNo: formDataNoFiles.evrekaInvoiceNo?.trim() || null,
-                totalAmountCurrency: formDataNoFiles.totalAmountCurrency || 'TRY',
-                remainingAmount: formDataNoFiles.totalAmount,
+                ...result.data, 
                 status: 'unpaid',
-                createdAt: new Date().toISOString()
+                remainingAmount: result.data.totalAmount
             };
 
             try {
                 const res = await accrualService.addAccrual(newAccrual);
-                if (!res.success) throw new Error(res.error || "Tahakkuk oluşturulamadı.");
-
-                // Sadece dosya varsa Storage ve DB'ye at (JSON update hack'i kaldırıldı!)
-                if (files && files.length > 0) {
-                    const file = files[0];
-                    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                    const filePath = `accruals/${newAccrualId}/${Date.now()}_${cleanFileName}`;
-                    
-                    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-                    if (!uploadError) {
-                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-
-                        await supabase.from('accrual_documents').insert([{
-                            accrual_id: String(newAccrualId),
-                            document_name: file.name,
-                            document_url: urlData.publicUrl,
-                            document_type: file.type || 'other'
-                        }]);
-                    }
-                }
-
                 if (loader) loader.hide();
-                showNotification('Ek tahakkuk başarıyla oluşturuldu!', 'success'); 
-                this.closeModal('createMyTaskAccrualModal'); 
-                await this.loadAllData(); 
-                
+                if (res.success) { 
+                    showNotification('Ek tahakkuk başarıyla oluşturuldu!', 'success'); 
+                    this.closeModal('createMyTaskAccrualModal'); 
+                    await this.loadAllData(); 
+                } else { showNotification('Hata: ' + res.error, 'error'); }
             } catch (e) {
-                if (loader) loader.hide();
-                showNotification('Hata: ' + (e?.message || e), 'error');
-            } finally {
-                if (btn) btn.disabled = false;
-            }
+                if (loader) loader.hide(); showNotification('Hata: ' + (e?.message || e), 'error');
+            } finally { if (btn) btn.disabled = false; }
         }
 
         async handleCompleteAccrualSubmission() {
@@ -690,105 +645,44 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (btn) btn.disabled = true;
 
             const result = this.completeTaskFormManager.getData();
-            if (!result.success) {
-                showNotification(result.error, 'error');
-                if (btn) btn.disabled = false;
-                return;
-            }
-
-            const formData = result.data;
-            const { files, ...formDataNoFiles } = formData; 
+            if (!result.success) { showNotification(result.error, 'error'); if(btn) btn.disabled = false; return; }
 
             let loader = window.showSimpleLoading ? window.showSimpleLoading('İşlem Tamamlanıyor') : null;
 
-            let detailsObj = {};
-            if (task.details) {
-                if (typeof task.details === 'string') { try { detailsObj = JSON.parse(task.details); } catch(e) {} } 
-                else { detailsObj = task.details; }
-            }
-            
+            let detailsObj = typeof task.details === 'string' ? JSON.parse(task.details || '{}') : (task.details || {});
             const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id;
-            const generateUUID = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).substr(2, 16);
-            const finalAccrualId = targetAccrualId ? String(targetAccrualId) : generateUUID();
-
             const parentId = detailsObj.relatedTaskId || task.relatedTaskId || detailsObj.parent_task_id;
-            let targetTaskId = parentId ? String(parentId) : taskId;
-            let targetTaskTitle = task.title ? task.title.replace('Tahakkuk Oluşturma: ', '') : 'Tahakkuk';
-
-            if (parentId) {
-                try {
-                    const { data: pTask } = await supabase.from('tasks').select('title').eq('id', targetTaskId).single();
-                    if (pTask) targetTaskTitle = pTask.title;
-                } catch(e) {}
-            }
-
+            
             const basePayload = {
-                taskId: targetTaskId, 
-                taskTitle: targetTaskTitle,
-                ...formDataNoFiles,
-                description: formData.description, // <--- DOĞRUDAN SERVİSE GİDİYOR
-                officialFeeAmount: formDataNoFiles.officialFee?.amount || 0,
-                officialFeeCurrency: formDataNoFiles.officialFee?.currency || 'TRY',
-                serviceFeeAmount: formDataNoFiles.serviceFee?.amount || 0,
-                serviceFeeCurrency: formDataNoFiles.serviceFee?.currency || 'TRY',
-                tpeInvoiceNo: formDataNoFiles.tpeInvoiceNo?.trim() || null,
-                evrekaInvoiceNo: formDataNoFiles.evrekaInvoiceNo?.trim() || null
+                taskId: parentId || taskId, 
+                taskTitle: task.title ? task.title.replace('Tahakkuk Oluşturma: ', '') : 'Tahakkuk',
+                ...result.data
             };
 
             try {
                 if (targetAccrualId) {
-                    const updates = { ...basePayload };
-                    const updRes = await accrualService.updateAccrual(finalAccrualId, updates);
+                    const updRes = await accrualService.updateAccrual(targetAccrualId, basePayload);
                     if (!updRes.success) throw new Error(updRes.error);
                 } else {
-                    const newAccrual = { id: finalAccrualId, ...basePayload, status: 'unpaid', remainingAmount: basePayload.totalAmount };
-                    const addRes = await accrualService.addAccrual(newAccrual);
+                    const addRes = await accrualService.addAccrual({ ...basePayload, status: 'unpaid', remainingAmount: basePayload.totalAmount });
                     if (!addRes.success) throw new Error(addRes.error);
-                    await taskService.updateTask(taskId, { target_accrual_id: finalAccrualId });
-                }
-
-                // Sadece dosya varsa Storage ve DB'ye at
-                if (files && files.length > 0) {
-                    const file = files[0];
-                    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                    const filePath = `accruals/${finalAccrualId}/${Date.now()}_${cleanFileName}`;
-                    
-                    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-                    if (!uploadError) {
-                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-
-                        await supabase.from('accrual_documents').insert([{
-                            accrual_id: String(finalAccrualId),
-                            document_name: file.name,
-                            document_url: urlData.publicUrl,
-                            document_type: file.type || 'other'
-                        }]);
-                    }
+                    await taskService.updateTask(taskId, { target_accrual_id: addRes.data.id });
                 }
 
                 let historyArray = task.history ? [...task.history] : [];
-                historyArray.push({
-                    action: targetAccrualId ? 'Tahakkuk güncellenerek görev tamamlandı.' : 'Tahakkuk oluşturularak görev tamamlandı.',
-                    timestamp: new Date().toISOString(),
-                    userEmail: this.currentUser?.email || 'Bilinmeyen Kullanıcı'
-                });
+                historyArray.push({ action: 'Tahakkuk oluşturularak/güncellenerek görev tamamlandı.', timestamp: new Date().toISOString(), userEmail: this.currentUser?.email });
 
-                const updateData = { status: 'completed', updatedAt: new Date().toISOString(), history: historyArray };
-                const taskResult = await taskService.updateTask(taskId, updateData);
+                const taskResult = await taskService.updateTask(taskId, { status: 'completed', history: historyArray });
                 if (!taskResult.success) await supabase.from('tasks').update({ status: 'completed' }).eq('id', taskId);
 
                 if (loader) loader.hide();
-                showNotification(targetAccrualId ? 'Tahakkuk güncellendi ve görev tamamlandı.' : 'Tahakkuk oluşturuldu ve asıl işe bağlandı.', 'success');
+                showNotification('Tahakkuk işi başarıyla tamamlandı.', 'success');
                 this.closeModal('completeAccrualTaskModal');
-                
                 await this.loadAllData();
 
             } catch (e) {
-                if (loader) loader.hide();
-                showNotification('Hata: ' + e.message, 'error');
-            } finally {
-                if (btn) btn.disabled = false;
-            }
+                if (loader) loader.hide(); showNotification('Hata: ' + e.message, 'error');
+            } finally { if (btn) btn.disabled = false; }
         }
 
         async handleCompleteAccrualSubmission() {

@@ -1739,7 +1739,6 @@ export const accrualService = {
         try {
             const counterId = 'accruals'; 
             const { data: counterData } = await supabase.from('counters').select('last_id').eq('id', counterId).single();
-
             let nextNum = (counterData?.last_id || 0) + 1;
             let isFree = false;
             let finalId = '';
@@ -1750,7 +1749,6 @@ export const accrualService = {
                 if (!existingAccrual) isFree = true;
                 else nextNum++; 
             }
-
             await supabase.from('counters').upsert({ id: counterId, last_id: nextNum }, { onConflict: 'id' });
             return finalId;
         } catch (e) {
@@ -1758,199 +1756,178 @@ export const accrualService = {
         }
     },
 
+    // 🔥 YENİ: Merkezi Dosya Yükleme Fonksiyonu
+    async _handleAccrualFiles(accrualId, files) {
+        if (!files || files.length === 0) return;
+        const docInserts = [];
+
+        for (const fileObj of files) {
+            const actualFile = fileObj instanceof File ? fileObj : fileObj.file;
+            
+            // Eğer gelen nesne gerçekten yeni bir dosya ise (önceden yüklenmiş bir link değilse) Storage'a at
+            if (actualFile instanceof File || actualFile instanceof Blob) {
+                const cleanFileName = actualFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                const filePath = `accruals/${accrualId}/${Date.now()}_${cleanFileName}`;
+
+                const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, actualFile);
+                if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
+                    docInserts.push({
+                        accrual_id: String(accrualId),
+                        document_name: actualFile.name,
+                        document_url: urlData.publicUrl,
+                        document_type: actualFile.type || 'other'
+                    });
+                }
+            }
+        }
+
+        if (docInserts.length > 0) {
+            await supabase.from('accrual_documents').insert(docInserts);
+        }
+    },
+
     async addAccrual(accrualData) {
         try {
-            let isInserted = false;
-            let insertedData = null;
-            let retryCount = 0;
-            const maxRetries = 5;
+            let isInserted = false, insertedData = null, retryCount = 0;
 
-            while (!isInserted && retryCount < maxRetries) {
+            while (!isInserted && retryCount < 5) {
                 const nextId = accrualData.id || await this._getNextAccrualId();
                 
                 const payload = { 
                     id: nextId,
-                    task_id: String(accrualData.taskId),
+                    task_id: accrualData.taskId ? String(accrualData.taskId) : null,
                     status: accrualData.status || 'unpaid',
-                    accrual_type: accrualData.accrualType || null,
+                    accrual_type: accrualData.accrualType || accrualData.type || null,
                     payment_date: accrualData.paymentDate || null,
                     evreka_invoice_no: accrualData.evrekaInvoiceNo || null,
                     tpe_invoice_no: accrualData.tpeInvoiceNo || null,
                     tp_invoice_party_id: accrualData.tpInvoicePartyId || null,
                     service_invoice_party_id: accrualData.serviceInvoicePartyId || null,
-                    official_fee_amount: accrualData.officialFeeAmount || 0,
-                    official_fee_currency: accrualData.officialFeeCurrency || 'TRY',
-                    service_fee_amount: accrualData.serviceFeeAmount || 0,
-                    service_fee_currency: accrualData.serviceFeeCurrency || 'TRY',
+                    official_fee_amount: accrualData.officialFeeAmount || accrualData.officialFee?.amount || 0,
+                    official_fee_currency: accrualData.officialFeeCurrency || accrualData.officialFee?.currency || 'TRY',
+                    service_fee_amount: accrualData.serviceFeeAmount || accrualData.serviceFee?.amount || 0,
+                    service_fee_currency: accrualData.serviceFeeCurrency || accrualData.serviceFee?.currency || 'TRY',
                     total_amount: accrualData.totalAmount || [{ amount: 0, currency: 'TRY' }],
                     remaining_amount: accrualData.remainingAmount || [{ amount: 0, currency: 'TRY' }],
                     vat_rate: accrualData.vatRate || 0,
                     apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
                     is_foreign_transaction: accrualData.isForeignTransaction || false,
-                    
-                    // 🔥 ÇÖZÜM: DB'ye doğrudan natif sütun olarak yazılır
                     description: accrualData.description || null 
                 };
 
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
-
                 const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
                 
                 if (error) {
-                    if (error.code === '23505' || error.message?.includes('duplicate')) {
-                        retryCount++;
-                        await new Promise(r => setTimeout(r, Math.random() * 400 + 100)); 
-                        continue;
-                    }
+                    if (error.code === '23505' || error.message?.includes('duplicate')) { retryCount++; continue; }
                     throw error;
                 }
-                
-                insertedData = data;
-                isInserted = true;
+                insertedData = data; isInserted = true;
             }
 
             if (!isInserted) throw new Error("Tahakkuk ID'si alınamadı.");
+
+            // 🔥 ÇÖZÜM: Dosyalar varsa, servisin kendisi DB'ye eklendikten SONRA yükleme yapar.
+            if (accrualData.files && accrualData.files.length > 0) {
+                await this._handleAccrualFiles(insertedData.id, accrualData.files);
+            }
+
             return { success: true, data: { id: insertedData.id } };
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
+        } catch (error) { return { success: false, error: error.message }; }
     },
 
     async updateAccrual(id, updateData) {
         try {
             const payload = {
                 status: updateData.status,
-                accrual_type: updateData.accrualType,
+                accrual_type: updateData.accrualType || updateData.type,
                 payment_date: updateData.paymentDate,
                 evreka_invoice_no: updateData.evrekaInvoiceNo,
                 tpe_invoice_no: updateData.tpeInvoiceNo,
                 tp_invoice_party_id: updateData.tpInvoicePartyId,
                 service_invoice_party_id: updateData.serviceInvoicePartyId,
-                official_fee_amount: updateData.officialFeeAmount,
-                official_fee_currency: updateData.officialFeeCurrency,
-                service_fee_amount: updateData.serviceFeeAmount,
-                service_fee_currency: updateData.serviceFeeCurrency,
+                official_fee_amount: updateData.officialFeeAmount || updateData.officialFee?.amount,
+                official_fee_currency: updateData.officialFeeCurrency || updateData.officialFee?.currency,
+                service_fee_amount: updateData.serviceFeeAmount || updateData.serviceFee?.amount,
+                service_fee_currency: updateData.serviceFeeCurrency || updateData.serviceFee?.currency,
                 total_amount: updateData.totalAmount,
                 remaining_amount: updateData.remainingAmount,
                 vat_rate: updateData.vatRate,
                 apply_vat_to_official_fee: updateData.applyVatToOfficialFee,
                 is_foreign_transaction: updateData.isForeignTransaction,
-                
-                // 🔥 ÇÖZÜM: Güncellemede de doğrudan sütuna yazılır
                 description: updateData.description,
                 updated_at: new Date().toISOString()
             };
 
             Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
-
             const { error } = await supabase.from('accruals').update(payload).eq('id', String(id));
             if (error) throw error;
+
+            // 🔥 ÇÖZÜM: Güncellemede yeni dosya eklendiyse otomatik algıla ve yükle
+            if (updateData.files && updateData.files.length > 0) {
+                await this._handleAccrualFiles(id, updateData.files);
+            }
+
             return { success: true };
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
+        } catch (error) { return { success: false, error: error.message }; }
     },
 
     async getAccrualsByTaskId(taskId) {
         try {
-            // 🔥 ÇÖZÜM: accrual_documents tablosuyla JOIN yapıyoruz (Dosyaları UI için otomatik çekiyor)
-            const { data, error } = await supabase.from('accruals')
-                .select('*, accrual_documents(*)')
-                .eq('task_id', String(taskId));
-            
+            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*)').eq('task_id', String(taskId));
             if (error) throw error;
-            
-            const mappedData = data.map(acc => ({
-                id: acc.id,
-                taskId: acc.task_id,
-                status: acc.status,
-                accrualType: acc.accrual_type,
-                totalAmount: acc.total_amount, 
-                remainingAmount: acc.remaining_amount,
-                officialFeeAmount: acc.official_fee_amount,
-                officialFeeCurrency: acc.official_fee_currency,
-                serviceFeeAmount: acc.service_fee_amount,
-                serviceFeeCurrency: acc.service_fee_currency,
-                tpInvoicePartyId: acc.tp_invoice_party_id,
-                serviceInvoicePartyId: acc.service_invoice_party_id,
-                
-                // 🔥 ÇÖZÜM: Description ve DB'den gelen dosyaları (files) UI formatına çevirdik
-                description: acc.description,
-                files: acc.accrual_documents ? acc.accrual_documents.map(d => ({
-                    id: d.id,
-                    name: d.document_name,
-                    url: d.document_url,
-                    type: d.document_type
-                })) : [],
-
-                createdAt: acc.created_at,
-                updatedAt: acc.updated_at
-            }));
-            
-            return { success: true, data: mappedData };
-        } catch (error) {
-            return { success: false, error: error.message, data: [] };
-        }
+            return { success: true, data: this._mapAccrualsData(data) };
+        } catch (error) { return { success: false, error: error.message, data: [] }; }
     },
 
     async getAccruals() {
         try {
-            // 🔥 ÇÖZÜM: Burada da JOIN yapıyoruz
-            const { data, error } = await supabase.from('accruals')
-                .select('*, accrual_documents(*)')
-                .order('created_at', { ascending: false });
-            
+            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*)').order('created_at', { ascending: false });
             if (error) throw error;
-
-            const personIds = [...new Set([
-                ...data.map(a => a.tp_invoice_party_id).filter(Boolean),
-                ...data.map(a => a.service_invoice_party_id).filter(Boolean)
-            ])];
-
+            
+            const personIds = [...new Set([...data.map(a => a.tp_invoice_party_id).filter(Boolean), ...data.map(a => a.service_invoice_party_id).filter(Boolean)])];
             let personsMap = {};
             if (personIds.length > 0) {
                 const { data: persons } = await supabase.from('persons').select('id, name').in('id', personIds);
                 if (persons) persons.forEach(p => personsMap[p.id] = p.name);
             }
 
-            const mappedData = data.map(acc => ({
-                id: acc.id,
-                taskId: acc.task_id,
-                status: acc.status,
-                accrualType: acc.accrual_type,
-                totalAmount: acc.total_amount,
-                remainingAmount: acc.remaining_amount,
-                officialFeeAmount: acc.official_fee_amount,
-                officialFeeCurrency: acc.official_fee_currency,
-                officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },
-                serviceFeeAmount: acc.service_fee_amount,
-                serviceFeeCurrency: acc.service_fee_currency,
-                serviceFee: { amount: acc.service_fee_amount, currency: acc.service_fee_currency },
-                vatRate: acc.vat_rate,
-                applyVatToOfficialFee: acc.apply_vat_to_official_fee,
-                tpInvoicePartyId: acc.tp_invoice_party_id,
-                serviceInvoicePartyId: acc.service_invoice_party_id,
-                tpInvoiceParty: acc.tp_invoice_party_id ? { name: personsMap[acc.tp_invoice_party_id] || 'Bilinmiyor' } : null,
-                serviceInvoiceParty: acc.service_invoice_party_id ? { name: personsMap[acc.service_invoice_party_id] || 'Bilinmiyor' } : null,
-                paymentParty: personsMap[acc.service_invoice_party_id] || personsMap[acc.tp_invoice_party_id] || 'Bilinmeyen Müşteri',
-                
-                // 🔥 ÇÖZÜM: Description ve DB'den gelen dosyaları (files) UI formatına çevirdik
-                description: acc.description,
-                files: acc.accrual_documents ? acc.accrual_documents.map(d => ({
-                    id: d.id,
-                    name: d.document_name,
-                    url: d.document_url,
-                    type: d.document_type
-                })) : [],
-
-                createdAt: acc.created_at,
-                updatedAt: acc.updated_at
-            }));
-
+            const mappedData = this._mapAccrualsData(data, personsMap);
             return { success: true, data: mappedData };
-        } catch (error) {
-            return { success: false, error: error.message, data: [] };
-        }
+        } catch (error) { return { success: false, error: error.message, data: [] }; }
+    },
+
+    _mapAccrualsData(data, personsMap = {}) {
+        return data.map(acc => ({
+            id: acc.id,
+            taskId: acc.task_id,
+            status: acc.status,
+            accrualType: acc.accrual_type,
+            type: acc.accrual_type,
+            totalAmount: acc.total_amount,
+            remainingAmount: acc.remaining_amount,
+            officialFeeAmount: acc.official_fee_amount,
+            officialFeeCurrency: acc.official_fee_currency,
+            officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },
+            serviceFeeAmount: acc.service_fee_amount,
+            serviceFeeCurrency: acc.service_fee_currency,
+            serviceFee: { amount: acc.service_fee_amount, currency: acc.service_fee_currency },
+            vatRate: acc.vat_rate,
+            applyVatToOfficialFee: acc.apply_vat_to_official_fee,
+            isForeignTransaction: acc.is_foreign_transaction,
+            tpeInvoiceNo: acc.tpe_invoice_no,
+            evrekaInvoiceNo: acc.evreka_invoice_no,
+            tpInvoicePartyId: acc.tp_invoice_party_id,
+            serviceInvoicePartyId: acc.service_invoice_party_id,
+            tpInvoiceParty: acc.tp_invoice_party_id ? { id: acc.tp_invoice_party_id, name: personsMap[acc.tp_invoice_party_id] || 'Kayıtlı' } : null,
+            serviceInvoiceParty: acc.service_invoice_party_id ? { id: acc.service_invoice_party_id, name: personsMap[acc.service_invoice_party_id] || 'Kayıtlı' } : null,
+            paymentParty: personsMap[acc.service_invoice_party_id] || personsMap[acc.tp_invoice_party_id] || 'Bilinmeyen Müşteri',
+            description: acc.description,
+            files: acc.accrual_documents ? acc.accrual_documents.map(d => ({ id: d.id, name: d.document_name, url: d.document_url, type: d.document_type })) : [],
+            createdAt: acc.created_at,
+            updatedAt: acc.updated_at
+        }));
     }
 };
 

@@ -35,7 +35,7 @@ export class AccrualFormManager {
 
         const subjectHtml = this.isFreestyle ? `
             <div class="form-group p-3 bg-white border rounded shadow-sm mb-3">
-                <label class="font-weight-bold text-dark">Tahakkuk Konusu / Açıklama <span class="text-danger">*</span></label>
+                <label class="font-weight-bold text-dark">Tahakkuk Konusu / Başlığı <span class="text-danger">*</span></label>
                 <input type="text" id="${p}Subject" class="form-input form-control border-primary" placeholder="Örn: Marka tescil belgesi posta masrafı..." style="${inputHeightStyle}">
             </div>
         ` : '';
@@ -60,6 +60,11 @@ export class AccrualFormManager {
             </div>
 
             ${subjectHtml}
+
+            <div class="form-group mt-2 mb-3">
+                <label class="form-label text-secondary font-weight-bold" style="font-size:0.9rem;"><i class="fas fa-edit mr-2"></i>Tahakkuk Açıklaması / Notu</label>
+                <textarea id="${p}AccrualDescription" class="form-control" rows="2" placeholder="Tahakkuk ile ilgili detaylı notlar, açıklama veya referans bilgisi giriniz..."></textarea>
+            </div>
 
             <div id="${p}EpatsDocumentContainer" class="alert alert-secondary align-items-center justify-content-between mb-4" style="display:none; border-left: 4px solid #1e3c72;">
                 <div class="d-flex align-items-center">
@@ -157,10 +162,10 @@ export class AccrualFormManager {
             </div>
             
             <div class="form-group mt-3" id="${p}ForeignInvoiceContainer" style="display:none;">
-                <label class="form-label">Yurtdışı Fatura/Debit (PDF)</label>
-                <label for="${p}ForeignInvoiceFile" class="custom-file-upload btn btn-outline-secondary w-100" style="cursor:pointer; height: 50px; display:flex; align-items:center; justify-content:center;"><i class="fas fa-cloud-upload-alt mr-2"></i> Dosya Seçin</label>
+                <label class="form-label font-weight-bold text-primary"><i class="fas fa-file-pdf mr-2"></i>Yurtdışı Fatura/Debit (PDF)</label>
+                <label for="${p}ForeignInvoiceFile" class="custom-file-upload btn btn-outline-primary w-100" style="cursor:pointer; height: 50px; display:flex; align-items:center; justify-content:center; border-style: dashed; border-width: 2px;"><i class="fas fa-cloud-upload-alt mr-2"></i> Fatura PDF Seç / Değiştir</label>
                 <input type="file" id="${p}ForeignInvoiceFile" accept="application/pdf" style="display:none;">
-                <small id="${p}ForeignInvoiceFileName" class="text-muted d-block mt-1 text-center"></small>
+                <small id="${p}ForeignInvoiceFileName" class="text-primary font-weight-bold d-block mt-2 text-center"></small>
             </div>
         `;
 
@@ -295,11 +300,11 @@ export class AccrualFormManager {
         const fileDiv = document.getElementById(`${p}ForeignInvoiceContainer`);
 
         if (isForeign) {
-            foreignPartyDiv.style.display = 'block';
-            fileDiv.style.display = 'block';
+            if (foreignPartyDiv) foreignPartyDiv.style.display = 'block';
+            if (fileDiv) fileDiv.style.display = 'block';
         } else {
-            foreignPartyDiv.style.display = 'none';
-            fileDiv.style.display = 'none';
+            if (foreignPartyDiv) foreignPartyDiv.style.display = 'none';
+            if (fileDiv) fileDiv.style.display = 'none';
         }
     }
 
@@ -320,6 +325,9 @@ export class AccrualFormManager {
         
         document.getElementById(`${p}TpeInvoiceNo`).value = '';
         document.getElementById(`${p}EvrekaInvoiceNo`).value = '';
+
+        const descInput = document.getElementById(`${p}AccrualDescription`);
+        if (descInput) descInput.value = '';
 
         const valSpan = document.getElementById(`${p}TotalValueContent`);
         if(valSpan) valSpan.innerHTML = '0.00 ₺';
@@ -360,6 +368,9 @@ export class AccrualFormManager {
 
         document.getElementById(`${p}TpeInvoiceNo`).value = data.tpeInvoiceNo || '';
         document.getElementById(`${p}EvrekaInvoiceNo`).value = data.evrekaInvoiceNo || '';
+
+        const descInput = document.getElementById(`${p}AccrualDescription`);
+        if (descInput) descInput.value = data.description || data.foreignDescription || '';
 
         if (data.tpInvoiceParty) {
             this.selectedTpParty = data.tpInvoiceParty;
@@ -409,8 +420,8 @@ export class AccrualFormManager {
         let subjectText = '';
 
         if (this.isFreestyle) {
-            subjectText = document.getElementById(`${p}Subject`).value.trim();
-            if (!subjectText) return { success: false, error: 'Lütfen Serbest Tahakkuk için Konu/Açıklama girin.' };
+            subjectText = document.getElementById(`${p}Subject`)?.value.trim() || '';
+            if (!subjectText) return { success: false, error: 'Lütfen Serbest Tahakkuk için Konu/Başlık girin.' };
             if (!this.selectedTpParty) return { success: false, error: 'Lütfen fatura kesilecek müvekkili (kişiyi) seçin.' };
         }
 
@@ -430,8 +441,14 @@ export class AccrualFormManager {
         const vatRate = parseFloat(document.getElementById(`${p}VatRate`).value) || 0;
         const applyVatToOfficial = document.getElementById(`${p}ApplyVatToOfficial`).checked;
         const isForeign = document.getElementById(`${p}IsForeignTransaction`).checked;
+        
+        // 🔥 AÇIKLAMA (Tüm tahakkuklar için)
+        const accrualDesc = document.getElementById(`${p}AccrualDescription`)?.value.trim() || '';
+        
+        // 🔥 DOSYA BİLGİSİ
         const fileInput = document.getElementById(`${p}ForeignInvoiceFile`);
         const files = fileInput.files;
+        const foreignFile = fileInput && fileInput.files.length > 0 ? fileInput.files[0] : null;
 
         const tpParty = this.selectedTpParty ? { id: this.selectedTpParty.id, name: this.selectedTpParty.name } : null;
         let serviceParty = null;
@@ -460,7 +477,7 @@ export class AccrualFormManager {
             success: true,
             data: {
                 type: accrualType, 
-                accrualType: accrualType, // DB'ye uyum için
+                accrualType: accrualType, 
                 subject: subjectText, 
                 isFreestyle: this.isFreestyle, 
                 officialFee: { amount: officialFee, currency: offCurr },
@@ -469,18 +486,18 @@ export class AccrualFormManager {
                 applyVatToOfficialFee: applyVatToOfficial,
                 totalAmount: totalAmountArray, 
                 
-                // 🔥 THE FIX: Veritabanı Native Sütunları için ID'leri Gönderiyoruz!
                 tpInvoicePartyId: tpParty ? tpParty.id : null,
                 serviceInvoicePartyId: serviceParty ? serviceParty.id : null,
-                
-                // Geriye dönük uyumluluk ve arayüz okuması için (Zararı yok)
                 tpInvoiceParty: tpParty,
                 serviceInvoiceParty: serviceParty,
-                
                 isForeignTransaction: isForeign,
                 tpeInvoiceNo: tpeInvoiceNo,
                 evrekaInvoiceNo: evrekaInvoiceNo,
-                files: files
+                
+                // Veritabanına yazılacak ana açıklama kolonu
+                description: accrualDesc,           
+                foreignInvoiceFile: foreignFile,    
+                files: files                        
             }
         };
     }

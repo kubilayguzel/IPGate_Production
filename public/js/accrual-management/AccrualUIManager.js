@@ -301,103 +301,127 @@ export class AccrualUIManager {
 
         const body = this.viewModal.querySelector('.modal-body-content');
         const title = document.getElementById('viewAccrualTitle');
-        if(title) title.textContent = `Tahakkuk Detayı (#${accrual.id})`;
+        if(title) title.style.display = 'none';
 
         const dFmt = (d) => { try { return d ? new Date(d).toLocaleDateString('tr-TR') : '-'; } catch{return '-'} };
         
-        let statusText = 'Bilinmiyor', statusColor = '#6c757d';
-        if(accrual.status === 'paid') { statusText = 'Ödendi'; statusColor = '#28a745'; }
-        else if(accrual.status === 'unpaid') { statusText = 'Ödenmedi'; statusColor = '#dc3545'; }
-        else if(accrual.status === 'partially_paid') { statusText = 'Kısmen Ödendi'; statusColor = '#ffc107'; }
+        let statusText = 'Bilinmiyor', statusBadge = 'badge-secondary';
+        if(accrual.status === 'paid') { statusText = 'Ödendi'; statusBadge = 'badge-success'; }
+        else if(accrual.status === 'unpaid') { statusText = 'Ödenmedi'; statusBadge = 'badge-danger'; }
+        else if(accrual.status === 'partially_paid') { statusText = 'Kısmen Ödendi'; statusBadge = 'badge-warning text-dark'; }
 
         let filesHtml = '';
         if (accrual.files && accrual.files.length > 0) {
-            filesHtml = accrual.files.map(f => {
-                const url = f.content || f.url;
-                return `
-                <div class="col-md-6 mb-2">
-                    <div class="p-2 border rounded d-flex align-items-center bg-white shadow-sm h-100">
-                        <i class="fas fa-file-alt text-secondary fa-2x mr-3 ml-1"></i>
-                        <div style="flex-grow:1; overflow:hidden;">
-                            <div class="text-truncate font-weight-bold small" title="${f.name}">${f.name}</div>
-                            <div class="text-muted small" style="font-size:0.75rem;">${f.documentDesignation || 'Belge'}</div>
-                        </div>
-                        <a href="${url}" target="_blank" class="btn btn-sm btn-light ml-2 border"><i class="fas fa-download"></i></a>
+            filesHtml = accrual.files.map(f => `
+                <div class="d-flex align-items-center justify-content-between p-2 mb-2 border rounded bg-light">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-file-pdf text-danger fa-lg mr-3"></i>
+                        <span class="text-dark font-weight-bold" style="font-size: 0.95em;">${f.name}</span>
                     </div>
-                </div>`;
-            }).join('');
+                    <a href="${f.content || f.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i> İndir</a>
+                </div>
+            `).join('');
         } else {
-            filesHtml = '<div class="col-12 text-center text-muted font-italic p-3">Ekli dosya bulunmamaktadır.</div>';
+            filesHtml = '<span class="text-muted small">Ekli belge bulunmamaktadır.</span>';
         }
 
         const tfn = accrual.tpeInvoiceNo || '-';
         const efn = accrual.evrekaInvoiceNo || '-';
+        const description = accrual.description || '-';
+        const tpParty = accrual.tpInvoiceParty?.name || '-';
+        const foreignParty = accrual.serviceInvoiceParty?.name || '-';
+        const applyVatToOfficial = accrual.applyVatToOfficialFee ? 'Evet' : 'Hayır';
+
+        const offFeeStr = accrual.officialFee ? this._formatMoney(accrual.officialFee) : '0 TRY';
+        const srvFeeStr = accrual.serviceFee ? this._formatMoney(accrual.serviceFee) : '0 TRY';
+        const totalStr = this._formatMoney(accrual.totalAmount);
+        const remainingStr = this._formatMoney(accrual.remainingAmount);
 
         body.innerHTML = `
-            <div class="container-fluid p-0">
-                <div class="row mb-3 align-items-stretch">
-                    <div class="col-md-5">
-                         <div class="p-2 bg-light border rounded h-100">
-                            <label class="small text-muted mb-0 font-weight-bold">İLGİLİ İŞ</label>
-                            <div class="text-dark">${accrual.taskTitle || '-'} <small class="text-muted">(${accrual.taskId || ''})</small></div>
-                         </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="p-2 bg-light border rounded text-center h-100">
-                            <label class="small text-muted mb-0 font-weight-bold">TÜR</label>
-                            <div class="font-weight-bold text-primary">${(accrual.type || 'Hizmet').toUpperCase()}</div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="p-2 bg-light border rounded text-center h-100">
-                            <label class="small text-muted mb-0 font-weight-bold">DURUM</label>
-                            <div class="font-weight-bold" style="color:${statusColor}">${statusText.toUpperCase()}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row mb-3">
-                    <div class="col-6">
-                        <div class="p-2 border rounded">
-                            <label class="small text-muted mb-0 font-weight-bold">TPE Fatura No</label>
-                            <div class="text-dark font-weight-bold">${tfn}</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="p-2 border rounded">
-                            <label class="small text-muted mb-0 font-weight-bold">EVREKA Fatura No</label>
-                            <div class="text-dark font-weight-bold">${efn}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <h6 class="border-bottom pb-2 mb-3 text-primary"><i class="fas fa-coins mr-2"></i>Finansal Özet</h6>
-                <div class="row mb-4">
-                    <div class="col-md-6 mb-3">
-                        <div class="card h-100 border-0 bg-light">
-                            <div class="card-body p-3">
-                                <label class="small text-muted mb-1">Toplam Tutar</label>
-                                <div class="h5 mb-0 text-primary">${this._formatMoney(accrual.totalAmount)}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <div class="card h-100 border-0 bg-light">
-                            <div class="card-body p-3 text-right">
-                                <label class="small text-muted mb-1">Kalan Tutar</label>
-                                <div class="h5 mb-0 text-danger">${this._formatMoney(accrual.remainingAmount)}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div class="container-fluid p-0" style="font-size: 0.95rem; color: #333;">
                 
-                <div class="row text-muted small mb-3">
-                    <div class="col-6"><strong>Oluşturulma:</strong> ${dFmt(accrual.createdAt)}</div>
-                    <div class="col-6 text-right"><strong>Ödeme Tarihi:</strong> ${dFmt(accrual.paymentDate)}</div>
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+                    <h4 class="m-0 font-weight-bold text-dark">Tahakkuk Özeti <span class="text-muted ml-2" style="font-size: 0.6em; font-weight: normal;">#${accrual.id}</span></h4>
+                    <span class="badge ${statusBadge} p-2 px-3" style="font-size: 0.9rem;">${statusText}</span>
                 </div>
 
-                <h6 class="border-bottom pb-2 mb-3 text-primary"><i class="fas fa-folder-open mr-2"></i>Dosyalar & Belgeler</h6>
-                <div class="row">${filesHtml}</div>
+                <div class="row">
+                    <div class="col-md-7">
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-dark border-bottom">
+                                <i class="fas fa-info-circle mr-2 text-primary"></i>Genel Bilgiler
+                            </div>
+                            <div class="card-body p-3">
+                                <p class="mb-3"><strong>İlgili İş/Konu:</strong> <span class="ml-2">${accrual.taskTitle || accrual.subject || '-'}</span></p>
+                                <p class="mb-3"><strong>Tür:</strong> <span class="ml-2 text-uppercase text-secondary">${accrual.type || 'Hizmet'}</span> ${accrual.isForeignTransaction ? '<span class="badge badge-danger ml-2">Yurtdışı İşlem</span>' : ''}</p>
+                                <p class="mb-3"><strong>Müvekkil/TP Kişisi:</strong> <span class="ml-2">${tpParty}</span></p>
+                                ${accrual.isForeignTransaction ? `<p class="mb-3"><strong>Yurtdışı Ödeme Tarafı:</strong> <span class="ml-2 text-primary font-weight-bold">${foreignParty}</span></p>` : ''}
+                                <div class="row border-top pt-3 mt-1">
+                                    <div class="col-6"><p class="mb-0"><strong>TPE Fatura No:</strong> ${tfn}</p></div>
+                                    <div class="col-6"><p class="mb-0"><strong>EVREKA Fatura No:</strong> ${efn}</p></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-dark border-bottom">
+                                <i class="fas fa-edit mr-2 text-warning"></i>Tahakkuk Açıklaması / Notu
+                            </div>
+                            <div class="card-body p-3">
+                                <p class="mb-0 text-dark" style="white-space: pre-wrap; line-height: 1.6;">${description}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-dark border-bottom">
+                                <i class="fas fa-folder-open mr-2 text-info"></i>Ekli Belgeler
+                            </div>
+                            <div class="card-body p-3">
+                                ${filesHtml}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5">
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-dark border-bottom">
+                                <i class="fas fa-coins mr-2 text-success"></i>Finansal Detaylar
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                                    <span class="text-secondary">Resmi Ücret:</span>
+                                    <strong class="text-dark">${offFeeStr}</strong>
+                                </div>
+                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                                    <span class="text-secondary">Hizmet/Masraf:</span>
+                                    <strong class="text-dark">${srvFeeStr}</strong>
+                                </div>
+                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                                    <span class="text-secondary">KDV Oranı:</span>
+                                    <strong class="text-dark">%${accrual.vatRate || 0} <small class="text-muted font-weight-normal">(Resmiye Dahil: ${applyVatToOfficial})</small></strong>
+                                </div>
+                                <div class="d-flex justify-content-between mb-3 pt-2">
+                                    <span class="font-weight-bold text-primary">GENEL TOPLAM:</span>
+                                    <strong class="text-primary" style="font-size: 1.2em;">${totalStr}</strong>
+                                </div>
+                                <div class="d-flex justify-content-between p-3 mt-3 rounded ${accrual.status === 'paid' ? 'bg-success text-white' : 'bg-warning text-dark'}">
+                                    <span class="font-weight-bold">KALAN TUTAR (ÖDENECEK):</span>
+                                    <strong style="font-size: 1.25em;">${remainingStr}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-dark border-bottom">
+                                <i class="far fa-calendar-alt mr-2 text-secondary"></i>Tarih Bilgileri
+                            </div>
+                            <div class="card-body p-3">
+                                <p class="mb-3"><strong>Oluşturma:</strong> <span class="ml-2">${dFmt(accrual.createdAt)}</span></p>
+                                <p class="mb-0"><strong>Ödeme:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         `;
         this.viewModal.classList.add('show');

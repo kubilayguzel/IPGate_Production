@@ -305,6 +305,7 @@ export class TaskSubmitHandler {
                 vat_rate: Number(accrualData.vatRate) || 20,
                 apply_vat_to_official_fee: Boolean(accrualData.applyVatToOfficialFee),
                 is_foreign_transaction: Boolean(accrualData.isForeignTransaction),
+                description: accrualData.description || null, // 🔥 AÇIKLAMA BURAYA EKLENDİ
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -314,42 +315,33 @@ export class TaskSubmitHandler {
                 if (accError) throw accError;
                 console.log("✅ Tahakkuk başarıyla kaydedildi.");
 
-                // ======================================================
-                // 🔥 DEBUG (LOGLAMA) BÖLÜMÜ BAŞLIYOR
-                // ======================================================
-                console.log("======== TAHAKKUK EVRAK YÜKLEME DEBUG ========");
-                console.log("1. Gelen tüm accrualData objesi:", accrualData);
-                console.log("2. accrualData.files durumu:", accrualData.files);
-                
                 if (!accrualData.files || accrualData.files.length === 0) {
-                    console.warn("⚠️ DİKKAT: Forma dosya eklenmesine rağmen 'accrualData.files' boş geliyor! AccrualFormManager dosyayı yakalayamıyor olabilir.");
+                    console.warn("⚠️ Tahakkuk PDF dosyası eklenmemiş, işlem atlandı.");
                 } else {
-                    console.log(`3. Yüklenecek ${accrualData.files.length} adet dosya bulundu. Yükleme başlıyor...`);
+                    console.log(`➡️ Yüklenecek ${accrualData.files.length} adet dosya bulundu. Yükleme başlıyor...`);
                     
                     const docInserts = [];
                     for (const fileObj of accrualData.files) {
                         const file = fileObj.file || fileObj; 
-                        console.log(`➡️ İşlenen Dosya: ${file.name} (Boyut: ${file.size} byte, Tip: ${file.type})`);
                         
                         const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                        const storagePath = `accruals/${newAccrualId}/${Date.now()}_${cleanFileName}`;
                         
-                        console.log(`   Yükleme Yolu: documents/${storagePath}`);
+                        // Dosya yolu: accruals / Tahakkuk_ID / Dosya_Adı
+                        const cleanPath = `accruals/${newAccrualId}/${Date.now()}_${cleanFileName}`;
                         
+                        // 🔥 ÇÖZÜM: Bucket adı 'documents' olarak ayarlandı
                         const { error: uploadError } = await supabase.storage
                             .from('documents')
-                            .upload(storagePath, file, { cacheControl: '3600', upsert: true });
+                            .upload(cleanPath, file, { cacheControl: '3600', upsert: true });
 
                         if (uploadError) {
-                            console.error(`   ❌ Storage Yükleme Hatası (${file.name}):`, uploadError);
+                            console.error(`❌ Storage Yükleme Hatası (${file.name}):`, uploadError);
                             continue; 
                         }
                         
-                        console.log(`   ✅ Dosya Storage'a yüklendi.`);
-                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
+                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(cleanPath);
                         
                         if (urlData && urlData.publicUrl) {
-                            console.log(`   🔗 Public URL Alındı: ${urlData.publicUrl}`);
                             docInserts.push({
                                 accrual_id: String(newAccrualId),
                                 document_name: file.name,
@@ -359,19 +351,11 @@ export class TaskSubmitHandler {
                         }
                     }
 
-                    console.log("4. Veritabanına (accrual_documents) yazılacak dizi:", docInserts);
                     if (docInserts.length > 0) {
                         const { error: docError } = await supabase.from('accrual_documents').insert(docInserts);
-                        if (docError) {
-                            console.error("❌ accrual_documents tablosuna yazılamadı:", docError);
-                        } else {
-                            console.log(`✅ ${docInserts.length} evrak başarıyla veritabanına eklendi!`);
-                        }
+                        if (docError) console.error("❌ accrual_documents tablosuna yazılamadı:", docError);
                     }
                 }
-                console.log("==============================================");
-                // ======================================================
-
             } catch (err) {
                 console.error("❌ Tahakkuk kaydedilemedi:", err);
             }
@@ -397,7 +381,6 @@ export class TaskSubmitHandler {
             else if (sip.client && sip.client.name) accAppName = sip.client.name;
         }
 
-        // 🔥 YENİ 1: Görev Sahibini (Müvekkil/Rakip) State Üzerinden Güvenle Bulma
         let targetOwnerId = null;
         if (state.selectedRelatedParties && state.selectedRelatedParties.length > 0) {
             targetOwnerId = String(state.selectedRelatedParties[0].id);
@@ -430,27 +413,20 @@ export class TaskSubmitHandler {
             }
         };
 
-        // 1. Görevi oluştur
         const accResult = await taskService.addTask(accrualTaskData);
         
-        // 🔥 ÇÖZÜM: details kolonunun veritabanı tarafından ezilmesini engellemek için, 
-        // görev oluştuktan hemen sonra Supabase'e doğrudan müdahale edip JSON'u güncelliyoruz.
         if (accResult && accResult.success) {
             const newAccTaskId = accResult.data?.id || accResult.id;
-            
             if (newAccTaskId) {
-                // Veritabanının o saniye oluşturduğu güncel JSON'u çek
                 const { data: dbData } = await supabase.from('tasks').select('details').eq('id', newAccTaskId).single();
                 let mergedDetails = dbData?.details || {};
                 
-                // Silinmesini istemediğimiz verileri zorla içine yaz
                 mergedDetails.assigned_to_email = assignedEmail;
                 mergedDetails.iprecord_application_no = accAppNo;
                 mergedDetails.iprecord_title = accTitle;
                 mergedDetails.iprecord_applicant_name = accAppName;
-                mergedDetails.parent_task_id = String(taskId); // <- ASIL HEDEFİMİZ (İşin koptuğu yer)
+                mergedDetails.parent_task_id = String(taskId); 
                 
-                // Güvenli bir şekilde geri yükle
                 await supabase.from('tasks').update({ details: mergedDetails }).eq('id', newAccTaskId);
             }
         }

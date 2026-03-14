@@ -20,17 +20,38 @@ export class AccrualDataManager {
     }
 
     async uploadFileToStorage(file, path) {
-        if (!file) return null;
+        console.log("📦 [STORAGE] uploadFileToStorage BAŞLADI.");
+        console.log("📦 [STORAGE] Gelen Dosya:", file ? file.name : "DOSYA YOK", "| Boyut:", file ? file.size : "N/A");
+        console.log("📦 [STORAGE] Hedef Yol:", path);
+        
+        if (!file) {
+            console.warn("📦 [STORAGE] Uyarı: Dosya boş geldi, yükleme atlanıyor.");
+            return null;
+        }
+        
         try {
-            const bucketName = path.includes('task_documents') ? 'task_documents' : 'accruals';
-            const cleanPath = path.replace('accruals/', ''); 
+            const bucketName = 'documents'; 
+            console.log(`📦 [STORAGE] Supabase '${bucketName}' bucket'ına istek atılıyor...`);
 
-            const { error } = await supabase.storage.from(bucketName).upload(cleanPath, file);
-            if (error) throw error;
-            const { data } = supabase.storage.from(bucketName).getPublicUrl(cleanPath);
-            return data.publicUrl;
+            // Yükleme İşlemi (Hata verirse error objesini yakalayacağız)
+            const { data, error } = await supabase.storage
+                .from(bucketName)
+                .upload(path, file, { cacheControl: '3600', upsert: true });
+            
+            if (error) {
+                console.error("❌ [STORAGE] SUPABASE YÜKLEME HATASI:", error.message, error);
+                throw error;
+            }
+            
+            console.log("✅ [STORAGE] Dosya başarıyla yüklendi. Dönen Data:", data);
+            
+            // Public URL Alma İşlemi
+            const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(path);
+            console.log("🔗 [STORAGE] Public URL Alındı:", urlData ? urlData.publicUrl : "URL ALINAMADI");
+            
+            return urlData.publicUrl;
         } catch (err) {
-            console.error("Dosya yükleme hatası:", err);
+            console.error("❌ [STORAGE] Try-Catch Bloğunda Yakalanan Hata:", err);
             return null;
         }
     }
@@ -39,7 +60,6 @@ export class AccrualDataManager {
         try {
             const accPromise = supabase.from('accruals').select('*').limit(10000).order('created_at', { ascending: false });
 
-            // 🔥 ÇÖZÜM 1: personService eklendi. Artık kişilerin isimleri çekiliyor!
             const [accRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
                 taskService.getAllUsers(),
@@ -54,7 +74,6 @@ export class AccrualDataManager {
                 isTopLevelSelectable: t.is_top_level_selectable ?? t.details?.isTopLevelSelectable ?? t.isTopLevelSelectable
             })) : [];
 
-            // ID'den İsim bulan yardımcı fonksiyon
             const getPersonName = (id) => {
                 if (!id) return null;
                 const p = this.allPersons.find(x => x.id === id);
@@ -75,6 +94,7 @@ export class AccrualDataManager {
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
+                    description: row.description || d.description || '', // 🔥 AÇIKLAMA OKUNUYOR
                     files: row.files || d.files || [],
                     
                     officialFee: { amount: row.official_fee_amount || 0, currency: row.official_fee_currency || 'TRY' },
@@ -87,7 +107,6 @@ export class AccrualDataManager {
                     applyVatToOfficialFee: row.apply_vat_to_official_fee ?? d.applyVatToOfficialFee ?? false,
                     paymentDate: row.payment_date || d.paymentDate || null,
                     
-                    // 🔥 ÇÖZÜM 1 (Devamı): "undefined" yerine gerçek isimler haritalanıyor
                     tpInvoiceParty: row.tp_invoice_party_id ? { id: row.tp_invoice_party_id, name: getPersonName(row.tp_invoice_party_id) } : d.tpInvoiceParty,
                     serviceInvoiceParty: row.service_invoice_party_id ? { id: row.service_invoice_party_id, name: getPersonName(row.service_invoice_party_id) } : d.serviceInvoiceParty,
                 };
@@ -323,6 +342,7 @@ export class AccrualDataManager {
         if (updates.vatRate !== undefined) payload.vat_rate = updates.vatRate;
         if (updates.applyVatToOfficialFee !== undefined) payload.apply_vat_to_official_fee = updates.applyVatToOfficialFee;
         if (updates.type !== undefined || updates.accrualType !== undefined) payload.accrual_type = updates.type || updates.accrualType;
+        if (updates.description !== undefined) payload.description = updates.description; // 🔥 GÜNCELLEMEDE AÇIKLAMA YAZILIYOR
 
         const { error } = await supabase.from('accruals').update(payload).eq('id', id);
         if (error) throw error;
@@ -330,12 +350,36 @@ export class AccrualDataManager {
 
     // 🔥 ÇÖZÜM: Yeni kayıt eklerken de 'details' kolonu oluşturması iptal edildi
     async createFreestyleAccrual(formData, fileToUpload) {
+        console.log("==================================================");
+        console.log("🚀 [ACCRUAL] createFreestyleAccrual BAŞLADI.");
+        console.log("🚀 [ACCRUAL] Form'dan Gelen Data Objesi:", formData);
+        
+        // Eğer UI Manager dosyayı formData.foreignInvoiceFile içinde gönderiyorsa onu yakalayalım:
+        let actualFile = fileToUpload || formData.foreignInvoiceFile;
+        console.log("🚀 [ACCRUAL] İşleme Alınacak Dosya:", actualFile ? actualFile.name : "DOSYA YOK");
+
+        const newId = generateUUID(); 
+        console.log("🚀 [ACCRUAL] Üretilen Yeni Tahakkuk ID:", newId);
+
         let newFiles = [];
-        if (fileToUpload) {
-            const cleanFileName = fileToUpload.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            const path = `accruals/foreign_invoices/${Date.now()}_${cleanFileName}`;
-            const url = await this.uploadFileToStorage(fileToUpload, path);
-            newFiles.push({ name: fileToUpload.name, url, type: 'foreign_invoice', documentDesignation: 'Yurtdışı Fatura/Debit', uploadedAt: new Date().toISOString() });
+        if (actualFile) {
+            console.log("🚀 [ACCRUAL] Dosya yükleme süreci tetikleniyor...");
+            const cleanFileName = actualFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+            const path = `accruals/${newId}/${Date.now()}_${cleanFileName}`;
+            
+            const url = await this.uploadFileToStorage(actualFile, path);
+            if (url) {
+                console.log("🚀 [ACCRUAL] URL başarıyla alındı, DB için dosya objesi oluşturuluyor.");
+                newFiles.push({ 
+                    name: actualFile.name, 
+                    url: url, 
+                    type: 'foreign_invoice', 
+                    documentDesignation: 'Yurtdışı Fatura/Debit', 
+                    uploadedAt: new Date().toISOString() 
+                });
+            } else {
+                console.error("❌ [ACCRUAL] URL alınamadı, uploadFileToStorage null döndü!");
+            }
         }
 
         const vatMultiplier = 1 + ((formData.vatRate || 0) / 100);
@@ -349,7 +393,6 @@ export class AccrualDataManager {
         const newAmountArray = Object.entries(remMap).map(([curr, amt]) => ({ amount: amt, currency: curr }));
 
         let newStatus = newAmountArray.length === 0 ? 'paid' : 'unpaid';
-        const newId = generateUUID();
 
         const payload = {
             id: newId,
@@ -365,16 +408,27 @@ export class AccrualDataManager {
             vat_rate: formData.vatRate || 0,
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
+            description: formData.description || null,
             
-            // 🔥 EKSİK OLAN KİŞİ (MÜVEKKİL) VE FATURA NO ALANLARI EKLENDİ
             tp_invoice_party_id: formData.tpInvoicePartyId || null,
             service_invoice_party_id: formData.serviceInvoicePartyId || null,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
-            evreka_invoice_no: formData.evrekaInvoiceNo || null
+            evreka_invoice_no: formData.evrekaInvoiceNo || null,
+            
+            // Eğer JSON dosyaları tutuyorsak buraya da ekleyelim ki arayüzde görünsün
+            files: newFiles
         };
 
+        console.log("🚀 [ACCRUAL] Supabase'e Gönderilecek DB Payload:", payload);
+
         const { error } = await supabase.from('accruals').insert(payload);
-        if (error) throw error;
+        
+        if (error) {
+            console.error("❌ [ACCRUAL] Veritabanı (Insert) Hatası:", error);
+            throw error;
+        }
+        
+        console.log("✅ [ACCRUAL] İşlem tamamen başarılı! fetchAllData tetikleniyor...");
         await this.fetchAllData(); 
     }
 
@@ -385,12 +439,14 @@ export class AccrualDataManager {
         let newFiles = [];
         if (fileToUpload) {
             const cleanFileName = fileToUpload.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            const path = `accruals/foreign_invoices/${Date.now()}_${cleanFileName}`;
+            
+            // 🔥 ÇÖZÜM: Dosya yolu accruals/ID/... olarak ayarlandı
+            const path = `accruals/${accrualId}/${Date.now()}_${cleanFileName}`;
+            
             const url = await this.uploadFileToStorage(fileToUpload, path);
             newFiles.push({ name: fileToUpload.name, url, type: 'foreign_invoice', documentDesignation: 'Yurtdışı Fatura/Debit', uploadedAt: new Date().toISOString() });
         }
         const finalFiles = [...(currentAccrual.files || []), ...newFiles];
-
         const vatMultiplier = 1 + ((formData.vatRate || 0) / 100);
         const targetOff = formData.applyVatToOfficialFee ? formData.officialFee.amount * vatMultiplier : formData.officialFee.amount;
         const targetSrv = formData.serviceFee.amount * vatMultiplier;

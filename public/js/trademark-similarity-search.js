@@ -1509,7 +1509,10 @@ const saveManualResultEntry = async () => {
 
     if (sourceType === 'tp') {
         if (!tpSearchResultData) return;
-        resultPayload.bulletin_record_id = tpSearchResultData.id; // Gerçek kaydın UUID'sini bağlıyoruz
+        resultPayload.bulletin_record_id = tpSearchResultData.id; 
+        
+        // 🔥 ÇÖZÜM: Veritabanının beklediği Benzersiz İlişkisel ID'yi (İzlenenID_BültenKaydıID) üretiyoruz
+        resultPayload.id = `${monitoredId}_${tpSearchResultData.id}`; 
     } else {
         return showNotification('Mevcut veritabanı şemasında harici (manuel metin) kayıt desteklenmemektedir.', 'warning');
     }

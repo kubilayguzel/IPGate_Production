@@ -1760,14 +1760,13 @@ export const accrualService = {
 
     async addAccrual(accrualData) {
         try {
-            // 🔥 ÇÖZÜM: Tahakkuklar için de Güvenli Yeniden Deneme (Retry) Mekanizması
             let isInserted = false;
             let insertedData = null;
             let retryCount = 0;
             const maxRetries = 5;
 
             while (!isInserted && retryCount < maxRetries) {
-                const nextId = await this._getNextAccrualId();
+                const nextId = accrualData.id || await this._getNextAccrualId();
                 
                 const payload = { 
                     id: nextId,
@@ -1787,7 +1786,10 @@ export const accrualService = {
                     remaining_amount: accrualData.remainingAmount || [{ amount: 0, currency: 'TRY' }],
                     vat_rate: accrualData.vatRate || 0,
                     apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
-                    is_foreign_transaction: accrualData.isForeignTransaction || false
+                    is_foreign_transaction: accrualData.isForeignTransaction || false,
+                    
+                    // 🔥 ÇÖZÜM: DB'ye doğrudan natif sütun olarak yazılır
+                    description: accrualData.description || null 
                 };
 
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
@@ -1796,7 +1798,6 @@ export const accrualService = {
                 
                 if (error) {
                     if (error.code === '23505' || error.message?.includes('duplicate')) {
-                        console.warn(`[ACCRUAL SERVICE] 409 ID Çakışması! Yeni ID alınıyor... Deneme: ${retryCount + 1}`);
                         retryCount++;
                         await new Promise(r => setTimeout(r, Math.random() * 400 + 100)); 
                         continue;
@@ -1808,13 +1809,9 @@ export const accrualService = {
                 isInserted = true;
             }
 
-            if (!isInserted) {
-                throw new Error("Tahakkuk ID'si alınamadı, sistemde yoğun çakışma var.");
-            }
-
+            if (!isInserted) throw new Error("Tahakkuk ID'si alınamadı.");
             return { success: true, data: { id: insertedData.id } };
         } catch (error) {
-            console.error("Tahakkuk ekleme hatası:", error);
             return { success: false, error: error.message };
         }
     },
@@ -1838,6 +1835,9 @@ export const accrualService = {
                 vat_rate: updateData.vatRate,
                 apply_vat_to_official_fee: updateData.applyVatToOfficialFee,
                 is_foreign_transaction: updateData.isForeignTransaction,
+                
+                // 🔥 ÇÖZÜM: Güncellemede de doğrudan sütuna yazılır
+                description: updateData.description,
                 updated_at: new Date().toISOString()
             };
 
@@ -1847,14 +1847,17 @@ export const accrualService = {
             if (error) throw error;
             return { success: true };
         } catch (error) {
-            console.error("Tahakkuk güncelleme hatası:", error);
             return { success: false, error: error.message };
         }
     },
 
     async getAccrualsByTaskId(taskId) {
         try {
-            const { data, error } = await supabase.from('accruals').select('*').eq('task_id', String(taskId));
+            // 🔥 ÇÖZÜM: accrual_documents tablosuyla JOIN yapıyoruz (Dosyaları UI için otomatik çekiyor)
+            const { data, error } = await supabase.from('accruals')
+                .select('*, accrual_documents(*)')
+                .eq('task_id', String(taskId));
+            
             if (error) throw error;
             
             const mappedData = data.map(acc => ({
@@ -1870,25 +1873,35 @@ export const accrualService = {
                 serviceFeeCurrency: acc.service_fee_currency,
                 tpInvoicePartyId: acc.tp_invoice_party_id,
                 serviceInvoicePartyId: acc.service_invoice_party_id,
+                
+                // 🔥 ÇÖZÜM: Description ve DB'den gelen dosyaları (files) UI formatına çevirdik
+                description: acc.description,
+                files: acc.accrual_documents ? acc.accrual_documents.map(d => ({
+                    id: d.id,
+                    name: d.document_name,
+                    url: d.document_url,
+                    type: d.document_type
+                })) : [],
+
                 createdAt: acc.created_at,
                 updatedAt: acc.updated_at
             }));
             
             return { success: true, data: mappedData };
         } catch (error) {
-            console.error("Tahakkukları getirme hatası:", error);
             return { success: false, error: error.message, data: [] };
         }
     },
 
-    // 🔥 YENİ EKLENEN KISIM: Dashboard ve Raporların çalışmasını sağlayan ANA fonksiyon
     async getAccruals() {
         try {
-            // 1. Tüm tahakkuk kayıtlarını en yeniden eskiye çek
-            const { data, error } = await supabase.from('accruals').select('*').order('created_at', { ascending: false });
+            // 🔥 ÇÖZÜM: Burada da JOIN yapıyoruz
+            const { data, error } = await supabase.from('accruals')
+                .select('*, accrual_documents(*)')
+                .order('created_at', { ascending: false });
+            
             if (error) throw error;
 
-            // 2. Faturalandırılan müşterilerin (persons) isimlerini bulmak için ID'lerini topla
             const personIds = [...new Set([
                 ...data.map(a => a.tp_invoice_party_id).filter(Boolean),
                 ...data.map(a => a.service_invoice_party_id).filter(Boolean)
@@ -1896,12 +1909,10 @@ export const accrualService = {
 
             let personsMap = {};
             if (personIds.length > 0) {
-                // Supabase'i yormadan tek bir sorgu ile tüm müşteri isimlerini al
                 const { data: persons } = await supabase.from('persons').select('id, name').in('id', personIds);
                 if (persons) persons.forEach(p => personsMap[p.id] = p.name);
             }
 
-            // 3. Verileri arayüzün (Dashboard'un) anlayacağı şekilde haritala
             const mappedData = data.map(acc => ({
                 id: acc.id,
                 taskId: acc.task_id,
@@ -1909,33 +1920,35 @@ export const accrualService = {
                 accrualType: acc.accrual_type,
                 totalAmount: acc.total_amount,
                 remainingAmount: acc.remaining_amount,
-                
-                // Dashboard Finansal Hesaplamaları için Objeler:
                 officialFeeAmount: acc.official_fee_amount,
                 officialFeeCurrency: acc.official_fee_currency,
                 officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },
-                
                 serviceFeeAmount: acc.service_fee_amount,
                 serviceFeeCurrency: acc.service_fee_currency,
                 serviceFee: { amount: acc.service_fee_amount, currency: acc.service_fee_currency },
-                
                 vatRate: acc.vat_rate,
                 applyVatToOfficialFee: acc.apply_vat_to_official_fee,
-                
-                // Müşteri İsim Eşleştirmeleri
                 tpInvoicePartyId: acc.tp_invoice_party_id,
                 serviceInvoicePartyId: acc.service_invoice_party_id,
                 tpInvoiceParty: acc.tp_invoice_party_id ? { name: personsMap[acc.tp_invoice_party_id] || 'Bilinmiyor' } : null,
                 serviceInvoiceParty: acc.service_invoice_party_id ? { name: personsMap[acc.service_invoice_party_id] || 'Bilinmiyor' } : null,
                 paymentParty: personsMap[acc.service_invoice_party_id] || personsMap[acc.tp_invoice_party_id] || 'Bilinmeyen Müşteri',
                 
+                // 🔥 ÇÖZÜM: Description ve DB'den gelen dosyaları (files) UI formatına çevirdik
+                description: acc.description,
+                files: acc.accrual_documents ? acc.accrual_documents.map(d => ({
+                    id: d.id,
+                    name: d.document_name,
+                    url: d.document_url,
+                    type: d.document_type
+                })) : [],
+
                 createdAt: acc.created_at,
                 updatedAt: acc.updated_at
             }));
 
             return { success: true, data: mappedData };
         } catch (error) {
-            console.error("Tüm tahakkukları getirme hatası:", error);
             return { success: false, error: error.message, data: [] };
         }
     }

@@ -92,10 +92,8 @@ class NotificationsManager {
         this.elements.saveDraftBtn.addEventListener('click', () => this.saveDraft());
     }
 
-    // --- VERİ ÇEKME & DİNLEME ---
     async loadData() {
         this.toggleLoading(true);
-        // 🔥 YENİ: Artık View (Sanal Tablo) üzerinden şimşek hızında çekiyoruz
         const { data, error } = await supabase
                 .from('v_mail_notifications_list')
                 .select('*')
@@ -103,6 +101,7 @@ class NotificationsManager {
         
         if (data && !error) {
             this.allNotifications = data; 
+            
             if (!this.pagination) {
                 this.pagination = new Pagination({
                     containerId: "paginationContainer", itemsPerPage: 20, maxVisiblePages: 7,
@@ -143,40 +142,19 @@ class NotificationsManager {
             const sentList = this.allNotifications.filter(n => n.status === 'sent');
             let filtered = [];
             
-            // 🕵️ DEDEKTİF LOGLARI BAŞLIYOR
-            console.log(`\n================================================`);
-            console.log(`🔍 [${this.activeTab.toUpperCase()}] SEKMESİ İÇİN FİLTRELEME BAŞLADI`);
-            console.log(`📦 Toplam "Gönderilmiş (sent)" Mail Sayısı: ${sentList.length}`);
-            
             for (const n of sentList) {
-                // View'dan gelen anlık task_status değeri
-                const tStatus = n.task_status;
+                // Görünmez boşlukları temizleyerek statüyü al
+                const tStatus = n.task_status ? n.task_status.trim() : null;
                 
-                // Her mail için detaylı durum dökümü
-                if (this.activeTab === 'reminders') {
-                    console.log(`------------------------------------------------`);
-                    console.log(`📧 Mail ID: ${n.id}`);
-                    console.log(`🔗 Bağlı Olduğu Görev (Task) ID: ${n.associated_task_id || 'YOK'}`);
-                    console.log(`🏷️ Görevin Şu Anki Statüsü (tStatus): '${tStatus}'`);
-                }
-
-                // KURAL 1: HATIRLATMALAR SEKMESİ
+                // KURAL 1: HATIRLATMALAR SEKMESİ (Görev Var VE Statüsü Müvekkil Onayı Bekliyor)
                 if (this.activeTab === 'reminders' && n.associated_task_id && tStatus === 'awaiting_client_approval') {
-                    if (this.activeTab === 'reminders') console.log(`✅ SONUÇ: Bu mail HATIRLATMALAR sekmesine UYUYOR!`);
                     filtered.push(n);
                 }
-                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ
+                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ (Görev Yok YADA Statüsü Onay Beklemiyor)
                 else if (this.activeTab === 'sent' && (!n.associated_task_id || tStatus !== 'awaiting_client_approval')) {
                     filtered.push(n);
-                } 
-                else {
-                    if (this.activeTab === 'reminders') console.log(`❌ SONUÇ: Şartlar sağlanmadı. (Hatırlatmalara alınmadı)`);
                 }
             }
-            
-            console.log(`\n🎯 FİLTRELEME BİTTİ. Ekrana basılacak mail sayısı: ${filtered.length}`);
-            console.log(`================================================\n`);
-            
             this.notificationsData = filtered;
         }
 

@@ -21,7 +21,8 @@ export class AccrualDataManager {
 
     async fetchAllData() {
         try {
-            const accPromise = supabase.from('accruals').select('*').limit(10000).order('created_at', { ascending: false });
+            // 🔥 ÇÖZÜM 1: Belgeleri getirmek için accrual_documents(*) JOIN eklendi!
+            const accPromise = supabase.from('accruals').select('*, accrual_documents(*)').limit(10000).order('created_at', { ascending: false });
 
             const [accRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
@@ -57,19 +58,22 @@ export class AccrualDataManager {
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
-                    description: row.description || d.description || '', // 🔥 AÇIKLAMA OKUNUYOR
-                    files: row.files || d.files || [],
+                    description: row.description || d.description || '', 
+                    
+                    // 🔥 ÇÖZÜM 2: Gelen belgeler (documents) UI'ın anladığı 'files' dizisine dönüştürülüyor
+                    files: row.accrual_documents && row.accrual_documents.length > 0 
+                        ? row.accrual_documents.map(doc => ({
+                            id: doc.id, name: doc.document_name, url: doc.document_url, type: doc.document_type
+                        })) 
+                        : (row.files || d.files || []),
                     
                     officialFee: { amount: row.official_fee_amount || 0, currency: row.official_fee_currency || 'TRY' },
                     serviceFee: { amount: row.service_fee_amount || 0, currency: row.service_fee_currency || 'TRY' },
-                    
                     totalAmount: Array.isArray(row.total_amount) ? row.total_amount : (d.totalAmount || []),
                     remainingAmount: Array.isArray(row.remaining_amount) ? row.remaining_amount : (d.remainingAmount || []),
-                    
                     vatRate: row.vat_rate || d.vatRate || 20,
                     applyVatToOfficialFee: row.apply_vat_to_official_fee ?? d.applyVatToOfficialFee ?? false,
                     paymentDate: row.payment_date || d.paymentDate || null,
-                    
                     tpInvoiceParty: row.tp_invoice_party_id ? { id: row.tp_invoice_party_id, name: getPersonName(row.tp_invoice_party_id) } : d.tpInvoiceParty,
                     serviceInvoiceParty: row.service_invoice_party_id ? { id: row.service_invoice_party_id, name: getPersonName(row.service_invoice_party_id) } : d.serviceInvoiceParty,
                 };
@@ -77,10 +81,8 @@ export class AccrualDataManager {
 
             await this._fetchTasksInBatches();
             await this._fetchIpRecordsInBatches();
-
             this._buildSearchStrings();
             this.processedData = [...this.allAccruals];
-            
             return true;
         } catch (error) {
             console.error("❌ Veri yükleme hatası:", error);

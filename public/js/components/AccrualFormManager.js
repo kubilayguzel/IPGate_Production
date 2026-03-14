@@ -372,6 +372,22 @@ export class AccrualFormManager {
         const descInput = document.getElementById(`${p}AccrualDescription`);
         if (descInput) descInput.value = data.description || data.foreignDescription || '';
 
+        // 🔥 ÇÖZÜM 4: Önceden yüklenmiş belge varsa "Fatura PDF" alanının altında indirilebilir link göster
+        const nameEl = document.getElementById(`${p}ForeignInvoiceFileName`);
+        if (data.files && data.files.length > 0) {
+            const f = data.files[0];
+            if (nameEl) {
+                nameEl.innerHTML = `
+                    <a href="${f.url}" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">
+                        <i class="fas fa-file-pdf text-danger mr-1"></i> ${f.name}
+                    </a>
+                    <br><small class="text-muted font-weight-normal">(Yeni dosya seçerseniz mevcut dosyanın üzerine yazılır)</small>
+                `;
+            }
+        } else {
+            if (nameEl) nameEl.innerHTML = '';
+        }
+
         if (data.tpInvoiceParty) {
             this.selectedTpParty = data.tpInvoiceParty;
             this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);

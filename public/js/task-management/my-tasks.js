@@ -911,17 +911,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id; 
                 if (targetAccrualId) {
                     try {
-                        const { data: accSnap } = await supabase.from('accruals').select('*').eq('id', String(targetAccrualId)).single();
+                        // 🔥 ÇÖZÜM 3: İşlerim ekranında da belge ve açıklamaları çekebilmek için JOIN eklendi!
+                        const { data: accSnap } = await supabase.from('accruals').select('*, accrual_documents(*)').eq('id', String(targetAccrualId)).single();
                         if (accSnap) {
                             const mappedAcc = {
                                 ...accSnap,
+                                // DB'den gelen belgeleri formun anlayacağı "files" objesine atıyoruz
+                                files: accSnap.accrual_documents ? accSnap.accrual_documents.map(d => ({
+                                    id: d.id, name: d.document_name, url: d.document_url, type: d.document_type
+                                })) : [],
                                 totalAmount: accSnap.total_amount,
                                 remainingAmount: accSnap.remaining_amount,
-                                officialFee: accSnap.official_fee,
-                                serviceFee: accSnap.service_fee,
+                                officialFee: { amount: accSnap.official_fee_amount, currency: accSnap.official_fee_currency },
+                                serviceFee: { amount: accSnap.service_fee_amount, currency: accSnap.service_fee_currency },
                                 vatRate: accSnap.vat_rate,
                                 tpeInvoiceNo: accSnap.tpe_invoice_no,
-                                evrekaInvoiceNo: accSnap.evreka_invoice_no
+                                evrekaInvoiceNo: accSnap.evreka_invoice_no,
+                                description: accSnap.description,
+                                isForeignTransaction: accSnap.is_foreign_transaction
                             };
                             this.completeTaskFormManager.setData(mappedAcc);
                         }

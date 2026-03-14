@@ -143,16 +143,40 @@ class NotificationsManager {
             const sentList = this.allNotifications.filter(n => n.status === 'sent');
             let filtered = [];
             
+            // 🕵️ DEDEKTİF LOGLARI BAŞLIYOR
+            console.log(`\n================================================`);
+            console.log(`🔍 [${this.activeTab.toUpperCase()}] SEKMESİ İÇİN FİLTRELEME BAŞLADI`);
+            console.log(`📦 Toplam "Gönderilmiş (sent)" Mail Sayısı: ${sentList.length}`);
+            
             for (const n of sentList) {
-                let tStatus = null;
-                if (n.associated_task_id) {
-                    const { data: task } = await supabase.from('tasks').select('status').eq('id', n.associated_task_id).single();
-                    tStatus = task?.status;
-                }
+                // View'dan gelen anlık task_status değeri
+                const tStatus = n.task_status;
                 
-                if (this.activeTab === 'reminders' && n.associated_task_id && tStatus === 'awaiting_client_approval') filtered.push(n);
-                if (this.activeTab === 'sent' && (!n.associated_task_id || tStatus !== 'awaiting_client_approval')) filtered.push(n);
+                // Her mail için detaylı durum dökümü
+                if (this.activeTab === 'reminders') {
+                    console.log(`------------------------------------------------`);
+                    console.log(`📧 Mail ID: ${n.id}`);
+                    console.log(`🔗 Bağlı Olduğu Görev (Task) ID: ${n.associated_task_id || 'YOK'}`);
+                    console.log(`🏷️ Görevin Şu Anki Statüsü (tStatus): '${tStatus}'`);
+                }
+
+                // KURAL 1: HATIRLATMALAR SEKMESİ
+                if (this.activeTab === 'reminders' && n.associated_task_id && tStatus === 'awaiting_client_approval') {
+                    if (this.activeTab === 'reminders') console.log(`✅ SONUÇ: Bu mail HATIRLATMALAR sekmesine UYUYOR!`);
+                    filtered.push(n);
+                }
+                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ
+                else if (this.activeTab === 'sent' && (!n.associated_task_id || tStatus !== 'awaiting_client_approval')) {
+                    filtered.push(n);
+                } 
+                else {
+                    if (this.activeTab === 'reminders') console.log(`❌ SONUÇ: Şartlar sağlanmadı. (Hatırlatmalara alınmadı)`);
+                }
             }
+            
+            console.log(`\n🎯 FİLTRELEME BİTTİ. Ekrana basılacak mail sayısı: ${filtered.length}`);
+            console.log(`================================================\n`);
+            
             this.notificationsData = filtered;
         }
 
@@ -166,6 +190,7 @@ class NotificationsManager {
         } else {
             await this.renderCurrentPage();
         }
+        
         this.toggleLoading(false);
     }
 

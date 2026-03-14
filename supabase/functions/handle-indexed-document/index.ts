@@ -272,8 +272,20 @@ serve(async (req: Request) => {
     }
 
     // 🔥 ÇÖZÜM: 66 Görevinin sadece var olup olmadığına değil, doğrudan ID'sine ulaşıyoruz
+    // 🔥 1. Varsa 66 (Değerlendirme) Görevini Bul
     const evalTasksRes = await supabaseAdmin.from('tasks').select('id').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
     const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
+
+    // 🔥 2. YENİ ÇÖZÜM: Kapanan eski görevi (taskId) değil, bu evrakla birlikte YENİ TETİKLENEN "Müvekkil Onayı Bekleyen" görevi bul!
+    const { data: triggeredTasks } = await supabaseAdmin
+        .from('tasks')
+        .select('id')
+        .eq('transaction_id', transactionId)
+        .eq('status', 'awaiting_client_approval')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
 
     let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
     const mailId = crypto.randomUUID();
@@ -281,8 +293,8 @@ serve(async (req: Request) => {
     const mailPayload = {
         id: mailId, 
         related_ip_record_id: ipRecordId, 
-        // 🔥 KRİTİK NOKTA: Eğer 66 görevi (evalTaskId) varsa maili doğrudan ona bağla, yoksa ana göreve (taskId) bağla!
-        associated_task_id: evalTaskId || taskId, 
+        // 🔥 KRİTİK NOKTA: Öncelik 66'da, yoksa yeni tetiklenen işte (Type 7 vb.), hiçbiri yoksa en son çare eski işte!
+        associated_task_id: evalTaskId || newTriggeredTaskId || taskId, 
         source_document_id: record.id, 
         associated_transaction_id: transactionId,
         template_id: templateId, 

@@ -2093,7 +2093,6 @@ export const mailService = {
 // ==========================================
 export const attachmentService = {
     async resolveAttachments(transactionId, sourceDocumentId, taskId = null) {
-        console.log(`[ATTACHMENT SERVICE] Başladı -> txId: ${transactionId}, sourceId: ${sourceDocumentId}, taskId: ${taskId}`);
         let attachments = [];
         let transactionIdsToFetch = [];
         let activeTaskId = taskId;
@@ -2108,8 +2107,6 @@ export const attachmentService = {
                     if (!activeTaskId && txData.task_id) activeTaskId = txData.task_id; 
                 }
             }
-
-            console.log(`[ATTACHMENT SERVICE] Evrakları aranacak Task ID: ${activeTaskId}`);
 
             // 2. TASK DOCUMENTS (Görevin kendi evrakları - ÖNCELİKLİ)
             if (activeTaskId) {

@@ -1787,6 +1787,34 @@ export const accrualService = {
         }
     },
 
+    async deleteDocumentFully(documentId, fileUrl) {
+        try {
+            // 1. URL'den Storage dosya yolunu (path) çıkartıyoruz
+            let filePath = '';
+            if (fileUrl && fileUrl.includes('/documents/')) {
+                filePath = fileUrl.split('/documents/')[1];
+                filePath = decodeURIComponent(filePath); 
+            }
+
+            // 2. ÖNCE STORAGE'DAN FİZİKSEL DOSYAYI SİL
+            if (filePath) {
+                const { error: storageError } = await supabase.storage.from('documents').remove([filePath]);
+                if (storageError) console.warn("Fiziksel dosya silinirken uyarı:", storageError);
+            }
+
+            // 3. SONRA VERİTABANINDAN (DB) KAYDI SİL
+            if (documentId) {
+                const { error: dbError } = await supabase.from('accrual_documents').delete().eq('id', String(documentId));
+                if (dbError) throw dbError;
+            }
+
+            return { success: true };
+        } catch (error) {
+            console.error("❌ Dosya silme hatası:", error);
+            return { success: false, error: error.message };
+        }
+    },
+
     async addAccrual(accrualData) {
         try {
             let isInserted = false, insertedData = null, retryCount = 0;

@@ -97,6 +97,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.uiManager.toggleLoading(true);
 
             try {
+                // 🔥 YENİ: Canlı Kur Çekme (API) ve Kurun Durumunu (Canlı/Sabit) Tespit Etme
+                let exchangeRates = { TRY: 1, USD: 34.5, EUR: 38.2, GBP: 45.5, CHF: 40.8 };
+                let isLiveRate = false;
+                
+                try {
+                    const response = await fetch('https://api.exchangerate-api.com/v4/latest/TRY');
+                    if (response.ok) {
+                        const data = await response.json();
+                        exchangeRates = {
+                            TRY: 1,
+                            USD: 1 / data.rates.USD,
+                            EUR: 1 / data.rates.EUR,
+                            GBP: 1 / data.rates.GBP,
+                            CHF: 1 / data.rates.CHF
+                        };
+                        isLiveRate = true; // Kur canlı çekildi
+                    }
+                } catch (e) {
+                    console.warn("Canlı kurlar alınamadı, varsayılan kurlar kullanılacak.");
+                }
+
                 const loadScript = (src) => new Promise((resolve, reject) => {
                     if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
                     const script = document.createElement('script'); script.src = src; script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
@@ -107,29 +128,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 const ExcelJS = window.ExcelJS;
                 const workbook = new ExcelJS.Workbook();
-                // Grid (Izgara) çizgilerini kapatarak daha şık, dashboard vari bir görünüm veriyoruz
                 const worksheet = workbook.addWorksheet('Mali Durum Raporu', { views: [{ showGridLines: false }] });
 
-                // --- PARA BİRİMİ TOPLAYICI YARDIMCI SINIFI ---
                 class CurrencyTracker {
-                    constructor() { this.totals = {}; }
+                    constructor(rates) { this.totalTRY = 0; this.rates = rates; }
                     add(amount, currency) {
                         const curr = currency || 'TRY';
                         const amt = parseFloat(amount) || 0;
-                        if (!this.totals[curr]) this.totals[curr] = 0;
-                        this.totals[curr] += amt;
+                        const rate = this.rates[curr] || 1;
+                        this.totalTRY += (amt * rate);
                     }
-                    format(joiner = ' + ') {
-                        const entries = Object.entries(this.totals).filter(([_, amt]) => Math.abs(amt) > 0.01);
-                        if (entries.length === 0) return '0,00 TRY';
-                        return entries.map(([curr, amt]) => `${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amt)} ${curr}`).join(joiner);
+                    format() {
+                        if (this.totalTRY === 0) return '0,00 ₺';
+                        return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(this.totalTRY) + ' ₺';
                     }
                 }
 
-                // --- ÖN HESAPLAMALAR (Yönetici Özeti İçin) ---
                 const grandTotals = {
-                    official: new CurrencyTracker(), service: new CurrencyTracker(),
-                    vat: new CurrencyTracker(), total: new CurrencyTracker(), remaining: new CurrencyTracker()
+                    official: new CurrencyTracker(exchangeRates), service: new CurrencyTracker(exchangeRates),
+                    vat: new CurrencyTracker(exchangeRates), total: new CurrencyTracker(exchangeRates), remaining: new CurrencyTracker(exchangeRates)
                 };
                 
                 let unpaidCount = 0;
@@ -137,17 +154,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const groupedData = {};
 
                 dataToExport.forEach(acc => {
-                    // Gruplama için tarih
                     const dateObj = acc.createdAt instanceof Date ? acc.createdAt : new Date(acc.createdAt || 0);
                     const monthYear = dateObj.toLocaleDateString('tr-TR', { year: 'numeric', month: 'long' }).toUpperCase();
                     if (!groupedData[monthYear]) groupedData[monthYear] = [];
                     groupedData[monthYear].push(acc);
 
-                    // Adet Hesaplamaları
                     if (acc.status === 'unpaid' || acc.status === 'partial') unpaidCount++;
                     else if (acc.status === 'paid') paidCount++;
 
-                    // Tutar Hesaplamaları
                     const officialAmt = acc.officialFee?.amount || 0;
                     const officialCurr = acc.officialFee?.currency || 'TRY';
                     const serviceAmt = acc.serviceFee?.amount || 0;
@@ -155,11 +169,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const vatRate = acc.vatRate || 0;
                     const baseForVat = serviceAmt + (acc.applyVatToOfficialFee ? officialAmt : 0);
                     const vatAmt = baseForVat * (vatRate / 100);
-                    const vatCurr = serviceCurr; 
 
                     grandTotals.official.add(officialAmt, officialCurr);
                     grandTotals.service.add(serviceAmt, serviceCurr);
-                    grandTotals.vat.add(vatAmt, vatCurr);
+                    grandTotals.vat.add(vatAmt, serviceCurr);
 
                     const totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
                     const remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
@@ -168,7 +181,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     remArr.forEach(r => grandTotals.remaining.add(r.amount, r.currency));
                 });
 
-                // --- SÜTUNLARI TANIMLAMA (Geçici Olarak 1. Satıra Ekler) ---
                 worksheet.columns = [
                     { header: 'ID', key: 'id', width: 10 }, { header: 'Tarih', key: 'createdAt', width: 15 },
                     { header: 'Tür', key: 'type', width: 15 }, { header: 'Durum', key: 'status', width: 15 },
@@ -180,31 +192,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                     { header: 'Hizmet Ücreti', key: 'serviceFee', width: 20 }, { header: 'H.Ü. PB', key: 'serviceFeeCurr', width: 8 }, 
                     { header: 'KDV Oranı (%)', key: 'vatRate', width: 12 }, { header: 'KDV Tutarı', key: 'vatAmount', width: 20 }, 
                     { header: 'KDV PB', key: 'vatCurr', width: 8 },
-                    { header: 'Toplam Tutar', key: 'totalAmountStr', width: 25 }, 
-                    { header: 'Kalan Tutar (Ödenecek)', key: 'remainingAmountStr', width: 25 }
+                    { header: 'Toplam Tutar (TRY)', key: 'totalAmountStr', width: 20 }, 
+                    { header: 'Kalan Tutar (TRY)', key: 'remainingAmountStr', width: 20 }
                 ];
 
-                // 🔥 HARİKA TRİCK: Sütunları aşağı kaydırarak en üste 8 boş satır açıyoruz!
                 worksheet.spliceRows(1, 0, [], [], [], [], [], [], [], []);
 
-                // --- BÖLÜM 1: YÖNETİCİ ÖZETİ TASARIMI (İlk 8 Satır) ---
-                
-                // 1. Ana Başlık
                 worksheet.mergeCells('A1:T2');
                 const titleCell = worksheet.getCell('A1');
                 titleCell.value = 'MALİ DURUM VE TAHAKKUK RAPORU';
                 titleCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: 'FFFFFFFF' } };
-                titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F2027' } }; // Koyu Antrasit
+                titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F2027' } };
                 titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-                // 2. Alt Başlık
                 worksheet.mergeCells('B4:T4');
                 const summaryTitle = worksheet.getCell('B4');
-                summaryTitle.value = '📊 YÖNETİCİ ÖZETİ';
-                summaryTitle.font = { size: 14, bold: true, color: { argb: 'FF000000' } };
+                summaryTitle.value = '📊 YÖNETİCİ ÖZETİ (Yabancı para birimleri yandaki kur tablosuna göre TRY\'ye çevrilmiştir)';
+                summaryTitle.font = { size: 13, bold: true, color: { argb: 'FF000000' } };
                 summaryTitle.border = { bottom: { style: 'medium', color: { argb: 'FFCCCCCC' } } };
 
-                // 3. Bilgi Kutuları (Dashboard Boxes)
                 const createBox = (range, cellRef, text, bgColor, textColor) => {
                     worksheet.mergeCells(range);
                     const box = worksheet.getCell(cellRef);
@@ -215,17 +221,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     box.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
                 };
 
-                // Kutu 1: İşlem Adetleri (Gri/Mavi)
                 createBox('B5:D6', 'B5', `Toplam İşlem: ${dataToExport.length}\n✅ Ödenen: ${paidCount} | ⏳ Bekleyen: ${unpaidCount}`, 'FFF0F4F8', 'FF102A43');
+                createBox('F5:J6', 'F5', `💰 Toplam Kesilen Fatura (Ciro)\n${grandTotals.total.format()}`, 'FFE1EFFF', 'FF003E6B');
+                createBox('L5:P6', 'L5', `🚨 Bekleyen Tahsilat (Açık Bakiye)\n${grandTotals.remaining.format()}`, 'FFFFF3CD', 'FF856404');
                 
-                // Kutu 2: Toplam Ciro / Kesilen (Mavi)
-                createBox('F5:J6', 'F5', `💰 Toplam Kesilen Fatura Tutarı (Ciro)\n${grandTotals.total.format('   |   ')}`, 'FFE1EFFF', 'FF003E6B');
-                
-                // Kutu 3: Kalan Tahsilat (Sarı/Turuncu)
-                createBox('L5:P6', 'L5', `🚨 Bekleyen Tahsilat (Açık Bakiye)\n${grandTotals.remaining.format('   |   ')}`, 'FFFFF3CD', 'FF856404');
+                // 🔥 YENİ KUTU: Kullanılan Kurların Bilgisi
+                const rateStatusStr = isLiveRate ? "Güncel/Canlı Kur" : "Sabit/Yedek Kur";
+                const rateText = `💱 İşlem Kurları (${rateStatusStr})\nUSD: ${exchangeRates.USD.toFixed(2)}₺ | EUR: ${exchangeRates.EUR.toFixed(2)}₺\nGBP: ${exchangeRates.GBP.toFixed(2)}₺ | CHF: ${exchangeRates.CHF.toFixed(2)}₺`;
+                createBox('R5:T6', 'R5', rateText, 'FFE8F5E9', 'FF1B5E20'); // Açık yeşil zemin, koyu yeşil yazı
 
-
-                // --- BÖLÜM 2: TABLO BAŞLIKLARI VE FİLTRE (9. Satır) ---
                 const headerRow = worksheet.getRow(9);
                 headerRow.eachCell((cell) => {
                     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -233,17 +237,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cell.alignment = { vertical: 'middle', horizontal: 'center' };
                     cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
                 });
-                worksheet.autoFilter = 'A9:T9'; // Tabloya Excel filtresi ekler
+                worksheet.autoFilter = 'A9:T9';
 
-
-                // --- BÖLÜM 3: VERİLERİ YAZDIRMA (Aylık Gruplarla) ---
                 let isAlternate = false;
 
                 for (const [monthYear, records] of Object.entries(groupedData)) {
                     
                     const monthTotals = {
-                        official: new CurrencyTracker(), service: new CurrencyTracker(),
-                        vat: new CurrencyTracker(), total: new CurrencyTracker(), remaining: new CurrencyTracker()
+                        official: new CurrencyTracker(exchangeRates), service: new CurrencyTracker(exchangeRates),
+                        vat: new CurrencyTracker(exchangeRates), total: new CurrencyTracker(exchangeRates), remaining: new CurrencyTracker(exchangeRates)
                     };
 
                     records.forEach(acc => {
@@ -266,11 +268,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const vatRate = acc.vatRate || 0;
                         const baseForVat = serviceAmt + (acc.applyVatToOfficialFee ? officialAmt : 0);
                         const vatAmt = baseForVat * (vatRate / 100);
-                        const vatCurr = serviceCurr; 
 
                         monthTotals.official.add(officialAmt, officialCurr);
                         monthTotals.service.add(serviceAmt, serviceCurr);
-                        monthTotals.vat.add(vatAmt, vatCurr);
+                        monthTotals.vat.add(vatAmt, serviceCurr);
 
                         const totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
                         const remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
@@ -278,9 +279,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                         totalArr.forEach(t => monthTotals.total.add(t.amount, t.currency));
                         remArr.forEach(r => monthTotals.remaining.add(r.amount, r.currency));
 
-                        const formatArray = (arr) => {
-                            if (!Array.isArray(arr) || arr.length === 0) return '0,00 TRY';
-                            return arr.map(x => `${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2 }).format(x.amount)} ${x.currency}`).join(' + ');
+                        const convertToTRY = (arr) => {
+                            if (!Array.isArray(arr) || arr.length === 0) return '0,00';
+                            let rowTotalTry = 0;
+                            arr.forEach(x => {
+                                const curr = x.currency || 'TRY';
+                                const amt = parseFloat(x.amount) || 0;
+                                const rate = exchangeRates[curr] || 1;
+                                rowTotalTry += (amt * rate);
+                            });
+                            return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(rowTotalTry);
                         };
 
                         const newRow = worksheet.addRow({
@@ -291,11 +299,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                             taskTitle: typeObj ? (typeObj.alias || typeObj.name) : (acc.taskTitle || '-'),
                             party: partyName, tpeInvoiceNo: acc.tpeInvoiceNo || '', evrekaInvoiceNo: acc.evrekaInvoiceNo || '',
                             officialFee: officialAmt, officialFeeCurr: officialCurr, serviceFee: serviceAmt,
-                            serviceFeeCurr: serviceCurr, vatRate: vatRate, vatAmount: vatAmt, vatCurr: vatCurr,
-                            totalAmountStr: formatArray(totalArr), remainingAmountStr: formatArray(remArr)
+                            serviceFeeCurr: serviceCurr, vatRate: vatRate, vatAmount: vatAmt, vatCurr: serviceCurr,
+                            totalAmountStr: convertToTRY(totalArr), 
+                            remainingAmountStr: convertToTRY(remArr)
                         });
 
-                        // Zebra deseni (Alternatif Satır Renklendirmesi)
                         newRow.eachCell((cell) => {
                             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isAlternate ? 'FFF9F9F9' : 'FFFFFFFF' } };
                             cell.border = { top: { style: 'thin', color: {argb: 'FFEEEEEE'} }, bottom: { style: 'thin', color: {argb: 'FFEEEEEE'} } };
@@ -303,7 +311,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         isAlternate = !isAlternate;
                     });
 
-                    // --- AYLIK ARA TOPLAM SATIRI ---
                     const subtotalRow = worksheet.addRow({
                         party: `${monthYear} TOPLAMI:`,
                         officialFee: monthTotals.official.format(),
@@ -315,14 +322,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     subtotalRow.eachCell((cell) => {
                         cell.font = { bold: true, color: { argb: 'FF000000' } };
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5B4' } }; // Soft Turuncu/Sarı
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5B4' } }; 
                         cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' } };
                     });
                     
-                    worksheet.addRow({}); // Aylar arasına boş satır
+                    worksheet.addRow({}); 
                 }
 
-                // --- BÖLÜM 4: GENEL TOPLAM SATIRI (En Alt) ---
                 const grandTotalRow = worksheet.addRow({
                     party: 'GENEL TOPLAM:',
                     officialFee: grandTotals.official.format(),
@@ -334,11 +340,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 grandTotalRow.eachCell((cell) => {
                     cell.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
-                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } }; // Koyu Mavi
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } }; 
                     cell.border = { top: { style: 'medium' }, bottom: { style: 'medium' } };
                 });
 
-                // Dosyayı Kaydet
                 const buffer = await workbook.xlsx.writeBuffer();
                 const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 window.saveAs(blob, `Mali_Durum_Raporu_${new Date().toLocaleDateString('tr-TR').replace(/\./g, '_')}.xlsx`);

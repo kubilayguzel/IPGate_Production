@@ -369,17 +369,18 @@ export class AccrualDataManager {
     }
 
     async deleteAccrual(id) {
-        // 🔥 YENİ: Tahakkuk silinmeden önce bağlı dosyalarını bul ve Storage'dan fiziksel olarak temizle
-        const { data: docs } = await supabase.from('accrual_documents').select('id, document_url').eq('accrual_id', String(id));
-        
+        // 🔥 YENİ: Tahakkuk silinmeden önce bağlı evrakları Storage'dan fiziksel olarak sil
+        const { data: docs } = await supabase.from('accrual_documents').select('document_url').eq('accrual_id', String(id));
         if (docs && docs.length > 0) {
             for (const doc of docs) {
-                // Merkez servisteki yeni fonksiyonumuzu çağırarak kökten siliyoruz
-                await accrualService.deleteDocumentFully(doc.id, doc.document_url);
+                if (doc.document_url && doc.document_url.includes('/documents/')) {
+                    let filePath = doc.document_url.split('/documents/')[1];
+                    await supabase.storage.from('documents').remove([decodeURIComponent(filePath)]);
+                }
             }
         }
-
-        // Ana tahakkuku veritabanından sil 
+        
+        // Tahakkuku DB'den sil
         await supabase.from('accruals').delete().eq('id', id);
         await this.fetchAllData();
     }

@@ -1,4 +1,4 @@
-import { authService, supabase } from '../../supabase-config.js';
+import { authService, supabase, storageService } from '../../supabase-config.js';
 import { loadSharedLayout, ensurePersonModal } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 
@@ -328,11 +328,14 @@ class TaskUpdateController {
             const path = `tasks/${this.taskId}/${id}_${cleanFileName}`;
             
             try {
-                const url = await this.dataManager.uploadFile(file, path);
+                // 🔥 YENİ: Doğrudan merkezi storageService kullanılarak yüklenir
+                const uploadRes = await storageService.uploadFile('documents', path, file);
+                if (!uploadRes.success) throw new Error(uploadRes.error);
+                
                 this.currentDocuments.push({
                     id, 
                     name: file.name, 
-                    url, 
+                    url: uploadRes.url, 
                     storagePath: path, 
                     size: file.size, 
                     uploadedAt: new Date().toISOString()
@@ -349,7 +352,12 @@ class TaskUpdateController {
     async removeDocument(id) {
         if (!confirm('Silmek istediğinize emin misiniz?')) return;
         const doc = this.currentDocuments.find(d => d.id === id);
-        if (doc && doc.storagePath) await this.dataManager.deleteFileFromStorage(doc.storagePath);
+        
+        if (doc && doc.storagePath) {
+            // 🔥 YENİ: Çöp kutusuna basıldığında Storage'dan fiziksel dosyayı uçur
+            try { await supabase.storage.from('documents').remove([doc.storagePath]); } catch(e){}
+        }
+        
         this.currentDocuments = this.currentDocuments.filter(d => d.id !== id);
         this.uiManager.renderDocuments(this.currentDocuments);
         await this.dataManager.updateTask(this.taskId, { documents: this.currentDocuments });
@@ -366,28 +374,18 @@ class TaskUpdateController {
 
         if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
             showNotification('PDF taranıyor, evrak bilgileri okunuyor...', 'info');
-            
             this.extractEpatsInfoFromFile(file).then(info => {
                 if (info) {
                     const noInput = document.getElementById('turkpatentEvrakNo');
                     const dateInput = document.getElementById('epatsDocumentDate');
-
                     let msg = [];
-                    if (info.evrakNo && noInput && !noInput.value) {
-                        noInput.value = info.evrakNo;
-                        msg.push('Evrak No');
-                    }
+                    if (info.evrakNo && noInput && !noInput.value) { noInput.value = info.evrakNo; msg.push('Evrak No'); }
                     if (info.documentDate && dateInput && !dateInput.value) {
                         dateInput.value = info.documentDate;
-                        if (dateInput._flatpickr) {
-                            dateInput._flatpickr.setDate(info.documentDate, true);
-                        }
+                        if (dateInput._flatpickr) dateInput._flatpickr.setDate(info.documentDate, true);
                         msg.push('Tarih');
                     }
-
-                    if (msg.length > 0) {
-                        showNotification(`✅ PDF'ten otomatik dolduruldu: ${msg.join(', ')}`, 'success');
-                    }
+                    if (msg.length > 0) showNotification(`✅ PDF'ten otomatik dolduruldu: ${msg.join(', ')}`, 'success');
                 }
             });
         }
@@ -397,12 +395,15 @@ class TaskUpdateController {
         const path = `tasks/${this.taskId}/epats_${id}_${cleanFileName}`;
         
         try {
-            const url = await this.dataManager.uploadFile(file, path);
+            // 🔥 YENİ: Doğrudan merkezi storageService kullanılarak yüklenir
+            const uploadRes = await storageService.uploadFile('documents', path, file);
+            if (!uploadRes.success) throw new Error(uploadRes.error);
+
             const epatsDoc = {
                 id, 
                 name: file.name,
-                url, 
-                downloadURL: url, 
+                url: uploadRes.url, 
+                downloadURL: uploadRes.url, 
                 storagePath: path, 
                 size: file.size,
                 uploadedAt: new Date().toISOString(), 
@@ -431,9 +432,12 @@ class TaskUpdateController {
     async removeEpatsDocument() {
         if (!confirm('EPATS evrakı silinecek. Emin misiniz?')) return;
         const epatsDoc = this.currentDocuments.find(d => d.type === 'epats_document');
+        
         if (epatsDoc?.storagePath) {
-            try { await this.dataManager.deleteFileFromStorage(epatsDoc.storagePath); } catch (e) { }
+            // 🔥 YENİ: Çöp kutusuna basıldığında Storage'dan fiziksel dosyayı uçur
+            try { await supabase.storage.from('documents').remove([epatsDoc.storagePath]); } catch (e) { }
         }
+        
         this.currentDocuments = this.currentDocuments.filter(d => d.type !== 'epats_document');
         const statusSelect = document.getElementById('taskStatus');
         if (statusSelect) statusSelect.value = 'open';

@@ -737,28 +737,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let loader = window.showSimpleLoading ? window.showSimpleLoading('Siliniyor') : null;
                 
                 try {
-                    // 🔥 YENİ: Görev silinmeden önce bağlı evrakları bul ve Storage'dan temizle
+                    // 🔥 YENİ: Görev silinmeden önce bağlı evrakları Storage'dan fiziksel olarak sil
                     const { data: docs } = await supabase.from('task_documents').select('document_url').eq('task_id', String(taskId));
-                    
                     if (docs && docs.length > 0) {
                         for (const doc of docs) {
                             if (doc.document_url && doc.document_url.includes('/documents/')) {
                                 let filePath = doc.document_url.split('/documents/')[1];
-                                filePath = decodeURIComponent(filePath);
-                                // Sadece fiziksel dosyayı siliyoruz, DB kaydı görev silinince otomatik (CASCADE) olarak gidecek.
-                                await supabase.storage.from('documents').remove([filePath]);
+                                await supabase.storage.from('documents').remove([decodeURIComponent(filePath)]);
                             }
                         }
                     }
 
-                    // Görevi sil
+                    // Görevi veritabanından sil (DB'deki cascade task_documents tablosunu da temizler)
                     const { error } = await supabase.from('tasks').delete().eq('id', String(taskId));
                     if (error) throw error;
                     
                     if (loader) loader.hide();
                     showNotification('Silindi.', 'success'); 
                     await this.loadAllData(); 
-
                 } catch (error) {
                     if (loader) loader.hide();
                     showNotification('Hata: ' + error.message, 'error'); 

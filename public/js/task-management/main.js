@@ -733,31 +733,64 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         async deleteTask(taskId) {
-            if (confirm('Bu görevi ve ilişkili verileri silmek istediğinize emin misiniz?')) {
-                let loader = window.showSimpleLoading ? window.showSimpleLoading('Siliniyor') : null;
+            // Kullanıcıya nelerin silineceğini anlatan detaylı ve alt alta uyarı mesajı
+            const confirmMessage = `DİKKAT: Bu görevi silmek üzeresiniz!\n\nBu işlem sonucunda aşağıdakiler sistemden KALICI OLARAK silinecektir:\n1. Bu görev ve göreve ait tüm detaylar.\n2. Bu göreve yüklenmiş tüm evraklar (EPATS belgeleri vb.).\n3. Bu göreve bağlı oluşturulmuş tüm "Resmi İşlemler (Transactions)" ve işlem belgeleri.\n4. Bu göreve bağlı kesilmiş tüm "Ek Tahakkuklar" ve fatura/dekont dosyaları.\n5. Göreve ait tüm işlem geçmişi (Loglar).\n\nBunu onaylıyor musunuz? Bu işlem kesinlikle geri alınamaz!`;
+
+            if (confirm(confirmMessage)) {
+                let loader = window.showSimpleLoading ? window.showSimpleLoading('Sistemden Tamamen Siliniyor...') : null;
                 
                 try {
-                    // 🔥 YENİ: Görev silinmeden önce bağlı evrakları Storage'dan fiziksel olarak sil
-                    const { data: docs } = await supabase.from('task_documents').select('document_url').eq('task_id', String(taskId));
-                    if (docs && docs.length > 0) {
-                        for (const doc of docs) {
-                            if (doc.document_url && doc.document_url.includes('/documents/')) {
-                                let filePath = doc.document_url.split('/documents/')[1];
-                                await supabase.storage.from('documents').remove([decodeURIComponent(filePath)]);
-                            }
-                        }
+                    const storageToEmpty = new Set(); // Silinecek fiziksel dosyaların yolları burada toplanacak
+
+                    // 1. ADIM: GÖREVİN KENDİ BELGELERİNİ (TASK DOCUMENTS) BUL
+                    const { data: taskDocs } = await supabase.from('task_documents').select('document_url').eq('task_id', String(taskId));
+                    if (taskDocs) taskDocs.forEach(d => {
+                        if (d.document_url && d.document_url.includes('/documents/')) storageToEmpty.add(decodeURIComponent(d.document_url.split('/documents/')[1]));
+                    });
+
+                    // 2. ADIM: GÖREVE BAĞLI İŞLEMLERİ (TRANSACTIONS) VE BELGELERİNİ BUL
+                    const { data: transactions } = await supabase.from('transactions').select('id').eq('task_id', String(taskId));
+                    if (transactions && transactions.length > 0) {
+                        const txIds = transactions.map(t => t.id);
+                        const { data: txDocs } = await supabase.from('transaction_documents').select('document_url').in('transaction_id', txIds);
+                        if (txDocs) txDocs.forEach(d => {
+                            if (d.document_url && d.document_url.includes('/documents/')) storageToEmpty.add(decodeURIComponent(d.document_url.split('/documents/')[1]));
+                        });
+                        // Veritabanından İşlemleri Sil
+                        await supabase.from('transactions').delete().in('id', txIds);
                     }
 
-                    // Görevi veritabanından sil (DB'deki cascade task_documents tablosunu da temizler)
-                    const { error } = await supabase.from('tasks').delete().eq('id', String(taskId));
-                    if (error) throw error;
+                    // 3. ADIM: GÖREVE BAĞLI TAHAKKUKLARI (ACCRUALS) VE BELGELERİNİ BUL
+                    const { data: accruals } = await supabase.from('accruals').select('id').eq('task_id', String(taskId));
+                    if (accruals && accruals.length > 0) {
+                        const accIds = accruals.map(a => a.id);
+                        const { data: accDocs } = await supabase.from('accrual_documents').select('document_url').in('accrual_id', accIds);
+                        if (accDocs) accDocs.forEach(d => {
+                            if (d.document_url && d.document_url.includes('/documents/')) storageToEmpty.add(decodeURIComponent(d.document_url.split('/documents/')[1]));
+                        });
+                        // Veritabanından Tahakkukları Sil
+                        await supabase.from('accruals').delete().in('id', accIds);
+                    }
+
+                    // 4. ADIM: STORAGE'DAKİ (BULUTTAKİ) TÜM FİZİKSEL DOSYALARI TEK SEFERDE UÇUR!
+                    if (storageToEmpty.size > 0) {
+                        const filePathsArray = Array.from(storageToEmpty);
+                        const { error: storageError } = await supabase.storage.from('documents').remove(filePathsArray);
+                        if (storageError) console.warn("Storage silme uyarıları:", storageError);
+                    }
+
+                    // 5. ADIM: EN SON GÖREVİN KENDİSİNİ SİL (DB Trigger'ı ile diğer kalan tablolar otomatik temizlenir)
+                    const { error: taskError } = await supabase.from('tasks').delete().eq('id', String(taskId));
+                    if (taskError) throw taskError;
                     
                     if (loader) loader.hide();
-                    showNotification('Silindi.', 'success'); 
+                    showNotification('Görev ve ona bağlı tüm veriler sistemden tamamen silindi.', 'success'); 
                     await this.loadAllData(); 
+
                 } catch (error) {
                     if (loader) loader.hide();
-                    showNotification('Hata: ' + error.message, 'error'); 
+                    console.error("Silme Hatası:", error);
+                    showNotification('Kritik Hata: ' + error.message, 'error'); 
                 }
             }
         }

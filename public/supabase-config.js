@@ -1275,11 +1275,11 @@ export const suitService = {
 // 7. İŞLEMLER (TRANSACTIONS) SERVİSİ
 // ==========================================
 export const transactionService = {
+    
+    // --- MEVCUT (KORUNAN) İTİRAZ FONKSİYONU ---
     async getObjectionData() {
         const PARENT_TYPES = ['7', '19', '20'];
-        
         try {
-            // Veritabanı şemasını düzelttiğimiz için artık tüm ilişkileri TEK SORGUDAN çekebiliriz!
             const [parentRes, childRes] = await Promise.all([
                 supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').in('transaction_type_id', PARENT_TYPES).limit(10000),
                 supabase.from('transactions').select('*, transaction_documents(*), tasks(*, task_documents(*))').eq('transaction_hierarchy', 'child').limit(10000)
@@ -1288,32 +1288,125 @@ export const transactionService = {
             if (parentRes.error) throw parentRes.error;
             if (childRes.error) throw childRes.error;
 
-            const parents = parentRes.data || [];
-            const children = childRes.data || [];
-            
             const formatData = (rows) => rows.map(r => ({
-                ...r,
-                id: r.id,
-                recordId: r.ip_record_id,
-                parentId: r.parent_id || (r.details && r.details.parentId) || null,
-                type: r.transaction_type_id || (r.details && r.details.type), 
-                transactionHierarchy: r.transaction_hierarchy,
-                timestamp: r.transaction_date || r.created_at,
-                oppositionOwner: r.opposition_owner,
-                documents: r.transaction_documents || [], 
-                ...r.details 
+                ...r, id: r.id, recordId: r.ip_record_id, parentId: r.parent_id || (r.details && r.details.parentId) || null,
+                type: r.transaction_type_id || (r.details && r.details.type), transactionHierarchy: r.transaction_hierarchy,
+                timestamp: r.transaction_date || r.created_at, oppositionOwner: r.opposition_owner,
+                documents: r.transaction_documents || [], ...r.details 
             }));
 
-            return { 
-                success: true, 
-                parents: formatData(parents), 
-                children: formatData(children) 
-            };
-            
+            return { success: true, parents: formatData(parentRes.data || []), children: formatData(childRes.data || []) };
         } catch (error) {
             console.error("İtiraz verileri servisten çekilirken hata:", error);
             return { success: false, error: error.message };
         }
+    },
+
+    // 1. Akıllı Evrak Çıkarıcı (🔥 DÜZELTME: Sadece URL bazlı filtreleme)
+    extractDocuments(transaction, taskData) {
+        const docs = [];
+        const seenUrls = new Set(); // Artık isimlere değil, sadece linklere bakıyoruz
+
+        const addDoc = (d, source = 'direct') => {
+            if (!d) return;
+            const rawUrl = d.document_url || d.file_url || d.url || d.fileUrl || d.downloadURL || d.path;
+            if (!rawUrl) return;
+
+            const name = d.document_name || d.file_name || d.name || d.fileName || 'Belge';
+            const cleanUrl = rawUrl.split('?')[0].toLowerCase(); 
+
+            // Eğer bu spesifik URL daha önce eklenmediyse listeye al (İsimler aynı olsa bile URL farklıysa ekler)
+            if (!seenUrls.has(cleanUrl)) {
+                seenUrls.add(cleanUrl);
+                docs.push({
+                    id: d.id || crypto.randomUUID(),
+                    name: name,
+                    url: rawUrl,
+                    type: d.document_type || d.type || 'document',
+                    source: source,
+                    createdAt: d.created_at || d.uploaded_at || null
+                });
+            }
+        };
+
+        // A. İşlem Belgeleri
+        if (Array.isArray(transaction.transaction_documents)) transaction.transaction_documents.forEach(td => addDoc(td, 'direct'));
+        if (Array.isArray(transaction.documents)) transaction.documents.forEach(d => addDoc(d, 'direct'));
+        
+        // B. Statik Linkler
+        if (transaction.relatedPdfUrl || transaction.related_pdf_url) addDoc({ name: 'Resmi Yazı', url: transaction.relatedPdfUrl || transaction.related_pdf_url, type: 'official_document' }, 'direct');
+        if (transaction.oppositionPetitionFileUrl || transaction.opposition_petition_file_url) addDoc({ name: 'İtiraz Dilekçesi', url: transaction.oppositionPetitionFileUrl || transaction.opposition_petition_file_url, type: 'opposition_petition' }, 'direct');
+        if (transaction.oppositionEpatsPetitionFileUrl || transaction.opposition_epats_petition_file_url) addDoc({ name: 'Karşı ePATS Dilekçesi', url: transaction.oppositionEpatsPetitionFileUrl || transaction.opposition_epats_petition_file_url, type: 'epats_document' }, 'direct');
+
+        // C. Görev Belgeleri
+        if (taskData) {
+            let taskDocs = taskData.documents || taskData.task_documents;
+            if (typeof taskDocs === 'string') { try { taskDocs = JSON.parse(taskDocs); } catch(e) { taskDocs = []; } }
+            if (Array.isArray(taskDocs)) taskDocs.forEach(d => addDoc(d, 'task'));
+
+            if (taskData.epats_doc_url || taskData.epats_doc_download_url) addDoc({ name: taskData.epats_doc_name || 'ePats Belgesi', url: taskData.epats_doc_url || taskData.epats_doc_download_url, type: 'epats_document' }, 'task');
+            if (taskData.details) {
+                if (taskData.details.epatsDocument) addDoc(taskData.details.epatsDocument, 'task');
+                if (Array.isArray(taskData.details.documents)) taskData.details.documents.forEach(d => addDoc(d, 'task'));
+            }
+        }
+
+        return docs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    },
+
+    processAndOrganizeTransactions(transactions, tasks) {
+        const processedTxs = transactions.map(tx => {
+            const relatedTask = tasks.find(t => String(t.id) === String(tx.task_id) || (t.details && String(t.details.triggeringTransactionId) === String(tx.id)));
+            const typeObj = tx.transaction_types || {};
+            return {
+                ...tx,
+                typeName: typeObj.alias || typeObj.name || `İşlem ${tx.transaction_type_id || ''}`,
+                task_data: relatedTask || null,
+                all_documents: this.extractDocuments(tx, relatedTask)
+            };
+        });
+
+        const parents = processedTxs.filter(t => t.transaction_hierarchy === 'parent' || !t.parent_id);
+        const children = processedTxs.filter(t => t.transaction_hierarchy === 'child' && t.parent_id);
+
+        parents.forEach(p => {
+            p.childrenData = children
+                .filter(c => String(c.parent_id) === String(p.id))
+                .sort((a, b) => new Date(b.transaction_date || b.created_at) - new Date(a.transaction_date || a.created_at));
+        });
+
+        return parents.sort((a, b) => new Date(b.transaction_date || b.created_at) - new Date(a.transaction_date || a.created_at));
+    },
+
+    async getTransactionsByIpRecord(ipRecordId) {
+        try {
+            const [txRes, taskRes] = await Promise.all([
+                supabase.from('transactions').select('*, transaction_documents(*)').eq('ip_record_id', ipRecordId).order('transaction_date', { ascending: false }),
+                // 🔥 DÜZELTME: task_documents(*) eklendi!
+                supabase.from('tasks').select('*, task_documents(*)').eq('ip_record_id', ipRecordId)
+            ]);
+            
+            if (txRes.error) throw txRes.error;
+            if (taskRes.error) throw taskRes.error;
+
+            return { success: true, data: this.processAndOrganizeTransactions(txRes.data || [], taskRes.data || []) };
+        } catch (error) { return { success: false, error: error.message, data: [] }; }
+    },
+
+    async getTransactionsBulk(ipRecordIds) {
+        if (!ipRecordIds || ipRecordIds.length === 0) return { success: true, data: [] };
+        try {
+            const [txRes, taskRes] = await Promise.all([
+                supabase.from('transactions').select('*, transaction_documents(*)').in('ip_record_id', ipRecordIds).order('transaction_date', { ascending: false }),
+                // 🔥 DÜZELTME: task_documents(*) eklendi!
+                supabase.from('tasks').select('*, task_documents(*)').in('ip_record_id', ipRecordIds)
+            ]);
+
+            if (txRes.error) throw txRes.error;
+            if (taskRes.error) throw taskRes.error;
+
+            return { success: true, data: this.processAndOrganizeTransactions(txRes.data || [], taskRes.data || []) };
+        } catch (error) { return { success: false, error: error.message, data: [] }; }
     }
 };
 

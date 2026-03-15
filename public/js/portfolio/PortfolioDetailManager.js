@@ -1,7 +1,6 @@
 // public/js/portfolio/PortfolioDetailManager.js
-import { TransactionHelper } from './TransactionHelper.js';
 import { loadSharedLayout } from '../layout-loader.js';
-import { ipRecordsService, transactionTypeService, personService, commonService, waitForAuthUser, redirectOnLogout } from '../../supabase-config.js';
+import { transactionService, ipRecordsService, transactionTypeService, personService, commonService, waitForAuthUser, redirectOnLogout } from '../../supabase-config.js';
 import { STATUSES } from '../../utils.js';
 import '../simple-loading.js';
 
@@ -196,128 +195,84 @@ export class PortfolioDetailManager {
         const accordion = this.elements.txAccordion;
         if (!accordion) return;
 
-        const res = await ipRecordsService.getRecordTransactions(this.recordId);
-        const transactions = res.success ? res.data : [];
+        // Sayfa yüklenirken UI geribildirimi
+        accordion.innerHTML = '<div class="p-3 text-muted text-center"><i class="fas fa-spinner fa-spin mr-2"></i> İşlem geçmişi yükleniyor...</div>';
 
-        if (transactions.length === 0) {
-            accordion.innerHTML = '<div class="p-3 text-muted">İşlem geçmişi bulunamadı.</div>';
-            return;
-        }
+        try {
+            // 🔥 1. YENİ MERKEZİ SERVİSİ KULLANIYORUZ
+            const res = await transactionService.getTransactionsByIpRecord(this.recordId);
+            const parents = res.success ? res.data : [];
 
-        const { parents, childrenMap } = TransactionHelper.organizeTransactions(transactions);
-        const enrichQueue = [];
-
-        accordion.innerHTML = parents.map(parent => {
-            const typeName = this.transactionTypesMap.get(String(parent.type)) || `İşlem ${parent.type}`;
-            const children = childrenMap[parent.id] || [];
-            const pId = this.safeDomId(`txdocs-${parent.id}`);
-
-            const pDirectDocs = TransactionHelper.getDirectDocuments(parent);
-            const pIcons = pDirectDocs.map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
-
-            let pDocsHtml = pIcons || '';
-            
-            pDocsHtml += `<span class="tx-docs-loading text-muted small ml-2"><i class="fas fa-spinner fa-spin"></i> PDF aranıyor...</span>`;
-            enrichQueue.push({ tx: parent, containerId: pId, hasAnyDirect: pDirectDocs.length > 0 });
-
-            const childrenHtml = children.length === 0 ? '' : `
-                <div class="accordion-transaction-children" style="display:none;">
-                    ${children.map(child => {
-                        const cTypeName = this.transactionTypesMap.get(String(child.type)) || `İşlem ${child.type}`;
-                        const cId = this.safeDomId(`txdocs-${child.id}`);
-                        const cDirectDocs = TransactionHelper.getDirectDocuments(child);
-                        const cIcons = cDirectDocs.map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
-                        
-                        let cDocsHtml = cIcons || '';
-                        
-                        cDocsHtml += `<span class="tx-docs-loading text-muted small ml-2"><i class="fas fa-spinner fa-spin"></i> PDF aranıyor...</span>`;
-                        enrichQueue.push({ tx: child, containerId: cId, hasAnyDirect: cDirectDocs.length > 0 });
-
-                        return `
-                        <div class="child-transaction-item d-flex justify-content-between align-items-center p-2 border-top bg-light ml-4" style="border-left: 3px solid #f39c12;">
-                            <div><small class="text-muted">↳ ${cTypeName}</small><span class="text-muted ml-2 small">${this.formatDate(child.timestamp || child.date || child.created_at, true)}</span></div>
-                            <div id="${cId}">${cDocsHtml || '-'}</div>
-                        </div>`;
-                    }).join('')}
-                </div>`;
-
-            return `
-                <div class="accordion-transaction-item border-bottom">
-                    <div class="accordion-transaction-header d-flex justify-content-between align-items-center p-3" style="cursor:pointer; background: #fff;">
-                        <div class="d-flex align-items-center">
-                            <i class="fas fa-chevron-right mr-2 text-muted transition-icon ${children.length ? 'has-child-indicator' : ''}"></i>
-                            <div class="d-flex flex-column">
-                                <span class="font-weight-bold" data-tx-type="${parent.type}">${typeName}</span>
-                                <small class="text-muted">${this.formatDate(parent.timestamp || parent.date || parent.created_at, true)}</small>
-                            </div>
-                        </div>
-                        <div class="d-flex align-items-center" id="${pId}">
-                            ${pDocsHtml || '-'}
-                            ${children.length ? `<span class="badge badge-light border ml-2">${children.length} alt</span>` : ''}
-                        </div>
-                    </div>
-                    ${childrenHtml}
-                </div>`;
-        }).join('');
-
-        this.setupAccordionEvents();
-        this.populateTaskDocsAsync(enrichQueue).catch(e => console.warn(e));
-    }
-
-    safeDomId(raw) { return String(raw).replace(/[^a-zA-Z0-9_-]/g, '_'); }
-
-    async populateTaskDocsAsync(queue) {
-        if (!queue.length) return;
-        
-        // 🔥 GLOBAL FİLTRE: Sayfada bir kez basılan belgenin URL'si buraya yazılacak
-        // Böylece aynı task_id başka bir işleme (child vs) bağlı olsa bile ikinci kez basılmayacak.
-        if (!window.globalRenderedDocs) {
-            window.globalRenderedDocs = new Set();
-        }
-
-        const worker = async (item) => {
-            const { tx, containerId, hasAnyDirect } = item;
-            const container = document.getElementById(containerId);
-            if (!container) return;
-            
-            const taskDocs = await TransactionHelper.getTaskDocuments(tx);
-            container.querySelector('.tx-docs-loading')?.remove();
-            
-            if (!taskDocs || taskDocs.length === 0) {
-                if (!hasAnyDirect && container.innerText.trim() === '') container.innerHTML = '<span class="text-muted small">-</span>';
+            if (parents.length === 0) {
+                accordion.innerHTML = '<div class="p-3 text-muted">İşlem geçmişi bulunamadı.</div>';
                 return;
             }
 
-            // O anki satırda (DOM'da) olanları da toplayalım (Direct Docs'tan gelenler için)
-            container.querySelectorAll('a').forEach(a => {
-                const href = a.getAttribute('href') || '';
-                window.globalRenderedDocs.add(href.split('?')[0].toLowerCase());
-            });
-            
-            // Görevden gelen belgeleri filtrele
-            const icons = taskDocs.filter(d => {
-                if (!d?.url) return false;
+            // Sayfa genelinde aynı evrakın birden fazla satırda çıkmasını engellemek için akıllı filtre
+            const pageSeenDocs = new Set();
+            const generateDocsHtml = (docs) => {
+                const uniqueDocs = [];
+                for (const d of docs || []) {
+                    if (!d.url) continue;
+                    const cleanUrl = d.url.split('?')[0].toLowerCase();
+                    if (!pageSeenDocs.has(cleanUrl)) {
+                        pageSeenDocs.add(cleanUrl);
+                        uniqueDocs.push(d);
+                    }
+                }
+                const icons = uniqueDocs.map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
+                return icons || '-';
+            };
+
+            // 🔥 2. TERTEMİZ GELEN VERİYİ EKRANA BASIYORUZ
+            accordion.innerHTML = parents.map(parent => {
+                const typeName = this.transactionTypesMap.get(String(parent.transaction_type_id)) || parent.typeName || `İşlem ${parent.transaction_type_id || ''}`;
+                const children = parent.childrenData || [];
                 
-                const cleanUrl = d.url.split('?')[0].toLowerCase();
+                const pDocsHtml = generateDocsHtml(parent.all_documents);
 
-                // Eğer bu belge (URL) bu SAYFADA daha önce herhangi bir işleme eklendiyse, TEKRAR EKLEME!
-                if (window.globalRenderedDocs.has(cleanUrl)) return false;
+                const childrenHtml = children.length === 0 ? '' : `
+                    <div class="accordion-transaction-children" style="display:none;">
+                        ${children.map(child => {
+                            const cTypeName = this.transactionTypesMap.get(String(child.transaction_type_id)) || child.typeName || `İşlem ${child.transaction_type_id || ''}`;
+                            const cDocsHtml = generateDocsHtml(child.all_documents);
 
-                // Testi geçerse global listeye ekle
-                window.globalRenderedDocs.add(cleanUrl);
-                
-                return true;
-            }).map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
-            
-            if (icons) container.insertAdjacentHTML('beforeend', icons);
-            
-            if (!hasAnyDirect && container.innerText.trim() === '') {
-                container.innerHTML = '<span class="text-muted small">-</span>';
-            }
-        };
+                            return `
+                            <div class="child-transaction-item d-flex justify-content-between align-items-center p-2 border-top bg-light ml-4" style="border-left: 3px solid #f39c12;">
+                                <div>
+                                    <small class="text-muted">↳ ${cTypeName}</small>
+                                    <span class="text-muted ml-2 small">${this.formatDate(child.transaction_date || child.created_at, true)}</span>
+                                </div>
+                                <div>${cDocsHtml}</div>
+                            </div>`;
+                        }).join('')}
+                    </div>`;
 
-        // Her işlemi sırayla işle
-        for (const item of queue) { await worker(item); }
+                return `
+                    <div class="accordion-transaction-item border-bottom">
+                        <div class="accordion-transaction-header d-flex justify-content-between align-items-center p-3" style="cursor:pointer; background: #fff;">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-chevron-right mr-2 text-muted transition-icon ${children.length ? 'has-child-indicator' : ''}"></i>
+                                <div class="d-flex flex-column">
+                                    <span class="font-weight-bold" data-tx-type="${parent.transaction_type_id || ''}">${typeName}</span>
+                                    <small class="text-muted">${this.formatDate(parent.transaction_date || parent.created_at, true)}</small>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                ${pDocsHtml}
+                                ${children.length ? `<span class="badge badge-light border ml-2">${children.length} alt</span>` : ''}
+                            </div>
+                        </div>
+                        ${childrenHtml}
+                    </div>`;
+            }).join('');
+
+            this.setupAccordionEvents();
+
+        } catch (error) {
+            console.error("İşlemler render edilirken hata:", error);
+            accordion.innerHTML = '<div class="p-3 text-danger"><i class="fas fa-exclamation-triangle mr-2"></i>İşlem geçmişi yüklenemedi.</div>';
+        }
     }
 
     createDocIcon(doc, isFirst) {

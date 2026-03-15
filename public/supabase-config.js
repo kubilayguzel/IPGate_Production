@@ -1356,16 +1356,35 @@ export const transactionService = {
 
     processAndOrganizeTransactions(transactions, tasks) {
         const processedTxs = transactions.map(tx => {
-            const relatedTask = tasks.find(t => String(t.id) === String(tx.task_id) || (t.details && String(t.details.triggeringTransactionId) === String(tx.id)));
+            // 🔥 MÜKEMMEL EŞLEŞTİRME (Veritabanındaki tüm ters ve düz bağlar eklendi)
+            const relatedTask = tasks.find(t => 
+                String(t.id) === String(tx.task_id) || 
+                String(t.transaction_id) === String(tx.id) || 
+                (t.details && String(t.details.triggeringTransactionId) === String(tx.id))
+            );
+            
+            let isTrigger = false;
+
+            if (relatedTask) {
+                const taskTxId = relatedTask.transaction_id;
+                const taskDetailsTxId = relatedTask.details ? relatedTask.details.triggeringTransactionId : null;
+                // Bu işlem gerçekten tetikleyici mi? (İndeksleme)
+                isTrigger = (String(taskTxId) === String(tx.id)) || (String(taskDetailsTxId) === String(tx.id));
+            }
+
+            // Tetikleyiciyse (İndeksleme) görevdeki belgeleri ona KESİNLİKLE verme!
+            const taskDataToExtract = isTrigger ? null : relatedTask;
+
             const typeObj = tx.transaction_types || {};
             return {
                 ...tx,
                 typeName: typeObj.alias || typeObj.name || `İşlem ${tx.transaction_type_id || ''}`,
                 task_data: relatedTask || null,
-                all_documents: this.extractDocuments(tx, relatedTask)
+                all_documents: this.extractDocuments(tx, taskDataToExtract) 
             };
         });
 
+        // Hiyerarşiyi Kur (Parent & Child)
         const parents = processedTxs.filter(t => t.transaction_hierarchy === 'parent' || !t.parent_id);
         const children = processedTxs.filter(t => t.transaction_hierarchy === 'child' && t.parent_id);
 

@@ -282,12 +282,69 @@ export class AccrualDataManager {
     }
 
     async createFreestyleAccrual(formData, fileToUpload) {
-        const payload = {
-            ...formData,
-            files: fileToUpload ? [fileToUpload] : formData.files
+        // 🔥 ÇÖZÜM 2: Dış servisi (accrualService) bypass edip doğrudan Supabase'e yazıyoruz
+        const newAccrualId = generateUUID();
+        const session = await authService.getCurrentSession();
+        const dbUser = this.allUsers.find(u => u.email === session?.user?.email);
+
+        const finalAccrual = {
+            id: newAccrualId,
+            task_id: null, // Serbest tahakkuklarda task_id olmaz, null bırakıyoruz
+            status: 'unpaid',
+            accrual_type: formData.type || 'Masraf',
+            tp_invoice_party_id: formData.tpInvoicePartyId || null,
+            service_invoice_party_id: formData.serviceInvoicePartyId || null,
+            created_by_uid: dbUser ? dbUser.id : null,
+            official_fee_amount: formData.officialFee?.amount || 0,
+            official_fee_currency: formData.officialFee?.currency || 'TRY',
+            service_fee_amount: formData.serviceFee?.amount || 0,
+            service_fee_currency: formData.serviceFee?.currency || 'TRY',
+            total_amount: formData.totalAmount || [],
+            remaining_amount: formData.totalAmount || [], // Kalan tutar başlangıçta toplam tutara eşit
+            vat_rate: formData.vatRate || 20,
+            apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
+            is_foreign_transaction: formData.isForeignTransaction || false,
+            description: formData.description || null,
+            details: { subject: formData.subject } // Başlığı details içine ekliyoruz (UI'da okunabilmesi için)
         };
-        const res = await accrualService.addAccrual(payload);
-        if (!res.success) throw new Error(res.error);
+
+        // 1. Tahakkuku Veritabanına Yaz
+        const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
+        if (accError) throw accError;
+
+        // 2. Varsa Ekli Dosyaları Yükle
+        const filesToProcess = fileToUpload ? [fileToUpload] : formData.files;
+        if (filesToProcess && filesToProcess.length > 0) {
+            const docInserts = [];
+            for (const fileObj of filesToProcess) {
+                const file = fileObj.file || fileObj;
+                const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                const cleanPath = `accruals/${newAccrualId}/${Date.now()}_${cleanFileName}`;
+
+                const { error: uploadError } = await supabase.storage
+                    .from('documents')
+                    .upload(cleanPath, file, { cacheControl: '3600', upsert: true });
+
+                if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(cleanPath);
+                    if (urlData && urlData.publicUrl) {
+                        docInserts.push({
+                            accrual_id: newAccrualId,
+                            document_name: file.name,
+                            document_url: urlData.publicUrl,
+                            document_type: file.type || 'other'
+                        });
+                    }
+                }
+            }
+            
+            // Dosya linklerini DB'ye yaz
+            if (docInserts.length > 0) {
+                await supabase.from('accrual_documents').insert(docInserts);
+            }
+        }
+
+        // Listeyi Yenile
         await this.fetchAllData(); 
     }
 

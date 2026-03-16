@@ -309,6 +309,7 @@ export class AccrualFormManager {
     }
 
     reset() {
+        this.originalRemainingAmount = null;
         const p = this.prefix;
         
         this.container.querySelectorAll('input').forEach(i => {
@@ -351,6 +352,7 @@ export class AccrualFormManager {
         const p = this.prefix;
         if(!data) return;
 
+        this.originalRemainingAmount = data.remainingAmount || null;
         document.getElementById(`${p}AccrualType`).value = data.type || data.accrualType || (this.isFreestyle ? 'Masraf' : 'Hizmet');
         if (this.isFreestyle && data.subject) document.getElementById(`${p}Subject`).value = data.subject;
 
@@ -501,7 +503,7 @@ export class AccrualFormManager {
                 vatRate: vatRate,
                 applyVatToOfficialFee: applyVatToOfficial,
                 totalAmount: totalAmountArray, 
-                
+                remainingAmount: this.originalRemainingAmount || totalAmountArray,
                 tpInvoicePartyId: tpParty ? tpParty.id : null,
                 serviceInvoicePartyId: serviceParty ? serviceParty.id : null,
                 tpInvoiceParty: tpParty,

@@ -29,7 +29,7 @@ export class PortfolioManager {
                     parent_id,
                     created_at,
                     ip_record_trademark_details (brand_name, brand_image_url),
-                    ip_record_classes (class_no),
+                    ip_record_classes (class_no, items),
                     ip_record_applicants!inner (
                         order_index,
                         persons (id, name, type)
@@ -47,16 +47,17 @@ export class PortfolioManager {
                     ? record.ip_record_trademark_details[0] 
                     : (record.ip_record_trademark_details || {});
 
-                // Görsel Fallback
+            // Görsel Fallback
                 let imageUrl = details.brand_image_url;
                 if (!imageUrl || imageUrl.trim() === '') {
                     imageUrl = `https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
                 }
 
-                // Sınıfları virgüllü metne çevir ve sırala
-                const classesArray = record.ip_record_classes 
-                    ? record.ip_record_classes.map(c => c.class_no).filter(Boolean).sort((a,b) => a - b)
+                // 🔥 YENİ: Sınıfları virgüllü metne çevir ve detayları (items) sakla
+                const niceClassesData = record.ip_record_classes 
+                    ? record.ip_record_classes.sort((a,b) => a.class_no - b.class_no)
                     : [];
+                const classesArray = niceClassesData.map(c => c.class_no).filter(Boolean);
                 
                 // Başvuru sahiplerini indeks sırasına göre düzenle
                 const sortedApplicants = (record.ip_record_applicants || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
@@ -82,6 +83,7 @@ export class PortfolioManager {
                     renewalDate: record.renewal_date,
                     status: record.status,
                     classes: classesArray.join(', ') || '-',
+                    fullClasses: niceClassesData, // 🔥 EKLENEN YENİ SATIR: Eşya listesi detayları
                     transactionHierarchy: record.transaction_hierarchy,
                     parentId: record.parent_id,
                     applicants: applicantsArray

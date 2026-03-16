@@ -62,8 +62,9 @@ export class RenderHelper {
             const parentIndex = startIndex + index + 1;
             const tr = document.createElement('tr');
             
-            const originBucket = (row.origin || 'TÜRKPATENT').toUpperCase().includes('TURK') ? 'TÜRKPATENT' : 'YURTDISI';
-            tr.setAttribute('data-origin', originBucket);
+            // Menşeyi zorla iki gruba ayırmak yerine veritabanındaki ham halini alıyoruz
+            const originDisplay = row.origin || 'TÜRKPATENT';
+            tr.setAttribute('data-origin', originDisplay);
 
             const imgHtml = row.brandImageUrl 
                 ? `<img src="${row.brandImageUrl}" alt="marka" class="brand-thumb">` 
@@ -81,7 +82,7 @@ export class RenderHelper {
 
             tr.innerHTML = `
                 <td>${iconHtml}${parentIndex}</td>
-                <td class="col-origin">${originBucket}</td>
+                <td class="col-origin">${originDisplay}</td>
                 <td class="text-center">${imgHtml}</td>
                 <td><a href="#" class="portfolio-detail-link" data-item-id="${row.recordId}">${row.title}</a></td>
                 <td>${row.transactionTypeName}</td>
@@ -99,7 +100,7 @@ export class RenderHelper {
             // Alt (Child) İşlemler varsa akordeon satırını ekle
             if (hasChildren) {
                 const detailRow = document.createElement('tr');
-                detailRow.setAttribute('data-origin', originBucket);
+                detailRow.setAttribute('data-origin', originDisplay);
                 
                 const childrenHtml = row.childrenData.map((child, idx) => {
                     let childDate = child.transaction_date || child.created_at ? this.formatDate(child.transaction_date || child.created_at) : '-';

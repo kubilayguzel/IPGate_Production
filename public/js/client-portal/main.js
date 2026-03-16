@@ -174,7 +174,8 @@ class ClientPortalController {
         const menseVal = document.getElementById('menseFilter')?.value || 'HEPSI';
 
         let filtered = this.state.portfolios.filter(item => {
-            if (item.transactionHierarchy === 'child') return false;
+            // 🔥 ÇÖZÜM: Eğer bir parentId'si varsa bu bir yurtdışı/alt kayıttır, ana listede (ve sayfalama sayısında) tek başına sayma!
+            if (item.parentId) return false;
 
             const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
             // 🔥 DÜZELTME: TÜRK ve TURK kelimelerinin ikisi de kontrol ediliyor
@@ -234,14 +235,29 @@ class ClientPortalController {
             return; 
         }
 
+        // 🔥 ÇÖZÜM 2: İngilizce veritabanı durumlarını Türkçe'ye çeviren sözlük
+        const statusTranslations = {
+            'registered': 'Tescilli',
+            'application': 'Başvuru',
+            'filed': 'Başvuru',
+            'published': 'Yayınlandı',
+            'rejected': 'Reddedildi',
+            'partially_rejected': 'Kısmen Reddedildi',
+            'partially rejected': 'Kısmen Reddedildi',
+            'withdrawn': 'Geri Çekildi',
+            'cancelled': 'İptal Edildi',
+            'expired': 'Süresi Doldu',
+            'dead': 'Geçersiz',
+            'opposition': 'İtiraz Aşamasında',
+            'appealed': 'Karara İtiraz',
+            'pending': 'İşlem Bekliyor'
+        };
+
         dataSlice.forEach((item, index) => {
             const actualIndex = startIndex + index;
             const row = document.createElement('tr');
             
-            const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
-            // 🔥 DÜZELTME
-            const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
-            const originDisplay = isTurk ? 'TÜRKPATENT' : (item.country || 'Yurtdışı');
+            const originDisplay = item.origin || 'TÜRKPATENT';
             
             const childRecords = this.state.portfolios.filter(p => p.parentId === item.id);
             const isInternational = childRecords.length > 0;
@@ -253,19 +269,24 @@ class ClientPortalController {
             if (st.includes('tescil') || st.includes('registered')) badgeClass = 'success';
             else if (st.includes('başvuru') || st.includes('filed')) badgeClass = 'primary';
             else if (st.includes('red') || st.includes('rejected')) badgeClass = 'danger';
-            else if (st.includes('itiraz')) badgeClass = 'warning';
+            else if (st.includes('itiraz') || st.includes('opposition')) badgeClass = 'warning';
 
+            // İngilizce durumu sözlükten çevir, bulamazsa aynen bırak
+            const displayStatus = statusTranslations[st] || item.status || 'Bilinmiyor';
+
+            // 🔥 ÇÖZÜM 1: Marka adı ve Sınıflar kolonlarına CSS "max-width" ve "text-truncate" eklendi.
+            // Bu sayede uzun metinler (...) ile kesilir ve kolonları ittirmez. "title" özelliği ile fare üzerine gelince tam metin okunur.
             row.innerHTML = `
                 <td>${isInternational ? '<i class="fas fa-chevron-right mr-2"></i>' : ''}${actualIndex + 1}</td>
                 <td class="col-origin">${originDisplay}</td>
                 <td class="col-sample text-center">${imgHtml}</td>
-                <td><a href="#" class="portfolio-detail-link" data-item-id="${item.id}">${item.title}</a></td>
+                <td style="max-width: 220px;" class="text-truncate" title="${item.title}"><a href="#" class="portfolio-detail-link" data-item-id="${item.id}">${item.title}</a></td>
                 <td>${item.applicationNumber}</td>
                 <td>${item.registrationNumber}</td>
                 <td>${this.renderHelper.formatDate(item.applicationDate)}</td>
                 <td>${this.renderHelper.formatDate(item.renewalDate)}</td> 
-                <td><span class="badge badge-${badgeClass}">${item.status || 'Bilinmiyor'}</span></td>
-                <td>${item.classes}</td>
+                <td><span class="badge badge-${badgeClass}">${displayStatus}</span></td>
+                <td style="max-width: 150px;" class="text-truncate" title="${item.classes}">${item.classes}</td>
             `;
 
             if (isInternational) {
@@ -275,12 +296,26 @@ class ClientPortalController {
             }
             tbody.appendChild(row);
 
+            // Alt (Yurtdışı) Kayıtlar İçin De Aynı Çevirileri Yapıyoruz
             if (isInternational) {
                 const detailRow = document.createElement('tr');
                 const childHtml = childRecords.map((child, cIdx) => {
                     const childCountry = this.state.countries.get(child.country) || child.country || 'Bilinmiyor';
-                    return `<tr><td>${actualIndex+1}.${cIdx+1}</td><td>${childCountry}</td><td>${child.applicationNumber}</td><td>${this.renderHelper.formatDate(child.applicationDate)}</td><td>${this.renderHelper.formatDate(child.renewalDate)}</td><td><span class="badge badge-secondary">${child.status || 'Bilinmiyor'}</span></td><td>${child.classes}</td></tr>`;
+                    
+                    const cSt = (child.status || '').toLowerCase();
+                    const cDisplayStatus = statusTranslations[cSt] || child.status || 'Bilinmiyor';
+
+                    return `<tr>
+                        <td>${actualIndex+1}.${cIdx+1}</td>
+                        <td>${childCountry}</td>
+                        <td>${child.applicationNumber}</td>
+                        <td>${this.renderHelper.formatDate(child.applicationDate)}</td>
+                        <td>${this.renderHelper.formatDate(child.renewalDate)}</td>
+                        <td><span class="badge badge-secondary">${cDisplayStatus}</span></td>
+                        <td style="max-width: 150px;" class="text-truncate" title="${child.classes}">${child.classes}</td>
+                    </tr>`;
                 }).join('');
+                
                 detailRow.innerHTML = `<td colspan="10" class="p-0"><div class="collapse" id="accordion-yurtdisi-${item.id}"><table class="table mb-0 accordion-table bg-light"><thead><tr><th>#</th><th>Ülke</th><th>Başvuru No</th><th>Başvuru T.</th><th>Yenileme T.</th><th>Durum</th><th>Sınıflar</th></tr></thead><tbody>${childHtml}</tbody></table></div></td>`;
                 tbody.appendChild(detailRow);
             }
@@ -398,12 +433,30 @@ class ClientPortalController {
                 else badgeColor = 'info';
             } else if ((task.status || '').includes('awaiting')) { computedStatus = 'Onay Bekliyor'; badgeColor = 'warning'; }
 
+            // 🔥 ÇÖZÜM: Karşı tarafın (Bülten) markası portföyde yoksa, eksik bilgileri Görev'in (Task) JSON detayından çek!
+            const originVal = ipRecord.origin || task.details?.origin || 'TÜRKPATENT';
+            const imgVal = ipRecord.brandImageUrl || task.brandImageUrl || task.details?.competitorBrandImage || task.details?.brandInfo?.brandImage || '';
+            const titleVal = ipRecord.title || task.recordTitle || task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
+            const appNoVal = ipRecord.applicationNumber || task.appNo || task.details?.targetAppNo || task.details?.brandInfo?.applicationNo || '-';
+            const applicantVal = task.details?.applicantName || task.details?.competitorOwner || task.details?.brandInfo?.applicantName || 'Karşı Taraf / Müvekkil';
+            const bDateVal = task.details?.brandInfo?.opposedMarkBulletinDate || task.details?.bulletinDate || '-';
+            const bNoVal = task.details?.brandInfo?.opposedMarkBulletinNo || task.details?.bulletinNo || '-';
+
             rows.push({
-                id: task.id, recordId: task.relatedIpRecordId, origin: ipRecord.origin, brandImageUrl: ipRecord.brandImageUrl,
-                title: ipRecord.title || task.recordTitle, transactionTypeName: task.taskTypeDisplay, applicationNumber: ipRecord.applicationNumber,
-                applicantName: task.details?.applicantName || 'Müvekkil', bulletinDate: task.details?.brandInfo?.opposedMarkBulletinDate,
-                bulletinNo: task.details?.brandInfo?.opposedMarkBulletinNo, epatsDate: parentTx.created_at,
-                statusText: computedStatus, statusBadge: badgeColor, allParentDocs: parentTx.transaction_documents || [],
+                id: task.id, 
+                recordId: task.relatedIpRecordId, 
+                origin: originVal, 
+                brandImageUrl: imgVal,
+                title: titleVal, 
+                transactionTypeName: task.taskTypeDisplay, 
+                applicationNumber: appNoVal,
+                applicantName: applicantVal, 
+                bulletinDate: bDateVal,
+                bulletinNo: bNoVal, 
+                epatsDate: parentTx.created_at,
+                statusText: computedStatus, 
+                statusBadge: badgeColor, 
+                allParentDocs: parentTx.transaction_documents || [],
                 childrenData: parentTx.isVirtual ? [] : taskTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id)
             });
         });
@@ -611,29 +664,66 @@ class ClientPortalController {
             const item = this.state.portfolios.find(p => p.id === e.currentTarget.dataset.itemId);
             if (!item) return;
 
+            // 🔥 ÇÖZÜM 1: Tür ve Durum Çevirileri
+            const typeTranslations = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım' };
+            const statusTranslations = {
+                'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+                'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
+                'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+            };
+            
+            const displayType = typeTranslations[item.type?.toLowerCase()] || item.type || '-';
+            const displayStatus = statusTranslations[item.status?.toLowerCase()] || item.status || 'Bilinmiyor';
+
             document.getElementById('portfolioDetailModalLabel').textContent = item.title;
             document.getElementById('modal-img').src = item.brandImageUrl || 'https://placehold.co/150x150?text=Yok';
-            document.getElementById('modal-details-card').innerHTML = `<p><strong>Tür:</strong> ${item.type}</p><p><strong>Başvuru No:</strong> ${item.applicationNumber}</p><p><strong>Sınıflar:</strong> ${item.classes}</p>`;
-            document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.renderHelper.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.renderHelper.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${item.status}</span>`;
-            document.getElementById('esyaListesiContent').innerHTML = item.classes && item.classes !== '-' ? `<div><b>Kayıtlı Sınıflar</b>: ${item.classes}</div>` : '<p class="text-muted">Veri yok.</p>';
+            document.getElementById('modal-details-card').innerHTML = `<p><strong>Tür:</strong> ${displayType}</p><p><strong>Başvuru No:</strong> ${item.applicationNumber}</p><p><strong>Sınıflar:</strong> ${item.classes}</p>`;
+            document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.renderHelper.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.renderHelper.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${displayStatus}</span>`;
+            
+            // 🔥 ÇÖZÜM 2: Eşya Listesi Gösterimi (Veritabanından gelen items'lar)
+            if (item.fullClasses && item.fullClasses.length > 0) {
+                const classesHtml = item.fullClasses.map(c => `
+                    <div class="mb-3">
+                        <h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6>
+                        <p style="font-size:0.85rem;" class="text-muted">${Array.isArray(c.items) ? c.items.join('; ') : (c.items || '-')}</p>
+                    </div>
+                `).join('<hr class="my-2">');
+                document.getElementById('esyaListesiContent').innerHTML = classesHtml;
+            } else {
+                document.getElementById('esyaListesiContent').innerHTML = '<p class="text-muted">Eşya listesi detayı bulunamadı.</p>';
+            }
             
             document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
             $('#portfolioDetailModal').modal('show'); $('#myTab a[href="#modal-islemler"]').tab('show'); 
             
-            // 1. İşlemleri ve İşlem Evraklarını Çek
-            const { data: txs } = await supabase.from('transactions')
-                .select('*, transaction_types(alias, name), transaction_documents(*)')
-                .eq('ip_record_id', item.id);
-            
-            // 2. Görevleri ve Görev Evraklarını Çek
-            const { data: tasksData } = await supabase.from('tasks')
-                .select('*, task_documents(*)')
-                .eq('ip_record_id', item.id);
+            // 🔥 ÇÖZÜM 3: Güvenli İşlem Geçmişi Çekimi (Zırhlı)
+            try {
+                // 1. İşlemleri ve İşlem Evraklarını Çek
+                const { data: txs, error: txError } = await supabase.from('transactions')
+                    .select('*, transaction_types(alias, name), transaction_documents(*)')
+                    .eq('ip_record_id', item.id);
+                
+                if (txError) {
+                    console.error("İşlemler çekilirken hata:", txError);
+                    throw txError;
+                }
 
-            // 🔥 3. KUSURSUZ MİMARİ: Servisimiz tüm hiyerarşiyi kursun, filtreleri uygulasın ve sıralasın!
-            const processedTransactions = transactionService.processAndOrganizeTransactions(txs || [], tasksData || []);
-            
-            this.renderHelper.renderTransactionHistory(processedTransactions, 'modal-islemler');
+                // 2. Görevleri ve Görev Evraklarını Çek
+                const { data: tasksData, error: taskError } = await supabase.from('tasks')
+                    .select('*, task_documents(*)')
+                    .eq('ip_record_id', item.id);
+                
+                if (taskError) console.warn("Görevler çekilirken hata (Önemli değil):", taskError);
+
+                // 3. Merkezi Servisle Hiyerarşiyi Kur
+                const processedTransactions = transactionService.processAndOrganizeTransactions(txs || [], tasksData || []);
+                this.renderHelper.renderTransactionHistory(processedTransactions, 'modal-islemler');
+                
+            } catch (err) {
+                console.error("Geçmiş işlem render hatası:", err);
+                document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center text-danger">İşlemler yüklenirken bir hata oluştu veya bağlantı kurulamadı.</td></tr>';
+            }
         });
 
         $(document).on('click', '.task-compare-goods', async (e) => {
@@ -908,10 +998,13 @@ class ClientPortalController {
                 const imgUrl = item.brandImageUrl;
                 if (imgUrl) base64Image = await this.imageUrlToBase64(imgUrl);
 
-                const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
-                // 🔥 DÜZELTME
-                const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
-                const originDisplay = isTurk ? 'TÜRKPATENT' : (item.country || 'Yurtdışı');
+            const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
+            const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
+            
+            let originDisplay = 'Yurtdışı';
+            if (isTurk) originDisplay = 'TÜRKPATENT';
+            else if (originRaw.includes('WIPO')) originDisplay = 'WIPO';
+            else originDisplay = item.country || 'Yurtdışı';
                 
                 dataToExport.push({
                     type: 'parent',

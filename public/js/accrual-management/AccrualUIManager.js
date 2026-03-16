@@ -153,12 +153,17 @@ export class AccrualUIManager {
                 `;
 
                 // Ortak Dizi (Array) Kalan Tutar Hesaplaması
-                let remainingHtml = '-';
-                const rem = acc.remainingAmount !== undefined ? acc.remainingAmount : acc.totalAmount;
-                const isFullyPaid = (Array.isArray(rem)) 
-                    ? rem.length === 0 || rem.every(r => parseFloat(r.amount) <= 0.01)
-                    : parseFloat(rem) <= 0.01;
+                let rem = acc.remainingAmount;
+                
+                // 🔥 ÇÖZÜM: Eğer status 'unpaid' ise ve remainingAmount boş ise, kalan tutar doğrudan totalAmount'tur.
+                if (acc.status === 'unpaid' && (!rem || (Array.isArray(rem) && rem.length === 0))) {
+                    rem = acc.totalAmount;
+                }
 
+                // Sadece statüsü 'paid' olanlar tam ödenmiş sayılır
+                const isFullyPaid = acc.status === 'paid';
+
+                let remainingHtml = '-';
                 if (!isFullyPaid) {
                     remainingHtml = `<span class="text-danger font-weight-bold">${this._formatMoney(rem)}</span>`;
                 } else {

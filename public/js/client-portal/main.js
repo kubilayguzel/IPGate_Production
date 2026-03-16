@@ -423,22 +423,45 @@ class ClientPortalController {
             let parentTx = task.details?.triggeringTransactionId ? taskTxs.find(tx => String(tx.id) === String(task.details.triggeringTransactionId)) : taskTxs.filter(tx => String(tx.transaction_type_id) === String(task.taskType)).sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
             if (!parentTx) parentTx = { id: 'virt-'+task.id, transaction_type_id: task.taskType, created_at: task.createdAt, isVirtual: true };
 
+            // Önce alt işlemleri (child) buluyoruz
+            const childrenTxs = parentTx.isVirtual ? [] : taskTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id);
+
+            // 🔥 ÇÖZÜM 3: Durumu Alt İşlemlerden (Child 50, 51, 52) Kontrol Etme
             let computedStatus = 'Karar Bekleniyor', badgeColor = 'secondary';
-            const rr = parentTx.request_result;
+            const decisionChild = childrenTxs.find(c => ['50', '51', '52'].includes(String(c.transaction_type_id)));
             
-            if (rr && REQUEST_RESULT_STATUS[String(rr)]) {
-                computedStatus = REQUEST_RESULT_STATUS[String(rr)];
-                if (computedStatus.includes('Ret')) badgeColor = 'danger';
-                else if (computedStatus.includes('Kabul')) badgeColor = 'success';
-                else badgeColor = 'info';
-            } else if ((task.status || '').includes('awaiting')) { computedStatus = 'Onay Bekliyor'; badgeColor = 'warning'; }
+            if (decisionChild) {
+                const tId = String(decisionChild.transaction_type_id);
+                if (tId === '50') { computedStatus = 'Kabul'; badgeColor = 'success'; }
+                else if (tId === '51') { computedStatus = 'Kısmen Kabul'; badgeColor = 'warning'; }
+                else if (tId === '52') { computedStatus = 'Ret'; badgeColor = 'danger'; }
+            } else {
+                // Eğer alt karar işlemi yoksa eski yönteme (Ana işlemin sonucuna veya Onay Bekliyor durumuna) bak
+                const rr = parentTx.request_result;
+                if (rr && REQUEST_RESULT_STATUS[String(rr)]) {
+                    computedStatus = REQUEST_RESULT_STATUS[String(rr)];
+                    if (computedStatus.includes('Ret')) badgeColor = 'danger';
+                    else if (computedStatus.includes('Kabul')) badgeColor = 'success';
+                    else badgeColor = 'info';
+                } else if ((task.status || '').includes('awaiting')) { 
+                    computedStatus = 'Onay Bekliyor'; badgeColor = 'warning'; 
+                }
+            }
 
             // 🔥 ÇÖZÜM: Karşı tarafın (Bülten) markası portföyde yoksa, eksik bilgileri Görev'in (Task) JSON detayından çek!
             const originVal = ipRecord.origin || task.details?.origin || 'TÜRKPATENT';
             const imgVal = ipRecord.brandImageUrl || task.brandImageUrl || task.details?.competitorBrandImage || task.details?.brandInfo?.brandImage || '';
             const titleVal = ipRecord.title || task.recordTitle || task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
             const appNoVal = ipRecord.applicationNumber || task.appNo || task.details?.targetAppNo || task.details?.brandInfo?.applicationNo || '-';
-            const applicantVal = task.details?.applicantName || task.details?.competitorOwner || task.details?.brandInfo?.applicantName || 'Karşı Taraf / Müvekkil';
+            
+            // 🔥 ÇÖZÜM 1: Başvuru Sahibi ("Karşı Taraf / Müvekkil" yazısını kaldırıp asıl ismi alma)
+            // Sırasıyla olası yerlerden ismi ara, bulamazsan ipRecord'un kendisine (Müvekkile) bak
+            let applicantVal = task.details?.competitorOwner || task.details?.brandInfo?.applicantName || task.details?.applicantName;
+            if (!applicantVal && ipRecord.applicants && ipRecord.applicants.length > 0) {
+                applicantVal = ipRecord.applicants.map(a => a.name).join(', ');
+            }
+            if (!applicantVal) applicantVal = '-'; // Hiçbiri yoksa tire koy
+
             const bDateVal = task.details?.brandInfo?.opposedMarkBulletinDate || task.details?.bulletinDate || '-';
             const bNoVal = task.details?.brandInfo?.opposedMarkBulletinNo || task.details?.bulletinNo || '-';
 
@@ -457,7 +480,7 @@ class ClientPortalController {
                 statusText: computedStatus, 
                 statusBadge: badgeColor, 
                 allParentDocs: parentTx.transaction_documents || [],
-                childrenData: parentTx.isVirtual ? [] : taskTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id)
+                childrenData: childrenTxs
             });
         });
 

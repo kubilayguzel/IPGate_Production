@@ -2,7 +2,7 @@
 
 import { 
     authService, taskService, personService, 
-    transactionTypeService, supabase, ipRecordsService 
+    transactionTypeService, supabase, ipRecordsService, accrualService
 } from '../../supabase-config.js';
 
 const generateUUID = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).substr(2, 16);
@@ -282,14 +282,14 @@ export class AccrualDataManager {
     }
 
     async createFreestyleAccrual(formData, fileToUpload) {
-        // 🔥 ÇÖZÜM 2: Dış servisi (accrualService) bypass edip doğrudan Supabase'e yazıyoruz
-        const newAccrualId = generateUUID();
+
+        const newAccrualId = String(await accrualService._getNextAccrualId());
         const session = await authService.getCurrentSession();
         const dbUser = this.allUsers.find(u => u.email === session?.user?.email);
 
-        const finalAccrual = {
+    const finalAccrual = {
             id: newAccrualId,
-            task_id: null, // Serbest tahakkuklarda task_id olmaz, null bırakıyoruz
+            task_id: null, // Serbest tahakkuklarda task_id olmaz
             status: 'unpaid',
             accrual_type: formData.type || 'Masraf',
             tp_invoice_party_id: formData.tpInvoicePartyId || null,
@@ -300,19 +300,16 @@ export class AccrualDataManager {
             service_fee_amount: formData.serviceFee?.amount || 0,
             service_fee_currency: formData.serviceFee?.currency || 'TRY',
             total_amount: formData.totalAmount || [],
-            remaining_amount: formData.totalAmount || [], // Kalan tutar başlangıçta toplam tutara eşit
+            remaining_amount: formData.totalAmount || [], 
             vat_rate: formData.vatRate || 20,
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
-            description: formData.description || null,
-            details: { subject: formData.subject } // Başlığı details içine ekliyoruz (UI'da okunabilmesi için)
+            description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null)
         };
 
-        // 1. Tahakkuku Veritabanına Yaz
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
         if (accError) throw accError;
 
-        // 2. Varsa Ekli Dosyaları Yükle
         const filesToProcess = fileToUpload ? [fileToUpload] : formData.files;
         if (filesToProcess && filesToProcess.length > 0) {
             const docInserts = [];
@@ -329,7 +326,7 @@ export class AccrualDataManager {
                     const { data: urlData } = supabase.storage.from('documents').getPublicUrl(cleanPath);
                     if (urlData && urlData.publicUrl) {
                         docInserts.push({
-                            accrual_id: newAccrualId,
+                            accrual_id: String(newAccrualId),
                             document_name: file.name,
                             document_url: urlData.publicUrl,
                             document_type: file.type || 'other'
@@ -337,14 +334,10 @@ export class AccrualDataManager {
                     }
                 }
             }
-            
-            // Dosya linklerini DB'ye yaz
             if (docInserts.length > 0) {
                 await supabase.from('accrual_documents').insert(docInserts);
             }
         }
-
-        // Listeyi Yenile
         await this.fetchAllData(); 
     }
 

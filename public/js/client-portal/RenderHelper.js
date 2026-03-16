@@ -88,9 +88,9 @@ export class RenderHelper {
                 <td>${row.transactionTypeName}</td>
                 <td>${row.applicationNumber}</td>
                 <td>${row.applicantName}</td>
-                <td>${row.bulletinDate || '-'}</td>
+                <td>${this.formatDate(row.bulletinDate)}</td>
                 <td>${row.bulletinNo || '-'}</td>
-                <td>${row.epatsDate || '-'}</td>
+                <td>${this.formatDate(row.epatsDate)}</td>
                 <td><span class="badge badge-${row.statusBadge || 'warning'}">${row.statusText}</span></td>
                 <td>${this.renderDocsCell(row.allParentDocs)}</td>
             `;

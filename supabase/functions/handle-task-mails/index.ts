@@ -28,7 +28,11 @@ serve(async (req: Request) => {
     let viewData: any = null;
     const targetIpRecordId = record.ip_record_id || record.details?.relatedIpRecordId || record.details?.ip_record_id || record.related_ip_record_id;
 
-    // 🔥 YENİ EKLENEN KISIM: İşlemi Tetikleyen Kullanıcıyı Bul
+    if (targetIpRecordId) {
+        const { data } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', targetIpRecordId).single();
+        if (data) viewData = data;
+    }
+
     let triggeredByUserId = null;
     const associatedTxId = record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id;
     
@@ -38,11 +42,6 @@ serve(async (req: Request) => {
     }
     if (!triggeredByUserId && record.created_by) {
         triggeredByUserId = record.created_by;
-    }
-
-    if (targetIpRecordId) {
-        const { data } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', targetIpRecordId).single();
-        if (data) viewData = data;
     }
 
     const brandName = viewData?.brand_name || record.details?.iprecordTitle || record.title || "-";
@@ -56,8 +55,48 @@ serve(async (req: Request) => {
     }
 
     const transactionDate = new Date().toLocaleDateString('tr-TR');
-
     const imgUrl = viewData?.brand_image_url || record.details?.brandImageUrl || "";
+
+    // 🔥 ÇÖZÜM: İTİRAZ SAHİBİNİ (OPPONENT) TRANSACTION HİYERARŞİSİNDEN BULMA
+    let itirazSahibi = "-";
+    
+    if (associatedTxId) {
+        // 1. Task'a bağlı Transaction'ı bul
+        const { data: childTx } = await supabaseAdmin
+            .from('transactions')
+            .select('parent_id, opposition_owner')
+            .eq('id', associatedTxId)
+            .maybeSingle();
+
+        if (childTx) {
+            if (childTx.opposition_owner) {
+                // Eğer bu transaction'ın kendisinde veri varsa al
+                itirazSahibi = childTx.opposition_owner;
+                console.log(`[MAIL-DEBUG] İtiraz Sahibi bağlı transaction'dan bulundu: ${itirazSahibi}`);
+            } else if (childTx.parent_id) {
+                // 2. Veri yoksa ve parent'ı varsa, Parent Transaction'a git
+                const { data: parentTx } = await supabaseAdmin
+                    .from('transactions')
+                    .select('opposition_owner')
+                    .eq('id', childTx.parent_id)
+                    .maybeSingle();
+
+                if (parentTx && parentTx.opposition_owner) {
+                    itirazSahibi = parentTx.opposition_owner;
+                    console.log(`[MAIL-DEBUG] İtiraz Sahibi Parent Transaction'dan (${childTx.parent_id}) bulundu: ${itirazSahibi}`);
+                }
+            }
+        }
+    }
+
+    // Eğer tüm bu hiyerarşide bulunamazsa eski metotlara (fallback) başvur
+    if (itirazSahibi === "-") {
+        itirazSahibi = record.details?.opponent?.name || record.details?.itiraz_sahibi || "-";
+        if (itirazSahibi === "-" && record.task_owner_id) {
+            const { data: pData } = await supabaseAdmin.from('persons').select('name').eq('id', record.task_owner_id).maybeSingle();
+            if (pData) itirazSahibi = pData.name;
+        }
+    }
 
     const emailParams: Record<string, string> = {
         "{{applicationNo}}": appNo,
@@ -67,80 +106,56 @@ serve(async (req: Request) => {
         "{{applicantNames}}": applicantNames,
         "{{transactionDate}}": transactionDate,
         "{{renewalDate}}": renewalDateText,
-        "{{markImageUrl}}": imgUrl 
+        "{{markImageUrl}}": imgUrl,
+        "{{itiraz_sahibi}}": itirazSahibi
     };
+
+    console.log(`[MAIL-DEBUG] Oluşturulan E-posta Parametreleri:`, JSON.stringify(emailParams));
 
     // ALICI BULMA (RECIPIENTS) FONKSİYONU
     async function getRecipients(viewData: any, record: any, currentTaskType: string) {
-        console.log(`[MAIL-DEBUG] --- getRecipients BAŞLADI ---`);
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
         
-        // KİŞİ ID'SİNİ TESPİT ET
-        if (viewData?.record_owner_type === 'third_party' && record.task_owner_id) {
+        if (record.task_owner_id) {
             personIds = [record.task_owner_id];
-            console.log(`[MAIL-DEBUG] Strateji 1 (Karşı Taraf): Task Owner ID kullanıldı ->`, personIds);
-        } else if (viewData?.applicants_json && viewData.applicants_json.length > 0) {
+        } else if (record.details?.task_owner_id || record.details?.clientId || record.details?.client_id) {
+            personIds = [record.details.task_owner_id || record.details.clientId || record.details.client_id];
+        } else if (viewData?.record_owner_type !== 'third_party' && viewData?.applicants_json && viewData.applicants_json.length > 0) {
             personIds = viewData.applicants_json.map((a: any) => a.id).filter(Boolean);
-            console.log(`[MAIL-DEBUG] Strateji 2 (Kendi Dosyamız): applicants_json kullanıldı ->`, personIds);
-        } else if (record.task_owner_id) {
-            // 🔥 GÜVENLİK (FALLBACK): Hiçbiri yoksa direkt task_owner_id'ye bak
-            personIds = [record.task_owner_id];
-            console.log(`[MAIL-DEBUG] Strateji 3 (Fallback): Doğrudan task_owner_id kullanıldı ->`, personIds);
-        } else {
-            console.log(`[MAIL-DEBUG] HATA: Eşleştirilecek hiçbir Person ID bulunamadı!`);
         }
         
-        // 1. Müşteri (Client) Tarafındaki Alıcılar (TO ve CC)
         if (personIds && personIds.length > 0) {
-            console.log(`[MAIL-DEBUG] persons_related tablosunda aranıyor. Aranan Person ID'ler:`, personIds);
-            
-            const { data: prData, error: prError } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
-            
-            if (prError) console.error(`[MAIL-DEBUG] persons_related sorgu hatası:`, prError);
-
+            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
             if (prData && prData.length > 0) {
-                console.log(`[MAIL-DEBUG] persons_related içinde ${prData.length} kayıt eşleşti.`);
                 for (const pr of prData) {
-                    console.log(`[MAIL-DEBUG] Bulunan Kişi İletişim Datası -> Email: ${pr.email}, TO İzni: ${pr.notify_trademark_to}, CC İzni: ${pr.notify_trademark_cc}`);
                     if (pr.email) {
                         if (pr.notify_trademark_to) to.push(pr.email);
                         if (pr.notify_trademark_cc) cc.push(pr.email);
-                        if (!pr.notify_trademark_to && !pr.notify_trademark_cc) {
-                            console.log(`[MAIL-DEBUG] İzinlerin ikisi de false, zorunlu olarak TO'ya eklendi: ${pr.email}`);
-                            to.push(pr.email); 
-                        }
+                        if (!pr.notify_trademark_to && !pr.notify_trademark_cc) to.push(pr.email); 
                     }
                 }
-            } else {
-                console.log(`[MAIL-DEBUG] DİKKAT: Bu kişi için persons_related tablosunda 'resp_trademark=true' olan bir kayıt BULUNAMADI! (Email alınamadı)`);
             }
         }
 
-        // 2. Evreka İçi Otomatik CC Listesi (evreka_mail_cc_list)
-        console.log(`[MAIL-DEBUG] Evreka İçi Otomatik CC'ler taranıyor...`);
         const { data: internalCcs } = await supabaseAdmin.from('evreka_mail_cc_list').select('email, transaction_types');
         if (internalCcs && internalCcs.length > 0) {
             internalCcs.forEach((internal: any) => {
                 if (internal.email) {
                     const types = internal.transaction_types || [];
-                    // Görev tipi eşleşiyorsa veya "All" ise CC'ye ekle
                     if (types.includes('All') || types.includes(currentTaskType) || types.includes(Number(currentTaskType))) {
-                        console.log(`[MAIL-DEBUG] İç CC Eşleşti: ${internal.email} (Görev Tipi: ${currentTaskType})`);
                         cc.push(internal.email.trim().toLowerCase());
                     }
                 }
             });
         }
 
-        // Tekilleştirme: Aynı kişi iki kere yazılmasın ve TO listesinde olan biri CC'de gözükmesin
         const finalTo = [...new Set(to)].filter(Boolean);
         const finalCc = [...new Set(cc)].filter(Boolean).filter(e => !finalTo.includes(e));
-
+        
         console.log(`[MAIL-DEBUG] SONUÇ TO Listesi:`, finalTo);
         console.log(`[MAIL-DEBUG] SONUÇ CC Listesi:`, finalCc);
-        console.log(`[MAIL-DEBUG] --- getRecipients BİTTİ ---`);
 
         return { to: finalTo, cc: finalCc };
     }
@@ -206,21 +221,20 @@ serve(async (req: Request) => {
         const clientClosed = wasAwaiting && ['client_approval_closed', 'client_no_response_closed'].includes(record.status);
 
         if (becameCompleted && !['53', '66'].includes(taskTypeId)) {
-            console.log(`[MAIL-DEBUG] Görev Tamamlandı Algılandı! Completion emaili oluşturuluyor...`);
-
-            // 🔥 ÇÖZÜM: Görevi kapatan dokümanı (EPATS) task_documents tablosundan ID ile çekiyoruz
-            const { data: closingTaskDoc } = await supabaseAdmin
+            console.log(`[MAIL-DEBUG] Görev Tamamlandı Algılandı! İşlemler Başlıyor...`);
+            
+            const { data: taskDocs, error: docsErr } = await supabaseAdmin
                 .from('task_documents')
-                .select('id')
-                .eq('task_id', record.id)
-                .eq('document_type', 'epats_document') // EPATS (kapatan evrak) tipli olanı alır
-                .maybeSingle();
+                .select('*')
+                .eq('task_id', record.id);
+                
+            console.log(`[MAIL-DEBUG] Göreve (Task: ${record.id}) ait task_documents araması yapıldı. Bulunan evrak sayısı: ${taskDocs ? taskDocs.length : 0}`);
+            if (docsErr) console.error(`[MAIL-DEBUG] task_documents çekilirken hata:`, docsErr);
 
-            const closingDocId = closingTaskDoc ? closingTaskDoc.id : null;
-            if (closingDocId) {
-                console.log(`[MAIL-DEBUG] Göreve ait kapatıcı evrak (EPATS) ID'si bulundu: ${closingDocId}`);
-            } else {
-                console.log(`[MAIL-DEBUG] DİKKAT: task_documents tablosunda EPATS tipli evrak bulunamadı!`);
+            let primaryDocId = null;
+            if (taskDocs && taskDocs.length > 0) {
+                const epats = taskDocs.find(d => d.document_type === 'epats_document');
+                primaryDocId = epats ? epats.id : taskDocs[0].id;
             }
             
             let templateId = null;
@@ -258,16 +272,16 @@ serve(async (req: Request) => {
             if (to.length === 0) missingFields.push("to_list"); 
             if (!hasTemplate) missingFields.push("template");
 
-            console.log(`[MAIL-DEBUG] Yazılacak Veri: TO: ${to}, CC: ${cc}, Eksikler: ${missingFields}`);
+            const notificationId = crypto.randomUUID();
 
-            await supabaseAdmin.from('mail_notifications').insert({
-                id: crypto.randomUUID(),
+            console.log(`[MAIL-DEBUG] Bildirim (mail_notifications) oluşturuluyor... Notification ID: ${notificationId}`);
+            const { error: insErr } = await supabaseAdmin.from('mail_notifications').insert({
+                id: notificationId,
                 associated_task_id: record.id,
                 associated_transaction_id: record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id || null,
                 related_ip_record_id: targetIpRecordId,
                 
-                // 🔥 EKLENDİ: Mail gönderilirken sadece bu ID'deki evrak ekte gidecek!
-                source_document_id: closingDocId, 
+                source_document_id: primaryDocId, 
 
                 to_list: to,
                 cc_list: cc,
@@ -282,6 +296,32 @@ serve(async (req: Request) => {
                 source: "task_completion",
                 triggered_by_user_id: triggeredByUserId
             });
+
+            if (insErr) {
+                console.error(`[MAIL-DEBUG] KRİTİK HATA: mail_notifications eklenemedi!`, insErr);
+            } else {
+                if (taskDocs && taskDocs.length > 0) {
+                    console.log(`[MAIL-DEBUG] Bildirime ait ${taskDocs.length} adet evrak 'mail_attachments' tablosuna KOPYALANIYOR...`);
+                    
+                    const attachmentsToInsert = taskDocs.map(doc => ({
+                        id: crypto.randomUUID(),
+                        notification_id: notificationId,
+                        file_name: doc.document_name,
+                        url: doc.document_url,
+                        storage_path: doc.document_url 
+                    }));
+
+                    const { error: attErr } = await supabaseAdmin.from('mail_attachments').insert(attachmentsToInsert);
+                    
+                    if (attErr) {
+                        console.error(`[MAIL-DEBUG] HATA: mail_attachments tablosuna eklenemedi!`, attErr);
+                    } else {
+                        console.log(`[MAIL-DEBUG] BAŞARILI: Evraklar mail_attachments tablosuna resmen bağlandı!`);
+                    }
+                } else {
+                    console.log(`[MAIL-DEBUG] Kopyalanacak evrak bulunamadı.`);
+                }
+            }
         }
 
         if (clientApproved) {

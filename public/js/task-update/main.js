@@ -328,10 +328,18 @@ class TaskUpdateController {
             const path = `tasks/${this.taskId}/${id}_${cleanFileName}`;
             
             try {
-                // 🔥 YENİ: Doğrudan merkezi storageService kullanılarak yüklenir
                 const uploadRes = await storageService.uploadFile('documents', path, file);
                 if (!uploadRes.success) throw new Error(uploadRes.error);
                 
+                // 🔥 SADECE BU EKLENDİ: Storage'a yüklendiği an DB'ye de yaz.
+                await supabase.from('task_documents').insert({
+                    id: id,
+                    task_id: String(this.taskId),
+                    document_name: file.name,
+                    document_url: uploadRes.url,
+                    document_type: 'task_document'
+                });
+
                 this.currentDocuments.push({
                     id, 
                     name: file.name, 
@@ -354,8 +362,11 @@ class TaskUpdateController {
         const doc = this.currentDocuments.find(d => d.id === id);
         
         if (doc && doc.storagePath) {
-            // 🔥 YENİ: Çöp kutusuna basıldığında Storage'dan fiziksel dosyayı uçur
-            try { await supabase.storage.from('documents').remove([doc.storagePath]); } catch(e){}
+            try { 
+                await supabase.storage.from('documents').remove([doc.storagePath]); 
+                // 🔥 SADECE BU EKLENDİ: Veritabanından da sil
+                await supabase.from('task_documents').delete().eq('id', id);
+            } catch(e){}
         }
         
         this.currentDocuments = this.currentDocuments.filter(d => d.id !== id);
@@ -395,9 +406,17 @@ class TaskUpdateController {
         const path = `tasks/${this.taskId}/epats_${id}_${cleanFileName}`;
         
         try {
-            // 🔥 YENİ: Doğrudan merkezi storageService kullanılarak yüklenir
             const uploadRes = await storageService.uploadFile('documents', path, file);
             if (!uploadRes.success) throw new Error(uploadRes.error);
+
+            // 🔥 SADECE BU EKLENDİ: EPATS evrağı Storage'a eklendiği an DB'ye de yaz
+            await supabase.from('task_documents').insert({
+                id: id,
+                task_id: String(this.taskId),
+                document_name: file.name,
+                document_url: uploadRes.url,
+                document_type: 'epats_document'
+            });
 
             const epatsDoc = {
                 id, 
@@ -415,6 +434,7 @@ class TaskUpdateController {
 
             this.uiManager.renderDocuments(this.currentDocuments);
 
+            // ORİJİNAL YAPINIZ: Evrak eklenince statü dropdown'u 'completed' olur
             const statusSelect = document.getElementById('taskStatus');
             if(statusSelect) statusSelect.value = 'completed'; 
 
@@ -434,13 +454,19 @@ class TaskUpdateController {
         const epatsDoc = this.currentDocuments.find(d => d.type === 'epats_document');
         
         if (epatsDoc?.storagePath) {
-            // 🔥 YENİ: Çöp kutusuna basıldığında Storage'dan fiziksel dosyayı uçur
-            try { await supabase.storage.from('documents').remove([epatsDoc.storagePath]); } catch (e) { }
+            try { 
+                await supabase.storage.from('documents').remove([epatsDoc.storagePath]); 
+                // 🔥 SADECE BU EKLENDİ: Veritabanından da sil
+                await supabase.from('task_documents').delete().eq('id', epatsDoc.id);
+            } catch (e) { }
         }
         
         this.currentDocuments = this.currentDocuments.filter(d => d.type !== 'epats_document');
+        
+        // ORİJİNAL YAPINIZ: Evrak silinince statü dropdown'u 'open' olur
         const statusSelect = document.getElementById('taskStatus');
         if (statusSelect) statusSelect.value = 'open';
+        
         this.uiManager.renderDocuments(this.currentDocuments);
     }
 
@@ -625,7 +651,6 @@ class TaskUpdateController {
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
         }
 
-        // 🔥 ÇÖZÜM 1: Yeni Eklenen Modal Verilerini Doğrudan Veritabanına Yazma
         try {
             if (this.selectedIpRecordId && this.tempRenewalData) {
                 await supabase.from('ip_records').update({ renewal_date: this.tempRenewalData }).eq('id', this.selectedIpRecordId);
@@ -663,6 +688,7 @@ class TaskUpdateController {
         const officialDateVal = document.getElementById('taskDueDate')?.value;
         const operationalDateVal = document.getElementById('deliveryDate')?.value;
 
+        // 🔥 ORİJİNAL KAYDETME İŞLEMİ (Kandırma mantığı tamamen silindi)
         const updateData = {
             status: document.getElementById('taskStatus')?.value,
             title: document.getElementById('taskTitle')?.value,

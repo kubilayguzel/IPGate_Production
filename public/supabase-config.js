@@ -1305,7 +1305,10 @@ export const transactionService = {
     // 1. Akıllı Evrak Çıkarıcı (🔥 DÜZELTME: Sadece URL bazlı filtreleme)
     extractDocuments(transaction, taskData) {
         const docs = [];
-        const seenUrls = new Set(); // Artık isimlere değil, sadece linklere bakıyoruz
+        const seenUrls = new Set(); 
+
+        // 🔥 YENİ KURAL 1: Bu işlem bir "İtiraz Bildirimi" (Tip 27) mi?
+        const isType27 = String(transaction.transaction_type_id) === '27';
 
         const addDoc = (d, source = 'direct') => {
             if (!d) return;
@@ -1313,16 +1316,33 @@ export const transactionService = {
             if (!rawUrl) return;
 
             const name = d.document_name || d.file_name || d.name || d.fileName || 'Belge';
+            const designation = d.document_designation || d.designation || '';
+            const type = d.document_type || d.type || 'document';
+
+            // 🔥 YENİ KURAL 2: Eğer İşlem 27 ise, Dilekçeleri Filtrele!
+            // Sadece "Resmi Yazı"nın içeri girmesine izin veriyoruz.
+            if (isType27) {
+                const searchString = `${name} ${designation} ${type}`.toLowerCase();
+                const isPetition = searchString.includes('itiraz') || 
+                                   searchString.includes('epats') || 
+                                   searchString.includes('dilekçe') ||
+                                   type === 'opposition_petition' ||
+                                   type === 'epats_document';
+                
+                // Eğer belge dilekçe/itiraz evrakıysa bu işlemin altına EKLEME! (Sadece Parent'ta kalsın)
+                if (isPetition) return;
+            }
+
             const cleanUrl = rawUrl.split('?')[0].toLowerCase(); 
 
-            // Eğer bu spesifik URL daha önce eklenmediyse listeye al (İsimler aynı olsa bile URL farklıysa ekler)
             if (!seenUrls.has(cleanUrl)) {
                 seenUrls.add(cleanUrl);
                 docs.push({
                     id: d.id || crypto.randomUUID(),
-                    name: name,
+                    // BONUS UI İYİLEŞTİRMESİ: Eğer "designation" (Resmi Yazı vs) varsa, o uzun ID'li dosya adı yerine onu göster
+                    name: designation ? designation : name, 
                     url: rawUrl,
-                    type: d.document_type || d.type || 'document',
+                    type: type,
                     source: source,
                     createdAt: d.created_at || d.uploaded_at || null
                 });
@@ -1356,7 +1376,7 @@ export const transactionService = {
 
     processAndOrganizeTransactions(transactions, tasks) {
         const processedTxs = transactions.map(tx => {
-            // 🔥 MÜKEMMEL EŞLEŞTİRME (Veritabanındaki tüm ters ve düz bağlar eklendi)
+            // 🔥 MÜKEMMEL EŞLEŞTİRME (Veritabanındaki tüm ters ve düz bağlar)
             const relatedTask = tasks.find(t => 
                 String(t.id) === String(tx.task_id) || 
                 String(t.transaction_id) === String(tx.id) || 
@@ -1372,7 +1392,7 @@ export const transactionService = {
                 isTrigger = (String(taskTxId) === String(tx.id)) || (String(taskDetailsTxId) === String(tx.id));
             }
 
-            // Tetikleyiciyse (İndeksleme) görevdeki belgeleri ona KESİNLİKLE verme!
+            // Tetikleyiciyse (İndeksleme) görevdeki belgeleri ona verme!
             const taskDataToExtract = isTrigger ? null : relatedTask;
 
             const typeObj = tx.transaction_types || {};
@@ -1388,13 +1408,36 @@ export const transactionService = {
         const parents = processedTxs.filter(t => t.transaction_hierarchy === 'parent' || !t.parent_id);
         const children = processedTxs.filter(t => t.transaction_hierarchy === 'child' && t.parent_id);
 
+        // Alt işlemleri kendi içinde tarihe göre (yeni en üstte olacak şekilde) sırala
         parents.forEach(p => {
             p.childrenData = children
                 .filter(c => String(c.parent_id) === String(p.id))
                 .sort((a, b) => new Date(b.transaction_date || b.created_at) - new Date(a.transaction_date || a.created_at));
         });
 
-        return parents.sort((a, b) => new Date(b.transaction_date || b.created_at) - new Date(a.transaction_date || a.created_at));
+        // 🔥 YENİ: GRUP BAZLI ÖZEL SIRALAMA (Ana İşlemler İçin)
+        return parents.sort((a, b) => {
+            // Her işlemin ait olduğu grubu belirliyoruz
+            const getGroup = (tx) => {
+                const tId = String(tx.transaction_type_id || '');
+                if (tId === '2') return 1; // 1. Öncelik: Başvuru
+                if (['7', '19', '20'].includes(tId)) return 2; // 2. Öncelik: İtirazlar/Yenilemeler vs.
+                return 3; // 3. Öncelik: Diğer hepsi
+            };
+
+            const groupA = getGroup(a);
+            const groupB = getGroup(b);
+
+            // Eğer grupları farklıysa, önceliği yüksek olan (küçük rakam) yukarı çıksın
+            if (groupA !== groupB) {
+                return groupA - groupB; 
+            }
+
+            // Eğer aynı gruptalarsa, kendi içlerinde tarihe göre (en yeni en üstte) sıralansınlar
+            const dateA = new Date(a.transaction_date || a.created_at).getTime();
+            const dateB = new Date(b.transaction_date || b.created_at).getTime();
+            return dateB - dateA;
+        });
     },
 
     async getTransactionsByIpRecord(ipRecordId) {

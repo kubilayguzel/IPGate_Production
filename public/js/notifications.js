@@ -230,6 +230,8 @@ class NotificationsManager {
                 </td>
                 <td>${dueDate}</td>
                 <td>${this.formatDate(notification.last_reminder_at)}</td>
+                <td><span class="badge bg-light text-dark border" title="Tetikleyen"><i class="fas fa-user mr-1"></i> ${notification.triggered_by_name || '-'}</span></td>
+                <td><span class="badge bg-success text-white" title="Gönderen"><i class="fas fa-paper-plane mr-1"></i> ${notification.sent_by_name || '-'}</span></td>
                 <td>${this.formatDate(notification.created_at)}</td>
                 <td>${this.formatDate(notification.sent_at)}</td>
                 <td class="actions-cell d-flex flex-column gap-2" style="gap: 5px;"></td>

@@ -25,6 +25,19 @@ serve(async (req: Request) => {
     let viewData: any = null;
     const targetIpRecordId = record.ip_record_id || record.details?.relatedIpRecordId || record.details?.ip_record_id || record.related_ip_record_id;
 
+    // 🔥 YENİ EKLENEN KISIM: İşlemi Tetikleyen Kullanıcıyı Bul
+    let triggeredByUserId = null;
+    const associatedTxId = record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id;
+    
+    if (associatedTxId) {
+        const { data: txData } = await supabaseAdmin.from('transactions').select('user_id').eq('id', associatedTxId).maybeSingle();
+        if (txData && txData.user_id) triggeredByUserId = txData.user_id;
+    }
+    if (!triggeredByUserId && record.created_by) {
+        triggeredByUserId = record.created_by;
+    }
+
+
     if (targetIpRecordId) {
         const { data } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', targetIpRecordId).single();
         if (data) viewData = data;
@@ -143,7 +156,8 @@ serve(async (req: Request) => {
             mode: "draft",
             notification_type: "marka",
             template_id: templateId,
-            source: "task_renewal_auto"
+            source: "task_renewal_auto",
+            triggered_by_user_id: triggeredByUserId
         });
     }
 
@@ -212,7 +226,8 @@ serve(async (req: Request) => {
                 mode: "draft",
                 notification_type: "marka",
                 template_id: templateId,
-                source: "task_completion"
+                source: "task_completion",
+                triggered_by_user_id: triggeredByUserId
             });
         }
 
@@ -267,7 +282,8 @@ serve(async (req: Request) => {
                 status: "pending",
                 notification_type: "general_notification",
                 source: "auto_instruction_response",
-                is_draft: false 
+                is_draft: false,
+                triggered_by_user_id: triggeredByUserId
             });
         }
 
@@ -293,7 +309,8 @@ serve(async (req: Request) => {
                 status: "pending",
                 notification_type: "general_notification",
                 source: "auto_instruction_response",
-                is_draft: false 
+                is_draft: false,
+                triggered_by_user_id: triggeredByUserId
             });
         }
     }

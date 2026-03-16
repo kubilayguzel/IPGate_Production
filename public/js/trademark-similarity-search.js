@@ -410,6 +410,67 @@ const attachLazyLoadListeners = () => {
     });
 };
 
+// 🔥 YENİ: Arama kriterleri ile benzerlik yaratan kısımları soft highlight eden zeki fonksiyon
+const highlightMatchingSubstrings = (searchArray, targetStr) => {
+    if (!targetStr || targetStr === '-') return targetStr;
+    if (!searchArray || searchArray.length === 0) return targetStr;
+
+    let sourceWords = [];
+    searchArray.forEach(item => {
+        if (!item) return;
+        sourceWords.push(...item.toLowerCase().trim().split(/\s+/));
+    });
+    
+    sourceWords = [...new Set(sourceWords)].filter(w => w.length > 0);
+    if (sourceWords.length === 0) return targetStr;
+
+    let substrings = [];
+    sourceWords.forEach(word => {
+        const minLen = Math.min(word.length, 3); // En az 3 harfli (veya kelime 2 harfliyse 2 harfli) bloklar
+        for (let len = word.length; len >= minLen; len--) {
+            for (let i = 0; i <= word.length - len; i++) {
+                substrings.push(word.substr(i, len));
+            }
+        }
+    });
+
+    substrings = [...new Set(substrings)].sort((a,b) => b.length - a.length);
+
+    const cleanTarget = targetStr.toLowerCase();
+    let mask = new Array(targetStr.length).fill(false);
+
+    substrings.forEach(sub => {
+        let startIdx = 0;
+        while ((startIdx = cleanTarget.indexOf(sub, startIdx)) !== -1) {
+            let alreadyMasked = false;
+            for (let i = startIdx; i < startIdx + sub.length; i++) {
+                if (mask[i]) { alreadyMasked = true; break; }
+            }
+            if (!alreadyMasked) {
+                for (let i = startIdx; i < startIdx + sub.length; i++) mask[i] = true;
+            }
+            startIdx += sub.length;
+        }
+    });
+
+    let resultHtml = '';
+    let inHighlight = false;
+    for (let i = 0; i < targetStr.length; i++) {
+        if (mask[i] && !inHighlight) {
+            // 🔥 Göz yormayan soft highlight renkleri (Pastel sarı arka plan, kiremit rengi yazı)
+            resultHtml += `<span style="color: #b45309; background-color: #fef3c7; border-radius: 3px; padding: 0 2px;">`;
+            inHighlight = true;
+        } else if (!mask[i] && inHighlight) {
+            resultHtml += `</span>`;
+            inHighlight = false;
+        }
+        resultHtml += targetStr[i];
+    }
+    if (inHighlight) resultHtml += `</span>`;
+
+    return resultHtml;
+};
+
 const createResultRow = (hit, rowIndex) => {
     const holders = Array.isArray(hit.holders) ? hit.holders.map(h => h.name || h.id || h).filter(Boolean).join(', ') : (hit.holders || '');
     const monitoredTrademark = monitoringTrademarks.find(tm => tm.id === (hit.monitoredTrademarkId || hit.monitoredMarkId)) || {};

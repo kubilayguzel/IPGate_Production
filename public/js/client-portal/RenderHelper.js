@@ -349,46 +349,28 @@ export class RenderHelper {
     }
 
     // ==========================================
-    // MARKA MODALI: AKILLI İŞLEM GEÇMİŞİ RENDER
+    // MARKA MODALI: AKILLI İŞLEM GEÇMİŞİ RENDER (MERKEZİ MİMARİ)
     // ==========================================
-    renderTransactionHistory(transactions, containerId) {
+    renderTransactionHistory(processedParents, containerId) {
         const tbody = document.querySelector(`#${containerId} tbody`);
         if (!tbody) return;
 
-        if (!transactions || transactions.length === 0) {
+        if (!processedParents || processedParents.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">İşlem geçmişi bulunamadı.</td></tr>';
             return;
         }
 
-        // 1. ÖNCELİK LİSTESİ (Küçük sayı en üstte çıkar)
-        const typePriority = { '2': 1, '7': 2, '20': 3, '19': 4 };
-
-        // Parent (Ana) İşlemleri ayır ve sırala
-        const parentTransactions = transactions
-            .filter(t => t.transaction_hierarchy === 'parent' || !t.transaction_hierarchy)
-            .sort((a, b) => {
-                const typeA = String(a.transaction_type_id).trim();
-                const typeB = String(b.transaction_type_id).trim();
-                const pA = typePriority[typeA] || 999;
-                const pB = typePriority[typeB] || 999;
-                if (pA !== pB) return pA - pB; // Öncelik farklıysa küçük olan üste
-                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); // Aynıysa eskiden yeniye
-            });
-
         tbody.innerHTML = '';
         let rowIndex = 1;
 
-        parentTransactions.forEach(parent => {
-            // Bu ana işleme bağlı alt işlemleri bul
-            const children = transactions
-                .filter(t => t.transaction_hierarchy === 'child' && t.parent_id === parent.id)
-                .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-            
+        // Veri zaten "processAndOrganizeTransactions" tarafından mükemmel sıralandı ve gruplandı!
+        processedParents.forEach(parent => {
+            const children = parent.childrenData || [];
             const hasChildren = children.length > 0;
             const accordionId = `modal-transaction-${parent.id}`;
 
             // İşlem Adı
-            let transactionAlias = parent.transaction_types?.alias || parent.transaction_types?.name || parent.description || 'İşlem';
+            let transactionAlias = parent.typeName || parent.description || 'İşlem';
             if (String(parent.transaction_type_id) === '20' && parent.opposition_owner) {
                 transactionAlias += ` (${parent.opposition_owner})`;
             }
@@ -402,7 +384,7 @@ export class RenderHelper {
                     const lowerName = resultName.toLowerCase();
                     const parentType = String(parent.transaction_type_id);
                     
-                    let badgeColor = 'info'; // Varsayılan
+                    let badgeColor = 'info'; 
                     if (parentType === '20') { // Bize İtiraz Edildi
                         badgeColor = lowerName.includes('kabul') ? 'danger' : 'success';
                     } else if (parentType === '19') { // Biz İtiraz Ettik
@@ -416,7 +398,8 @@ export class RenderHelper {
                 }
             }
 
-            const docsHtml = this.renderDocsCell(parent.transaction_documents);
+            // 🔥 Merkezi filtreden geçmiş evrakları çizdiriyoruz
+            const docsHtml = this.renderDocsCell(parent.all_documents);
 
             const parentRow = document.createElement('tr');
             if (hasChildren) {
@@ -437,13 +420,13 @@ export class RenderHelper {
             if (hasChildren) {
                 const detailRow = document.createElement('tr');
                 const childrenHtml = children.map((child, idx) => {
-                    let childAlias = child.transaction_types?.alias || child.transaction_types?.name || child.description || 'Alt İşlem';
+                    let childAlias = child.typeName || child.description || 'Alt İşlem';
                     if (String(child.transaction_type_id) === '20' && child.opposition_owner) childAlias += ` (${child.opposition_owner})`;
                     return `<tr>
                         <td>${rowIndex}.${idx + 1}</td>
                         <td>${childAlias}</td>
                         <td>${this.formatDate(child.created_at || child.transaction_date)}</td>
-                        <td>${this.renderDocsCell(child.transaction_documents)}</td>
+                        <td>${this.renderDocsCell(child.all_documents)}</td>
                     </tr>`;
                 }).join('');
 

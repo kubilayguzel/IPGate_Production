@@ -1,6 +1,6 @@
 // public/js/client-portal/main.js
 
-import { supabase } from '../../supabase-config.js';
+import { supabase, transactionService } from '../../supabase-config.js';
 import { AuthManager } from './AuthManager.js';
 import { PortfolioManager } from './PortfolioManager.js';
 import { TaskManager } from './TaskManager.js';
@@ -620,8 +620,20 @@ class ClientPortalController {
             document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
             $('#portfolioDetailModal').modal('show'); $('#myTab a[href="#modal-islemler"]').tab('show'); 
             
-            const { data: txs } = await supabase.from('transactions').select('*, transaction_types(alias, name), transaction_documents(*)').eq('ip_record_id', item.id).order('created_at', { ascending: false });
-            this.renderHelper.renderTransactionHistory(txs || [], 'modal-islemler');
+            // 1. İşlemleri ve İşlem Evraklarını Çek
+            const { data: txs } = await supabase.from('transactions')
+                .select('*, transaction_types(alias, name), transaction_documents(*)')
+                .eq('ip_record_id', item.id);
+            
+            // 2. Görevleri ve Görev Evraklarını Çek
+            const { data: tasksData } = await supabase.from('tasks')
+                .select('*, task_documents(*)')
+                .eq('ip_record_id', item.id);
+
+            // 🔥 3. KUSURSUZ MİMARİ: Servisimiz tüm hiyerarşiyi kursun, filtreleri uygulasın ve sıralasın!
+            const processedTransactions = transactionService.processAndOrganizeTransactions(txs || [], tasksData || []);
+            
+            this.renderHelper.renderTransactionHistory(processedTransactions, 'modal-islemler');
         });
 
         $(document).on('click', '.task-compare-goods', async (e) => {

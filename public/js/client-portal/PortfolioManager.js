@@ -2,57 +2,82 @@
 import { supabase } from '../../supabase-config.js';
 
 export class PortfolioManager {
-    // 1. Portföyü (Marka, Patent, Tasarım) Çek (VIEW KULLANARAK)
+    // 1. Portföyü (Marka, Patent, Tasarım) Çek (KUSURSUZ İLİŞKİSEL MİMARİ)
     async getPortfolios(clientIds) {
         if (!clientIds || clientIds.length === 0) return [];
 
         try {
-            // Adım 1: Bu müşterilere ait markaların ID'lerini bul
-            const { data: appData, error: appError } = await supabase
-                .from('ip_record_applicants')
-                .select('ip_record_id')
-                .in('person_id', clientIds);
-
-            if (appError) throw appError;
-
-            const ipIds = [...new Set(appData.map(a => a.ip_record_id))];
-            if (ipIds.length === 0) return [];
-
-            // Adım 2: Bulunan ID'leri VIEW üzerinden detaylı çek
+            // 🔥 MİMARİ DEVRİM: 
+            // 2 ayrı sorgu (ve binlerce ID'yi URL'ye sığdırma) yerine; 
+            // Supabase'in "Inner Join" (!inner) özelliğini kullanıyoruz.
+            // Sadece müşterinin bağlı olduğu kayıtlar doğrudan PostgreSQL içinde süzülüp tek sorguda geliyor.
             const { data, error } = await supabase
-                .from('portfolio_list_view')
-                .select('*')
-                .in('id', ipIds)
+                .from('ip_records')
+                .select(`
+                    id, 
+                    ip_type, 
+                    origin, 
+                    status, 
+                    country_code, 
+                    application_number, 
+                    registration_number, 
+                    wipo_ir, 
+                    aripo_ir,
+                    application_date, 
+                    renewal_date, 
+                    transaction_hierarchy, 
+                    parent_id,
+                    created_at,
+                    ip_record_trademark_details (brand_name, brand_image_url),
+                    ip_record_classes (class_no),
+                    ip_record_applicants!inner (
+                        order_index,
+                        persons (id, name, type)
+                    )
+                `)
+                .in('ip_record_applicants.person_id', clientIds) // Sadece bu ID'lere sahip olanları getir!
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
 
-            // Adım 3: Arayüzün beklediği CamelCase formata çevir
+            // Arayüzün beklediği CamelCase formata (eski view formatına) çevir
             return data.map(record => {
+                // Detay tablosu (Array veya obje olarak gelebilir)
+                const details = Array.isArray(record.ip_record_trademark_details) 
+                    ? record.ip_record_trademark_details[0] 
+                    : (record.ip_record_trademark_details || {});
+
                 // Görsel Fallback
-                let imageUrl = record.brand_image_url;
+                let imageUrl = details.brand_image_url;
                 if (!imageUrl || imageUrl.trim() === '') {
-                    imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
+                    imageUrl = `https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
                 }
 
-                // Sınıfları metne çevir
-                const classesArray = Array.isArray(record.nice_classes) ? record.nice_classes.filter(n => n != null) : [];
+                // Sınıfları virgüllü metne çevir ve sırala
+                const classesArray = record.ip_record_classes 
+                    ? record.ip_record_classes.map(c => c.class_no).filter(Boolean).sort((a,b) => a - b)
+                    : [];
                 
-                // Başvuru sahiplerini JSON'dan çıkar
-                let applicantsArray = [];
-                try {
-                    applicantsArray = Array.isArray(record.applicants_json) ? record.applicants_json : JSON.parse(record.applicants_json || '[]');
-                } catch(e) {}
+                // Başvuru sahiplerini indeks sırasına göre düzenle
+                const sortedApplicants = (record.ip_record_applicants || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+                const applicantsArray = sortedApplicants.map(a => ({
+                    id: a.persons?.id,
+                    name: a.persons?.name,
+                    personType: a.persons?.type
+                }));
+
+                // Ortak (Registration) Numara
+                const regNo = record.registration_number || record.wipo_ir || record.aripo_ir || '-';
 
                 return {
                     id: record.id,
                     type: record.ip_type,
                     origin: record.origin || 'TÜRKPATENT',
                     country: record.country_code,
-                    title: record.brand_name || '-',
+                    title: details.brand_name || '-',
                     brandImageUrl: imageUrl,
                     applicationNumber: record.application_number || '-',
-                    registrationNumber: record.registration_number || record.wipo_ir || record.aripo_ir || '-',
+                    registrationNumber: regNo,
                     applicationDate: record.application_date,
                     renewalDate: record.renewal_date,
                     status: record.status,

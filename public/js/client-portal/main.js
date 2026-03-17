@@ -28,7 +28,8 @@ class ClientPortalController {
 
             paginations: { portfolio: null, suit: null, task: null, invoice: null, contract: null, objection: null },
             activeColumnFilters: {},
-            sortStates: {} 
+            sortStates: {},
+            selectedRecords: new Set()
         };
 
         this.renderHelper = new RenderHelper(this.state);
@@ -231,26 +232,15 @@ class ClientPortalController {
         tbody.innerHTML = '';
 
         if (dataSlice.length === 0) { 
-            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">Kayıt bulunamadı.</td></tr>`; 
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">Kayıt bulunamadı.</td></tr>`; 
             return; 
         }
 
-        // 🔥 ÇÖZÜM 2: İngilizce veritabanı durumlarını Türkçe'ye çeviren sözlük
         const statusTranslations = {
-            'registered': 'Tescilli',
-            'application': 'Başvuru',
-            'filed': 'Başvuru',
-            'published': 'Yayınlandı',
-            'rejected': 'Reddedildi',
-            'partially_rejected': 'Kısmen Reddedildi',
-            'partially rejected': 'Kısmen Reddedildi',
-            'withdrawn': 'Geri Çekildi',
-            'cancelled': 'İptal Edildi',
-            'expired': 'Süresi Doldu',
-            'dead': 'Geçersiz',
-            'opposition': 'İtiraz Aşamasında',
-            'appealed': 'Karara İtiraz',
-            'pending': 'İşlem Bekliyor'
+            'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
 
         dataSlice.forEach((item, index) => {
@@ -258,10 +248,8 @@ class ClientPortalController {
             const row = document.createElement('tr');
             
             const originDisplay = item.origin || 'TÜRKPATENT';
-            
             const childRecords = this.state.portfolios.filter(p => p.parentId === item.id);
             const isInternational = childRecords.length > 0;
-
             const imgHtml = item.brandImageUrl ? `<img src="${item.brandImageUrl}" class="brand-thumb">` : '-';
             
             let badgeClass = 'secondary';
@@ -271,12 +259,16 @@ class ClientPortalController {
             else if (st.includes('red') || st.includes('rejected')) badgeClass = 'danger';
             else if (st.includes('itiraz') || st.includes('opposition')) badgeClass = 'warning';
 
-            // İngilizce durumu sözlükten çevir, bulamazsa aynen bırak
             const displayStatus = statusTranslations[st] || item.status || 'Bilinmiyor';
+            const isChecked = this.state.selectedRecords.has(String(item.id)) ? 'checked' : ''; // 🔥 Seçim Kontrolü
 
-            // 🔥 ÇÖZÜM 1: Marka adı ve Sınıflar kolonlarına CSS "max-width" ve "text-truncate" eklendi.
-            // Bu sayede uzun metinler (...) ile kesilir ve kolonları ittirmez. "title" özelliği ile fare üzerine gelince tam metin okunur.
             row.innerHTML = `
+                <td>
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input record-checkbox" id="chk-${item.id}" data-id="${item.id}" ${isChecked}>
+                        <label class="custom-control-label" for="chk-${item.id}"></label>
+                    </div>
+                </td>
                 <td>${isInternational ? '<i class="fas fa-chevron-right mr-2"></i>' : ''}${actualIndex + 1}</td>
                 <td class="col-origin">${originDisplay}</td>
                 <td class="col-sample text-center">${imgHtml}</td>
@@ -296,17 +288,15 @@ class ClientPortalController {
             }
             tbody.appendChild(row);
 
-            // Alt (Yurtdışı) Kayıtlar İçin De Aynı Çevirileri Yapıyoruz
             if (isInternational) {
                 const detailRow = document.createElement('tr');
                 const childHtml = childRecords.map((child, cIdx) => {
                     const childCountry = this.state.countries.get(child.country) || child.country || 'Bilinmiyor';
-                    
                     const cSt = (child.status || '').toLowerCase();
                     const cDisplayStatus = statusTranslations[cSt] || child.status || 'Bilinmiyor';
 
                     return `<tr>
-                        <td>${actualIndex+1}.${cIdx+1}</td>
+                        <td></td> <td>${actualIndex+1}.${cIdx+1}</td>
                         <td>${childCountry}</td>
                         <td>${child.applicationNumber}</td>
                         <td>${this.renderHelper.formatDate(child.applicationDate)}</td>
@@ -316,7 +306,7 @@ class ClientPortalController {
                     </tr>`;
                 }).join('');
                 
-                detailRow.innerHTML = `<td colspan="10" class="p-0"><div class="collapse" id="accordion-yurtdisi-${item.id}"><table class="table mb-0 accordion-table bg-light"><thead><tr><th>#</th><th>Ülke</th><th>Başvuru No</th><th>Başvuru T.</th><th>Yenileme T.</th><th>Durum</th><th>Sınıflar</th></tr></thead><tbody>${childHtml}</tbody></table></div></td>`;
+                detailRow.innerHTML = `<td colspan="11" class="p-0"><div class="collapse" id="accordion-yurtdisi-${item.id}"><table class="table mb-0 accordion-table bg-light"><thead><tr><th></th><th>#</th><th>Ülke</th><th>Başvuru No</th><th>Başvuru T.</th><th>Yenileme T.</th><th>Durum</th><th>Sınıflar</th></tr></thead><tbody>${childHtml}</tbody></table></div></td>`;
                 tbody.appendChild(detailRow);
             }
         });
@@ -821,6 +811,48 @@ class ClientPortalController {
                 $('.column-filter-dropdown').remove();
             }
         });
+
+        // 🔥 YENİ: Checkbox Seçim İşlemleri
+        const portfolioTableBody = document.getElementById('marka-list');
+        if (portfolioTableBody) {
+            portfolioTableBody.addEventListener('change', (e) => {
+                if (e.target.classList.contains('record-checkbox')) {
+                    const id = e.target.dataset.id;
+                    if (e.target.checked) this.state.selectedRecords.add(String(id));
+                    else this.state.selectedRecords.delete(String(id));
+                    
+                    const exportBtn = document.getElementById('btnExportSelected');
+                    if (exportBtn) exportBtn.disabled = this.state.selectedRecords.size === 0;
+                }
+            });
+        }
+
+        // 🔥 YENİ: Tümünü Seç (Select All) Checkbox'ı
+        $(document).on('change', '#selectAllCheckbox', (e) => {
+            const isChecked = e.target.checked;
+            document.querySelectorAll('.record-checkbox').forEach(cb => {
+                cb.checked = isChecked;
+                const id = cb.dataset.id;
+                if (isChecked) this.state.selectedRecords.add(String(id));
+                else this.state.selectedRecords.delete(String(id));
+            });
+            const exportBtn = document.getElementById('btnExportSelected');
+            if (exportBtn) exportBtn.disabled = this.state.selectedRecords.size === 0;
+        });
+
+        // 🔥 YENİ: Excel ve PDF Rapor Buton Tıklamaları
+        $(document).on('click', '#btnExportAllExcel', (e) => { e.preventDefault(); this.exportToExcel('all'); });
+        $(document).on('click', '#btnExportSelectedExcel', (e) => { 
+            e.preventDefault(); 
+            if(this.state.selectedRecords.size === 0) return alert('Lütfen kayıt seçin.');
+            this.exportToExcel('selected'); 
+        });
+        $(document).on('click', '#btnExportAllPDF', (e) => { e.preventDefault(); this.exportToPDF('all'); });
+        $(document).on('click', '#btnExportSelectedPDF', (e) => { 
+            e.preventDefault(); 
+            if(this.state.selectedRecords.size === 0) return alert('Lütfen kayıt seçin.');
+            this.exportToPDF('selected'); 
+        });
     }
 
     toggleColumnFilter(icon) {
@@ -999,85 +1031,271 @@ class ClientPortalController {
     }
 
     // ==========================================
-    // EXPORT FONKSİYONLARI (EXCEL/PDF)
+    // 🔥 ÜST YÖNETİM RAPORU İÇİN AKILLI EXPORT FONKSİYONU
     // ==========================================
-    async exportActiveTable(type) {
+    async exportToExcel(type) {
         const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href');
-        let dataToExport = [];
-        
         if (activeTabId !== '#marka-list') {
-            alert('Bu özellik şimdilik sadece Marka sekmesi için aktiftir.');
+            alert('Excel dışa aktarımı şimdilik sadece Marka sekmesi için aktiftir.');
             return;
         }
 
-        const rawData = this.state.filteredPortfolios;
-        const btnIcon = type === 'excel' ? '.fa-file-excel' : '.fa-file-pdf';
-        const originalBtnHtml = $(btnIcon).parent().html();
-        $(btnIcon).parent().html('<i class="fas fa-spinner fa-spin"></i>').prop('disabled', true);
+        let allFilteredData = this.state.filteredPortfolios || [];
+        let dataToExport = [];
+
+        if (type === 'selected') {
+            const selectedIds = this.state.selectedRecords;
+            if (!selectedIds || selectedIds.size === 0) {
+                alert('Lütfen tablodan en az bir kayıt seçiniz.');
+                return;
+            }
+            dataToExport = allFilteredData.filter(item => selectedIds.has(String(item.id)));
+        } else {
+            dataToExport = [...allFilteredData];
+        }
+
+        if (dataToExport.length === 0) {
+            alert('Aktarılacak veri bulunamadı.');
+            return;
+        }
+
+        if (window.SimpleLoadingController) window.SimpleLoadingController.show('Üst Yönetim Raporu Hazırlanıyor', 'Görseller ve veriler işleniyor, lütfen bekleyin...');
 
         try {
-            for (const item of rawData) {
-                let base64Image = null;
-                const imgUrl = item.brandImageUrl;
-                if (imgUrl) base64Image = await this.imageUrlToBase64(imgUrl);
-
-            const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
-            const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
-            
-            let originDisplay = 'Yurtdışı';
-            if (isTurk) originDisplay = 'TÜRKPATENT';
-            else if (originRaw.includes('WIPO')) originDisplay = 'WIPO';
-            else originDisplay = item.country || 'Yurtdışı';
-                
-                dataToExport.push({
-                    type: 'parent',
-                    mense: originDisplay,
-                    base64Image: base64Image,
-                    originalImageUrl: imgUrl,
-                    markaAdi: item.title || '-',
-                    basvuruNo: item.applicationNumber || '-',
-                    tescilNo: item.registrationNumber || '-',
-                    basvuruTarihi: this.renderHelper.formatDate(item.applicationDate),
-                    yenilemeTarihi: this.renderHelper.formatDate(item.renewalDate),
-                    durum: item.status || '-',
-                    siniflar: item.classes || '-'
+            const loadScript = (src) => {
+                return new Promise((resolve, reject) => {
+                    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
                 });
+            };
 
-                const children = this.state.portfolios.filter(p => p.parentId === item.id);
-                children.forEach((child, idx) => {
-                    const childCountry = this.state.countries.get(child.country) || child.country || 'Bilinmiyor';
-                    dataToExport.push({
-                        type: 'child', mense: childCountry, base64Image: null, originalImageUrl: null,
-                        markaAdi: `   ↳ ${idx+1}. ${item.title || ''}`, basvuruNo: child.applicationNumber || '-',
-                        tescilNo: '-', basvuruTarihi: this.renderHelper.formatDate(child.applicationDate),
-                        yenilemeTarihi: this.renderHelper.formatDate(child.renewalDate), durum: child.status || '-', siniflar: child.classes || '-'
-                    });
-                });
-            }
+            if (!window.ExcelJS) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
+            if (!window.saveAs) await loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
 
-            const headers = [
-                { key: 'mense', title: 'Menşe', width: 15 }, { key: 'base64Image', title: 'Görsel', width: 15 },
-                { key: 'markaAdi', title: 'Marka Adı', width: 30 }, { key: 'basvuruNo', title: 'Başvuru No', width: 20 },
-                { key: 'tescilNo', title: 'Tescil No', width: 20 }, { key: 'basvuruTarihi', title: 'Başvuru T.', width: 15 },
-                { key: 'yenilemeTarihi', title: 'Yenileme T.', width: 15 }, { key: 'durum', title: 'Durum', width: 15 },
-                { key: 'siniflar', title: 'Sınıflar', width: 15 }
+            const sortedData = [];
+            const processedIds = new Set(); 
+            let parentCounter = 0;
+
+            // 🔥 1. ADIM: Hiyerarşi ve Sıra Numarası (Index) Oluşturma (1, 1.1, 1.2 vb.)
+            dataToExport.forEach(parent => {
+                if (!processedIds.has(String(parent.id))) {
+                    parentCounter++;
+                    sortedData.push({ ...parent, exportType: 'parent', displayIndex: String(parentCounter) });
+                    processedIds.add(String(parent.id));
+
+                    // WIPO veya Yurtdışı ise alt kayıtları bul
+                    const children = this.state.portfolios.filter(p => p.parentId === parent.id);
+                    if (children && children.length > 0) {
+                        children.forEach((child, idx) => {
+                            if (!processedIds.has(String(child.id))) {
+                                sortedData.push({ 
+                                    ...child, 
+                                    exportType: 'child', 
+                                    displayIndex: `${parentCounter}.${idx + 1}`, 
+                                    parentTitle: parent.title 
+                                });
+                                processedIds.add(String(child.id));
+                            }
+                        });
+                    }
+                }
+            });
+
+            const workbook = new window.ExcelJS.Workbook();
+            // Kılavuz çizgilerini kapatıyoruz (Daha şık ve kurumsal bir PDF/Sunum görünümü verir)
+            const worksheet = workbook.addWorksheet('Portföy Raporu', { views: [{ showGridLines: false }] }); 
+
+            const excelColumns = [
+                { header: 'No', key: 'displayIndex', width: 8 },
+                { header: 'Menşe/Ülke', key: 'mense', width: 18 },
+                { header: 'Görsel', key: 'brandImage', width: 16 },
+                { header: 'Marka Adı', key: 'title', width: 45 },
+                { header: 'Başvuru Sahibi', key: 'applicant', width: 35 },
+                { header: 'Başvuru No', key: 'appNo', width: 18 },
+                { header: 'Tescil No', key: 'regNo', width: 18 },
+                { header: 'Başvuru Tarihi', key: 'appDate', width: 16 },
+                { header: 'Yenileme Tarihi', key: 'renDate', width: 16 },
+                { header: 'Durum', key: 'status', width: 22 },
+                { header: 'Sınıflar', key: 'classes', width: 30 }
             ];
 
-            const finalFileName = `Marka_Portfoy_Raporu_${new Date().toISOString().slice(0,10)}`;
-            if (type === 'excel') await this.generateExcelWithImages(dataToExport, headers, finalFileName);
-            else if (type === 'pdf') await this.generatePDF(dataToExport, headers, finalFileName);
+            worksheet.columns = excelColumns;
+
+            // 🔥 4. ADIM: Üst Yönetim Raporu İçin Tasarım Makyajı
+            // En üste 4 tane boş satır ekleyerek tablo başlıklarını aşağı itiyoruz.
+            worksheet.spliceRows(1, 0, [], [], [], []);
+
+            // Ana Rapor Başlığı (Row 1-2 Birleşik)
+            worksheet.mergeCells('A1:K2');
+            const titleCell = worksheet.getCell('A1');
+            titleCell.value = 'ÜST YÖNETİM - FİKRİ MÜLKİYET PORTFÖY RAPORU';
+            titleCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: 'FF1E3C72' } }; // Evreka Laciverti
+            titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+            // Müvekkil Adı ve Tarih (Row 3)
+            const clientName = document.getElementById('currentClientName')?.textContent || 'Müvekkil';
+            const dateStrTR = new Date().toLocaleDateString('tr-TR');
+
+            worksheet.mergeCells('A3:E3');
+            worksheet.getCell('A3').value = `Müvekkil: ${clientName}`;
+            worksheet.getCell('A3').font = { bold: true, size: 12, color: { argb: 'FF333333' } };
+            worksheet.getCell('A3').alignment = { vertical: 'middle', horizontal: 'left' };
+
+            worksheet.mergeCells('F3:K3');
+            worksheet.getCell('F3').value = `Rapor Tarihi: ${dateStrTR}`;
+            worksheet.getCell('F3').font = { italic: true, size: 11, color: { argb: 'FF555555' } };
+            worksheet.getCell('F3').alignment = { vertical: 'middle', horizontal: 'right' };
+
+            // Tablo Sütun Başlıkları (Splice sonrası 5. satıra kaydı)
+            const headerRow = worksheet.getRow(5);
+            headerRow.height = 35;
+            headerRow.eachCell({ includeEmpty: true }, (cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                cell.border = {
+                    top: { style: 'medium', color: { argb: 'FF1E3C72' } },
+                    bottom: { style: 'medium', color: { argb: 'FF1E3C72' } },
+                    left: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                    right: { style: 'thin', color: { argb: 'FFFFFFFF' } }
+                };
+            });
+
+            // 🔥 3. ADIM: İngilizce Durumları Türkçe'ye Çeviren Sözlük
+            const statusTranslations = {
+                'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+                'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
+                'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+            };
+
+            let includeImages = true;
+            if (sortedData.length > 50) {
+                includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nÜst yönetim raporuna MARKA GÖRSELLERİ de eklensin mi?\n\n(Dosya boyutu ve indirme süresi görsellerle birlikte artabilir.)`);
+            }
+
+            for (let i = 0; i < sortedData.length; i++) {
+                const record = sortedData[i];
+                
+                // 🔥 2. ADIM: Menşe ve Ülke Adı Gösterimi (Kod yerine Sözlükten Adını çekme)
+                let menseDisplay = 'Yurtdışı';
+                if (record.exportType === 'child') {
+                    menseDisplay = this.state.countries.get(record.country) || record.country || 'Bilinmiyor';
+                } else {
+                    const o = (record.origin || 'TÜRKPATENT').toUpperCase();
+                    if (o.includes('TURK') || o.includes('TÜRK')) menseDisplay = 'TÜRKPATENT';
+                    else if (o.includes('WIPO')) menseDisplay = 'WIPO';
+                    else menseDisplay = this.state.countries.get(record.country) || record.country || 'Yurtdışı';
+                }
+
+                // Child (Alt) Markalar için başlığın önüne Ok işareti koyuyoruz
+                let titleDisplay = record.title || '-';
+                if (record.exportType === 'child') titleDisplay = `↳ ${record.title || record.parentTitle}`;
+
+                // Durumu Türkçe yap
+                const st = (record.status || '').toLowerCase();
+                const displayStatus = statusTranslations[st] || record.status || '-';
+
+                const rowData = {
+                    displayIndex: record.displayIndex,
+                    mense: menseDisplay,
+                    brandImage: '', // Görseli sonra basacağız
+                    title: titleDisplay,
+                    applicant: record.applicants && record.applicants.length > 0 ? record.applicants.map(a => a.name).join(', ') : '-',
+                    appNo: record.applicationNumber || '-',
+                    regNo: record.registrationNumber || '-',
+                    appDate: this.renderHelper.formatDate(record.applicationDate) || '-',
+                    renDate: this.renderHelper.formatDate(record.renewalDate) || '-',
+                    status: displayStatus,
+                    classes: record.classes || '-'
+                };
+
+                const row = worksheet.addRow(rowData);
+
+                // Tüm satırlara hafif gri alt çizgi
+                row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                    cell.border = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } }; 
+                    const colKey = excelColumns[colNumber - 1].key;
+                    if (['title', 'applicant', 'classes'].includes(colKey)) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+                    } else {
+                        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                    }
+                });
+
+                // Hiyerarşik Vurgular (Child Satırları Gri ve İtalik, Parent Satırları Bold)
+                if (record.exportType === 'child') {
+                    row.eachCell(c => { 
+                        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9F9F9' } }; 
+                        c.font = { italic: true, color: { argb: 'FF666666' } }; 
+                    });
+                    const titleCell = row.getCell('title');
+                    if (titleCell) titleCell.alignment = { indent: 2, vertical: 'middle', wrapText: true };
+                } else {
+                    const titleCell = row.getCell('title');
+                    if (titleCell) titleCell.font = { bold: true, color: { argb: 'FF222222' } };
+                    const indexCell = row.getCell('displayIndex');
+                    if (indexCell) indexCell.font = { bold: true };
+                }
+
+                // Görsel İşleme (Base64 yerine ArrayBuffer ile daha hızlı ve stabil)
+                if (includeImages && record.brandImageUrl && record.exportType !== 'child') {
+                    try {
+                        const response = await fetch(record.brandImageUrl, { cache: 'force-cache' });
+                        if (response.ok) {
+                            const buffer = await response.arrayBuffer();
+                            let ext = 'png';
+                            if (record.brandImageUrl.toLowerCase().includes('.jpg') || record.brandImageUrl.toLowerCase().includes('.jpeg')) ext = 'jpeg';
+
+                            const imageId = workbook.addImage({ buffer: buffer, extension: ext });
+                            // header 5. satırda, data 6. satırda başlıyor (i+5 / i+6 matematiği buradan gelir)
+                            worksheet.addImage(imageId, {
+                                tl: { col: 2, row: i + 5 }, // Col C (Index 2) - Görsel Kolonu
+                                br: { col: 3, row: i + 6 },
+                                editAs: 'oneCell'
+                            });
+                            row.height = 65; // Resim için satırı genişlet
+                        } else { row.height = 35; }
+                    } catch (err) { 
+                        row.height = 35; 
+                        const imgCell = row.getCell('brandImage');
+                        imgCell.value = { text: 'Görsel Linki', hyperlink: record.brandImageUrl };
+                        imgCell.font = { color: { argb: 'FF0000FF' }, underline: true };
+                    }
+                } else { 
+                    row.height = 35; 
+                }
+            }
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             
-        } catch (e) {
-            console.error("Export Hatası:", e);
-            alert('Veri hazırlanırken hata oluştu.');
+            const clientNameClean = (document.getElementById('currentClientName')?.textContent || 'Musteri').replace(/[^a-z0-9]/gi, '_');
+            const dateStr = new Date().toISOString().slice(0,10);
+            
+            const fileName = type === 'selected' ? `Yonetim_Raporu_${clientNameClean}_Secili_${dateStr}.xlsx` : `Yonetim_Raporu_${clientNameClean}_Tum_Portfoy_${dateStr}.xlsx`;
+            
+            window.saveAs(blob, fileName);
+            
+        } catch (error) {
+            console.error('Excel hatası:', error);
+            alert('Excel oluşturulurken bir hata oluştu. Lütfen konsolu kontrol edin.');
         } finally {
-            $(btnIcon).parent().html(originalBtnHtml).prop('disabled', false);
+            if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
         }
     }
-
-    async imageUrlToBase64(url) {
+    
+    // ==========================================
+    // 🔥 GÖRSEL İNDİRİCİ (CORS ve Format Korumalı)
+    // ==========================================
+    async getBase64ImageFromUrl(url) {
         if (!url || url.length < 10) return null;
         try {
+            // CORS (Erişim İzni) politikalarını aşmak için özel ayar
             const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
             if (!response.ok) return null;
             const blob = await response.blob();
@@ -1090,72 +1308,204 @@ class ClientPortalController {
         } catch (e) { return null; }
     }
 
-    async generateExcelWithImages(data, headers, filename) {
-        const workbook = new window.ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Marka Listesi');
-        sheet.columns = headers.map(h => ({ header: h.title, key: h.key, width: h.width }));
+    // ==========================================
+    // 🔥 ÜST YÖNETİM RAPORU İÇİN PDF EXPORT (KUSURSUZ VERSİYON)
+    // ==========================================
+    async exportToPDF(type) {
+        const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href');
+        if (activeTabId !== '#marka-list') {
+            alert('PDF dışa aktarımı şimdilik sadece Marka sekmesi için aktiftir.');
+            return;
+        }
 
-        data.forEach((item, index) => {
-            const row = sheet.addRow({ ...item, base64Image: '' });
-            if (item.type === 'child') {
-                row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } }; c.font = { italic: true, color: { argb: 'FF555555' } }; });
-            } else {
-                row.height = 90;
-                row.eachCell(c => c.alignment = { vertical: 'middle', wrapText: true });
-                if (!item.base64Image && item.originalImageUrl) {
-                    const cell = row.getCell(2);
-                    cell.value = { text: 'Görsel Linki', hyperlink: item.originalImageUrl };
-                    cell.font = { color: { argb: 'FF0000FF' }, underline: true };
+        let allFilteredData = this.state.filteredPortfolios || [];
+        let dataToExport = [];
+
+        if (type === 'selected') {
+            const selectedIds = this.state.selectedRecords;
+            dataToExport = allFilteredData.filter(item => selectedIds.has(String(item.id)));
+        } else {
+            dataToExport = [...allFilteredData];
+        }
+
+        if (dataToExport.length === 0) { alert('Aktarılacak veri bulunamadı.'); return; }
+
+        if (window.SimpleLoadingController) window.SimpleLoadingController.show('Üst Yönetim PDF Raporu', 'Tablolar ve görseller milimetrik olarak çiziliyor, lütfen bekleyin...');
+
+        try {
+            const { jsPDF } = window.jspdf;
+            // 🔥 ÇÖZÜM 3: Kağıt yönünü garanti olarak yatay ('l') yapıyoruz.
+            const doc = new jsPDF('l', 'mm', 'a4'); 
+
+            // 🔥 ÇÖZÜM 1: Türkçe Karakter Temizleyici (jsPDF font hatasını önler)
+            const normalizeTR = (text) => {
+                if (!text) return '-';
+                return String(text)
+                    .replace(/Ğ/g, 'G').replace(/ğ/g, 'g')
+                    .replace(/Ü/g, 'U').replace(/ü/g, 'u')
+                    .replace(/Ş/g, 'S').replace(/ş/g, 's')
+                    .replace(/İ/g, 'I').replace(/ı/g, 'i')
+                    .replace(/Ö/g, 'O').replace(/ö/g, 'o')
+                    .replace(/Ç/g, 'C').replace(/ç/g, 'c');
+            };
+
+            const sortedData = [];
+            const processedIds = new Set();
+            let parentCounter = 0;
+
+            // Hiyerarşi (Parent/Child) Kurgusu
+            dataToExport.forEach(parent => {
+                if (!processedIds.has(String(parent.id))) {
+                    parentCounter++;
+                    sortedData.push({ ...parent, exportType: 'parent', displayIndex: String(parentCounter) });
+                    processedIds.add(String(parent.id));
+
+                    const children = this.state.portfolios.filter(p => p.parentId === parent.id);
+                    if (children && children.length > 0) {
+                        children.forEach((child, idx) => {
+                            if (!processedIds.has(String(child.id))) {
+                                sortedData.push({ ...child, exportType: 'child', displayIndex: `${parentCounter}.${idx + 1}`, parentTitle: parent.title });
+                                processedIds.add(String(child.id));
+                            }
+                        });
+                    }
                 }
+            });
+
+            const statusTranslations = {
+                'registered': 'Tescilli', 'application': 'Basvuru', 'filed': 'Basvuru', 'published': 'Yayinlandi',
+                'rejected': 'Reddedildi', 'partially_rejected': 'Kismen Reddedildi', 'partially rejected': 'Kismen Reddedildi',
+                'withdrawn': 'Geri Cekildi', 'cancelled': 'Iptal Edildi', 'expired': 'Suresi Doldu', 'dead': 'Gecersiz',
+                'opposition': 'Itiraz Asamasinda', 'appealed': 'Karara Itiraz', 'pending': 'Islem Bekliyor'
+            };
+
+            let includeImages = true;
+            if (sortedData.length > 50) {
+                includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nPDF raporuna MARKA GÖRSELLERİ de eklensin mi?\n\n(Resimler eklendiğinde işlem daha uzun sürer.)`);
             }
-        });
 
-        data.forEach((item, i) => {
-            if (item.base64Image) {
-                const imageId = workbook.addImage({ base64: item.base64Image, extension: 'png' });
-                sheet.addImage(imageId, { tl: { col: 1, row: i + 1 }, br: { col: 2, row: i + 2 }, editAs: 'oneCell' });
-            }
-        });
-
-        const buffer = await workbook.xlsx.writeBuffer();
-        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        window.saveAs(blob, `${filename}.xlsx`);
-    }
-
-    async generatePDF(data, headers, filename) {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF('l', 'mm', 'a4');
-        
-        doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(41, 128, 185);
-        doc.text("Marka Portfoy Raporu", 14, 15);
-        doc.setFontSize(10); doc.setTextColor(100);
-        doc.text(`Olusturulma Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 22);
-
-        doc.autoTable({
-            head: [headers.map(h => h.title)],
-            body: data.map(row => { const r = headers.map(h => row[h.key]); r.raw = row; return r; }),
-            startY: 28, theme: 'grid',
-            styles: { fontSize: 8, valign: 'middle', cellPadding: 3 },
-            headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', halign: 'center' },
-            columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 22, minCellHeight: 22 }, 2: { cellWidth: 45 } },
-            didParseCell: function(d) {
-                if (d.section === 'body' && d.row.raw.raw.type === 'child') {
-                    d.cell.styles.fillColor = [248, 249, 250];
-                    if (d.column.index === 2) { d.cell.styles.fontStyle = 'italic'; d.cell.styles.cellPadding = { left: 10 }; }
+            // Tablo verilerini hazırlama
+            const tableData = [];
+            for (let i = 0; i < sortedData.length; i++) {
+                const record = sortedData[i];
+                
+                let menseDisplay = 'Yurtdisi';
+                if (record.exportType === 'child') menseDisplay = this.state.countries.get(record.country) || record.country || 'Bilinmiyor';
+                else {
+                    const o = (record.origin || 'TURKPATENT').toUpperCase();
+                    if (o.includes('TURK') || o.includes('TÜRK')) menseDisplay = 'TURKPATENT';
+                    else if (o.includes('WIPO')) menseDisplay = 'WIPO';
+                    else menseDisplay = this.state.countries.get(record.country) || record.country || 'Yurtdisi';
                 }
-            },
-            didDrawCell: function(d) {
-                if (d.section === 'body' && d.column.index === 1 && d.row.raw.raw.base64Image) {
-                    try {
-                        const dim = Math.min(d.cell.width, d.cell.height) - 4;
-                        const x = d.cell.x + (d.cell.width - dim) / 2;
-                        const y = d.cell.y + (d.cell.height - dim) / 2;
-                        doc.addImage(d.row.raw.raw.base64Image, 'PNG', x, y, dim, dim);
-                    } catch(e){}
+
+                let titleDisplay = record.title || '-';
+                if (record.exportType === 'child') titleDisplay = `-> ${record.title || record.parentTitle}`;
+
+                const st = (record.status || '').toLowerCase();
+                const displayStatus = statusTranslations[st] || normalizeTR(record.status) || '-';
+                
+                let base64Img = null;
+                if (includeImages && record.brandImageUrl && record.exportType !== 'child') {
+                    base64Img = await this.getBase64ImageFromUrl(record.brandImageUrl);
                 }
+
+                tableData.push([
+                    normalizeTR(record.displayIndex),
+                    normalizeTR(menseDisplay),
+                    base64Img, // Hücrenin çizim anında bu base64 kullanılacak
+                    normalizeTR(titleDisplay),
+                    normalizeTR(record.classes), // Sınıflar Eklendi
+                    normalizeTR(record.applicationNumber),
+                    this.renderHelper.formatDate(record.applicationDate) || '-',
+                    this.renderHelper.formatDate(record.renewalDate) || '-',
+                    displayStatus,
+                    record.exportType // Sınıflandırma ve boyama için gizli veri (10. Kolon)
+                ]);
             }
-        });
-        doc.save(`${filename}.pdf`);
+
+            // PDF Başlık Alanı
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(16);
+            doc.setTextColor(30, 60, 114); 
+            doc.text("UST YONETIM - FIKRI MULKIYET PORTFOY RAPORU", 14, 15);
+            
+            doc.setFontSize(10);
+            doc.setTextColor(50, 50, 50);
+            const clientName = document.getElementById('currentClientName')?.textContent || 'Müvekkil';
+            doc.text(`Muvekkil: ${normalizeTR(clientName)}`, 14, 22);
+            doc.text(`Rapor Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 280, 22, { align: 'right' });
+
+            // 🔥 ÇÖZÜM 2 & 3: A4 Yatay Kağıda Milimetrik Sığdırılmış AutoTable
+            // A4 Genişlik: 297mm. Kenar boşlukları: 14+14=28mm. Kullanılabilir Alan: ~269mm.
+            doc.autoTable({
+                startY: 28,
+                head: [['No', 'Mense/Ulke', 'Gorsel', 'Marka Adi', 'Siniflar', 'Basvuru No', 'Basvuru T.', 'Yenileme T.', 'Durum']],
+                body: tableData,
+                theme: 'grid', // Düz çizgili kurumsal görünüm
+                styles: { 
+                    fontSize: 7, 
+                    valign: 'middle', 
+                    cellPadding: 2, 
+                    overflow: 'linebreak' // Taşan metni alt satıra at (bölünmeyi önler)
+                },
+                headStyles: { fillColor: [30, 60, 114], textColor: 255, fontStyle: 'bold', halign: 'center' },
+                columnStyles: {
+                    0: { cellWidth: 12, halign: 'center', fontStyle: 'bold' }, // No
+                    1: { cellWidth: 25, halign: 'center' }, // Menşe
+                    2: { cellWidth: 20, halign: 'center', minCellHeight: 18 }, // Görsel
+                    3: { cellWidth: 55, halign: 'left' }, // Marka Adı
+                    4: { cellWidth: 35, halign: 'left' }, // Sınıflar
+                    5: { cellWidth: 25, halign: 'center' }, // Başvuru No
+                    6: { cellWidth: 20, halign: 'center' }, // Başvuru T.
+                    7: { cellWidth: 20, halign: 'center' }, // Yenileme T.
+                    8: { cellWidth: 28, halign: 'center' }  // Durum
+                    // Toplam: 12+25+20+55+35+25+20+20+28 = 240mm. (Kalan boşluklar jsPDF tarafından otomatik dağıtılır, bölünme yaşanmaz)
+                },
+                didParseCell: function(data) {
+                    const rowData = data.row.raw;
+                    const isChild = rowData[9] === 'child'; // 9. Index (10. kolon) gizli exportType kolonu
+                    if (data.section === 'body') {
+                        if (isChild) {
+                            data.cell.styles.fillColor = [245, 245, 245];
+                            data.cell.styles.textColor = [100, 100, 100];
+                            data.cell.styles.fontStyle = 'italic';
+                        }
+                        if (data.column.index === 3 && !isChild) data.cell.styles.fontStyle = 'bold';
+                    }
+                },
+                didDrawCell: function(data) {
+                    // 2. Kolon Görsel Kolonu - Base64 verisi varsa hücrenin ortasına çiz
+                    if (data.section === 'body' && data.column.index === 2) {
+                        const base64Img = data.row.raw[2];
+                        if (base64Img && base64Img.length > 50) {
+                            try {
+                                const dim = 14; // Resmin boyutu (mm)
+                                const x = data.cell.x + (data.cell.width - dim) / 2;
+                                const y = data.cell.y + (data.cell.height - dim) / 2;
+                                
+                                // Formati veri başlığından dinamik al
+                                let format = 'PNG';
+                                if(base64Img.includes('image/jpeg') || base64Img.includes('image/jpg')) format = 'JPEG';
+                                
+                                doc.addImage(base64Img, format, x, y, dim, dim);
+                            } catch(e) { console.error('PDF Resim ekleme hatası:', e); }
+                        }
+                    }
+                }
+            });
+
+            const clientNameClean = normalizeTR(clientName).replace(/[^a-z0-9]/gi, '_');
+            const dateStr = new Date().toISOString().slice(0,10);
+            const fileName = type === 'selected' ? `Yonetim_Raporu_${clientNameClean}_Secili_${dateStr}.pdf` : `Yonetim_Raporu_${clientNameClean}_Tum_Portfoy_${dateStr}.pdf`;
+            
+            doc.save(fileName);
+
+        } catch (error) {
+            console.error('PDF hatası:', error);
+            alert('PDF oluşturulurken bir hata oluştu.');
+        } finally {
+            if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
+        }
     }
 
     renderReports() {

@@ -227,15 +227,8 @@
                     <div class="form-group col-md-2">
                         <button class="btn btn-primary btn-block" id="portfolioFilterBtn">Filtrele</button>
                     </div>
-                    <div class="form-group col-md-2">
-                        <div class="btn-group btn-block">
-                            <button type="button" class="btn btn-success" onclick="window.exportActiveTable('excel')" title="Excel'e Aktar"><i class="fas fa-file-excel"></i></button>
-                            <button type="button" class="btn btn-danger" onclick="window.exportActiveTable('pdf')" title="PDF'e Aktar"><i class="fas fa-file-pdf"></i></button>
-                        </div>
-                    </div>
                 </div>
-            </div>
-            
+            </div>            
             <div class="d-flex align-items-center justify-content-between flex-wrap mb-2" id="portfolioTabsBar">
                 <ul class="nav nav-tabs mb-2 mb-sm-0" id="portfolioTopTabs" role="tablist">
                     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#marka-list">Marka</a></li>
@@ -252,13 +245,33 @@
                         </select>
                     </li>
                 </ul>
-            </div>
 
+                <div class="dropdown ml-auto">
+                    <button class="btn btn-primary btn-sm dropdown-toggle font-weight-bold shadow-sm" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #1e3c72; border-color: #1e3c72; border-radius: 6px; padding: 6px 14px;">
+                        <i class="fas fa-download mr-1"></i> Rapor İndir
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-right shadow border-0 mt-2" style="min-width: 220px; border-radius: 8px;">
+                        <h6 class="dropdown-header text-muted font-weight-bold text-uppercase">Excel Raporu</h6>
+                        <a class="dropdown-item py-2" href="#" id="btnExportAllExcel"><i class="fas fa-file-excel text-success mr-2"></i>Tüm Portföy (Excel)</a>
+                        <a class="dropdown-item py-2" href="#" id="btnExportSelectedExcel"><i class="fas fa-check-square text-success mr-2"></i>Seçili Olanlar (Excel)</a>
+                        <div class="dropdown-divider"></div>
+                        <h6 class="dropdown-header text-muted font-weight-bold text-uppercase">Üst Yönetim PDF Raporu</h6>
+                        <a class="dropdown-item py-2" href="#" id="btnExportAllPDF"><i class="fas fa-file-pdf text-danger mr-2"></i>Tüm Portföy (PDF)</a>
+                        <a class="dropdown-item py-2" href="#" id="btnExportSelectedPDF"><i class="fas fa-check-square text-danger mr-2"></i>Seçili Olanlar (PDF)</a>
+                    </div>
+                </div>
+            </div>
             <div class="tab-content table-responsive mt-3">
                 <div class="tab-pane fade show active" id="marka-list">
                     <table class="table table-hover">
                         <thead>
                             <tr>
+                                <th style="width: 40px;">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input" id="selectAllCheckbox">
+                                        <label class="custom-control-label" for="selectAllCheckbox"></label>
+                                    </div>
+                                </th>
                                 <th class="sortable" data-sort="index"># <i class="fas fa-sort"></i></th>
                                 <th class="col-origin sortable filterable" data-sort="text" data-col-idx="1">Menşe <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="1"></i></th>
                                 <th class="col-sample text-center">Marka Örneği</th>

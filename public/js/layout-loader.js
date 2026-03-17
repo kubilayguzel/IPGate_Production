@@ -12,7 +12,7 @@ const menuItems = [
   { id: 'person-management-accordion', text: 'Kişi Yönetimi', icon: 'fas fa-users', category: 'Yönetim', subItems: [{ id: 'persons', text: 'Kişiler Yönetimi', link: 'persons.html' }, { id: 'user-management', text: 'Kullanıcı Yönetimi', link: 'user-management.html', superAdminOnly: true }] },
   { id: 'accruals', text: 'Tahakkuklarım', link: 'accruals.html', icon: 'fas fa-file-invoice-dollar', category: 'Finans' },
   { id: 'indexing', text: 'Belge İndeksleme', link: 'bulk-indexing-page.html', icon: 'fas fa-folder-open', category: 'Araçlar' },
-  { id: 'bulletin-management-accordion', text: 'Bülten Yönetimi', icon: 'fas fa-book', category: 'Araçlar', subItems: [{ id: 'bulletin-upload', text: 'Bülten Yükleme/Silme', link: 'bulletin-upload.html' }, { id: 'bulletin-search', text: 'Bülten Sorgulama', link: 'bulletin-search.html' }] },
+  { id: 'bulletin-management-accordion', text: 'Bülten Yönetimi', icon: 'fas fa-book', category: 'Araçlar', subItems: [{ id: 'bulletin-upload', text: 'Bülten Yükleme/Silme', link: 'bulletin-upload.html' }, { id: 'bulletin-search', text: 'Bülten Sorgulama', link: 'bulletin-search.html' }, { id: 'bulletin-scraper', text: 'Bülten Scrape', link: 'bulletin-scraper.html' }] },
   { id: 'monitoring-accordion', text: 'İzleme', icon: 'fas fa-eye', category: 'Araçlar', subItems: [{ id: 'trademark-similarity-search', text: 'Marka İzleme', link: 'trademark-similarity-search.html' }, { id: 'monitoring-trademarks', text: 'Marka İzleme Listesi', link: 'monitoring-trademarks.html' }] },
   { id: 'reports', text: 'Raporlar', link: '#', icon: 'fas fa-chart-line', category: 'Araçlar', disabled: true },
   { id: 'settings', text: 'Ayarlar', link: '#', icon: 'fas fa-cog', category: 'Araçlar', disabled: true }

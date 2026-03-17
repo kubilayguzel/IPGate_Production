@@ -61,22 +61,26 @@ function getExpectedTotalCount() {
     return null;
 }
 
-// 🔥 YENİ: Hafıza Temizleme (Budama) Fonksiyonu
+// 🔥 YENİ: Maksimum RAM ve CPU Tasarrufu Sağlayan Budama Fonksiyonu
 function pruneRow(tr) {
     if (!tr || tr.getAttribute('data-pruned') === 'true') return;
     
     // İşlendi olarak işaretle
     tr.setAttribute('data-pruned', 'true'); 
     
-    // RAM'i en çok şişiren Base64 resimleri HTML'den sil!
-    const imgEl = tr.querySelector('td[role="image"] img');
-    if (imgEl) {
-        imgEl.src = '';
-        imgEl.removeAttribute('src');
+    // 1. Satırın yüksekliğini sabitle ki içini boşalttığımızda sayfanın Scroll boyutu bozulmasın
+    const currentHeight = tr.getBoundingClientRect().height;
+    if (currentHeight > 0) {
+        tr.style.height = currentHeight + 'px';
     }
     
-    // İşlenen satırların rengini soluklaştır (Hem görsel takip sağlar, hem GPU'yu rahatlatır)
-    tr.style.opacity = '0.3';
+    // 2. EN KRİTİK HAMLE: Satırın içindeki tüm HTML düğümlerini (Text, Image, SVG) yok et!
+    // Bu sayede 10.000 satır bile olsa tarayıcı bunları işlemek (render) için güç harcamaz.
+    Array.from(tr.children).forEach(td => {
+        td.innerHTML = ''; 
+        td.style.padding = '0';
+        td.style.border = 'none';
+    });
 }
 
 function parseRow(tr) {
@@ -120,26 +124,27 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
         document.getElementById('ipgate-status').innerText = `Kaldığı yere (Satır ${skipCount}) hızla iniliyor...`;
         
         while(true) {
-            const rows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root');
+            const allRows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root');
             
-            // Hızlı sararken de RAM şişmemesi için üstte kalanları buda!
-            for(let i = 0; i < rows.length - 10; i++) {
-                if(rows[i].getAttribute('data-pruned') !== 'true') {
-                    const parsed = parseRow(rows[i]);
-                    if (parsed) processedApps.add(parsed.application_number);
-                    pruneRow(rows[i]); // SİL
-                }
+            // 🔥 Sadece henüz budanmamış GÖRÜNÜR satırları seç ve buda
+            const unprunedRows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root:not([data-pruned="true"])');
+            for(let i = 0; i < unprunedRows.length - 10; i++) {
+                const tr = unprunedRows[i];
+                const parsed = parseRow(tr);
+                if (parsed) processedApps.add(parsed.application_number);
+                pruneRow(tr); 
             }
 
-            if (rows.length >= skipCount) {
+            if (allRows.length >= skipCount) {
                 break; 
             }
             
-            const lastRow = rows[rows.length - 1];
-            if(lastRow) lastRow.scrollIntoView({ behavior: "smooth", block: "end" });
+            // 🔥 CPU TASARRUFU: 'smooth' yerine 'auto' kullanarak saniyesinde aşağı zıplat
+            const lastRow = allRows[allRows.length - 1];
+            if(lastRow) lastRow.scrollIntoView({ behavior: "auto", block: "end" });
             
-            document.getElementById('ipgate-status').innerText = `Hızla iniliyor: ${rows.length} / ${skipCount}`;
-            await sleep(800); 
+            document.getElementById('ipgate-status').innerText = `Hızla iniliyor: ${allRows.length} / ${skipCount}`;
+            await sleep(500); // 800'den 500'e düşürdük, artık bilgisayar kasmadığı için daha hızlı inebilir
         }
     }
 
@@ -147,25 +152,25 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
     let totalSent = skipCount;
 
     while(isScraping && totalSent < targetTotal) {
-        const rows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root');
+        
+        // 🔥 PERFORMANS MUCİZESİ: Tüm sayfayı aramak yerine SADECE yeni yüklenen ve 
+        // henüz budanmamış satırları seç. (Döngü her zaman ~20 kayıtta döner, 5000 kayıtta değil!)
+        const newRows = document.querySelectorAll('tbody.MuiTableBody-root tr.MuiTableRow-root:not([data-pruned="true"])');
         const batch = [];
         
-        rows.forEach(tr => {
+        newRows.forEach(tr => {
             const parsed = parseRow(tr);
             if(parsed && !processedApps.has(parsed.application_number)) {
                 processedApps.add(parsed.application_number);
                 
-                // Referansı paketten çıkar (Memory Leak önlemi)
                 const dataToPush = {...parsed};
                 delete dataToPush._trRef;
                 batch.push(dataToPush);
                 
-                // 🔥 SİHİRLİ VURUŞ: Veriyi aldık, ekrandaki resmi/yükü yok et!
-                pruneRow(parsed._trRef);
-
-            } else if (parsed && processedApps.has(parsed.application_number)) {
-                // Önceden alınmış ama budanmayı unutmuş bir satırsa
-                pruneRow(parsed._trRef);
+                pruneRow(parsed._trRef); // Veriyi aldın, ekrandan (RAM'den) sil
+            } else {
+                // Önceden alınmışsa veya boşsa yine de buda (eski veriyi DOM'da boşuna tutma)
+                pruneRow(tr);
             }
         });
 
@@ -184,16 +189,18 @@ async function startScraping(bulletinNo, bulletinDate, skipCount) {
                 break;
             }
 
-            const lastRow = rows[rows.length - 1];
-            if(lastRow) lastRow.scrollIntoView({ behavior: "smooth", block: "end" });
-            await sleep(1500); 
+            // 🔥 Sadece en alttaki satıra 'auto' (anlık) scroll yap.
+            const lastRow = document.querySelector('tbody.MuiTableBody-root tr.MuiTableRow-root:last-child');
+            if(lastRow) lastRow.scrollIntoView({ behavior: "auto", block: "end" });
+            
+            await sleep(1000); // Kasmalar bittiği için bekleme süresini 1.5 sn'den 1 sn'ye düşürdük
 
         } else {
             retryCount++;
             window.scrollTo(0, document.body.scrollHeight);
-            await sleep(2000);
+            await sleep(1500);
 
-            if(retryCount >= 5) { // Toleransı 5'e çıkardım
+            if(retryCount >= 5) {
                 isScraping = false;
                 console.log("Yeni veri gelmedi, tarama sonlandırılıyor.");
             }

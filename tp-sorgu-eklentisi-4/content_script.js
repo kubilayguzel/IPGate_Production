@@ -61,26 +61,29 @@ function getExpectedTotalCount() {
     return null;
 }
 
-// 🔥 YENİ: Maksimum RAM ve CPU Tasarrufu Sağlayan Budama Fonksiyonu
+// 🔥 YENİ VE REACT-GÜVENLİ BUDAMA FONKSİYONU
 function pruneRow(tr) {
     if (!tr || tr.getAttribute('data-pruned') === 'true') return;
     
     // İşlendi olarak işaretle
     tr.setAttribute('data-pruned', 'true'); 
     
-    // 1. Satırın yüksekliğini sabitle ki içini boşalttığımızda sayfanın Scroll boyutu bozulmasın
-    const currentHeight = tr.getBoundingClientRect().height;
-    if (currentHeight > 0) {
-        tr.style.height = currentHeight + 'px';
-    }
-    
-    // 2. EN KRİTİK HAMLE: Satırın içindeki tüm HTML düğümlerini (Text, Image, SVG) yok et!
-    // Bu sayede 10.000 satır bile olsa tarayıcı bunları işlemek (render) için güç harcamaz.
-    Array.from(tr.children).forEach(td => {
-        td.innerHTML = ''; 
-        td.style.padding = '0';
-        td.style.border = 'none';
+    // 🛑 KRİTİK DÜZELTME: React'in çökmemesi için innerHTML = '' YAPMIYORUZ!
+    // DOM yapısını olduğu gibi bırakıyoruz.
+
+    // 1. RAM'i asıl şişiren şey BASE64 resimlerdir. Sadece resimlerin içini boşaltıyoruz.
+    const imgs = tr.querySelectorAll('img');
+    imgs.forEach(img => {
+        img.src = '';
+        img.removeAttribute('src');
     });
+
+    // 2. Tarayıcının ekran kartını (GPU) yormasını engellemek için 
+    // satırı gizliyor ama sayfadaki kapladığı alanı (Scroll) bozmuyoruz.
+    tr.style.opacity = '0.1'; // Satırı soluklaştır
+    
+    // Modern tarayıcılarda görünmeyen kısımların işlemci tüketimini sıfırlayan sihirli CSS:
+    tr.style.contentVisibility = 'auto'; 
 }
 
 function parseRow(tr) {

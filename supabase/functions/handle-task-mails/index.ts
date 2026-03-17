@@ -54,7 +54,21 @@ serve(async (req: Request) => {
         renewalDateText = new Date(viewData.renewal_date).toLocaleDateString('tr-TR');
     }
 
-    const transactionDate = new Date().toLocaleDateString('tr-TR');
+    // 🔥 ÇÖZÜM 2: Mailde gösterilecek İşlem (Evrak) Tarihi
+    let transactionDate = new Date().toLocaleDateString('tr-TR'); // Varsayılan: Bugün
+    
+    // Eğer Task'ın detaylarında arayüzden kaydettiğimiz EPATS evrak tarihi varsa onu kullan
+    if (record.details && record.details.epatsDocumentDate) {
+        const d = new Date(record.details.epatsDocumentDate);
+        if (!isNaN(d.getTime())) {
+            transactionDate = d.toLocaleDateString('tr-TR');
+        } else {
+            // Eğer tarih JS tarafından algılanamazsa doğrudan kullanıcının yazdığı metni bas
+            transactionDate = record.details.epatsDocumentDate;
+        }
+        console.log(`[MAIL-DEBUG] Evrak Tarihi algılandı ve maile eklenecek: ${transactionDate}`);
+    }
+
     const imgUrl = viewData?.brand_image_url || record.details?.brandImageUrl || "";
 
     // 🔥 ÇÖZÜM: İTİRAZ SAHİBİNİ (OPPONENT) TRANSACTION HİYERARŞİSİNDEN BULMA

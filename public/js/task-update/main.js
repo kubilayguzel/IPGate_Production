@@ -643,15 +643,30 @@ class TaskUpdateController {
 
     async saveTaskChanges() {
         const epatsDocIndex = this.currentDocuments.findIndex(d => d.type === 'epats_document');
+        let epatsDocumentDateForDB = null; // 🔥 YENİ: Tarihi arka plana taşımak için
+        
         if (epatsDocIndex !== -1) {
             const evrakNo = document.getElementById('turkpatentEvrakNo')?.value;
             const evrakDate = document.getElementById('epatsDocumentDate')?.value;
             if (!evrakNo || !evrakDate) return showNotification('Lütfen EPATS evrak bilgilerini (No ve Tarih) doldurunuz.', 'warning');
             this.currentDocuments[epatsDocIndex].turkpatentEvrakNo = evrakNo;
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
+            epatsDocumentDateForDB = evrakDate; // 🔥 YENİ
         }
 
         try {
+            // 🔥 ÇÖZÜM 1: Evrak Tarihini (EPATS) Tasks tablosunun 'details' kolonuna JSON olarak direkt kaydediyoruz!
+            // Bu sayede Mail Edge Function'ı bu tarihi anında görebilecek.
+            if (epatsDocumentDateForDB) {
+                let newDetails = this.taskData.details || {};
+                if (typeof newDetails === 'string') { try { newDetails = JSON.parse(newDetails); } catch(e){ newDetails = {}; } }
+                
+                newDetails.epatsDocumentDate = epatsDocumentDateForDB;
+                newDetails.epatsDocumentNo = document.getElementById('turkpatentEvrakNo')?.value;
+                
+                await supabase.from('tasks').update({ details: newDetails }).eq('id', this.taskId);
+            }
+
             if (this.selectedIpRecordId && this.tempRenewalData) {
                 await supabase.from('ip_records').update({ renewal_date: this.tempRenewalData }).eq('id', this.selectedIpRecordId);
                 console.log('Yenileme tarihi veritabanına işlendi:', this.tempRenewalData);
@@ -665,7 +680,7 @@ class TaskUpdateController {
                 console.log('Başvuru bilgileri veritabanına işlendi:', this.tempApplicationData);
             }
         } catch (err) {
-            console.error('Portföy kayıtları güncellenirken hata oluştu:', err);
+            console.error('Kayıtlar güncellenirken hata oluştu:', err);
         }
 
         let userEmail = 'Bilinmiyor';
@@ -688,7 +703,6 @@ class TaskUpdateController {
         const officialDateVal = document.getElementById('taskDueDate')?.value;
         const operationalDateVal = document.getElementById('deliveryDate')?.value;
 
-        // 🔥 ORİJİNAL KAYDETME İŞLEMİ (Kandırma mantığı tamamen silindi)
         const updateData = {
             status: document.getElementById('taskStatus')?.value,
             title: document.getElementById('taskTitle')?.value,

@@ -623,21 +623,50 @@ const renderCurrentPageOfResults = () => {
         const headerImg = _normalizeImageSrc(rawHeaderImg); // 🔥 DÜZELTME: Link formata çevrildi
         const modalData = { id: tmMeta.id, ipRecordId: tmMeta.ipRecordId, markName: headerName, applicationNumber: appNo, owner: tmMeta.ownerName, niceClasses: getNiceClassNumbers(tmMeta), brandImageUrl: headerImg, brandTextSearch: tmMeta.brandTextSearch || [], niceClassSearch: tmMeta.niceClassSearch || [] };
         const imageHtml = headerImg ? `<div class="group-trademark-image"><div class="tm-img-box tm-img-box-sm"><img src="${headerImg}" class="group-header-img"></div></div>` : `<div class="group-trademark-image" data-header-appno="${appNo}"><div class="tm-img-box tm-img-box-sm tm-placeholder">?</div></div>`;
+
         const groupHeaderRow = document.createElement('tr');
         groupHeaderRow.className = 'group-header';
         groupHeaderRow.dataset.markData = JSON.stringify(modalData);
         
-        // 1. Başvuru numarasını Portföy Detay sayfasına giden bir linke dönüştürüyoruz
-        const portfolioLinkHtml = tmMeta.ipRecordId 
-            ? `<a href="portfolio-detail.html?id=${tmMeta.ipRecordId}" target="_blank" style="font-size: 0.9em; margin-left: 6px; color: #0d6efd; text-decoration: none;" title="Portföy Detayını Yeni Sekmede Aç">(${appNo})</a>`
-            : `<span style="font-size: 0.9em; margin-left: 6px; color: #6c757d;">(${appNo})</span>`;
-            
-        // 2. Markanın Nice Sınıflarını şık bir rozet (badge) formatında hazırlıyoruz
-        const classesStr = Array.isArray(modalData.niceClasses) ? modalData.niceClasses.join(', ') : '-';
-        const niceClassesHtml = `<span style="margin-left: 10px; font-size: 0.85em; background: #e9ecef; border: 1px solid #ced4da; padding: 2px 8px; border-radius: 4px; color: #495057;">Sınıflar: <strong>${classesStr}</strong></span>`;
+        // 🌟 ORTAK ROZET STİLİ: Font 13px yapıldı, padding biraz genişletildi
+        const commonBadgeStyle = "font-size: 13px; font-weight: 500; padding: 5px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; line-height: 1; letter-spacing: -0.2px;";
 
-        // 3. Hepsini başlık satırında (HTML) birleştiriyoruz
-        groupHeaderRow.innerHTML = `<td colspan="10"><div class="group-title">${imageHtml}<span><a href="#" class="edit-criteria-link" data-tmid="${tmMeta.id}"><strong>${headerName}</strong></a> ${portfolioLinkHtml} <small style="color:#666;">— ${tmMeta.ownerName || '-'}</small> — bulunan sonuçlar (${getTotalCountForMonitoredId(group.key)} adet) ${niceClassesHtml}</span></div></td>`;
+        // 1. Başvuru Numarası Linki
+        const portfolioLinkHtml = tmMeta.ipRecordId 
+            ? `<a href="portfolio-detail.html?id=${tmMeta.ipRecordId}" target="_blank" style="${commonBadgeStyle} background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; text-decoration: none;" title="Portföy Detayını Yeni Sekmede Aç"><i class="fas fa-external-link-alt" style="font-size: 11px; opacity: 0.8;"></i>${appNo}</a>`
+            : `<span style="${commonBadgeStyle} background: #f8fafc; border: 1px solid #e2e8f0; color: #64748b;">${appNo}</span>`;
+            
+        // 2. Nice Sınıfları Rozeti
+        const classesStr = Array.isArray(modalData.niceClasses) ? modalData.niceClasses.join(', ') : '-';
+        const niceClassesHtml = `<span style="${commonBadgeStyle} background: #f8fafc; border: 1px solid #e2e8f0; color: #475569;" title="Nice Sınıfları"><i class="fas fa-tags" style="font-size: 11px; color: #94a3b8;"></i>${classesStr}</span>`;
+
+        // 3. Sonuç Sayısı Rozeti
+        const resultsCountHtml = `<span style="${commonBadgeStyle} background: #fefce8; border: 1px solid #fef08a; color: #854d0e;"><i class="fas fa-list-ul" style="font-size: 11px; opacity: 0.7;"></i>${getTotalCountForMonitoredId(group.key)} Sonuç</span>`;
+
+        // 4. Kapsayıcı: Marka Adı 16px, Sahip Adı 14px yapıldı
+        groupHeaderRow.innerHTML = `
+            <td colspan="10" style="padding: 14px 16px; background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                <div class="group-title" style="display: flex; align-items: center; gap: 16px; font-family: system-ui, -apple-system, sans-serif;">
+                    ${imageHtml}
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 0;">
+                        
+                        <a href="#" class="edit-criteria-link" data-tmid="${tmMeta.id}" style="font-size: 16px; font-weight: 600; color: #0f172a; text-decoration: none; letter-spacing: -0.3px;">${headerName}</a>
+                        
+                        <span style="color: #cbd5e1; font-size: 14px;">|</span>
+                        
+                        <span style="font-size: 14px; font-weight: 500; color: #64748b; display: inline-flex; align-items: center; gap: 6px;" title="Marka Sahibi">
+                            <i class="far fa-user" style="font-size: 12px;"></i>${tmMeta.ownerName || '-'}
+                        </span>
+                        
+                        <span style="color: #cbd5e1; font-size: 14px;">|</span>
+                        
+                        ${portfolioLinkHtml}
+                        ${niceClassesHtml}
+                        ${resultsCountHtml}
+                    </div>
+                </div>
+            </td>
+        `;
         
         resultsTableBody.appendChild(groupHeaderRow);
         group.results.forEach(hit => { globalRowIndex++; resultsTableBody.appendChild(createResultRow(hit, globalRowIndex)); });
@@ -1786,25 +1815,25 @@ function setupEditCriteriaModal() {
     document.getElementById('saveCriteriaBtn')?.addEventListener('click', async () => {
         const modal = document.getElementById('editCriteriaModal');
         const brandTextArray = Array.from(modal.querySelector('#brandTextSearchList').querySelectorAll('.list-item-text')).map(el => el.textContent);
-        const niceClassArray = Array.from(modal.querySelector('#niceClassSearchList').querySelectorAll('.list-item-text')).map(el => parseInt(el.textContent));
+        // Nice classları da sayıdan string'e (veya sayıya) map'liyoruz
+        const niceClassArray = Array.from(modal.querySelector('#niceClassSearchList').querySelectorAll('.list-item-text')).map(el => el.textContent);
         const markId = modal.dataset.markId;
 
         // 1. Veritabanını Güncelle
+        // 🔥 KRİTİK DÜZELTME: brand_text_search ve nice_class_search db'de ARRAY'dir! join(',') kullanmadan, direkt diziyi gönderiyoruz.
         const { error } = await supabase.from('monitoring_trademarks').update({ 
-            brand_text_search: brandTextArray.join(', '), 
-            nice_class_search: niceClassArray.join(', ') 
+            brand_text_search: brandTextArray, 
+            nice_class_search: niceClassArray.map(String) 
         }).eq('id', markId);
         
         if (!error) { 
             showNotification('İzleme kriterleri güncellendi.', 'success'); 
             $('#editCriteriaModal').modal('hide'); 
             
-            // 🔥 TUTUCU CACHE YIKICI: Veritabanından tüm markaları baştan çekmek (loadInitialData) YERİNE, 
-            // sadece anlık bellekteki markayı bulup nokta atışı güncelliyoruz!
             const tmIndex = monitoringTrademarks.findIndex(t => String(t.id) === String(markId));
             if (tmIndex !== -1) {
                 monitoringTrademarks[tmIndex].brandTextSearch = brandTextArray;
-                monitoringTrademarks[tmIndex].niceClassSearch = niceClassArray;
+                monitoringTrademarks[tmIndex].niceClassSearch = niceClassArray.map(String);
                 // Arama indeksini anında tazele
                 monitoringTrademarks[tmIndex]._searchNice = _uniqNice(monitoringTrademarks[tmIndex]).toLowerCase();
             }
@@ -1813,7 +1842,8 @@ function setupEditCriteriaModal() {
             applyMonitoringListFilters(); 
             
         } else {
-            showNotification('Hata oluştu', 'error');
+            console.error("Güncelleme hatası:", error);
+            showNotification('Hata oluştu: ' + error.message, 'error');
         }
     });
 }

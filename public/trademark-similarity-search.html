@@ -8,6 +8,18 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="css/trademark-search.css">
+    <style>
+        .nice-class-box {
+            display: flex; justify-content: center; align-items: center;
+            height: 40px; background-color: #f8f9fc; border: 1px solid #d1d3e2;
+            border-radius: 8px; cursor: pointer; font-weight: 600; color: #5a5c69;
+            transition: all 0.2s ease;
+        }
+        .nice-class-box:hover { background-color: #eaecf4; border-color: #b7b9cc; }
+        .nice-class-box.selected { background-color: #4e73df; color: white; border-color: #4e73df; }
+        .nice-class-box.permanent-item { background-color: #1cc88a; border-color: #1cc88a; color: white; cursor: not-allowed; }
+        .list-group-item.permanent-item .remove-item { display: none; }
+    </style>
 </head>
 <body>
     <div id="notification-container" class="notification-container"></div>
@@ -260,17 +272,73 @@
     </div>
 
     <div class="modal fade" id="editCriteriaModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-full-width">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title" id="editCriteriaModalLabel">İzleme Kriterleri</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
-                <div class="modal-body">
-                    <div class="card mb-3"><div class="card-body d-flex"><img id="modalTrademarkImage" style="width:80px;height:80px;object-fit:contain;margin-right:15px;border:1px solid #eee;"><div><h5 id="modalTrademarkName" class="font-weight-bold"></h5><p class="mb-0"><span id="modalApplicationNo"></span> - <span id="modalOwner"></span><br>Sınıflar: <span id="modalNiceClass"></span></p></div></div></div>
-                    <div class="form-group"><div class="input-group"><input type="text" class="form-control" id="brandTextSearchInput" placeholder="Marka adı ekle..."><div class="input-group-append"><button class="btn btn-outline-secondary" type="button" id="addBrandTextBtn">Ekle</button></div></div></div>
-                    <ul class="list-group mb-3" id="brandTextSearchList"></ul>
-                    <div class="form-group"><label>Sınıflar:</label><div id="niceClassSelectionContainer" class="nice-class-boxes" style="display:flex;flex-wrap:wrap;gap:5px;"></div></div>
-                    <ul class="list-group" id="niceClassSearchList"></ul>
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content" style="border-radius: 16px; border: none; box-shadow: 0 10px 40px rgba(0,0,0,0.15);">
+                <div class="modal-header" style="background: #f8f9fc; border-bottom: 1px solid #e3e6f0; border-radius: 16px 16px 0 0; padding: 1.5rem;">
+                    <h5 class="modal-title" style="color: #1e3c72; font-weight: 700; font-size: 1.25rem;">
+                        <i class="fas fa-sliders-h mr-2 text-primary"></i> İzleme Kriterlerini Düzenle
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="background: white; border-radius: 50%; width: 32px; height: 32px; opacity: 1; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                        <span aria-hidden="true" style="color: #555;">&times;</span>
+                    </button>
                 </div>
-                <div class="modal-footer"><button class="btn btn-secondary" data-dismiss="modal">Kapat</button><button class="btn btn-primary" id="saveCriteriaBtn">Kaydet</button></div>
+                
+                <div class="modal-body p-4" style="background: #fafbfe;">
+                    
+                    <div class="card mb-4" style="border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+                        <div class="card-body d-flex align-items-center">
+                            <img id="modalTrademarkImage" src="" alt="Marka" style="width: 70px; height: 70px; object-fit: contain; border-radius: 8px; border: 1px solid #eee; margin-right: 1.5rem;">
+                            <div>
+                                <h4 id="modalTrademarkName" style="margin: 0; color: #333; font-weight: 700; font-size: 1.1rem;">-</h4>
+                                <div style="color: #6c757d; font-size: 0.9rem; margin-top: 5px;">
+                                    <i class="fas fa-file-alt mr-1"></i> Başvuru: <strong id="modalApplicationNo" class="text-dark"></strong> &nbsp;|&nbsp; 
+                                    <i class="fas fa-user mr-1"></i> Sahip: <strong id="modalOwner" class="text-dark"></strong> &nbsp;|&nbsp;
+                                    <i class="fas fa-tags mr-1"></i> Sınıflar: <strong id="modalNiceClass" class="text-dark"></strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100" style="border: 1px solid #e3e6f0; border-radius: 12px;">
+                                <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; font-weight: 600; color: #4a5568; border-radius: 12px 12px 0 0;">
+                                    <i class="fas fa-search text-primary mr-1"></i> Aranacak İbareler
+                                </div>
+                                <div class="card-body">
+                                    <label class="text-muted small font-weight-bold">Ekstra Aranacak Kelimeler</label>
+                                    <div class="input-group mb-3">
+                                        <input type="text" id="brandTextSearchInput" class="form-control" placeholder="Yeni ibare yazın..." style="border-radius: 8px 0 0 8px;">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-primary" type="button" id="addBrandTextBtn" style="border-radius: 0 8px 8px 0;"><i class="fas fa-plus"></i></button>
+                                        </div>
+                                    </div>
+                                    <ul class="list-group" id="brandTextSearchList" style="max-height: 200px; overflow-y: auto;"></ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100" style="border: 1px solid #e3e6f0; border-radius: 12px;">
+                                <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; font-weight: 600; color: #4a5568; border-radius: 12px 12px 0 0;">
+                                    <i class="fas fa-th text-info mr-1"></i> Nice Sınıfları
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted small mb-2"><i class="fas fa-info-circle"></i> Yeşil renkli sınıflar markanın orijinal sınıflarıdır, kaldırılamaz.</p>
+                                    
+                                    <div id="niceClassSelectionContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 8px;"></div>
+                                    
+                                    <ul class="list-group" id="niceClassSearchList" style="display: none;"></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer" style="border-top: 1px solid #e3e6f0; background: #fff; border-radius: 0 0 16px 16px; padding: 1.25rem;">
+                    <button type="button" class="btn btn-light" data-dismiss="modal" style="border-radius: 8px; font-weight: 600; padding: 8px 20px;">İptal</button>
+                    <button type="button" id="saveCriteriaBtn" class="btn btn-primary" style="border-radius: 8px; font-weight: 600; padding: 8px 25px;"><i class="fas fa-save mr-1"></i> Kaydet</button>
+                </div>
             </div>
         </div>
     </div>

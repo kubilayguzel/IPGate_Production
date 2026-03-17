@@ -505,11 +505,23 @@ const createResultRow = (hit, rowIndex) => {
         applicationNo: hit.applicationNo || '' 
     }));
 
+    // Hangi marka arandıysa onun metinlerini (aranan kelimeleri) topla
+    let searchKeywords = [];
+    if (monitoredTrademark.brandTextSearch && monitoredTrademark.brandTextSearch.length > 0) {
+        searchKeywords = monitoredTrademark.brandTextSearch;
+    } else {
+        const fallbackName = _pickName(null, monitoredTrademark);
+        if (fallbackName && fallbackName !== '-') searchKeywords.push(fallbackName);
+    }
+
+    // Sonuçtaki ibarenin neresi benzediğini soft bir highlight ile boya
+    const highlightedMarkName = highlightMatchingSubstrings(searchKeywords, hit.markName || '-');
+
     row.innerHTML = `
         <td>${rowIndex}</td>
         <td><button class="action-btn ${hit.isSimilar ? 'similar' : 'not-similar'}" data-result-id="${hit.id || hit.applicationNo}" data-monitored-trademark-id="${hit.monitoredTrademarkId}">${hit.isSimilar ? 'Benzer' : 'Benzemez'}</button></td>
         <td class="trademark-image-cell lazy-load-container" data-hit-data="${minimalHitData}"><div class="tm-img-box tm-img-box-lg"><div class="tm-placeholder"><i class="fas fa-spinner fa-spin text-muted"></i></div></div></td>
-        <td><strong>${hit.markName || '-'}</strong></td>
+        <td><strong>${highlightedMarkName}</strong></td>
         <td>${holders}</td>
         <td>${niceClassHtml}</td>
         <td>${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>
@@ -1406,6 +1418,7 @@ const handleReportGeneration = async (event, options = {}) => {
 
                     // 3. Veritabanına Kaydet (TO ve CC dahil)
                     const { data: insertedMail, error: mailError } = await supabase.from('mail_notifications').insert({
+                        id: crypto.randomUUID(), // <--- EKLENMESİ GEREKEN KRİTİK SATIR BURASI
                         related_ip_record_id: targetRecordId,
                         client_id: finalClientId,
                         dynamic_parent_context: JSON.stringify({ bulletin_no: bulletinNo, applicant_name: firstMark.ownerName }),
@@ -1414,11 +1427,11 @@ const handleReportGeneration = async (event, options = {}) => {
                         template_id: "tmpl_watchnotice",
                         to_list: finalTo, 
                         cc_list: finalCc, 
-                        status: finalTo.length === 0 ? "missing_info" : "awaiting_client_approval", // 🔥 DÜZELTME
-                        missing_fields: finalTo.length === 0 ? ['to_list'] : [], // 🔥 DÜZELTME
+                        status: finalTo.length === 0 ? "missing_info" : "awaiting_client_approval", 
+                        missing_fields: finalTo.length === 0 ? ['to_list'] : [], 
                         notification_type: "marka",
                         source: "bulletin_watch_system",
-                        is_draft: finalTo.length === 0 // 🔥 DÜZELTME
+                        is_draft: finalTo.length === 0 
                     }).select('id').single();
 
                     if (mailError) throw mailError;
@@ -1431,20 +1444,28 @@ const handleReportGeneration = async (event, options = {}) => {
                             
                             const { error: uploadError } = await supabase.storage.from('task_documents').upload(storagePath, blob);
                             
-                            if (!uploadError) {
+                            if (uploadError) {
+                                console.error("⚠️ Dosya Storage'a yüklenemedi (RLS/Yetki Hatası Olabilir):", uploadError);
+                            } else {
                                 const { data: urlData } = supabase.storage.from('task_documents').getPublicUrl(storagePath);
                                 
                                 // Tablo adı mail_attachments olarak güncellendi
-                                await supabase.from('mail_attachments').insert({
+                                const { error: attachError } = await supabase.from('mail_attachments').insert({
+                                    id: crypto.randomUUID(), // <--- EKSİK OLAN VE EKLENMESİ GEREKEN KRİTİK SATIR!
                                     notification_id: insertedMail.id,
                                     url: urlData.publicUrl,
                                     file_name: zipFileName,
                                     storage_path: storagePath
                                 });
-                                console.log("✅ Ek (Attachment) başarıyla mail taslağına bağlandı!");
+                                
+                                if (attachError) {
+                                    console.error("⚠️ Attachment tabloya yazılamadı:", attachError);
+                                } else {
+                                    console.log("✅ Ek (Attachment) başarıyla mail taslağına bağlandı!");
+                                }
                             }
                         } catch (attErr) {
-                            console.error("Ek dosya (Attachment) eklenirken hata:", attErr);
+                            console.error("Ek dosya (Attachment) işleminde beklenmeyen hata:", attErr);
                         }
                     }
                     

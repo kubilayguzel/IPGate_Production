@@ -119,33 +119,13 @@ serve(async (req) => {
             const fileName = `${safeDocName}_Rapor.docx`;
             zip.file(fileName, docBuffer);
 
-            // 🔥 DÜZELTME: Mail taslağındaki son tarih de hatasız veriden alınacak
-            const mailObjectionDeadline = matches[0]?.similarMark?.calculatedDeadline || "-";
             const targetClientId = matches[0]?.monitoredMark?.clientId || matches[0]?.monitoredMark?.details?.clientId || null;
 
+            // 🔥 MAİL OLUŞTURMA İŞLEMİ SİLİNDİ (Önyüz hallediyor).
+            // Sadece Word dosyasını Storage'a yüklüyoruz.
             if (targetClientId && bulletinNo) {
                 const storagePath = `bulletin_reports/${bulletinNo}/${targetClientId}/${fileName}`;
-                
                 await supabase.storage.from('brand_images').upload(storagePath, docBuffer, { contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', upsert: true });
-                const { data: pUrlData } = supabase.storage.from('brand_images').getPublicUrl(storagePath);
-
-                const { error: mailError } = await supabase.from('mail_notifications').insert({
-                    record_id: targetClientId, 
-                    subject: `${bulletinNo} Sayılı Bülten İzleme Raporu`,
-                    body: `<p>Sayın İlgili,</p><p>${bulletinNo} sayılı bülten marka izleme raporunuz ekte sunulmuştur.</p>`,
-                    status: 'awaiting_client_approval',
-                    created_at: new Date().toISOString(),
-                    details: {
-                        client_id: targetClientId, 
-                        applicant_name: ownerNameKey, 
-                        bulletin_no: String(bulletinNo), 
-                        objection_deadline: mailObjectionDeadline,
-                        is_draft: true, 
-                        notification_type: 'marka', 
-                        source: 'bulletin_watch_system', 
-                        attachments: [{ fileName, storagePath, url: pUrlData.publicUrl }] 
-                    }
-                });
             }
         }
 

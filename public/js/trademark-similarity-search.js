@@ -1435,23 +1435,25 @@ const handleReportGeneration = async (event, options = {}) => {
                     }).select('id').single();
 
                     if (mailError) throw mailError;
-
                     // 4. 🔥 ATTACHMENT: Zip Raporunu Storage'a Yükle ve Mail'e Bağla
                     if (insertedMail && insertedMail.id) {
                         try {
                             const zipFileName = `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor_${bulletinNo}.zip`;
-                            const storagePath = `mail_attachments/${Date.now()}_${zipFileName}`;
                             
-                            const { error: uploadError } = await supabase.storage.from('task_documents').upload(storagePath, blob);
+                            // 1. DEĞİŞİKLİK: Klasör adını "watch_reports" olarak ayarladık
+                            const storagePath = `watch_reports/${Date.now()}_${zipFileName}`;
+                            
+                            // 2. DEĞİŞİKLİK: Bucket adını "documents" olarak değiştirdik
+                            const { error: uploadError } = await supabase.storage.from('documents').upload(storagePath, blob);
                             
                             if (uploadError) {
                                 console.error("⚠️ Dosya Storage'a yüklenemedi (RLS/Yetki Hatası Olabilir):", uploadError);
                             } else {
-                                const { data: urlData } = supabase.storage.from('task_documents').getPublicUrl(storagePath);
+                                // 3. DEĞİŞİKLİK: URL'i alırken de "documents" bucket'ını kullandık
+                                const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
                                 
-                                // Tablo adı mail_attachments olarak güncellendi
                                 const { error: attachError } = await supabase.from('mail_attachments').insert({
-                                    id: crypto.randomUUID(), // <--- EKSİK OLAN VE EKLENMESİ GEREKEN KRİTİK SATIR!
+                                    id: crypto.randomUUID(), 
                                     notification_id: insertedMail.id,
                                     url: urlData.publicUrl,
                                     file_name: zipFileName,
@@ -1461,7 +1463,7 @@ const handleReportGeneration = async (event, options = {}) => {
                                 if (attachError) {
                                     console.error("⚠️ Attachment tabloya yazılamadı:", attachError);
                                 } else {
-                                    console.log("✅ Ek (Attachment) başarıyla mail taslağına bağlandı!");
+                                    console.log("✅ Ek (Attachment) başarıyla documents/watch_reports altına yüklendi ve mail taslağına bağlandı!");
                                 }
                             }
                         } catch (attErr) {

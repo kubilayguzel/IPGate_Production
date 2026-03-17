@@ -1312,201 +1312,347 @@ class ClientPortalController {
     // 🔥 ÜST YÖNETİM RAPORU İÇİN PDF EXPORT (KUSURSUZ VERSİYON)
     // ==========================================
     async exportToPDF(type) {
-        const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href');
-        if (activeTabId !== '#marka-list') {
-            alert('PDF dışa aktarımı şimdilik sadece Marka sekmesi için aktiftir.');
+    const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href');
+    if (activeTabId !== '#marka-list') {
+        alert('PDF dışa aktarımı şimdilik sadece Marka sekmesi için aktiftir.');
+        return;
+    }
+
+    const allFilteredData = this.state.filteredPortfolios || [];
+    let dataToExport = [];
+
+    if (type === 'selected') {
+        const selectedIds = this.state.selectedRecords;
+        if (!selectedIds || selectedIds.size === 0) {
+            alert('Lütfen tablodan en az bir kayıt seçiniz.');
             return;
         }
-
-        let allFilteredData = this.state.filteredPortfolios || [];
-        let dataToExport = [];
-
-        if (type === 'selected') {
-            const selectedIds = this.state.selectedRecords;
-            dataToExport = allFilteredData.filter(item => selectedIds.has(String(item.id)));
-        } else {
-            dataToExport = [...allFilteredData];
-        }
-
-        if (dataToExport.length === 0) { alert('Aktarılacak veri bulunamadı.'); return; }
-
-        if (window.SimpleLoadingController) window.SimpleLoadingController.show('Üst Yönetim PDF Raporu', 'Tablolar ve görseller milimetrik olarak çiziliyor, lütfen bekleyin...');
-
-        try {
-            const { jsPDF } = window.jspdf;
-            // 🔥 ÇÖZÜM 3: Kağıt yönünü garanti olarak yatay ('l') yapıyoruz.
-            const doc = new jsPDF('l', 'mm', 'a4'); 
-
-            // 🔥 ÇÖZÜM 1: Türkçe Karakter Temizleyici (jsPDF font hatasını önler)
-            const normalizeTR = (text) => {
-                if (!text) return '-';
-                return String(text)
-                    .replace(/Ğ/g, 'G').replace(/ğ/g, 'g')
-                    .replace(/Ü/g, 'U').replace(/ü/g, 'u')
-                    .replace(/Ş/g, 'S').replace(/ş/g, 's')
-                    .replace(/İ/g, 'I').replace(/ı/g, 'i')
-                    .replace(/Ö/g, 'O').replace(/ö/g, 'o')
-                    .replace(/Ç/g, 'C').replace(/ç/g, 'c');
-            };
-
-            const sortedData = [];
-            const processedIds = new Set();
-            let parentCounter = 0;
-
-            // Hiyerarşi (Parent/Child) Kurgusu
-            dataToExport.forEach(parent => {
-                if (!processedIds.has(String(parent.id))) {
-                    parentCounter++;
-                    sortedData.push({ ...parent, exportType: 'parent', displayIndex: String(parentCounter) });
-                    processedIds.add(String(parent.id));
-
-                    const children = this.state.portfolios.filter(p => p.parentId === parent.id);
-                    if (children && children.length > 0) {
-                        children.forEach((child, idx) => {
-                            if (!processedIds.has(String(child.id))) {
-                                sortedData.push({ ...child, exportType: 'child', displayIndex: `${parentCounter}.${idx + 1}`, parentTitle: parent.title });
-                                processedIds.add(String(child.id));
-                            }
-                        });
-                    }
-                }
-            });
-
-            const statusTranslations = {
-                'registered': 'Tescilli', 'application': 'Basvuru', 'filed': 'Basvuru', 'published': 'Yayinlandi',
-                'rejected': 'Reddedildi', 'partially_rejected': 'Kismen Reddedildi', 'partially rejected': 'Kismen Reddedildi',
-                'withdrawn': 'Geri Cekildi', 'cancelled': 'Iptal Edildi', 'expired': 'Suresi Doldu', 'dead': 'Gecersiz',
-                'opposition': 'Itiraz Asamasinda', 'appealed': 'Karara Itiraz', 'pending': 'Islem Bekliyor'
-            };
-
-            let includeImages = true;
-            if (sortedData.length > 50) {
-                includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nPDF raporuna MARKA GÖRSELLERİ de eklensin mi?\n\n(Resimler eklendiğinde işlem daha uzun sürer.)`);
-            }
-
-            // Tablo verilerini hazırlama
-            const tableData = [];
-            for (let i = 0; i < sortedData.length; i++) {
-                const record = sortedData[i];
-                
-                let menseDisplay = 'Yurtdisi';
-                if (record.exportType === 'child') menseDisplay = this.state.countries.get(record.country) || record.country || 'Bilinmiyor';
-                else {
-                    const o = (record.origin || 'TURKPATENT').toUpperCase();
-                    if (o.includes('TURK') || o.includes('TÜRK')) menseDisplay = 'TURKPATENT';
-                    else if (o.includes('WIPO')) menseDisplay = 'WIPO';
-                    else menseDisplay = this.state.countries.get(record.country) || record.country || 'Yurtdisi';
-                }
-
-                let titleDisplay = record.title || '-';
-                if (record.exportType === 'child') titleDisplay = `-> ${record.title || record.parentTitle}`;
-
-                const st = (record.status || '').toLowerCase();
-                const displayStatus = statusTranslations[st] || normalizeTR(record.status) || '-';
-                
-                let base64Img = null;
-                if (includeImages && record.brandImageUrl && record.exportType !== 'child') {
-                    base64Img = await this.getBase64ImageFromUrl(record.brandImageUrl);
-                }
-
-                tableData.push([
-                    normalizeTR(record.displayIndex),
-                    normalizeTR(menseDisplay),
-                    base64Img, // Hücrenin çizim anında bu base64 kullanılacak
-                    normalizeTR(titleDisplay),
-                    normalizeTR(record.classes), // Sınıflar Eklendi
-                    normalizeTR(record.applicationNumber),
-                    this.renderHelper.formatDate(record.applicationDate) || '-',
-                    this.renderHelper.formatDate(record.renewalDate) || '-',
-                    displayStatus,
-                    record.exportType // Sınıflandırma ve boyama için gizli veri (10. Kolon)
-                ]);
-            }
-
-            // PDF Başlık Alanı
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(16);
-            doc.setTextColor(30, 60, 114); 
-            doc.text("UST YONETIM - FIKRI MULKIYET PORTFOY RAPORU", 14, 15);
-            
-            doc.setFontSize(10);
-            doc.setTextColor(50, 50, 50);
-            const clientName = document.getElementById('currentClientName')?.textContent || 'Müvekkil';
-            doc.text(`Muvekkil: ${normalizeTR(clientName)}`, 14, 22);
-            doc.text(`Rapor Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 280, 22, { align: 'right' });
-
-            // 🔥 ÇÖZÜM 2 & 3: A4 Yatay Kağıda Milimetrik Sığdırılmış AutoTable
-            // A4 Genişlik: 297mm. Kenar boşlukları: 14+14=28mm. Kullanılabilir Alan: ~269mm.
-            doc.autoTable({
-                startY: 28,
-                head: [['No', 'Mense/Ulke', 'Gorsel', 'Marka Adi', 'Siniflar', 'Basvuru No', 'Basvuru T.', 'Yenileme T.', 'Durum']],
-                body: tableData,
-                theme: 'grid', // Düz çizgili kurumsal görünüm
-                styles: { 
-                    fontSize: 7, 
-                    valign: 'middle', 
-                    cellPadding: 2, 
-                    overflow: 'linebreak' // Taşan metni alt satıra at (bölünmeyi önler)
-                },
-                headStyles: { fillColor: [30, 60, 114], textColor: 255, fontStyle: 'bold', halign: 'center' },
-                columnStyles: {
-                    0: { cellWidth: 12, halign: 'center', fontStyle: 'bold' }, // No
-                    1: { cellWidth: 25, halign: 'center' }, // Menşe
-                    2: { cellWidth: 20, halign: 'center', minCellHeight: 18 }, // Görsel
-                    3: { cellWidth: 55, halign: 'left' }, // Marka Adı
-                    4: { cellWidth: 35, halign: 'left' }, // Sınıflar
-                    5: { cellWidth: 25, halign: 'center' }, // Başvuru No
-                    6: { cellWidth: 20, halign: 'center' }, // Başvuru T.
-                    7: { cellWidth: 20, halign: 'center' }, // Yenileme T.
-                    8: { cellWidth: 28, halign: 'center' }  // Durum
-                    // Toplam: 12+25+20+55+35+25+20+20+28 = 240mm. (Kalan boşluklar jsPDF tarafından otomatik dağıtılır, bölünme yaşanmaz)
-                },
-                didParseCell: function(data) {
-                    const rowData = data.row.raw;
-                    const isChild = rowData[9] === 'child'; // 9. Index (10. kolon) gizli exportType kolonu
-                    if (data.section === 'body') {
-                        if (isChild) {
-                            data.cell.styles.fillColor = [245, 245, 245];
-                            data.cell.styles.textColor = [100, 100, 100];
-                            data.cell.styles.fontStyle = 'italic';
-                        }
-                        if (data.column.index === 3 && !isChild) data.cell.styles.fontStyle = 'bold';
-                    }
-                },
-                didDrawCell: function(data) {
-                    // 2. Kolon Görsel Kolonu - Base64 verisi varsa hücrenin ortasına çiz
-                    if (data.section === 'body' && data.column.index === 2) {
-                        const base64Img = data.row.raw[2];
-                        if (base64Img && base64Img.length > 50) {
-                            try {
-                                const dim = 14; // Resmin boyutu (mm)
-                                const x = data.cell.x + (data.cell.width - dim) / 2;
-                                const y = data.cell.y + (data.cell.height - dim) / 2;
-                                
-                                // Formati veri başlığından dinamik al
-                                let format = 'PNG';
-                                if(base64Img.includes('image/jpeg') || base64Img.includes('image/jpg')) format = 'JPEG';
-                                
-                                doc.addImage(base64Img, format, x, y, dim, dim);
-                            } catch(e) { console.error('PDF Resim ekleme hatası:', e); }
-                        }
-                    }
-                }
-            });
-
-            const clientNameClean = normalizeTR(clientName).replace(/[^a-z0-9]/gi, '_');
-            const dateStr = new Date().toISOString().slice(0,10);
-            const fileName = type === 'selected' ? `Yonetim_Raporu_${clientNameClean}_Secili_${dateStr}.pdf` : `Yonetim_Raporu_${clientNameClean}_Tum_Portfoy_${dateStr}.pdf`;
-            
-            doc.save(fileName);
-
-        } catch (error) {
-            console.error('PDF hatası:', error);
-            alert('PDF oluşturulurken bir hata oluştu.');
-        } finally {
-            if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
-        }
+        dataToExport = allFilteredData.filter(item => selectedIds.has(String(item.id)));
+    } else {
+        dataToExport = [...allFilteredData];
     }
+
+    if (dataToExport.length === 0) {
+        alert('Aktarılacak veri bulunamadı.');
+        return;
+    }
+
+    if (window.SimpleLoadingController) {
+        window.SimpleLoadingController.show('Yönetici PDF Raporu', 'Portföy verileri düzenleniyor ve rapor sayfaları hazırlanıyor...');
+    }
+
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const marginX = 12;
+
+        const normalizeTR = (text) => {
+            if (text === null || text === undefined || text === '') return '-';
+            return String(text)
+                .replace(/Ğ/g, 'G').replace(/ğ/g, 'g')
+                .replace(/Ü/g, 'U').replace(/ü/g, 'u')
+                .replace(/Ş/g, 'S').replace(/ş/g, 's')
+                .replace(/İ/g, 'I').replace(/ı/g, 'i')
+                .replace(/Ö/g, 'O').replace(/ö/g, 'o')
+                .replace(/Ç/g, 'C').replace(/ç/g, 'c');
+        };
+
+        const formatDateSafe = (value) => this.renderHelper.formatDate(value) || '-';
+        const formatApplicant = (record) => {
+            if (Array.isArray(record.applicants) && record.applicants.length > 0) {
+                return record.applicants.map(a => a?.name).filter(Boolean).join(', ');
+            }
+            if (record.applicantNames) return record.applicantNames;
+            return '-';
+        };
+        const formatClasses = (value) => {
+            if (Array.isArray(value)) return value.join(', ');
+            return value || '-';
+        };
+        const shortenText = (value, max = 90) => {
+            const str = normalizeTR(value);
+            if (str.length <= max) return str;
+            return `${str.slice(0, max - 3)}...`;
+        };
+
+        const sortedData = [];
+        const processedIds = new Set();
+        let parentCounter = 0;
+
+        dataToExport.forEach(parent => {
+            if (processedIds.has(String(parent.id))) return;
+
+            parentCounter += 1;
+            sortedData.push({ ...parent, exportType: 'parent', displayIndex: String(parentCounter) });
+            processedIds.add(String(parent.id));
+
+            const children = (this.state.portfolios || []).filter(p => p.parentId === parent.id);
+            children.forEach((child, idx) => {
+                if (processedIds.has(String(child.id))) return;
+                sortedData.push({
+                    ...child,
+                    exportType: 'child',
+                    displayIndex: `${parentCounter}.${idx + 1}`,
+                    parentTitle: parent.title
+                });
+                processedIds.add(String(child.id));
+            });
+        });
+
+        const statusTranslations = {
+            registered: 'Tescilli',
+            application: 'Basvuru',
+            filed: 'Basvuru',
+            published: 'Yayinlandi',
+            rejected: 'Reddedildi',
+            partially_rejected: 'Kismen Reddedildi',
+            'partially rejected': 'Kismen Reddedildi',
+            withdrawn: 'Geri Cekildi',
+            cancelled: 'Iptal Edildi',
+            expired: 'Suresi Doldu',
+            dead: 'Gecersiz',
+            opposition: 'Itiraz Asamasinda',
+            appealed: 'Karara Itiraz',
+            pending: 'Islem Bekliyor'
+        };
+
+        let includeImages = true;
+        if (sortedData.length > 40) {
+            includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.
+
+PDF raporuna marka görselleri de eklensin mi?
+
+(Görseller kapatılırsa rapor daha hızlı oluşur.)`);
+        }
+
+        const imageCache = new Map();
+        const getCachedImage = async (url) => {
+            if (!includeImages || !url) return null;
+            if (imageCache.has(url)) return imageCache.get(url);
+            const base64 = await this.getBase64ImageFromUrl(url);
+            imageCache.set(url, base64 || null);
+            return imageCache.get(url);
+        };
+
+        const reportRows = [];
+        for (const record of sortedData) {
+            let menseDisplay = 'Yurtdisi';
+            if (record.exportType === 'child') {
+                menseDisplay = this.state.countries.get(record.country) || record.country || 'Bilinmiyor';
+            } else {
+                const origin = (record.origin || 'TURKPATENT').toUpperCase();
+                if (origin.includes('TURK') || origin.includes('TÜRK')) menseDisplay = 'TURKPATENT';
+                else if (origin.includes('WIPO')) menseDisplay = 'WIPO';
+                else menseDisplay = this.state.countries.get(record.country) || record.country || 'Yurtdisi';
+            }
+
+            const statusKey = String(record.status || '').toLowerCase();
+            const displayStatus = statusTranslations[statusKey] || normalizeTR(record.status) || '-';
+            const titleDisplay = record.exportType === 'child'
+                ? `↳ ${normalizeTR(record.title || record.parentTitle)}`
+                : normalizeTR(record.title);
+
+            reportRows.push({
+                index: normalizeTR(record.displayIndex),
+                mense: normalizeTR(menseDisplay),
+                imageText: '',
+                title: shortenText(titleDisplay, record.exportType === 'child' ? 72 : 82),
+                applicant: shortenText(formatApplicant(record), 64),
+                appNo: normalizeTR(record.applicationNumber),
+                regNo: normalizeTR(record.registrationNumber),
+                appDate: normalizeTR(formatDateSafe(record.applicationDate)),
+                renDate: normalizeTR(formatDateSafe(record.renewalDate)),
+                status: shortenText(displayStatus, 26),
+                classes: shortenText(formatClasses(record.classes), 54),
+                meta: {
+                    exportType: record.exportType,
+                    imageData: record.exportType !== 'child' ? await getCachedImage(record.brandImageUrl) : null,
+                    imageUrl: record.brandImageUrl || null
+                }
+            });
+        }
+
+        const parentCount = reportRows.filter(r => r.meta.exportType !== 'child').length;
+        const childCount = reportRows.length - parentCount;
+        const statusCount = {};
+        reportRows.forEach(r => {
+            statusCount[r.status] = (statusCount[r.status] || 0) + 1;
+        });
+        const topStatuses = Object.entries(statusCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([label, count]) => `${label}: ${count}`)
+            .join('   |   ');
+
+        const clientName = document.getElementById('currentClientName')?.textContent || 'Müvekkil';
+        const reportDateTR = new Date().toLocaleDateString('tr-TR');
+        const generatedAt = new Date().toLocaleString('tr-TR');
+
+        const drawPageHeader = (pageNumber) => {
+            doc.setFillColor(30, 60, 114);
+            doc.rect(0, 0, pageWidth, 16, 'F');
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(15);
+            doc.setTextColor(255, 255, 255);
+            doc.text('UST YONETIM PORTFOY RAPORU', marginX, 10.5);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.text(`Sayfa ${pageNumber}`, pageWidth - marginX, 10.5, { align: 'right' });
+
+            doc.setTextColor(45, 45, 45);
+            doc.setFontSize(10);
+            doc.text(`Muvekkil: ${normalizeTR(clientName)}`, marginX, 23);
+            doc.text(`Rapor Tarihi: ${reportDateTR}`, pageWidth - marginX, 23, { align: 'right' });
+
+            doc.setDrawColor(220, 226, 236);
+            doc.line(marginX, 26, pageWidth - marginX, 26);
+        };
+
+        const drawPageFooter = (pageNumber) => {
+            doc.setDrawColor(220, 226, 236);
+            doc.line(marginX, pageHeight - 10, pageWidth - marginX, pageHeight - 10);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(110, 110, 110);
+            doc.text(`Uretim Zamani: ${generatedAt}`, marginX, pageHeight - 5);
+            doc.text(`IPGate Client Portal`, pageWidth - marginX, pageHeight - 5, { align: 'right' });
+        };
+
+        drawPageHeader(1);
+
+        doc.setFillColor(245, 247, 251);
+        doc.roundedRect(marginX, 31, pageWidth - (marginX * 2), 16, 2, 2, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(30, 60, 114);
+        doc.text(`Ana Kayit: ${parentCount}`, marginX + 4, 37);
+        doc.text(`Alt Kayit: ${childCount}`, marginX + 45, 37);
+        doc.text(`Toplam Satir: ${reportRows.length}`, marginX + 86, 37);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(80, 80, 80);
+        doc.text(shortenText(topStatuses || 'Durum özeti bulunamadi.', 115), marginX + 4, 43.5);
+
+        doc.autoTable({
+            startY: 51,
+            margin: { left: marginX, right: marginX, bottom: 14 },
+            tableWidth: 'auto',
+            theme: 'grid',
+            head: [[
+                'No', 'Mense', 'Logo', 'Marka', 'Basvuru Sahibi', 'Basvuru No',
+                'Tescil No', 'Basvuru T.', 'Yenileme T.', 'Durum', 'Siniflar'
+            ]],
+            body: reportRows.map(row => [
+                row.index,
+                row.mense,
+                row.imageText,
+                row.title,
+                row.applicant,
+                row.appNo,
+                row.regNo,
+                row.appDate,
+                row.renDate,
+                row.status,
+                row.classes
+            ]),
+            styles: {
+                font: 'helvetica',
+                fontSize: 7,
+                cellPadding: { top: 2.2, right: 1.8, bottom: 2.2, left: 1.8 },
+                textColor: [55, 55, 55],
+                lineColor: [225, 229, 235],
+                lineWidth: 0.15,
+                valign: 'middle',
+                overflow: 'linebreak'
+            },
+            headStyles: {
+                fillColor: [30, 60, 114],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                halign: 'center',
+                valign: 'middle'
+            },
+            alternateRowStyles: { fillColor: [252, 253, 255] },
+            columnStyles: {
+                0: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
+                1: { cellWidth: 20, halign: 'center' },
+                2: { cellWidth: 16, halign: 'center', minCellHeight: 16 },
+                3: { cellWidth: 38, halign: 'left' },
+                4: { cellWidth: 36, halign: 'left' },
+                5: { cellWidth: 19, halign: 'center' },
+                6: { cellWidth: 19, halign: 'center' },
+                7: { cellWidth: 18, halign: 'center' },
+                8: { cellWidth: 18, halign: 'center' },
+                9: { cellWidth: 24, halign: 'center' },
+                10: { cellWidth: 29, halign: 'left' }
+            },
+            didParseCell: function (data) {
+                if (data.section !== 'body') return;
+                const rowMeta = reportRows[data.row.index]?.meta;
+                const isChild = rowMeta?.exportType === 'child';
+                if (isChild) {
+                    data.cell.styles.fillColor = [247, 247, 247];
+                    data.cell.styles.textColor = [105, 105, 105];
+                    data.cell.styles.fontStyle = 'italic';
+                }
+                if (data.column.index === 2) {
+                    data.cell.text = [''];
+                }
+                if (data.column.index === 3 && !isChild) {
+                    data.cell.styles.fontStyle = 'bold';
+                }
+            },
+            didDrawCell: function (data) {
+                if (data.section !== 'body' || data.column.index !== 2) return;
+                const rowMeta = reportRows[data.row.index]?.meta;
+                const base64Img = rowMeta?.imageData;
+                if (!base64Img || typeof base64Img !== 'string' || base64Img.length < 50) {
+                    doc.setFontSize(6);
+                    doc.setTextColor(160, 160, 160);
+                    doc.text('-', data.cell.x + (data.cell.width / 2), data.cell.y + (data.cell.height / 2) + 1, { align: 'center' });
+                    return;
+                }
+                try {
+                    const dim = Math.min(11.5, data.cell.width - 3, data.cell.height - 3);
+                    const x = data.cell.x + ((data.cell.width - dim) / 2);
+                    const y = data.cell.y + ((data.cell.height - dim) / 2);
+                    let format = 'PNG';
+                    if (base64Img.includes('image/jpeg') || base64Img.includes('image/jpg')) format = 'JPEG';
+                    doc.addImage(base64Img, format, x, y, dim, dim, undefined, 'FAST');
+                } catch (e) {
+                    console.error('PDF resim ekleme hatası:', e);
+                }
+            },
+            didDrawPage: function (data) {
+                const currentPage = doc.internal.getNumberOfPages();
+                drawPageHeader(currentPage);
+                drawPageFooter(currentPage);
+                if (currentPage > 1) {
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(8);
+                    doc.setTextColor(120, 120, 120);
+                    doc.text('Portfoy detaylari', marginX, 31);
+                }
+            }
+        });
+
+        const clientNameClean = normalizeTR(clientName).replace(/[^a-z0-9]/gi, '_');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const fileName = type === 'selected'
+            ? `Yonetici_Raporu_${clientNameClean}_Secili_${dateStr}.pdf`
+            : `Yonetici_Raporu_${clientNameClean}_Tum_Portfoy_${dateStr}.pdf`;
+
+        doc.save(fileName);
+    } catch (error) {
+        console.error('PDF hatası:', error);
+        alert('PDF oluşturulurken bir hata oluştu. Ayrıntı için konsolu kontrol edin.');
+    } finally {
+        if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
+    }
+}
 
     renderReports() {
         const portfolios = this.state.portfolios;

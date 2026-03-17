@@ -281,22 +281,58 @@ const refreshTriggeredStatus = async (bulletinNo) => {
         taskTriggeredStatus.clear();
         if (!bulletinNo) return;
         
-        // 🔥 GÜNCEL ŞEMA: task_type_id ve details kullanıyoruz
+        // 🔥 DÜZELTME 1: Yayına itiraz görev tipi '20' olarak değiştirildi.
         const { data: tasks, error } = await supabase.from('tasks')
             .select('task_owner_id, details')
-            .eq('task_type_id', '66') 
-            .in('status', ['open', 'awaiting_client_approval']);
+            .eq('task_type_id', '20') 
+            .in('status', ['open', 'awaiting_client_approval', 'completed']);
             
         if (error) throw error;
         if (!tasks || tasks.length === 0) return;
         
         tasks.forEach(t => {
-            if (t.details && t.details.bulletinNo === bulletinNo && t.task_owner_id) {
+            // 🔥 DÜZELTME 2: DB'ye yazılan JSON anahtarı 'bulletin_no' şeklindedir.
+            if (t.details && t.details.bulletin_no === String(bulletinNo) && t.task_owner_id) {
                 taskTriggeredStatus.set(String(t.task_owner_id), 'Evet');
             }
         });
     } catch (e) { 
         console.error("Görev durumu kontrol hatası:", e); 
+    }
+};
+
+// 🔥 YENİ: Mail Bildirim Durumunu Supabase'den Çeken Fonksiyon
+const refreshNotificationStatus = async (bulletinNo) => {
+    try {
+        notificationStatus.clear();
+        if (!bulletinNo) return;
+
+        // 'bulletin_watch_system' kaynağından oluşturulan mailleri çekiyoruz
+        const { data: mails, error } = await supabase.from('mail_notifications')
+            .select('client_id, dynamic_parent_context, status')
+            .eq('source', 'bulletin_watch_system');
+
+        if (error) throw error;
+        if (!mails || mails.length === 0) return;
+
+        mails.forEach(m => {
+            if (m.client_id && m.dynamic_parent_context) {
+                try {
+                    const context = JSON.parse(m.dynamic_parent_context);
+                    if (String(context.bulletin_no) === String(bulletinNo)) {
+                        let displayStatus = 'Taslak';
+                        if (m.status === 'sent') displayStatus = 'Gönderildi';
+                        else if (m.status === 'pending') displayStatus = 'Kuyrukta';
+                        else if (m.status === 'awaiting_client_approval') displayStatus = 'Taslak';
+                        else if (m.status === 'missing_info') displayStatus = 'Eksik Bilgi';
+
+                        notificationStatus.set(String(m.client_id), displayStatus);
+                    }
+                } catch(e) {}
+            }
+        });
+    } catch (e) {
+        console.error("Mail durumu kontrol hatası:", e);
     }
 };
 
@@ -331,15 +367,24 @@ const renderMonitoringList = () => {
     for (const ownerKey of paginatedOwnerKeys) {
         const group = groupedByOwner[ownerKey];
         const groupUid = `owner-group-${group.ownerId}-${ownerKey.replace(/[^a-zA-Z0-9]/g, '').slice(-10)}`;
-        const isTriggered = taskTriggeredStatus.get(group.ownerId) === 'Evet';
         
+        // Durumları Haritadan Oku
+        const isTriggered = taskTriggeredStatus.get(String(group.ownerId)) === 'Evet';
+        const mailStatus = notificationStatus.get(String(group.ownerId)) || 'Gönderilmedi';
+        
+        // Mail Durumuna Göre Renk Sınıfı Belirle
+        let mailBadgeClass = 'initial-status';
+        if (mailStatus === 'Taslak' || mailStatus === 'Kuyrukta') mailBadgeClass = 'trigger-ready';
+        if (mailStatus === 'Gönderildi') mailBadgeClass = 'trigger-yes';
+        if (mailStatus === 'Eksik Bilgi') mailBadgeClass = 'trigger-error';
+
         allRowsHtml.push(`
         <tr class="owner-row" data-toggle="collapse" data-target="#${groupUid}" aria-expanded="false" aria-controls="${groupUid}">
             <td><i class="fas fa-chevron-down toggle-icon"></i></td>
             <td>${group.ownerName}</td>
             <td>${group.trademarks.length}</td>
             <td><span class="task-triggered-status trigger-status-badge ${isTriggered ? 'trigger-yes' : 'trigger-ready'}" data-owner-id="${group.ownerId}">${isTriggered ? 'Evet' : 'Hazır'}</span></td>
-            <td><span class="notification-status-badge initial-status" data-owner-id="${group.ownerId}">Gönderilmedi</span></td>
+            <td><span class="notification-status-badge trigger-status-badge ${mailBadgeClass}" data-owner-id="${group.ownerId}">${mailStatus}</span></td>
             <td>
                 <div class="action-btn-group">
                     <button class="action-btn btn-success generate-report-and-notify-btn" data-owner-id="${group.ownerId}" data-owner-name="${group.ownerName}" title="Rapor + Bildir"><i class="fas fa-paper-plane"></i></button>
@@ -581,7 +626,18 @@ const renderCurrentPageOfResults = () => {
         const groupHeaderRow = document.createElement('tr');
         groupHeaderRow.className = 'group-header';
         groupHeaderRow.dataset.markData = JSON.stringify(modalData);
-        groupHeaderRow.innerHTML = `<td colspan="10"><div class="group-title">${imageHtml}<span><a href="#" class="edit-criteria-link" data-tmid="${tmMeta.id}"><strong>${headerName}</strong></a> <small style="color:#666;">— ${tmMeta.ownerName || '-'}</small> — bulunan sonuçlar (${getTotalCountForMonitoredId(group.key)} adet)</span></div></td>`;
+        
+        // 1. Başvuru numarasını Portföy Detay sayfasına giden bir linke dönüştürüyoruz
+        const portfolioLinkHtml = tmMeta.ipRecordId 
+            ? `<a href="portfolio-detail.html?id=${tmMeta.ipRecordId}" target="_blank" style="font-size: 0.9em; margin-left: 6px; color: #0d6efd; text-decoration: none;" title="Portföy Detayını Yeni Sekmede Aç">(${appNo})</a>`
+            : `<span style="font-size: 0.9em; margin-left: 6px; color: #6c757d;">(${appNo})</span>`;
+            
+        // 2. Markanın Nice Sınıflarını şık bir rozet (badge) formatında hazırlıyoruz
+        const classesStr = Array.isArray(modalData.niceClasses) ? modalData.niceClasses.join(', ') : '-';
+        const niceClassesHtml = `<span style="margin-left: 10px; font-size: 0.85em; background: #e9ecef; border: 1px solid #ced4da; padding: 2px 8px; border-radius: 4px; color: #495057;">Sınıflar: <strong>${classesStr}</strong></span>`;
+
+        // 3. Hepsini başlık satırında (HTML) birleştiriyoruz
+        groupHeaderRow.innerHTML = `<td colspan="10"><div class="group-title">${imageHtml}<span><a href="#" class="edit-criteria-link" data-tmid="${tmMeta.id}"><strong>${headerName}</strong></a> ${portfolioLinkHtml} <small style="color:#666;">— ${tmMeta.ownerName || '-'}</small> — bulunan sonuçlar (${getTotalCountForMonitoredId(group.key)} adet) ${niceClassesHtml}</span></div></td>`;
         
         resultsTableBody.appendChild(groupHeaderRow);
         group.results.forEach(hit => { globalRowIndex++; resultsTableBody.appendChild(createResultRow(hit, globalRowIndex)); });
@@ -834,6 +890,16 @@ const loadDataFromCache = async (realBulletinId) => {
 
 const checkCacheAndToggleButtonStates = async () => {
     const bulletinSelect = document.getElementById('bulletinSelect');
+    const currentKey = bulletinSelect.value;
+    const currentBNo = currentKey ? currentKey.split('_')[0] : null;
+        if (currentBNo) {
+            await refreshTriggeredStatus(currentBNo);
+            await refreshNotificationStatus(currentBNo);
+        } else {
+            taskTriggeredStatus.clear();
+            notificationStatus.clear();
+        }
+        renderMonitoringList();
     const startSearchBtn = document.getElementById('startSearchBtn');
     const researchBtn = document.getElementById('researchBtn');
     const btnGenerateReportAndNotifyGlobal = document.getElementById('btnGenerateReportAndNotifyGlobal');
@@ -1405,11 +1471,19 @@ const handleReportGeneration = async (event, options = {}) => {
                     if (tmplData) {
                         subject = tmplData.subject || subject;
                         body = tmplData.body || body;
-                        const replacements = {
-                            "{{bulletinNo}}": String(bulletinNo),
-                            "{{muvekkil_adi}}": firstMark.ownerName || "Sayın İlgili",
-                            "{{objection_deadline}}": objectionDeadline
-                        };
+
+                    // Müvekkil adını al, 15 karakterden uzunsa kırp ve sonuna "..." ekle
+                    let kisaIsim = firstMark.ownerName || "Sayın İlgili";
+                    if (kisaIsim.length > 15 && kisaIsim !== "Sayın İlgili") {
+                        kisaIsim = kisaIsim.substring(0, 15).trim() + "...";
+                    }
+
+                    const replacements = {
+                        "{{bulletinNo}}": String(bulletinNo),
+                        "{{muvekkil_adi}}": firstMark.ownerName || "Sayın İlgili",
+                        "{{kisa_muvekkil}}": kisaIsim, // Şablonda kullanabileceğiniz YENİ değişken
+                        "{{objection_deadline}}": objectionDeadline
+                    };
                         for (const [key, val] of Object.entries(replacements)) {
                             subject = subject.split(key).join(val);
                             body = body.split(key).join(val);
@@ -1476,6 +1550,7 @@ const handleReportGeneration = async (event, options = {}) => {
                 } catch (e) { console.error("Mail oluşturma hatası:", e); }
 
                 await refreshTriggeredStatus(bulletinNo);
+                await refreshNotificationStatus(bulletinNo);
                 await new Promise(resolve => setTimeout(resolve, 150));
                 await renderMonitoringList();
             }

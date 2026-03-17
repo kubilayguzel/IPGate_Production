@@ -28,7 +28,8 @@ serve(async (req) => {
         let targetIpRecordId = cleanMonitoredId;
         if (monData && monData.ip_record_id) targetIpRecordId = monData.ip_record_id;
 
-        const { data: ipData } = await supabase.from('ip_records').select('*').eq('id', targetIpRecordId).maybeSingle();
+        // 🔥 ÇÖZÜM 1: Yeni Şemaya Uygun Okuma (Marka adı ip_record_trademark_details tablosundan çekiliyor)
+        const { data: ipData } = await supabase.from('ip_records').select('*, details:ip_record_trademark_details(brand_name)').eq('id', targetIpRecordId).maybeSingle();
 
         let clientId = null;
         let ipAppName = "-";
@@ -36,7 +37,8 @@ serve(async (req) => {
         let ipAppNo = "-";
 
         if (ipData) {
-            ipTitle = ipData.title || ipData.brand_name || ipData.brand_text || "-";
+            const detailsObj = Array.isArray(ipData.details) ? ipData.details[0] : ipData.details;
+            ipTitle = (detailsObj && detailsObj.brand_name) ? detailsObj.brand_name : (ipData.title || ipData.brand_name || ipData.brand_text || "-");
             ipAppNo = ipData.application_number || "-";
             
             const { data: applicantData } = await supabase.from('ip_record_applicants').select('person_id').eq('ip_record_id', ipData.id).order('order_index', { ascending: true }).limit(1).maybeSingle();
@@ -46,9 +48,10 @@ serve(async (req) => {
                 if (personData) ipAppName = personData.name || "-";
             }
         } else if (monData) {
-            ipTitle = monData.mark_name || "-";
-            ipAppNo = monData.application_no || "-";
-            ipAppName = monData.owner_name || "-";
+            // 🔥 ÇÖZÜM: monitoring_trademarks tablosundaki yeni şemaya uyum sağlandı
+            ipTitle = monData.search_mark_name || "-";
+            ipAppNo = "-";
+            ipAppName = "-";
         }
 
         // 🔥 2. ATAMA (DÜZELTİLDİ)
@@ -93,27 +96,32 @@ serve(async (req) => {
             hitImageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${hitImageUrl}`;
         }
 
+        // 🔥 ÇÖZÜM 2: Yeni Şemaya Uygun İki Tablolu Kayıt (Ana Tablo + Detay Tablosu Ayrıldı)
         const portfolioData = {
             id: thirdPartyPortfolioId,
-            title: hitMarkName,
             status: 'published_in_bulletin',
             ip_type: 'trademark',
-            brand_name: hitMarkName,
-            brand_text: hitMarkName,
-            description: `Bülten benzerlik araması ile otomatik oluşturulan rakip kaydı.`,
             created_from: 'bulletin_record',
-            brand_image_url: hitImageUrl,
             application_date: similarMark.applicationDate || null,
             portfolio_status: 'active',
             record_owner_type: 'third_party',
             application_number: similarMark.applicationNo || null,
-            has_registration_cert: false,
             transaction_hierarchy: 'parent',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
         const { error: ipError } = await supabase.from('ip_records').insert(portfolioData);
         if (ipError) throw new Error(`Rakip Portföy Kayıt Hatası: ${ipError.message}`);
+
+        const detailsData = {
+            ip_record_id: thirdPartyPortfolioId,
+            brand_name: hitMarkName,
+            description: `Bülten benzerlik araması ile otomatik oluşturulan rakip kaydı.`,
+            brand_image_url: hitImageUrl,
+            has_registration_cert: false
+        };
+        const { error: detailsError } = await supabase.from('ip_record_trademark_details').insert(detailsData);
+        if (detailsError) throw new Error(`Marka Detay Kayıt Hatası: ${detailsError.message}`);
 
         // 6. RAKİBİN ALTINA İŞLEM (TRANSACTION) EKLE
         const transactionId = crypto.randomUUID();
@@ -151,33 +159,37 @@ serve(async (req) => {
         }
 
         // 7. KENDİ DOSYAMIZA (TASK) GÖREVİ EKLE
+        // 🔥 ÇÖZÜM: Yeni Tasks Şemasına Tam Uyum ve Detayların JSON'a Taşınması
         const taskPayload = {
             id: taskId,
-            task_type: '20',
+            task_type_id: '20', // task_type -> task_type_id oldu
             status: 'awaiting_client_approval',
             priority: 'medium',
-            related_ip_record_id: thirdPartyPortfolioId,
-            related_ip_record_title: hitMarkName,
-            client_id: clientId,
+            ip_record_id: thirdPartyPortfolioId, // related_ip_record_id yerine
+            task_owner_id: clientId, // client_id yerine
             transaction_id: transactionId, 
-            assigned_to_uid: assignedUid, 
-            assigned_to_email: assignedEmail,
-            created_by_email: callerEmail || 'system',
+            assigned_to: assignedUid, // assigned_to_uid yerine
+            created_by: callerEmail || 'system', // created_by_email yerine
             title: `Yayına İtiraz: ${hitMarkName} (Bülten No: ${bulletinNo})`,
             description: `"${ipTitle}" markamız için bültende benzer bulunan "${hitMarkName}" markasına itiraz işi.`,
-            iprecord_application_no: similarMark.applicationNo || "-",
-            iprecord_title: hitMarkName,
-            iprecord_applicant_name: hitHoldersStr,
-            due_date: officialDueDate,
+            delivery_date: officialDueDate, // due_date yerine
             official_due_date: officialDueDate,
-            target_app_no: similarMark.applicationNo || null,
-            target_nice_classes: parsedNiceClasses,
-            bulletin_no: String(bulletinNo),
-            similarity_score: similarMark.similarityScore || 0,
-            related_party_id: clientId,
-            related_party_name: ipAppName,
             created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            // Tüm dağınık bilgiler artık muazzam ve esnek JSON 'details' kolonunda tutulacak
+            details: {
+                assigned_to_email: assignedEmail,
+                iprecordApplicationNo: similarMark.applicationNo || "-",
+                iprecordTitle: hitMarkName,
+                iprecordApplicantName: hitHoldersStr,
+                target_app_no: similarMark.applicationNo || null,
+                target_nice_classes: parsedNiceClasses,
+                bulletin_no: String(bulletinNo),
+                similarity_score: similarMark.similarityScore || 0,
+                relatedPartyId: clientId,
+                relatedPartyName: ipAppName,
+                related_ip_record_title: hitMarkName
+            }
         };
         const { error: taskErr } = await supabase.from('tasks').insert(taskPayload);
         if (taskErr) throw new Error(`Task kayıt hatası: ${taskErr.message}`);

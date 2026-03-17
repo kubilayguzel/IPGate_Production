@@ -203,7 +203,15 @@ serve(async (req: Request) => {
       'dava_son_tarihi_display_style': (davaSonTarihi && davaSonTarihi !== "-") ? "block" : "none"
     };
 
-    let finalBody = template?.body || template?.body1 || `<p>Yeni evrak tebliğ edilmiştir. Evrak tipi: ${taskTypeName}</p>`;
+    // 🔥 ÇÖZÜM: Portföy türüne göre doğru metni (body1 veya body2) seçen zeka
+    let finalBody = template?.body || `<p>Yeni evrak tebliğ edilmiştir. Evrak tipi: ${taskTypeName}</p>`;
+    
+    if (!isPortfolio && template?.body2) {
+        finalBody = template.body2; // Karşı Taraf / Üçüncü Taraf ise body2
+    } else if (isPortfolio && template?.body1) {
+        finalBody = template.body1; // Kendi Müvekkilimiz ise body1
+    }
+
     let finalSubject = template?.subject || template?.mail_subject || `Evreka IP: Yeni Evrak Bildirimi (${brandName})`;
 
     // 🔥 3. ESNEK REGEX: (Örn: {{ itiraz_sahibi }} içindeki boşlukları tolere eder)

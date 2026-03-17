@@ -658,8 +658,7 @@ class CreateTaskController {
             this.state.targetSuitTypes = selectedType.targetSuitTypes || [];
         } else {
             const isBulletinOnly = ['1'].includes(typeId);
-            const isHybrid = ['20', 'trademark_publication_objection', TASK_IDS.ITIRAZ_YAYIN, '19', 'trademark_reconsideration_of_publication_objection', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, '8', TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, '21', TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME].includes(typeId);
-
+            const isHybrid = ['20', 'trademark_publication_objection', TASK_IDS.ITIRAZ_YAYIN, '19', 'trademark_reconsideration_of_publication_objection', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, '8', TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, '21', TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME, '38'].includes(typeId);
             if (isBulletinOnly) this.state.searchSource = 'bulletin';
             else if (isHybrid) this.state.searchSource = 'hybrid'; 
             else this.state.searchSource = 'portfolio';
@@ -774,7 +773,7 @@ class CreateTaskController {
         if (!this.state.allIpRecords) return [];
         const typeId = String(this.state.selectedTaskType?.id || '');
         const isThirdPartyOnly = ['1', '20', '37', TASK_IDS.ITIRAZ_YAYIN].includes(typeId);
-        const allowThirdPartyMixed = ['19', '8', '21', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME].includes(typeId);
+        const allowThirdPartyMixed = ['19', '8', '21', '38', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME].includes(typeId);
         const lowerTerm = term.toLowerCase();
         
         return this.state.allIpRecords.filter(r => {

@@ -230,9 +230,11 @@ serve(async (req: Request) => {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
 
-            if (templateId === 'tmpl_50_document') {
-                if (isPortfolio && template.body1) rawBody = template.body1;
-                else if (!isPortfolio && template.body2) rawBody = template.body2;
+            // 🔥 NET KURAL: Portföy türüne göre Body seçimi (Tüm Şablonlar İçin Geçerli)
+            if (!isPortfolio && template.body2) {
+                rawBody = template.body2; // Karşı Taraf / Üçüncü Taraf ise body2
+            } else if (isPortfolio && template.body1) {
+                rawBody = template.body1; // Kendi Müvekkilimiz ise body1
             }
 
             const placeholders: Record<string, string> = {

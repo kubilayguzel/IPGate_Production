@@ -29,6 +29,22 @@ serve(async (req: Request) => {
 
     if (fetchErr || !notification) throw new Error("Bildirim bulunamadı.");
 
+    // 🔥 ÇÖZÜM: Veritabanındaki 'mail_attachments' tablosundan bu maile ait ekleri buluyoruz
+    const { data: dbAttachments } = await supabaseClient
+      .from('mail_attachments')
+      .select('file_name, url')
+      .eq('notification_id', notificationId);
+
+    // Arayüzden gelen ekler (varsa) ile veritabanındaki ekleri birleştiriyoruz
+    let allAttachments = attachments || [];
+    if (dbAttachments && dbAttachments.length > 0) {
+        const mappedDbAttachments = dbAttachments.map(dbAtt => ({
+            name: dbAtt.file_name,
+            url: dbAtt.url
+        }));
+        allAttachments = [...allAttachments, ...mappedDbAttachments];
+    }
+
     const toList = Array.isArray(notification.to_list) ? notification.to_list : [];
     const ccList = Array.isArray(notification.cc_list) ? notification.cc_list : [];
 
@@ -39,11 +55,11 @@ serve(async (req: Request) => {
         finalSubject = `HATIRLATMA: ${finalSubject}`;
     }
 
-    // Ekleri (PDF vb.) URL'den indirip hazırlama
+    // Ekleri (PDF vb.) URL'den indirip hazırlama (Artık birleştirilmiş allAttachments dizisini kullanıyor)
     const finalAttachments: any[] = [];
-    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-        console.log(`📎 Toplam ${attachments.length} adet evrak indiriliyor...`);
-        for (const file of attachments) {
+    if (allAttachments && Array.isArray(allAttachments) && allAttachments.length > 0) {
+        console.log(`📎 Toplam ${allAttachments.length} adet evrak indiriliyor...`);
+        for (const file of allAttachments) {
             try {
                 if (!file.url) continue;
                 const fileResponse = await fetch(file.url);

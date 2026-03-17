@@ -311,32 +311,37 @@ class NotificationsManager {
             btn.disabled = true;
             this.showOverlay(isSend ? 'E-posta gönderiliyor...' : 'Hatırlatma gönderiliyor...');
             
-            // 🔥 YENİ: Butona basan kullanıcının oturum bilgilerini (Email) alıyoruz
             const { data: { session } } = await supabase.auth.getSession();
             const senderEmail = session?.user?.email || null;
 
-            // Cache kurbanı isek Task ID'yi veritabanından garantiye alalım
             let activeTaskId = notification.associated_task_id;
             if (!activeTaskId) {
                 const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notification.id).single();
                 if (data) activeTaskId = data.associated_task_id;
             }
 
-            // 🔥 ÇÖZÜM 2a: Sadece indekslenen evrak (source_document_id) varsa diğerlerini yoksay
+            // 🔥 MÜKEMMEL ÇÖZÜM 1: Gönder butonuna basıldığında ekleri doğrudan YENİ tablodan (mail_attachments) al!
             let attachments = [];
-            if (notification.source_document_id) {
-                // Sadece spesifik evrağı al
-                attachments = await attachmentService.resolveAttachments(null, notification.source_document_id, null);
-            } else {
-                // Spesifik evrak yoksa (manuel mail ise) bağlı görevdeki tüm evrakları al
-                attachments = await attachmentService.resolveAttachments(
-                    notification.associated_transaction_id, 
-                    null,
-                    activeTaskId
-                );
+            try {
+                const { data: mailAtts } = await supabase.from('mail_attachments').select('file_name, url').eq('notification_id', notification.id);
+                if (mailAtts && mailAtts.length > 0) {
+                    attachments = mailAtts.map(a => ({ name: a.file_name, url: a.url }));
+                }
+            } catch(e) { console.error("Gönderim öncesi ekler çekilemedi:", e); }
+
+            // Eğer özel bir ek yoksa (manuel oluşturulan mailler vs) eski yönteme (fallback) geç
+            if (attachments.length === 0) {
+                if (notification.source_document_id) {
+                    attachments = await attachmentService.resolveAttachments(null, notification.source_document_id, null);
+                } else {
+                    attachments = await attachmentService.resolveAttachments(
+                        notification.associated_transaction_id, 
+                        null,
+                        activeTaskId
+                    );
+                }
             }
 
-            // 🔥 YENİ: senderEmail bilgisini Edge Function'a (Backend) paketliyoruz
             const payload = { 
                 notificationId: notification.id,
                 attachments: attachments,
@@ -349,8 +354,6 @@ class NotificationsManager {
             if (error) throw error;
             
             alert(isSend ? "E-posta başarıyla gönderildi!" : "Hatırlatma e-postası başarıyla gönderildi.");
-
-            // 🔥 ÇÖZÜM: İşlem başarılı olduğunda verileri veritabanından tekrar çekip ekranı anında tazeler!
             await this.loadData(); 
             
         } catch (err) {
@@ -556,6 +559,7 @@ class NotificationsManager {
             });
         });
     }
+
     loadAttachmentsForCells() {
         const cells = document.querySelectorAll('.attachment-cell:not(.loaded)');
         
@@ -565,15 +569,29 @@ class NotificationsManager {
             const docId = cell.dataset.docId;
             let taskId = cell.dataset.taskId; 
             
-            // 🔥 ÇÖZÜM: View cache yüzünden taskId gelmediyse, doğrudan ana tablodan çekeriz
-            if (!taskId) {
-                const notifId = cell.closest('tr')?.querySelector('.hold-checkbox')?.dataset?.id;
-                if (notifId) {
-                    try {
-                        const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notifId).single();
-                        if (data && data.associated_task_id) taskId = data.associated_task_id;
-                    } catch(e) {}
-                }
+            const notifId = cell.closest('tr')?.querySelector('.hold-checkbox')?.dataset?.id;
+
+            // 🔥 MÜKEMMEL ÇÖZÜM 2: Ekrana çizerken önce doğrudan 'mail_attachments' tablosuna bak!
+            if (notifId) {
+                try {
+                    const { data: mailAtts } = await supabase.from('mail_attachments').select('file_name, url').eq('notification_id', notifId);
+                    if (mailAtts && mailAtts.length > 0) {
+                        cell.innerHTML = mailAtts.map(a => 
+                            `<a class="link text-truncate d-inline-block" style="max-width: 200px;" href="${a.url}" target="_blank" title="${a.file_name}">
+                                <i class="fas fa-paperclip"></i> ${a.file_name}
+                            </a>`
+                        ).join('<br>');
+                        return; // Ekler tabloya çizildiyse işlemi burada kes, aşağı (eski koda) inme.
+                    }
+                } catch(e) { console.error("Mail ekleri çekilirken hata:", e); }
+            }
+
+            // ... Eğer mail_attachments boşsa (Manuel mail) eski yöntemlere başvur
+            if (!taskId && notifId) {
+                try {
+                    const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notifId).single();
+                    if (data && data.associated_task_id) taskId = data.associated_task_id;
+                } catch(e) {}
             }
 
             if (!txId && !docId && !taskId) {
@@ -581,7 +599,6 @@ class NotificationsManager {
                 return;
             }
 
-            // 🔥 ÇÖZÜM 2b: Arayüz listesinde gösterirken de sadece docId baz al (varsa)
             const queryTxId = docId ? null : txId;
             const queryTaskId = docId ? null : taskId;
 
@@ -602,6 +619,7 @@ class NotificationsManager {
                 });
         });
     }
+    
 }
 
 // Uygulamayı Başlat

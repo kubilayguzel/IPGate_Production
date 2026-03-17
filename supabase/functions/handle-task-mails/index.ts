@@ -291,11 +291,16 @@ serve(async (req: Request) => {
             console.log(`[MAIL-DEBUG] Bildirim (mail_notifications) oluşturuluyor... Notification ID: ${notificationId}`);
             const { error: insErr } = await supabaseAdmin.from('mail_notifications').insert({
                 id: notificationId,
+                
+                // 🔥 ÇÖZÜM: Arayüzün "Müvekkil" sütununda kimi göstereceğini bulması için Akıllı Zırh!
+                // Önce Task Sahibine bakar, yoksa detaylardaki İtiraz Sahibine bakar, o da yoksa Marka Sahibine bakar.
+                client_id: record.task_owner_id || record.details?.task_owner_id || record.details?.clientId || record.details?.client_id || (viewData?.applicants_json?.[0]?.id || null),
+                
                 associated_task_id: record.id,
                 associated_transaction_id: record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id || null,
                 related_ip_record_id: targetIpRecordId,
                 
-                source_document_id: primaryDocId, 
+                source_document_id: primaryDocId,
 
                 to_list: to,
                 cc_list: cc,

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bülten Scrape Merkezi | IPGate</title>
+    
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase-config.js"></script> </head>
+<body class="bg-light">
+
+<div class="container-fluid mt-4">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800"><i class="fas fa-spider mr-2 text-primary"></i>Bülten Scrape (API Botu)</h1>
+        <p class="text-muted">TürkPatent API'si üzerinden e-Devlet oturumu ile otomatik veri kazıma merkezi.</p>
+    </div>
+
+    <div class="row">
+        <div class="col-xl-6 col-lg-6">
+            <div class="card shadow-sm mb-4" style="border-radius: 12px; border: 1px solid #e3e6f0;">
+                <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; padding: 1.25rem;">
+                    <h5 class="m-0 font-weight-bold" style="color: #1e3c72;"><i class="fas fa-file-pdf mr-2 text-danger"></i>1. Bülten PDF'ini Oku ve Kuyruğa At</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="custom-file mb-3">
+                        <input type="file" class="custom-file-input" id="bulletinPdfInput" accept="application/pdf">
+                        <label class="custom-file-label" for="bulletinPdfInput" data-browse="Seç">Bülten PDF Dosyasını Yükleyin</label>
+                    </div>
+                    <small class="form-text text-muted mb-4" id="pdfProcessStatus">Bekleniyor...</small>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="font-weight-bold text-secondary small">Bülten No</label>
+                            <input type="text" class="form-control" id="extractedBulletinNo" placeholder="Örn: 2026/484">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="font-weight-bold text-secondary small">Bülten Tarihi</label>
+                            <input type="text" class="form-control" id="extractedBulletinDate" placeholder="Örn: 12.01.2026">
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="font-weight-bold text-secondary small">Eşsiz Başvuru Sayısı</label>
+                            <input type="text" class="form-control bg-light" id="extractedCount" readonly style="font-weight: 700; color: #1cc88a; font-size: 1.2rem;">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div id="saveResultFeedback" style="font-weight: 600; font-size: 0.9rem;"></div>
+                        <button class="btn btn-primary px-4 py-2" id="saveToQueueBtn" disabled style="border-radius: 8px; font-weight: 600;">
+                            <i class="fas fa-database mr-2"></i>Kuyruğa Kaydet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6 col-lg-6">
+            <div class="card shadow-sm mb-4" style="border-radius: 12px; border: 1px solid #e3e6f0;">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center" style="border-bottom: 1px solid #e3e6f0; padding: 1.25rem;">
+                    <h5 class="m-0 font-weight-bold" style="color: #1e3c72;"><i class="fas fa-robot mr-2 text-info"></i>2. API Robotu Kontrol Merkezi</h5>
+                    <div>
+                        <span class="badge badge-warning px-3 py-2 mr-2" id="qPending" style="font-size: 0.9rem;">Bekleyen: 0</span>
+                        <span class="badge badge-success px-3 py-2" id="qCompleted" style="font-size: 0.9rem;">Tamamlanan: 0</span>
+                    </div>
+                </div>
+                <div class="card-body p-4 text-center">
+                    
+                    <div id="sessionAlert" class="alert alert-danger text-left" style="display: none; border-radius: 10px; border-width: 2px;">
+                        <h5 class="alert-heading font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>E-Devlet Oturumu Düştü!</h5>
+                        <p class="mb-1">Güvenlik nedeniyle TürkPatent oturumunuz sonlandırıldı. Veri çekimi donduruldu.</p>
+                        <hr class="my-2">
+                        <p class="mb-0 small"><strong>Ne Yapmalıyım?</strong> Açık olan TürkPatent sekmesine gidin, tekrar giriş yapın ve aşağıdaki <b>Devam Et</b> butonuna basın.</p>
+                    </div>
+
+                    <div class="mb-4 mt-3">
+                        <h4 class="font-weight-bold text-secondary" id="currentActionText">Sistem Hazır. Görev Bekleniyor...</h4>
+                        <p class="text-muted" id="currentAppNoText" style="font-size: 1.1rem;">-</p>
+                    </div>
+
+                    <div class="progress mb-4" style="height: 25px; border-radius: 12px;">
+                        <div id="queueProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%; font-size: 14px; font-weight: bold;">%0</div>
+                    </div>
+
+                    <button id="startBotBtn" class="btn btn-success px-5 py-3 font-weight-bold shadow-sm w-100" style="border-radius: 10px; font-size: 1.1rem;">
+                        <i class="fas fa-play mr-2"></i>Robotu Başlat
+                    </button>
+                    <button id="stopBotBtn" class="btn btn-danger px-5 py-3 font-weight-bold shadow-sm w-100" style="display: none; border-radius: 10px; font-size: 1.1rem;">
+                        <i class="fas fa-stop mr-2"></i>Durdur
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'NİZİ YAZIN! (chrome://extensions sayfasından alın)
+    const EXTENSION_ID = "SİZİN_CHROME_EKLENTİ_ID_BURAYA_GELECEK"; 
+
+    // --- BÖLÜM 1: PDF OKUMA VE KUYRUK YÖNETİMİ ---
+    let parsedApplicationNumbers = new Set();
+
+    document.getElementById('bulletinPdfInput').addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        parsedApplicationNumbers.clear();
+        document.getElementById('saveToQueueBtn').disabled = true;
+        const statusText = document.getElementById('pdfProcessStatus');
+        statusText.innerHTML = '<i class="fas fa-spinner fa-spin text-primary"></i> PDF Okunuyor...';
+        statusText.className = "form-text mt-2 text-primary font-weight-bold";
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = "";
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                fullText += textContent.items.map(item => item.str).join(" ") + " ";
+            }
+
+            const appNoRegex = /\b(20\d{2}\/\d{5,6})\b/g;
+            let match;
+            while ((match = appNoRegex.exec(fullText)) !== null) {
+                parsedApplicationNumbers.add(match[1]);
+            }
+
+            const bulletinNoMatch = fullText.match(/(20\d{2}\/\d{1,4})\s+Resmi Marka B[uü]lteni/i);
+            const bulletinNo = bulletinNoMatch ? bulletinNoMatch[1] : "";
+            
+            const dateMatch = fullText.match(/Yay[ıi]n Tarihi:\s*(\d{2}\.\d{2}\.\d{4})/i);
+            const bulletinDate = dateMatch ? dateMatch[1] : "";
+
+            if (bulletinNo) parsedApplicationNumbers.delete(bulletinNo);
+
+            document.getElementById('extractedBulletinNo').value = bulletinNo;
+            document.getElementById('extractedBulletinDate').value = bulletinDate;
+            document.getElementById('extractedCount').value = parsedApplicationNumbers.size + " Adet";
+
+            statusText.innerHTML = `<i class="fas fa-check-circle text-success"></i> PDF başarıyla işlendi!`;
+            statusText.className = "form-text mt-2 text-success font-weight-bold";
+            
+            if (parsedApplicationNumbers.size > 0) document.getElementById('saveToQueueBtn').disabled = false;
+
+        } catch (error) {
+            statusText.innerHTML = '<i class="fas fa-exclamation-triangle text-danger"></i> PDF okuma hatası!';
+            statusText.className = "form-text mt-2 text-danger font-weight-bold";
+        }
+    });
+
+    document.getElementById('saveToQueueBtn').addEventListener('click', async function() {
+        const bulletinNo = document.getElementById('extractedBulletinNo').value.trim();
+        const btn = this;
+        const feedbackInfo = document.getElementById('saveResultFeedback');
+
+        if (!bulletinNo) { alert("Bülten no eksik!"); return; }
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Kaydediliyor...';
+        feedbackInfo.innerHTML = '<span class="text-primary">Mükerrer kontrolü yapılıyor...</span>';
+
+        try {
+            const appNumbersArray = Array.from(parsedApplicationNumbers);
+
+            // DB'deki mevcut numaraları çek (Mükerrer kontrolü)
+            const { data: existingRecords, error: fetchError } = await supabase
+                .from('bulletin_fetch_queue')
+                .select('application_number')
+                .eq('bulletin_no', bulletinNo)
+                .in('application_number', appNumbersArray);
+
+            if (fetchError) throw fetchError;
+
+            const existingSet = new Set(existingRecords.map(r => r.application_number));
+            
+            // Sadece yeni olanları ekle
+            const newRecordsToInsert = appNumbersArray
+                .filter(appNo => !existingSet.has(appNo))
+                .map(appNo => ({
+                    application_number: appNo,
+                    bulletin_no: bulletinNo,
+                    status: 'pending'
+                }));
+
+            if (newRecordsToInsert.length === 0) {
+                feedbackInfo.innerHTML = `<span class="text-warning">Kayıtların tümü zaten kuyrukta mevcut.</span>`;
+                btn.innerHTML = 'Kuyruğa Kaydet';
+                return;
+            }
+
+            feedbackInfo.innerHTML = `<span class="text-info">${newRecordsToInsert.length} yeni kayıt yazılıyor...</span>`;
+
+            // Yığınlar (Chunk) halinde DB'ye yaz
+            const chunkSize = 1000;
+            for (let i = 0; i < newRecordsToInsert.length; i += chunkSize) {
+                const chunk = newRecordsToInsert.slice(i, i + chunkSize);
+                const { error: insertError } = await supabase.from('bulletin_fetch_queue').insert(chunk);
+                if (insertError) throw insertError;
+            }
+
+            feedbackInfo.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> ${newRecordsToInsert.length} başvuru kuyruğa eklendi!</span>`;
+            btn.innerHTML = '<i class="fas fa-check"></i> Bitti';
+            parsedApplicationNumbers.clear();
+            updateQueueStats(); // İstatistikleri güncelle
+
+        } catch (error) {
+            feedbackInfo.innerHTML = `<span class="text-danger">Hata: ${error.message}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = 'Tekrar Dene';
+        }
+    });
+
+    // --- BÖLÜM 2: ROBOT (BOT) KONTROL MEKANİZMASI ---
+    let botIsRunning = false;
+    let totalQueue = 0;
+    let completedQueue = 0;
+
+    async function updateQueueStats() {
+        const { count: pendingCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+        const { count: completedCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'completed');
+
+        document.getElementById('qPending').innerText = `Bekleyen: ${pendingCount || 0}`;
+        document.getElementById('qCompleted').innerText = `Tamamlanan: ${completedCount || 0}`;
+
+        totalQueue = (pendingCount || 0) + (completedCount || 0);
+        completedQueue = completedCount || 0;
+
+        if (totalQueue > 0) {
+            let percent = Math.round((completedQueue / totalQueue) * 100);
+            document.getElementById('queueProgressBar').style.width = `${percent}%`;
+            document.getElementById('queueProgressBar').innerText = `%${percent}`;
+        }
+    }
+
+    document.getElementById('startBotBtn').addEventListener('click', async () => {
+        if (EXTENSION_ID === "SİZİN_CHROME_EKLENTİ_ID_BURAYA_GELECEK") {
+            alert("Lütfen koddaki EXTENSION_ID kısmına Chrome Eklentinizin kimliğini yazın!");
+            return;
+        }
+        botIsRunning = true;
+        document.getElementById('startBotBtn').style.display = 'none';
+        document.getElementById('stopBotBtn').style.display = 'block';
+        document.getElementById('sessionAlert').style.display = 'none';
+        document.getElementById('currentActionText').innerText = "Robot Çalışıyor, Veriler Çekiliyor...";
+        document.getElementById('currentActionText').className = "font-weight-bold text-success";
+        
+        await updateQueueStats();
+        processNextItem();
+    });
+
+    document.getElementById('stopBotBtn').addEventListener('click', () => {
+        botIsRunning = false;
+        document.getElementById('stopBotBtn').style.display = 'none';
+        document.getElementById('startBotBtn').style.display = 'block';
+        document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Devam Et';
+        document.getElementById('currentActionText').innerText = "Robot Durduruldu.";
+        document.getElementById('currentActionText').className = "font-weight-bold text-danger";
+    });
+
+    async function processNextItem() {
+        if (!botIsRunning) return;
+
+        try {
+            // Sıradaki 'pending' kaydı al
+            const { data: queueItems, error: fetchError } = await supabase
+                .from('bulletin_fetch_queue')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: true })
+                .limit(1);
+
+            if (fetchError) throw fetchError;
+
+            if (!queueItems || queueItems.length === 0) {
+                botIsRunning = false;
+                document.getElementById('currentActionText').innerText = "Kuyruk Tamamen Bitti! 🎉";
+                document.getElementById('stopBotBtn').style.display = 'none';
+                document.getElementById('startBotBtn').style.display = 'block';
+                return;
+            }
+
+            const currentTask = queueItems[0];
+            document.getElementById('currentAppNoText').innerText = `Sorgulanıyor: ${currentTask.application_number} (Bülten: ${currentTask.bulletin_no})`;
+
+            // Çakışmayı önlemek için 'processing' yap
+            await supabase.from('bulletin_fetch_queue').update({ status: 'processing' }).eq('id', currentTask.id);
+
+            // Chrome Eklentisine Mesaj At
+            chrome.runtime.sendMessage(EXTENSION_ID, {
+                type: 'FETCH_TRADEMARK_API',
+                data: { applicationNo: currentTask.application_number }
+            }, async (response) => {
+                
+                if (!response) {
+                    await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
+                    document.getElementById('stopBotBtn').click();
+                    alert("Chrome Eklentisine ulaşılamadı! Eklentinin ID'sini ve yüklü olduğunu kontrol edin.");
+                    return;
+                }
+
+                // Oturum Düştüyse (Fail-Safe)
+                if (response.error === 'SESSION_DEAD') {
+                    botIsRunning = false; 
+                    await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
+                    document.getElementById('stopBotBtn').style.display = 'none';
+                    document.getElementById('startBotBtn').style.display = 'block';
+                    document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Giriş Yaptım, Devam Et';
+                    document.getElementById('sessionAlert').style.display = 'block';
+                    document.getElementById('currentActionText').innerText = "Oturum Hatası!";
+                    document.getElementById('currentActionText').className = "font-weight-bold text-danger";
+                    return;
+                }
+
+                // TPE'de Numara Yoksa
+                if (response.error === 'NOT_FOUND') {
+                    await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: 'TPE Bulunamadı' }).eq('id', currentTask.id);
+                    updateQueueStats();
+                    processNextItem();
+                    return;
+                }
+
+                // Veri Başarıyla Çekildiyse!
+                if (response.success && response.data) {
+                    const apiData = response.data;
+                    const niceClassesArray = apiData.nice_classes ? apiData.nice_classes.split('/').map(s => s.trim()).filter(Boolean) : [];
+                    
+                    const recordToInsert = {
+                        id: `${currentTask.bulletin_no}_${apiData.application_no}`.replace(/\//g, ''), // Mükerrerleri engeller
+                        bulletin_id: currentTask.bulletin_no,
+                        application_number: apiData.application_no,
+                        application_date: apiData.application_date,
+                        brand_name: apiData.brand_name,
+                        nice_classes: niceClassesArray,
+                        holders: apiData.holders,
+                        image_url: apiData.image_base64,
+                        source: 'TPE_API'
+                    };
+
+                    // Ana tabloya kaydet (Eski kayıt varsa ezer)
+                    const { error: insertError } = await supabase.from('trademark_bulletin_records').upsert(recordToInsert);
+
+                    if (insertError) {
+                        await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: insertError.message }).eq('id', currentTask.id);
+                    } else {
+                        // Kuyruktaki işi tamamlandı!
+                        await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', currentTask.id);
+                    }
+
+                    updateQueueStats();
+                    processNextItem(); // Hiç durmadan sıradakine geç!
+                }
+            });
+
+        } catch (error) {
+            console.error("Döngü Hatası:", error);
+            botIsRunning = false;
+            document.getElementById('stopBotBtn').click();
+        }
+    }
+
+    // Sayfa açılışında verileri çek
+    document.addEventListener('DOMContentLoaded', updateQueueStats);
+</script>
+
+</body>
+</html>

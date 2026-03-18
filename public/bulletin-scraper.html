@@ -10,15 +10,13 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="js/supabase-config.js"></script> </head>
+</head>
 <body class="bg-light">
 
 <div class="container-fluid mt-4">
     <div class="d-sm-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0 text-gray-800"><i class="fas fa-spider mr-2 text-primary"></i>Bülten Scrape (API Botu)</h1>
-        <p class="text-muted">TürkPatent API'si üzerinden e-Devlet oturumu ile otomatik veri kazıma merkezi.</p>
+        <p class="text-muted">TürkPatent üzerinden e-Devlet şifresi GEREKTİRMEDEN otomatik veri kazıma merkezi.</p>
     </div>
 
     <div class="row">
@@ -63,19 +61,20 @@
         <div class="col-xl-6 col-lg-6">
             <div class="card shadow-sm mb-4" style="border-radius: 12px; border: 1px solid #e3e6f0;">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center" style="border-bottom: 1px solid #e3e6f0; padding: 1.25rem;">
-                    <h5 class="m-0 font-weight-bold" style="color: #1e3c72;"><i class="fas fa-robot mr-2 text-info"></i>2. API Robotu Kontrol Merkezi</h5>
+                    <h5 class="m-0 font-weight-bold" style="color: #1e3c72;"><i class="fas fa-rocket mr-2 text-info"></i>2. Çoklu-Motor Kontrol Merkezi</h5>
                     <div>
-                        <span class="badge badge-warning px-3 py-2 mr-2" id="qPending" style="font-size: 0.9rem;">Bekleyen: 0</span>
-                        <span class="badge badge-success px-3 py-2" id="qCompleted" style="font-size: 0.9rem;">Tamamlanan: 0</span>
+                        <span class="badge badge-warning px-3 py-2 mr-1" id="qPending" style="font-size: 0.9rem;">Bekleyen: 0</span>
+                        <span class="badge badge-success px-3 py-2 mr-1" id="qCompleted" style="font-size: 0.9rem;">Biten: 0</span>
+                        <span class="badge badge-danger px-3 py-2" id="qError" style="font-size: 0.9rem;">Hatalı: 0</span>
                     </div>
                 </div>
                 <div class="card-body p-4 text-center">
                     
                     <div id="sessionAlert" class="alert alert-danger text-left" style="display: none; border-radius: 10px; border-width: 2px;">
-                        <h5 class="alert-heading font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>E-Devlet Oturumu Düştü!</h5>
-                        <p class="mb-1">Güvenlik nedeniyle TürkPatent oturumunuz sonlandırıldı. Veri çekimi donduruldu.</p>
+                        <h5 class="alert-heading font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>Google Bizi Fark Etti!</h5>
+                        <p class="mb-1">Bot olduğumuz anlaşıldı ve reCAPTCHA devreye girdi. Hız sınırına takıldık.</p>
                         <hr class="my-2">
-                        <p class="mb-0 small"><strong>Ne Yapmalıyım?</strong> Açık olan TürkPatent sekmesine gidin, tekrar giriş yapın ve aşağıdaki <b>Devam Et</b> butonuna basın.</p>
+                        <p class="mb-0 small"><strong>Ne Yapmalıyım?</strong> Açık olan TürkPatent Araştırma sekmesine gidin, F5 ile sayfayı yenileyin ve aşağıdaki <b>Devam Et</b> butonuna basın.</p>
                     </div>
 
                     <div class="mb-4 mt-3">
@@ -88,7 +87,7 @@
                     </div>
 
                     <button id="startBotBtn" class="btn btn-success px-5 py-3 font-weight-bold shadow-sm w-100" style="border-radius: 10px; font-size: 1.1rem;">
-                        <i class="fas fa-play mr-2"></i>Robotu Başlat
+                        <i class="fas fa-play mr-2"></i>3x Hızında Robotu Başlat
                     </button>
                     <button id="stopBotBtn" class="btn btn-danger px-5 py-3 font-weight-bold shadow-sm w-100" style="display: none; border-radius: 10px; font-size: 1.1rem;">
                         <i class="fas fa-stop mr-2"></i>Durdur
@@ -99,11 +98,24 @@
     </div>
 </div>
 
-<script>
-    // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'NİZİ YAZIN! (chrome://extensions sayfasından alın)
-    const EXTENSION_ID = "SİZİN_CHROME_EKLENTİ_ID_BURAYA_GELECEK"; 
+<script type="module">
+    import { supabase } from './supabase-config.js';
 
-    // --- BÖLÜM 1: PDF OKUMA VE KUYRUK YÖNETİMİ ---
+    // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'NİZİ YAZIN!
+    const EXTENSION_ID = "kdiejfokbbkhblndnfocffijcikdbgmn"; 
+
+    function base64ToBlob(base64, contentType='image/jpeg') {
+        const byteCharacters = atob(base64);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+            const slice = byteCharacters.slice(offset, offset + 512);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) { byteNumbers[i] = slice.charCodeAt(i); }
+            byteArrays.push(new Uint8Array(byteNumbers));
+        }
+        return new Blob(byteArrays, {type: contentType});
+    }
+
     let parsedApplicationNumbers = new Set();
 
     document.getElementById('bulletinPdfInput').addEventListener('change', async function(e) {
@@ -135,7 +147,6 @@
 
             const bulletinNoMatch = fullText.match(/(20\d{2}\/\d{1,4})\s+Resmi Marka B[uü]lteni/i);
             const bulletinNo = bulletinNoMatch ? bulletinNoMatch[1] : "";
-            
             const dateMatch = fullText.match(/Yay[ıi]n Tarihi:\s*(\d{2}\.\d{2}\.\d{4})/i);
             const bulletinDate = dateMatch ? dateMatch[1] : "";
 
@@ -147,7 +158,6 @@
 
             statusText.innerHTML = `<i class="fas fa-check-circle text-success"></i> PDF başarıyla işlendi!`;
             statusText.className = "form-text mt-2 text-success font-weight-bold";
-            
             if (parsedApplicationNumbers.size > 0) document.getElementById('saveToQueueBtn').disabled = false;
 
         } catch (error) {
@@ -158,6 +168,7 @@
 
     document.getElementById('saveToQueueBtn').addEventListener('click', async function() {
         const bulletinNo = document.getElementById('extractedBulletinNo').value.trim();
+        const bulletinDate = document.getElementById('extractedBulletinDate').value.trim();
         const btn = this;
         const feedbackInfo = document.getElementById('saveResultFeedback');
 
@@ -165,23 +176,36 @@
 
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Kaydediliyor...';
-        feedbackInfo.innerHTML = '<span class="text-primary">Mükerrer kontrolü yapılıyor...</span>';
+        feedbackInfo.innerHTML = '<span class="text-primary">Sistem hazırlanıyor...</span>';
 
         try {
+            let bDateIso = null;
+            if (bulletinDate) {
+                const parts = bulletinDate.split('.');
+                if (parts.length === 3) bDateIso = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            await supabase.from('trademark_bulletins').upsert({
+                id: bulletinNo.replace('/', ''),
+                bulletin_no: bulletinNo,
+                bulletin_date: bDateIso,
+                type: 'marka'
+            });
+
             const appNumbersArray = Array.from(parsedApplicationNumbers);
-
-            // DB'deki mevcut numaraları çek (Mükerrer kontrolü)
-            const { data: existingRecords, error: fetchError } = await supabase
-                .from('bulletin_fetch_queue')
-                .select('application_number')
-                .eq('bulletin_no', bulletinNo)
-                .in('application_number', appNumbersArray);
-
-            if (fetchError) throw fetchError;
-
-            const existingSet = new Set(existingRecords.map(r => r.application_number));
+            const existingSet = new Set();
+            const selectChunkSize = 500;
             
-            // Sadece yeni olanları ekle
+            for (let i = 0; i < appNumbersArray.length; i += selectChunkSize) {
+                const chunk = appNumbersArray.slice(i, i + selectChunkSize);
+                const { data: chunkRecords, error: fetchError } = await supabase
+                    .from('bulletin_fetch_queue')
+                    .select('application_number')
+                    .eq('bulletin_no', bulletinNo)
+                    .in('application_number', chunk);
+                if (fetchError) throw fetchError;
+                chunkRecords.forEach(r => existingSet.add(r.application_number));
+            }
+            
             const newRecordsToInsert = appNumbersArray
                 .filter(appNo => !existingSet.has(appNo))
                 .map(appNo => ({
@@ -197,8 +221,6 @@
             }
 
             feedbackInfo.innerHTML = `<span class="text-info">${newRecordsToInsert.length} yeni kayıt yazılıyor...</span>`;
-
-            // Yığınlar (Chunk) halinde DB'ye yaz
             const chunkSize = 1000;
             for (let i = 0; i < newRecordsToInsert.length; i += chunkSize) {
                 const chunk = newRecordsToInsert.slice(i, i + chunkSize);
@@ -209,7 +231,7 @@
             feedbackInfo.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> ${newRecordsToInsert.length} başvuru kuyruğa eklendi!</span>`;
             btn.innerHTML = '<i class="fas fa-check"></i> Bitti';
             parsedApplicationNumbers.clear();
-            updateQueueStats(); // İstatistikleri güncelle
+            updateQueueStats(); 
 
         } catch (error) {
             feedbackInfo.innerHTML = `<span class="text-danger">Hata: ${error.message}</span>`;
@@ -218,25 +240,38 @@
         }
     });
 
-    // --- BÖLÜM 2: ROBOT (BOT) KONTROL MEKANİZMASI ---
+    // --- BÖLÜM 2: YASAL HACKER - PARALEL MULTITHREAD KONTROL MEKANİZMASI ---
     let botIsRunning = false;
     let totalQueue = 0;
     let completedQueue = 0;
+    
+    // Aynı anda TPE'ye vuracak namlu sayısı (Şu an 3. Güvenli limittir.)
+    const CONCURRENCY_LIMIT = 3; 
+    let activeRequests = 0;
+    let isFetchingQueue = false;
 
     async function updateQueueStats() {
         const { count: pendingCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending');
         const { count: completedCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'completed');
+        const { count: errorCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'error');
 
-        document.getElementById('qPending').innerText = `Bekleyen: ${pendingCount || 0}`;
-        document.getElementById('qCompleted').innerText = `Tamamlanan: ${completedCount || 0}`;
+        // Güvenli DOM Güncellemesi
+        const elPending = document.getElementById('qPending');
+        const elCompleted = document.getElementById('qCompleted');
+        const elError = document.getElementById('qError');
 
-        totalQueue = (pendingCount || 0) + (completedCount || 0);
-        completedQueue = completedCount || 0;
+        if(elPending) elPending.innerText = `Bekleyen: ${pendingCount || 0}`;
+        if(elCompleted) elCompleted.innerText = `Biten: ${completedCount || 0}`;
+        if(elError) elError.innerText = `Hatalı: ${errorCount || 0}`;
 
+        totalQueue = (pendingCount || 0) + (completedCount || 0) + (errorCount || 0);
         if (totalQueue > 0) {
-            let percent = Math.round((completedQueue / totalQueue) * 100);
-            document.getElementById('queueProgressBar').style.width = `${percent}%`;
-            document.getElementById('queueProgressBar').innerText = `%${percent}`;
+            let percent = Math.round(((completedCount || 0) / totalQueue) * 100);
+            const elProgress = document.getElementById('queueProgressBar');
+            if(elProgress) {
+                elProgress.style.width = `${percent}%`;
+                elProgress.innerText = `%${percent}`;
+            }
         }
     }
 
@@ -245,15 +280,16 @@
             alert("Lütfen koddaki EXTENSION_ID kısmına Chrome Eklentinizin kimliğini yazın!");
             return;
         }
+
         botIsRunning = true;
         document.getElementById('startBotBtn').style.display = 'none';
         document.getElementById('stopBotBtn').style.display = 'block';
         document.getElementById('sessionAlert').style.display = 'none';
-        document.getElementById('currentActionText').innerText = "Robot Çalışıyor, Veriler Çekiliyor...";
+        document.getElementById('currentActionText').innerText = `${CONCURRENCY_LIMIT}x Hız Devrede, Veriler Çekiliyor...`;
         document.getElementById('currentActionText').className = "font-weight-bold text-success";
         
         await updateQueueStats();
-        processNextItem();
+        processNextItem(); // Ateşlemeyi başlat
     });
 
     document.getElementById('stopBotBtn').addEventListener('click', () => {
@@ -267,106 +303,170 @@
 
     async function processNextItem() {
         if (!botIsRunning) return;
+        
+        // Eğer tüm namlular doluysa bekle
+        if (activeRequests >= CONCURRENCY_LIMIT) return;
+        
+        // Veritabanından mükerrer çekim yapmamak için kilit (Lock)
+        if (isFetchingQueue) return; 
+        isFetchingQueue = true;
 
         try {
-            // Sıradaki 'pending' kaydı al
+            // Boşta olan namlu sayısı kadar sıradaki hedefi getir
+            const slotsAvailable = CONCURRENCY_LIMIT - activeRequests;
             const { data: queueItems, error: fetchError } = await supabase
                 .from('bulletin_fetch_queue')
                 .select('*')
                 .eq('status', 'pending')
                 .order('created_at', { ascending: true })
-                .limit(1);
+                .limit(slotsAvailable);
+
+            isFetchingQueue = false; // Kilidi aç
 
             if (fetchError) throw fetchError;
 
             if (!queueItems || queueItems.length === 0) {
-                botIsRunning = false;
-                document.getElementById('currentActionText').innerText = "Kuyruk Tamamen Bitti! 🎉";
-                document.getElementById('stopBotBtn').style.display = 'none';
-                document.getElementById('startBotBtn').style.display = 'block';
+                if (activeRequests === 0) {
+                    botIsRunning = false;
+                    document.getElementById('currentActionText').innerText = "Kuyruk Tamamen Bitti! 🎉";
+                    document.getElementById('stopBotBtn').style.display = 'none';
+                    document.getElementById('startBotBtn').style.display = 'block';
+                }
                 return;
             }
 
-            const currentTask = queueItems[0];
-            document.getElementById('currentAppNoText').innerText = `Sorgulanıyor: ${currentTask.application_number} (Bülten: ${currentTask.bulletin_no})`;
+            // Çakışmayı önlemek için alınanları hemen 'processing' yap
+            const idsToProcess = queueItems.map(q => q.id);
+            await supabase.from('bulletin_fetch_queue').update({ status: 'processing' }).in('id', idsToProcess);
 
-            // Çakışmayı önlemek için 'processing' yap
-            await supabase.from('bulletin_fetch_queue').update({ status: 'processing' }).eq('id', currentTask.id);
-
-            // Chrome Eklentisine Mesaj At
-            chrome.runtime.sendMessage(EXTENSION_ID, {
-                type: 'FETCH_TRADEMARK_API',
-                data: { applicationNo: currentTask.application_number }
-            }, async (response) => {
+            // Gelen her bir hedef için PARALEL olarak ateşle
+            queueItems.forEach(async (currentTask, index) => {
+                activeRequests++;
                 
-                if (!response) {
-                    await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
+                // Google yapay zekasını şüphelendirmemek için mermileri gecikmeli (staggered) ateşle
+                await new Promise(resolve => setTimeout(resolve, index * 600));
+                if (!botIsRunning) { activeRequests--; return; }
+
+                document.getElementById('currentAppNoText').innerText = `Aktif Namlu: ${activeRequests}/${CONCURRENCY_LIMIT} | İşlenen: ${currentTask.application_number}`;
+
+                if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+                    botIsRunning = false;
+                    supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).in('id', idsToProcess);
                     document.getElementById('stopBotBtn').click();
-                    alert("Chrome Eklentisine ulaşılamadı! Eklentinin ID'sini ve yüklü olduğunu kontrol edin.");
+                    alert("Bağlantı Hatası: Chrome Eklentisi ile iletişim kurulamıyor!");
                     return;
                 }
 
-                // Oturum Düştüyse (Fail-Safe)
-                if (response.error === 'SESSION_DEAD') {
-                    botIsRunning = false; 
-                    await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
-                    document.getElementById('stopBotBtn').style.display = 'none';
-                    document.getElementById('startBotBtn').style.display = 'block';
-                    document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Giriş Yaptım, Devam Et';
-                    document.getElementById('sessionAlert').style.display = 'block';
-                    document.getElementById('currentActionText').innerText = "Oturum Hatası!";
-                    document.getElementById('currentActionText').className = "font-weight-bold text-danger";
-                    return;
-                }
-
-                // TPE'de Numara Yoksa
-                if (response.error === 'NOT_FOUND') {
-                    await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: 'TPE Bulunamadı' }).eq('id', currentTask.id);
-                    updateQueueStats();
-                    processNextItem();
-                    return;
-                }
-
-                // Veri Başarıyla Çekildiyse!
-                if (response.success && response.data) {
-                    const apiData = response.data;
-                    const niceClassesArray = apiData.nice_classes ? apiData.nice_classes.split('/').map(s => s.trim()).filter(Boolean) : [];
+                chrome.runtime.sendMessage(EXTENSION_ID, {
+                    type: 'FETCH_TRADEMARK_API',
+                    data: { applicationNo: currentTask.application_number }
+                }, async (response) => {
+                    activeRequests--; // Mermi hedeften döndü, namlu boşa çıktı!
                     
-                    const recordToInsert = {
-                        id: `${currentTask.bulletin_no}_${apiData.application_no}`.replace(/\//g, ''), // Mükerrerleri engeller
-                        bulletin_id: currentTask.bulletin_no,
-                        application_number: apiData.application_no,
-                        application_date: apiData.application_date,
-                        brand_name: apiData.brand_name,
-                        nice_classes: niceClassesArray,
-                        holders: apiData.holders,
-                        image_url: apiData.image_base64,
-                        source: 'TPE_API'
-                    };
+                    try {
+                        if (!response) {
+                            await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
+                            if(botIsRunning) document.getElementById('stopBotBtn').click();
+                            return;
+                        }
 
-                    // Ana tabloya kaydet (Eski kayıt varsa ezer)
-                    const { error: insertError } = await supabase.from('trademark_bulletin_records').upsert(recordToInsert);
+                        if (response.error === 'HUMAN_CHECK_ERROR') {
+                            botIsRunning = false; 
+                            await supabase.from('bulletin_fetch_queue').update({ status: 'pending' }).eq('id', currentTask.id);
+                            document.getElementById('stopBotBtn').style.display = 'none';
+                            document.getElementById('startBotBtn').style.display = 'block';
+                            document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Devam Et';
+                            document.getElementById('sessionAlert').style.display = 'block';
+                            document.getElementById('currentActionText').innerText = "Google reCAPTCHA Engeli!";
+                            document.getElementById('currentActionText').className = "font-weight-bold text-danger";
+                            return;
+                        }
 
-                    if (insertError) {
-                        await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: insertError.message }).eq('id', currentTask.id);
-                    } else {
-                        // Kuyruktaki işi tamamlandı!
-                        await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', currentTask.id);
+                        if (response.error === 'NOT_FOUND') {
+                            await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: 'TPE Bulunamadı' }).eq('id', currentTask.id);
+                        } 
+                        else if (response.error) {
+                            await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: response.error }).eq('id', currentTask.id);
+                        }
+                        else if (response.success && response.data) {
+                            const apiData = response.data;
+                            const niceClassesArray = apiData.nice_classes ? apiData.nice_classes.split('/').map(s => s.trim()).filter(Boolean) : [];
+                            const recordId = `${currentTask.bulletin_no}_${apiData.application_no}`.replace(/\//g, '');
+                            
+                            let uploadedImageUrl = null;
+                            if (apiData.image_base64) {
+                                try {
+                                    const blob = base64ToBlob(apiData.image_base64, 'image/jpeg');
+                                    const fileName = `bulletins/${recordId}.jpg`;
+                                    const { error: uploadErr } = await supabase.storage.from('brand_images').upload(fileName, blob, { upsert: true });
+                                    if (!uploadErr) {
+                                        const { data: publicUrl } = supabase.storage.from('brand_images').getPublicUrl(fileName);
+                                        uploadedImageUrl = publicUrl.publicUrl;
+                                    }
+                                } catch(imgErr) {}
+                            }
+
+                            const recordToInsert = {
+                                id: recordId,
+                                bulletin_id: currentTask.bulletin_no,
+                                application_number: apiData.application_no,
+                                application_date: apiData.application_date,
+                                brand_name: apiData.brand_name,
+                                nice_classes: niceClassesArray,
+                                holders: apiData.holders, 
+                                image_url: uploadedImageUrl || null, 
+                                source: 'TPE_API'
+                            };
+
+                            const { error: insertError } = await supabase.from('trademark_bulletin_records').upsert(recordToInsert);
+
+                            if (insertError) {
+                                await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: insertError.message }).eq('id', currentTask.id);
+                            } else {
+                                let goodsSuccess = true;
+                                if (apiData.nice_details && apiData.nice_details.length > 0) {
+                                    await supabase.from('trademark_bulletin_goods').delete().eq('bulletin_record_id', recordId); 
+                                    const goodsToInsert = apiData.nice_details.map(g => ({
+                                        id: crypto.randomUUID(),
+                                        bulletin_record_id: recordId,
+                                        class_number: parseInt(g.niceCode) || 0,
+                                        class_text: g.niceDescription
+                                    }));
+                                    
+                                    const { error: goodsError } = await supabase.from('trademark_bulletin_goods').insert(goodsToInsert);
+                                    if (goodsError) {
+                                        await supabase.from('bulletin_fetch_queue').update({ status: 'error', error_message: 'Emtia: ' + goodsError.message }).eq('id', currentTask.id);
+                                        goodsSuccess = false;
+                                    }
+                                }
+                                
+                                if (goodsSuccess) {
+                                    await supabase.from('bulletin_fetch_queue').update({ status: 'completed' }).eq('id', currentTask.id);
+                                }
+                            }
+                        }
+
+                        if (activeRequests % 2 === 0) updateQueueStats();
+
+                        // 🔥 BOŞALAN NAMLUNUN YERİNE ANINDA YENİSİNİ DOLDUR!
+                        processNextItem(); 
+
+                    } catch (innerError) {
+                        processNextItem();
                     }
-
-                    updateQueueStats();
-                    processNextItem(); // Hiç durmadan sıradakine geç!
-                }
+                });
             });
 
+            // Eğer hala boş namlu kaldıysa döngüyü tekrar tetikle
+            if (activeRequests < CONCURRENCY_LIMIT) {
+                processNextItem();
+            }
+
         } catch (error) {
-            console.error("Döngü Hatası:", error);
-            botIsRunning = false;
-            document.getElementById('stopBotBtn').click();
+            isFetchingQueue = false;
         }
     }
 
-    // Sayfa açılışında verileri çek
     document.addEventListener('DOMContentLoaded', updateQueueStats);
 </script>
 

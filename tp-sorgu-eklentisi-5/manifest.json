@@ -1,30 +1,38 @@
 {
   "manifest_version": 3,
-  "name": "IPGate Bülten Robotu (API Fetcher)",
-  "version": "2.0.0",
-  "description": "TürkPatent arka plan API'sini kullanarak e-Devlet oturumu üzerinden sessiz ve hızlı veri çeker.",
+  "name": "IPGate TPE Bot",
+  "version": "2.2",
+  "description": "TPE verilerini arka planda çeker.",
+  "permissions": [
+    "scripting",
+    "tabs"
+  ],
   "host_permissions": [
-    "*://opts.turkpatent.gov.tr/*"
+    "*://*.turkpatent.gov.tr/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["*://opts.turkpatent.gov.tr/*"],
+      "matches": ["*://*.turkpatent.gov.tr/*"],
       "js": ["content_script.js"],
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inject.js"],
+      "matches": ["*://*.turkpatent.gov.tr/*"]
+    }
+  ],
   "externally_connectable": {
     "matches": [
-      "https://kubilayguzel.github.io/*",
       "http://localhost/*",
       "http://127.0.0.1/*",
-      "https://ip-manager-production-aab4b.web.app/*",
-      "https://ip-manager-production-aab4b.firebaseapp.com/*",
-      "https://ipgate-31bd2.web.app/*",
-      "https://ipgate-31bd2.firebaseapp.com/*"
+      "https://*.web.app/*",
+      "https://*.firebaseapp.com/*",
+      "https://ipgate.evrekagroup.com/*"
     ]
   }
 }

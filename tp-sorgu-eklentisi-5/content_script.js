@@ -1,85 +1,64 @@
 const TAG = '[IPGate API Bot]';
-console.log(TAG, 'Gizli API dinleyicisi sayfaya yerleşti. Operasyona hazır!');
+console.log(TAG, 'Ajan sayfaya yerleşti! Inject dosyası yükleniyor...');
 
-// Jitter: Sunucuyu şüphelendirmemek için rastgele milisaniye bekleten fonksiyon
-const sleep = (min, max) => {
-    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
-    return new Promise(resolve => setTimeout(resolve, ms));
+// Güvenli (CSP'ye takılmayan) Enjeksiyon Yöntemi
+const script = document.createElement('script');
+script.src = chrome.runtime.getURL('inject.js');
+script.onload = function() {
+    this.remove(); // Yüklendikten sonra iz bırakmamak için kendini siler
 };
+(document.head || document.documentElement).appendChild(script);
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.type === 'FIRE_FETCH') {
         const appNo = request.data.applicationNo;
         
-        (async () => {
-            try {
-                console.log(TAG, `🔍 Hedefe kilitlenildi: ${appNo}`);
+        const listener = function(event) {
+            if (event.data.type === 'FETCH_RESULT' && event.data.appNo === appNo) {
+                window.removeEventListener('message', listener);
                 
-                // GÜVENLİK: 300ms ile 700ms arası rastgele bekle (WAF'ı kandır)
-                await sleep(300, 700);
-
-                // API'ye doğrudan gizli vuruş yap
-                const response = await fetch('https://opts.turkpatent.gov.tr/api/trademark-search/mark', {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json, text/plain, */*',
-                        'Content-Type': 'application/json'
-                        // Tarayıcı bu isteğe e-Devlet oturum Cookie'lerinizi otomatik olarak ekler!
-                    },
-                    body: JSON.stringify({
-                        applicationNo: appNo,
-                        documentNo: "",
-                        internationalRegistrationNo: "",
-                        registrationNo: ""
-                    })
-                });
-
-                // 1. KONTROL: Oturum düştü mü? (HTTP 401 veya 403)
-                if (response.status === 401 || response.status === 403 || response.redirected) {
-                    console.error(TAG, '🚨 DİKKAT: Oturum Düştü! (401/403 HTTP Hatası)');
-                    sendResponse({ success: false, error: 'SESSION_DEAD', appNo });
+                if (event.data.error) {
+                    sendResponse({ success: false, error: event.data.error, appNo: appNo });
                     return;
                 }
-
-                const text = await response.text();
                 
-                // 2. KONTROL: Sistem JSON yerine HTML (Login Sayfası) mi döndü?
-                if (text.includes('<html') || text.includes('e-Devlet') || text.includes('giriş')) {
-                    console.error(TAG, '🚨 DİKKAT: Oturum Düştü! (Sistem login sayfasına yönlendirdi)');
-                    sendResponse({ success: false, error: 'SESSION_DEAD', appNo });
-                    return;
-                }
-
-                // Veriyi çözümle
-                const json = JSON.parse(text);
-
-                if (json && json.success && json.data && json.data.markInformation) {
-                    const info = json.data.markInformation;
-                    // Sınıfların sonundaki gereksiz " / " işaretini temizle
-                    const niceClasses = info.niceClasses ? info.niceClasses.replace(/\/\s*$/, '').trim() : '';
+                const json = event.data.data;
+                
+                if (json && json.success && json.payload && json.payload.item) {
+                    const apiData = json.payload.item;
+                    const info = apiData.markInformation || {};
+                    const niceInfo = apiData.niceInformation || [];
+                    const holders = apiData.holderInformation || [];
+                    
+                    let cleanedClasses = "";
+                    if (info.niceClasses) {
+                        cleanedClasses = info.niceClasses.trim();
+                        if (cleanedClasses.endsWith('/')) {
+                            cleanedClasses = cleanedClasses.slice(0, -1).trim();
+                        }
+                    }
                     
                     const resultData = {
                         application_no: info.applicationNo,
                         brand_name: info.markName,
                         application_date: info.applicationDate,
-                        nice_classes: niceClasses,
-                        image_base64: info.figure, // Base64 logo formatı
-                        holders: json.data.holderInformation || []
+                        nice_classes: cleanedClasses,
+                        image_base64: info.figure,
+                        holders: holders,
+                        nice_details: niceInfo
                     };
-                    
-                    console.log(TAG, `✅ Veri Alındı: ${info.markName}`);
-                    sendResponse({ success: true, data: resultData, appNo });
+                    sendResponse({ success: true, data: resultData, appNo: appNo });
+                } else if (json && !json.success) {
+                    sendResponse({ success: false, error: (json.error ? json.error.code : 'UNKNOWN_ERROR'), appNo: appNo });
                 } else {
-                    console.warn(TAG, `⚠️ Numara Bulunamadı: ${appNo}`);
-                    sendResponse({ success: false, error: 'NOT_FOUND', appNo });
+                    sendResponse({ success: false, error: 'NOT_FOUND', appNo: appNo });
                 }
-
-            } catch (error) {
-                console.error(TAG, `❌ Ağ/İstek Hatası (${appNo}):`, error);
-                sendResponse({ success: false, error: error.message, appNo });
             }
-        })();
-
-        return true; // Asenkron işlem olduğu için eklentinin kapanmasını engeller
+        };
+        
+        window.addEventListener('message', listener);
+        window.postMessage({ type: 'FETCH_TRADEMARK_FILE', appNo: appNo }, '*');
+        
+        return true; 
     }
 });

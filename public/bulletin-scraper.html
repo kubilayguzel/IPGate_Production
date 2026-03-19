@@ -214,21 +214,34 @@
                     status: 'pending'
                 }));
 
+            const duplicateCount = existingSet.size; // Atlanan (mükerrer) kayıt sayısı
+
             if (newRecordsToInsert.length === 0) {
-                feedbackInfo.innerHTML = `<span class="text-warning">Kayıtların tümü zaten kuyrukta mevcut.</span>`;
+                feedbackInfo.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> Tüm kayıtlar (${duplicateCount} adet) zaten bu bülten için kuyrukta mevcut! Yeni kayıt eklenmedi.</span>`;
                 btn.innerHTML = 'Kuyruğa Kaydet';
                 return;
             }
 
             feedbackInfo.innerHTML = `<span class="text-info">${newRecordsToInsert.length} yeni kayıt yazılıyor...</span>`;
             const chunkSize = 1000;
+            
+            // 🔥 Hem çakışmaları tamamen önlemek hem de güvenli kayıt için upsert kullanıyoruz
             for (let i = 0; i < newRecordsToInsert.length; i += chunkSize) {
                 const chunk = newRecordsToInsert.slice(i, i + chunkSize);
-                const { error: insertError } = await supabase.from('bulletin_fetch_queue').insert(chunk);
+                const { error: insertError } = await supabase.from('bulletin_fetch_queue').upsert(chunk, { 
+                    onConflict: 'application_number, bulletin_no', 
+                    ignoreDuplicates: true 
+                });
                 if (insertError) throw insertError;
             }
 
-            feedbackInfo.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> ${newRecordsToInsert.length} başvuru kuyruğa eklendi!</span>`;
+            // 🔥 Senin İstediğin O Detaylı Bilgi Ekranı!
+            let successMessage = `<i class="fas fa-check-circle"></i> ${newRecordsToInsert.length} başvuru başarıyla kuyruğa eklendi.`;
+            if (duplicateCount > 0) {
+                successMessage += ` <br><small class="text-secondary"><i class="fas fa-info-circle"></i> <b>${duplicateCount} adet</b> kayıt (aynı başvuru & bülten eşleşmesi) mükerrer olduğu için atlandı.</small>`;
+            }
+            
+            feedbackInfo.innerHTML = `<span class="text-success">${successMessage}</span>`;
             btn.innerHTML = '<i class="fas fa-check"></i> Bitti';
             parsedApplicationNumbers.clear();
             updateQueueStats(); 
@@ -245,7 +258,7 @@
     let totalQueue = 0;
     let completedQueue = 0;
     
-    // Aynı anda TPE'ye vuracak namlu sayısı (Şu an 3. Güvenli limittir.)
+    // Aynı anda TPE'ye vuracak namlu sayısı (Şu an 5. Güvenli limittir.)
     const CONCURRENCY_LIMIT = 5; 
     let activeRequests = 0;
     let isFetchingQueue = false;

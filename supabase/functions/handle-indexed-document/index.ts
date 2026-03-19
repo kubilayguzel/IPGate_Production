@@ -48,15 +48,41 @@ serve(async (req: Request) => {
 
     let transactionData = null;
     let taskId = null;
+    
+    // 🔥 DEĞİŞİKLİK 1: SOYAĞACI VE İTİRAZ SAHİBİ (Sadece Type 38 için ebeveyne çıkar)
+    let oppositionOwner = "Belirtilmemiş";
+    const lineageTxIds: string[] = []; 
+
     if (transactionId) {
-        const { data: tx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
-        if (tx) {
-            transactionData = tx;
-            taskId = tx.task_id;
-            if (!txTypeId) txTypeId = String(tx.transaction_type_id || tx.type || '');
-            if (!taskId && tx.parent_id) {
-                const { data: pTx } = await supabaseAdmin.from('transactions').select('task_id').eq('id', tx.parent_id).maybeSingle();
-                if (pTx && pTx.task_id) taskId = pTx.task_id;
+        let currentTxId = transactionId;
+        
+        // İlk (tetiklenen) işlemi çek
+        const { data: firstTx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
+        if (firstTx) {
+            transactionData = firstTx;
+            taskId = firstTx.task_id;
+            if (!txTypeId) txTypeId = String(firstTx.transaction_type_id || firstTx.type || '');
+        }
+
+        while (currentTxId) {
+            lineageTxIds.push(currentTxId);
+            const { data: txData } = await supabaseAdmin.from('transactions').select('opposition_owner, parent_id, task_id').eq('id', currentTxId).single();
+            
+            if (!txData) break;
+            
+            // Eğer task_id yoksa ve parent'ta varsa onu da al
+            if (!taskId && txData.task_id) taskId = txData.task_id;
+
+            // İtiraz sahibini bulduğumuz an kaydet
+            if (oppositionOwner === "Belirtilmemiş" && txData.opposition_owner && txData.opposition_owner.trim() !== '') {
+                oppositionOwner = txData.opposition_owner;
+            }
+
+            // SADECE TYPE 38 İSE VE PARENT'I VARSA YUKARI TIRMAN! Aksi halde döngüyü kır.
+            if (txTypeId === '38' && txData.parent_id) {
+                currentTxId = txData.parent_id;
+            } else {
+                break;
             }
         }
     }
@@ -66,7 +92,6 @@ serve(async (req: Request) => {
         if (!checkTask) taskId = null;
     }
 
-    // 🔥 BENİM YANLIŞLIKLA SİLDİĞİM 4 KRİTİK SATIR GERİ GELDİ!
     const brandName = viewData?.brand_name || "-";
     const appNo = viewData?.application_number || viewData?.registration_number || "-";
     const applicantNames = viewData?.applicant_names || "-";
@@ -79,7 +104,6 @@ serve(async (req: Request) => {
         tebligDate = new Date(Number(y), Number(m) - 1, Number(d));
     }
 
-    // 🔥 GÜÇLENDİRİLMİŞ ALICI BULMA (TO/CC)
     async function getRecipients(viewData: any, currentTaskId: any, currentTaskType: string) {
         const to: string[] = [];
         const cc: string[] = [];
@@ -230,11 +254,10 @@ serve(async (req: Request) => {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
 
-            // 🔥 NET KURAL: Portföy türüne göre Body seçimi (Tüm Şablonlar İçin Geçerli)
             if (!isPortfolio && template.body2) {
-                rawBody = template.body2; // Karşı Taraf / Üçüncü Taraf ise body2
+                rawBody = template.body2;
             } else if (isPortfolio && template.body1) {
-                rawBody = template.body1; // Kendi Müvekkilimiz ise body1
+                rawBody = template.body1;
             }
 
             const placeholders: Record<string, string> = {
@@ -255,7 +278,8 @@ serve(async (req: Request) => {
                 "{{dava_son_tarihi}}": davaSonTarihi,
                 "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
                 "{{markImageUrl}}": viewData?.brand_image_url || "",
-                "{{itiraz_sahibi}}": transactionData?.opposition_owner || "Belirtilmemiş",
+                // 🔥 DEĞİŞİKLİK 2: Bulduğumuz İtiraz Sahibini Template'e yerleştiriyoruz
+                "{{itiraz_sahibi}}": oppositionOwner, 
                 "{{resmi_son_cevap_tarihi}}": genelSonTarih, 
                 "{{son_odeme_tarihi}}": genelSonTarih,
                 "{{son_itiraz_tarihi}}": genelSonTarih
@@ -273,12 +297,9 @@ serve(async (req: Request) => {
         finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
     }
 
-    // 🔥 ÇÖZÜM: 66 Görevinin sadece var olup olmadığına değil, doğrudan ID'sine ulaşıyoruz
-    // 🔥 1. Varsa 66 (Değerlendirme) Görevini Bul
     const evalTasksRes = await supabaseAdmin.from('tasks').select('id').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
     const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
 
-    // 🔥 2. YENİ ÇÖZÜM: Kapanan eski görevi (taskId) değil, bu evrakla birlikte YENİ TETİKLENEN "Müvekkil Onayı Bekleyen" görevi bul!
     const { data: triggeredTasks } = await supabaseAdmin
         .from('tasks')
         .select('id')
@@ -295,7 +316,6 @@ serve(async (req: Request) => {
     const mailPayload = {
         id: mailId, 
         related_ip_record_id: ipRecordId, 
-        // 🔥 KRİTİK NOKTA: Öncelik 66'da, yoksa yeni tetiklenen işte (Type 7 vb.), hiçbiri yoksa en son çare eski işte!
         associated_task_id: evalTaskId || newTriggeredTaskId || taskId, 
         source_document_id: record.id, 
         associated_transaction_id: transactionId,
@@ -315,11 +335,45 @@ serve(async (req: Request) => {
     };
 
     const { error: mailInsertError } = await supabaseAdmin.from('mail_notifications').insert(mailPayload);
-
     if (mailInsertError) throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
 
+    // 🔥 DEĞİŞİKLİK 3: EKLERİ `mail_attachments` TABLOSUNA YAZMA 
+    const attachmentsToInsert: any[] = [];
+
+    // Eğer işlemimiz Type 38 ise soy ağacından (lineageTxIds) belgeleri topla
+    if (lineageTxIds.length > 0) {
+        const { data: txDocs } = await supabaseAdmin
+            .from('transaction_documents')
+            .select('document_name, document_url')
+            .in('transaction_id', lineageTxIds);
+
+        if (txDocs && txDocs.length > 0) {
+            txDocs.forEach(doc => {
+                attachmentsToInsert.push({
+                    notification_id: mailId,
+                    file_name: doc.document_name || "Ek_Evrak.pdf",
+                    storage_path: null,
+                    url: doc.document_url
+                });
+            });
+        }
+    }
+
+    // Gelen asıl tebligatı da (incoming_documents) dahil et
     if (record.file_url) {
-        await supabaseAdmin.from('mail_attachments').insert({ notification_id: mailId, file_name: record.file_name || "Evrak.pdf", storage_path: record.file_path || null, url: record.file_url });
+        const alreadyAdded = attachmentsToInsert.some(a => a.url === record.file_url);
+        if (!alreadyAdded) {
+            attachmentsToInsert.push({
+                notification_id: mailId, 
+                file_name: record.file_name || "Tebligat.pdf", 
+                storage_path: record.file_path || null, 
+                url: record.file_url 
+            });
+        }
+    }
+
+    if (attachmentsToInsert.length > 0) {
+        await supabaseAdmin.from('mail_attachments').insert(attachmentsToInsert);
     }
 
     return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

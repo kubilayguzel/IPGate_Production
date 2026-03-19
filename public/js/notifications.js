@@ -331,15 +331,12 @@ class NotificationsManager {
 
             // Eğer özel bir ek yoksa (manuel oluşturulan mailler vs) eski yönteme (fallback) geç
             if (attachments.length === 0) {
-                if (notification.source_document_id) {
-                    attachments = await attachmentService.resolveAttachments(null, notification.source_document_id, null);
-                } else {
-                    attachments = await attachmentService.resolveAttachments(
-                        notification.associated_transaction_id, 
-                        null,
-                        activeTaskId
-                    );
-                }
+                // Kısıtlama yapmadan TÜM id'leri servise gönderiyoruz. Servis hepsini toplayıp tekilleştirecek!
+                attachments = await attachmentService.resolveAttachments(
+                    notification.associated_transaction_id, 
+                    notification.source_document_id, 
+                    activeTaskId
+                );
             }
 
             const payload = { 
@@ -599,10 +596,8 @@ class NotificationsManager {
                 return;
             }
 
-            const queryTxId = docId ? null : txId;
-            const queryTaskId = docId ? null : taskId;
-
-            attachmentService.resolveAttachments(queryTxId, docId, queryTaskId)
+            // Filtreleme yapmadan tüm verileri doğrudan servise gönder!
+            attachmentService.resolveAttachments(txId, docId, taskId)
                 .then(attachments => {
                     if (attachments && attachments.length > 0) {
                         cell.innerHTML = attachments.map(a => 

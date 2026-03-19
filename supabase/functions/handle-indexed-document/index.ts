@@ -14,7 +14,6 @@ const TURKEY_HOLIDAYS = [
 function isWeekend(date: Date) { return date.getDay() === 0 || date.getDay() === 6; }
 function isHoliday(date: Date) { return TURKEY_HOLIDAYS.includes(date.toISOString().split('T')[0]); }
 
-// 🔥 TARİHLERİ %100 TÜRKİYE FORMATINA ÇEVİREN GARANTİ FONKSİYON
 function formatTR(date: Date) {
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -26,12 +25,16 @@ serve(async (req: Request) => {
 
   try {
     const payload = await req.json();
-    const { type, record, old_record } = payload;
+    const { record } = payload;
+    
+    console.log(`[HANDLE_INDEXED] 🚀 Tetiklendi! Evrak Durumu: ${record?.status}`);
 
-    const isNewIndexed = type === 'INSERT' && record.status === 'indexed';
-    const isUpdatedToIndexed = type === 'UPDATE' && record.status === 'indexed' && old_record?.status !== 'indexed';
-
-    if (!isNewIndexed && !isUpdatedToIndexed) return new Response("İşlem atlandı.", { status: 200 });
+    if (record?.status !== 'indexed') {
+        console.log(`[HANDLE_INDEXED] ⏭️ İPTAL EDİLDİ: Evrak henüz indekslenmemiş.`);
+        return new Response("İşlem atlandı.", { status: 200 });
+    }
+    
+    console.log(`[HANDLE_INDEXED] ✅ Evrak indekslenmiş, işlem başlıyor...`);
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -49,14 +52,13 @@ serve(async (req: Request) => {
     let transactionData = null;
     let taskId = null;
     
-    // 🔥 DEĞİŞİKLİK 1: SOYAĞACI VE İTİRAZ SAHİBİ (Sadece Type 38 için ebeveyne çıkar)
+    // --- SOYAĞACI (LINEAGE) ALGORİTMASI ---
     let oppositionOwner = "Belirtilmemiş";
     const lineageTxIds: string[] = []; 
 
     if (transactionId) {
         let currentTxId = transactionId;
         
-        // İlk (tetiklenen) işlemi çek
         const { data: firstTx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
         if (firstTx) {
             transactionData = firstTx;
@@ -70,16 +72,13 @@ serve(async (req: Request) => {
             
             if (!txData) break;
             
-            // Eğer task_id yoksa ve parent'ta varsa onu da al
             if (!taskId && txData.task_id) taskId = txData.task_id;
 
-            // İtiraz sahibini bulduğumuz an kaydet
             if (oppositionOwner === "Belirtilmemiş" && txData.opposition_owner && txData.opposition_owner.trim() !== '') {
                 oppositionOwner = txData.opposition_owner;
             }
 
-            // SADECE TYPE 38 İSE VE PARENT'I VARSA YUKARI TIRMAN! Aksi halde döngüyü kır.
-            if (txTypeId === '38' && txData.parent_id) {
+            if (['38', '27'].includes(txTypeId) && txData.parent_id) {
                 currentTxId = txData.parent_id;
             } else {
                 break;
@@ -108,7 +107,6 @@ serve(async (req: Request) => {
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
-        let debugLog = ""; 
 
         const ipType = viewData?.ip_type || 'trademark';
 
@@ -122,14 +120,11 @@ serve(async (req: Request) => {
             try { parsedApplicants = typeof viewData.applicants_json === 'string' ? JSON.parse(viewData.applicants_json) : viewData.applicants_json; } catch(e) {}
             if (Array.isArray(parsedApplicants)) personIds = parsedApplicants.map((a: any) => String(a.id)).filter(Boolean);
         }
-        
-        debugLog += `Aranan Person IDs: ${JSON.stringify(personIds)} | IP Type: ${ipType} <br>`;
 
         if (personIds.length > 0) {
             const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds);
 
             if (prData && prData.length > 0) {
-                debugLog += `Bulunan Persons Related: ${JSON.stringify(prData.map((p:any)=>p.email))} <br>`;
                 for (const pr of prData) {
                     if (pr.email) {
                         let isResponsible = false, notifyTo = false, notifyCc = false;
@@ -149,11 +144,9 @@ serve(async (req: Request) => {
             
             if (to.length === 0 && cc.length > 0) {
                 to.push(cc[0]);
-                debugLog += `Sadece CC seçilmiş, ilk CC kişisi mecburen TO yapıldı.<br>`;
             }
 
             if (to.length === 0) {
-                debugLog += `TO listesi hala BOŞ! Ana persons tablosuna bakılıyor...<br>`;
                 const { data: pData } = await supabaseAdmin.from('persons').select('email').in('id', personIds);
                 if (pData && pData.length > 0) {
                     pData.forEach((p: any) => { if (p.email) to.push(p.email.trim()); });
@@ -176,13 +169,38 @@ serve(async (req: Request) => {
         return { 
             to: [...new Set(to)].filter(Boolean), 
             cc: [...new Set(cc)].filter(Boolean).filter(e => !to.includes(e)), 
-            primaryClientId: personIds.length > 0 ? personIds[0] : null,
-            debugInfo: debugLog
+            primaryClientId: personIds.length > 0 ? personIds[0] : null
         };
     }
 
-    const { to: finalTo, cc: finalCc, primaryClientId, debugInfo } = await getRecipients(viewData, taskId, txTypeId);
+    const { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskId, txTypeId);
 
+    // 🔥 GÖREVLERİ (TASKS) DAHA ERKEN ÇEKİYORUZ Kİ TARİHLERİ KULLANABİLELİM
+    const evalTasksRes = await supabaseAdmin.from('tasks').select('id, official_due_date').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
+    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
+
+    const { data: triggeredTasks } = await supabaseAdmin
+        .from('tasks')
+        .select('id, official_due_date')
+        .eq('transaction_id', transactionId)
+        .eq('status', 'awaiting_client_approval')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
+
+    // 🔥 ÇÖZÜM 1: GERÇEK GÖREV TARİHİNİ BULMA
+    let taskOfficialDueDate = null;
+    if (triggeredTasks && triggeredTasks.length > 0 && triggeredTasks[0].official_due_date) {
+        taskOfficialDueDate = triggeredTasks[0].official_due_date;
+    } else if (evalTasksRes.data && evalTasksRes.data.length > 0 && evalTasksRes.data[0].official_due_date) {
+        taskOfficialDueDate = evalTasksRes.data[0].official_due_date;
+    } else if (taskId) {
+        const { data: mainTask } = await supabaseAdmin.from('tasks').select('official_due_date').eq('id', taskId).maybeSingle();
+        if (mainTask && mainTask.official_due_date) taskOfficialDueDate = mainTask.official_due_date;
+    }
+
+    // --- KARAR VE DAVA ANALİZİ ---
     let decisionAnalysis = {
         isLawsuitRequired: false,
         resultText: "-", statusText: "-", statusColor: "#333", 
@@ -224,22 +242,49 @@ serve(async (req: Request) => {
 
     if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
 
-    let calculatedDeadlineDate = new Date(tebligDate);
-    calculatedDeadlineDate.setMonth(calculatedDeadlineDate.getMonth() + 2);
-    let iter = 0;
-    while ((isWeekend(calculatedDeadlineDate) || isHoliday(calculatedDeadlineDate)) && iter < 30) {
-        calculatedDeadlineDate.setDate(calculatedDeadlineDate.getDate() + 1);
-        iter++;
-    }
-    
-    const genelSonTarih = formatTR(calculatedDeadlineDate);
-    const formattedTeblig = formatTR(tebligDate);
-
+    // 🔥 ÇÖZÜM 2: DAVA SON TARİHİ HESAPLAMASI (Sadece Dava ise 2 ay)
     let davaSonTarihi = "-";
     if (decisionAnalysis.isLawsuitRequired) {
-        davaSonTarihi = genelSonTarih;
+        let calculatedDavaDate = new Date(tebligDate);
+        calculatedDavaDate.setMonth(calculatedDavaDate.getMonth() + 2);
+        let iterDava = 0;
+        while ((isWeekend(calculatedDavaDate) || isHoliday(calculatedDavaDate)) && iterDava < 30) {
+            calculatedDavaDate.setDate(calculatedDavaDate.getDate() + 1);
+            iterDava++;
+        }
+        davaSonTarihi = formatTR(calculatedDavaDate);
     }
 
+    // 🔥 ÇÖZÜM 3: GENEL SON CEVAP TARİHİ (Öncelik Task Tarihi, yoksa Due Period, yoksa 2 ay)
+    let genelSonTarih = "-";
+    if (taskOfficialDueDate) {
+        const d = new Date(taskOfficialDueDate);
+        if (!isNaN(d.getTime())) {
+            genelSonTarih = formatTR(d);
+            console.log(`[HANDLE_INDEXED] 📅 Tarih GÖREVDEN (Task) alındı: ${genelSonTarih}`);
+        }
+    } 
+    
+    // Eğer görevden tarih gelmediyse (Manuel yedek hesaplama)
+    if (genelSonTarih === "-") {
+        let duePeriodMonths = 2; // Varsayılan
+        if (txTypeId) {
+            const { data: ttData } = await supabaseAdmin.from('transaction_types').select('due_period').eq('id', txTypeId).maybeSingle();
+            if (ttData && ttData.due_period !== null) duePeriodMonths = Number(ttData.due_period);
+        }
+        
+        let calculatedGenelDate = new Date(tebligDate);
+        calculatedGenelDate.setMonth(calculatedGenelDate.getMonth() + duePeriodMonths);
+        let iterGenel = 0;
+        while ((isWeekend(calculatedGenelDate) || isHoliday(calculatedGenelDate)) && iterGenel < 30) {
+            calculatedGenelDate.setDate(calculatedGenelDate.getDate() + 1);
+            iterGenel++;
+        }
+        genelSonTarih = formatTR(calculatedGenelDate);
+        console.log(`[HANDLE_INDEXED] 📅 Tarih Manuel (Due Period: ${duePeriodMonths}) hesaplandı: ${genelSonTarih}`);
+    }
+
+    const formattedTeblig = formatTR(tebligDate);
     let finalSubject = "Yeni Evrak Bildirimi";
     let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
     let templateId = null;
@@ -278,8 +323,7 @@ serve(async (req: Request) => {
                 "{{dava_son_tarihi}}": davaSonTarihi,
                 "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
                 "{{markImageUrl}}": viewData?.brand_image_url || "",
-                // 🔥 DEĞİŞİKLİK 2: Bulduğumuz İtiraz Sahibini Template'e yerleştiriyoruz
-                "{{itiraz_sahibi}}": oppositionOwner, 
+                "{{itiraz_sahibi}}": oppositionOwner,
                 "{{resmi_son_cevap_tarihi}}": genelSonTarih, 
                 "{{son_odeme_tarihi}}": genelSonTarih,
                 "{{son_itiraz_tarihi}}": genelSonTarih
@@ -296,19 +340,6 @@ serve(async (req: Request) => {
     if (finalTo.length === 0) {
         finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
     }
-
-    const evalTasksRes = await supabaseAdmin.from('tasks').select('id').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
-    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
-
-    const { data: triggeredTasks } = await supabaseAdmin
-        .from('tasks')
-        .select('id')
-        .eq('transaction_id', transactionId)
-        .eq('status', 'awaiting_client_approval')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
 
     let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
     const mailId = crypto.randomUUID();
@@ -327,7 +358,7 @@ serve(async (req: Request) => {
         body: finalBody, 
         status: finalStatus, 
         mode: "draft", 
-        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
+        objection_deadline: (davaSonTarihi !== "-" ? davaSonTarihi : (genelSonTarih !== "-" ? genelSonTarih : null)), 
         notification_type: 'marka', 
         source: 'document_index', 
         is_draft: finalStatus === "missing_info", 
@@ -337,10 +368,10 @@ serve(async (req: Request) => {
     const { error: mailInsertError } = await supabaseAdmin.from('mail_notifications').insert(mailPayload);
     if (mailInsertError) throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
 
-    // 🔥 DEĞİŞİKLİK 3: EKLERİ `mail_attachments` TABLOSUNA YAZMA 
+    console.log(`[HANDLE_INDEXED] 📎 Ekler toplanıyor...`);
     const attachmentsToInsert: any[] = [];
+    const uniqueUrls = new Set();
 
-    // Eğer işlemimiz Type 38 ise soy ağacından (lineageTxIds) belgeleri topla
     if (lineageTxIds.length > 0) {
         const { data: txDocs } = await supabaseAdmin
             .from('transaction_documents')
@@ -349,33 +380,33 @@ serve(async (req: Request) => {
 
         if (txDocs && txDocs.length > 0) {
             txDocs.forEach(doc => {
-                attachmentsToInsert.push({
-                    notification_id: mailId,
-                    file_name: doc.document_name || "Ek_Evrak.pdf",
-                    storage_path: null,
-                    url: doc.document_url
-                });
+                if (!uniqueUrls.has(doc.document_url)) {
+                    uniqueUrls.add(doc.document_url);
+                    attachmentsToInsert.push({
+                        notification_id: mailId,
+                        file_name: doc.document_name || "Ek_Evrak.pdf",
+                        storage_path: null,
+                        url: doc.document_url
+                    });
+                }
             });
         }
     }
 
-    // Gelen asıl tebligatı da (incoming_documents) dahil et
-    if (record.file_url) {
-        const alreadyAdded = attachmentsToInsert.some(a => a.url === record.file_url);
-        if (!alreadyAdded) {
-            attachmentsToInsert.push({
-                notification_id: mailId, 
-                file_name: record.file_name || "Tebligat.pdf", 
-                storage_path: record.file_path || null, 
-                url: record.file_url 
-            });
-        }
+    if (record.file_url && !uniqueUrls.has(record.file_url)) {
+        attachmentsToInsert.push({
+            notification_id: mailId, 
+            file_name: record.file_name || "Tebligat.pdf", 
+            storage_path: record.file_path || null, 
+            url: record.file_url 
+        });
     }
 
     if (attachmentsToInsert.length > 0) {
         await supabaseAdmin.from('mail_attachments').insert(attachmentsToInsert);
     }
 
+    console.log(`[HANDLE_INDEXED] 🎉 İŞLEM TAMAMLANDI!`);
     return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error("❌ Evrak Endeksleme Hatası:", error.message);

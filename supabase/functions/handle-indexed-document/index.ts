@@ -212,18 +212,18 @@ serve(async (req: Request) => {
         if (txTypeId === "31") {
             decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ KABUL";
             if (isPortfolio) { decisionAnalysis.statusText = "LEHİMİZE (Kazanıldı)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "Başvurumuza ilişkin yapılan itiraz kabul edilmiştir. Tescil süreci devam edecektir."; } 
-            else { decisionAnalysis.statusText = "ALEYHİMİZE (Rakip Kazandı)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Rakip başvuru lehine karar verilmiştir. Bu karara karşı dava açılması gerekmektedir."; }
+            else { decisionAnalysis.statusText = "ALEYHİMİZE (Başvuru Sahibi İtirazı Kabul Edildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Rakip başvuru lehine karar verilmiştir. Bu karara karşı dava açılması gerekmektedir."; }
         } else if (txTypeId === "32") {
-            decisionAnalysis.resultText = "KISMEN KABUL"; decisionAnalysis.statusText = "KISMEN ALEYHE"; decisionAnalysis.statusColor = "#d97706"; decisionAnalysis.isLawsuitRequired = true; 
+            decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ KISMEN KABUL"; decisionAnalysis.statusText = "KISMEN ALEYHE"; decisionAnalysis.statusColor = "#d97706"; decisionAnalysis.isLawsuitRequired = true; 
             if (isPortfolio) decisionAnalysis.summaryText = "Başvurumuz kısmen kabul edilmiş, kısmen reddedilmiştir. Reddedilen sınıflar için dava açma hakkımız doğmuştur.";
-            else decisionAnalysis.summaryText = "Rakip başvuru kısmen kabul edilmiştir. Rakibin kazandığı kısımlar için dava açma hakkımız vardır.";
+            else decisionAnalysis.summaryText = "Başvuru Sahibi İtirazı Kısmen Kabul Edildi.";
         } else if (txTypeId === "33") {
             decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ RET";
             if (isPortfolio) { decisionAnalysis.statusText = "ALEYHİMİZE (Başvurumuz Reddedildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Başvurumuza ilişkin itiraz süreci aleyhimize sonuçlanmış ve başvurumuz reddedilmiştir. Dava açılması gerekmektedir."; } 
-            else { decisionAnalysis.statusText = "LEHİMİZE (Rakip Reddedildi)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "Başvuru sahibi markasının reddedilmesine karar verilmiştir. Karar lehimizedir."; }
+            else { decisionAnalysis.statusText = "LEHİMİZE (Başvuru Sahibi İtirazı Reddedildi)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "Başvuru sahibi markasının reddedilmesine karar verilmiştir. Karar lehimizedir."; }
         } else if (txTypeId === "34") {
             decisionAnalysis.resultText = "İTİRAZ SAHİBİ - İTİRAZ KABUL";
-            if (isPortfolio) { decisionAnalysis.statusText = "ALEYHİMİZE (Karşı Taraf Kazandı)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "İtiraz sahibi lehine karar verilmiştir (Aleyhimize). Dava açılması gerekmektedir."; } 
+            if (isPortfolio) { decisionAnalysis.statusText = "ALEYHİMİZE (İtiraz Sahibi İtirazı Kabul Edildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "İtiraz sahibi lehine karar verilmiştir (Aleyhimize). Dava açılması gerekmektedir."; } 
             else { decisionAnalysis.statusText = "LEHİMİZE"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "İtiraz sahibi lehine verilen karar bizim lehimizedir."; }
         } else if (txTypeId === "35") {
             decisionAnalysis.resultText = "KISMEN KABUL"; decisionAnalysis.statusText = "KISMEN ALEYHE"; decisionAnalysis.statusColor = "#d97706"; decisionAnalysis.isLawsuitRequired = true;
@@ -265,14 +265,31 @@ serve(async (req: Request) => {
         }
     } 
     
-    // Eğer görevden tarih gelmediyse (Manuel yedek hesaplama)
-    if (genelSonTarih === "-") {
-        let duePeriodMonths = 2; // Varsayılan
-        if (txTypeId) {
-            const { data: ttData } = await supabaseAdmin.from('transaction_types').select('due_period').eq('id', txTypeId).maybeSingle();
-            if (ttData && ttData.due_period !== null) duePeriodMonths = Number(ttData.due_period);
+    // 🔥 YENİ EKLENEN KISIM: İşlem Türü Adını (Alias/Name) Veritabanından Çekiyoruz
+    let txTypeName = record.description || txTypeId;
+    let duePeriodMonths = 2; 
+
+    // 1. Önce kendi (child) işlem tipinin süresini ve varsayılan adını alalım
+    if (txTypeId) {
+        const { data: ttData } = await supabaseAdmin.from('transaction_types').select('name, alias, due_period').eq('id', txTypeId).maybeSingle();
+        if (ttData) {
+            txTypeName = ttData.alias || ttData.name || txTypeName;
+            if (ttData.due_period !== null) duePeriodMonths = Number(ttData.due_period);
         }
-        
+    }
+    
+    // 2. 🔥 KULLANICI TALEBİ: Eğer bu bir alt işlemse (parent'ı varsa), mailde Parent'ın (Ana İşlemin) alias değerini gösterelim!
+    if (transactionData && transactionData.parent_id) {
+        const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
+        if (pTx && pTx.transaction_type_id) {
+            const { data: pTtData } = await supabaseAdmin.from('transaction_types').select('name, alias').eq('id', pTx.transaction_type_id).maybeSingle();
+            if (pTtData && (pTtData.alias || pTtData.name)) {
+                txTypeName = pTtData.alias || pTtData.name;
+            }
+        }
+    }
+    
+    if (genelSonTarih === "-") {
         let calculatedGenelDate = new Date(tebligDate);
         calculatedGenelDate.setMonth(calculatedGenelDate.getMonth() + duePeriodMonths);
         let iterGenel = 0;
@@ -281,7 +298,6 @@ serve(async (req: Request) => {
             iterGenel++;
         }
         genelSonTarih = formatTR(calculatedGenelDate);
-        console.log(`[HANDLE_INDEXED] 📅 Tarih Manuel (Due Period: ${duePeriodMonths}) hesaplandı: ${genelSonTarih}`);
     }
 
     const formattedTeblig = formatTR(tebligDate);
@@ -311,7 +327,7 @@ serve(async (req: Request) => {
                 "{{basvuru_no}}": appNo,
                 "{{proje_adi}}": brandName,
                 "{{teblig_tarihi}}": formattedTeblig, 
-                "{{islem_turu_adi}}": record.description || txTypeId,
+                "{{islem_turu_adi}}": txTypeName,
                 "{{epats_evrak_no}}": record.document_number || "-",
                 "{{applicantNames}}": applicantNames,
                 "{{karar_sonucu_baslik}}": decisionAnalysis.resultText,
@@ -338,7 +354,7 @@ serve(async (req: Request) => {
     }
 
     if (finalTo.length === 0) {
-        finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
+        finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>İlgili müvekkilin (veya başvuru sahibinin) sistemde kayıtlı geçerli bir e-posta adresi veya bildirim yetkisi bulunamadı. Lütfen Kişiler menüsünden ayarları kontrol ediniz.</p>`;
     }
 
     let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");

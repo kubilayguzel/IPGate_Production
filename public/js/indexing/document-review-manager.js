@@ -725,40 +725,90 @@ export class DocumentReviewManager {
 
         try {
 
+            // 🔥 YENİ EKLENEN KISIM: 33 veya 34 için Type 20 Sorma Mantığı
             let overrideTaskId = null;
             const recOwnerType = this.matchedRecord.recordOwnerType || this.matchedRecord.record_owner_type;
             
             if (recOwnerType === 'third_party' && ['33', '34'].includes(String(childTypeId))) {
+                console.log("🔍 [DEBUG] 1. Transactions tablosundan Type 20 aranıyor...");
+                
                 const { data: type20Txs, error: t20Err } = await supabase
                     .from('transactions')
-                    .select('id, task_id, description, created_at, opposition_owner')
+                    .select('id, task_id, created_at')
                     .eq('ip_record_id', this.matchedRecord.id)
                     .eq('transaction_type_id', '20')
                     .not('task_id', 'is', null)
                     .order('created_at', { ascending: false });
 
                 if (!t20Err && type20Txs && type20Txs.length > 0) {
-                    if (type20Txs.length === 1) {
-                        overrideTaskId = type20Txs[0].task_id;
-                    } else {
+                    console.log("🔍 [DEBUG] 2. Bulunan Type 20 İşlemleri:", type20Txs);
+                    
+                    const taskIds = type20Txs.map(t => t.task_id);
+                    console.log("🔍 [DEBUG] 3. Tasks tablosunda aranacak Task ID'ler:", taskIds);
+
+                    const { data: tasksData, error: taskErr } = await supabase
+                        .from('tasks')
+                        .select('id, task_owner_id')
+                        .in('id', taskIds);
+
+                    console.log("🔍 [DEBUG] 4. Tasks tablosundan dönen veri:", tasksData);
+
+                    let personsData = [];
+                    if (!taskErr && tasksData && tasksData.length > 0) {
+                        const ownerIds = [...new Set(tasksData.map(t => t.task_owner_id).filter(id => id))];
+                        console.log("🔍 [DEBUG] 5. Persons tablosunda aranacak task_owner_id'ler:", ownerIds);
+                        
+                        if (ownerIds.length > 0) {
+                            const { data: pData, error: pErr } = await supabase
+                                .from('persons')
+                                .select('id, name')
+                                .in('id', ownerIds);
+                                
+                            if (pData) personsData = pData;
+                            console.log("🔍 [DEBUG] 6. Persons tablosundan dönen isimler:", personsData);
+                            if (pErr) console.error("🔍 [DEBUG] Persons sorgu hatası:", pErr);
+                        }
+                    }
+
+                    const validOptions = [];
+                    for (const tx of type20Txs) {
+                        const task = tasksData?.find(t => t.id === tx.task_id);
+                        if (task && task.task_owner_id) {
+                            const person = personsData.find(p => p.id === task.task_owner_id);
+                            
+                            // 🔥 Eğer persons tablosunda isim yoksa, boş çıkmasın diye ID'yi göstereceğiz.
+                            const displayName = person && person.name ? person.name : `İsimsiz Müvekkil (${task.task_owner_id.substring(0,8)}...)`;
+                            
+                            validOptions.push({
+                                task_id: tx.task_id,
+                                display_name: displayName,
+                                created_at: tx.created_at
+                            });
+                        }
+                    }
+
+                    console.log("🔍 [DEBUG] 7. Ekrana basılacak nihai Modal Listesi:", validOptions);
+
+                    if (validOptions.length === 1) {
+                        overrideTaskId = validOptions[0].task_id;
+                    } else if (validOptions.length > 1) {
                         overrideTaskId = await new Promise((resolve) => {
                             const modalHtml = `
                                 <div class="modal fade" id="type20SelectionModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
-                                    <div class="modal-dialog modal-dialog-centered" role="document">
+                                    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
                                         <div class="modal-content border-0 shadow-lg">
-                                            <div class="modal-header bg-warning text-dark border-0">
-                                                <h5 class="modal-title font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>İtiraz Dosyası Seçimi</h5>
+                                            <div class="modal-header bg-primary text-white border-0">
+                                                <h5 class="modal-title font-weight-bold"><i class="fas fa-users mr-2"></i>Müvekkil Seçimi</h5>
                                             </div>
                                             <div class="modal-body bg-light">
-                                                <p class="mb-3 text-muted">Bu evrak birden fazla <strong>Yayına İtiraz</strong> dosyasıyla ilişkili olabilir. Lütfen hangisi olduğunu seçin:</p>
+                                                <p class="mb-3 text-dark">Lütfen işlemi <strong>hangi müvekkil adına</strong> kaydetmek istediğinizi seçin:</p>
                                                 <div class="list-group shadow-sm">
-                                                    ${type20Txs.map(tx => `
-                                                        <button type="button" class="list-group-item list-group-item-action type20-select-btn" data-task-id="${tx.task_id}">
-                                                            <div class="d-flex w-100 justify-content-between">
-                                                                <h6 class="mb-1 font-weight-bold text-primary">${tx.opposition_owner || 'Belirtilmemiş İtiraz Sahibi'}</h6>
-                                                                <small>${new Date(tx.created_at).toLocaleDateString('tr-TR')}</small>
+                                                    ${validOptions.map(opt => `
+                                                        <button type="button" class="list-group-item list-group-item-action type20-select-btn" data-task-id="${opt.task_id}">
+                                                            <div class="d-flex w-100 justify-content-between align-items-center">
+                                                                <h6 class="mb-0 font-weight-bold text-primary"><i class="fas fa-user-tie mr-2"></i>${opt.display_name}</h6>
+                                                                <small class="text-muted">${new Date(opt.created_at).toLocaleDateString('tr-TR')}</small>
                                                             </div>
-                                                            <small class="text-muted">Görev ID: ${tx.task_id.substring(0,8)}...</small>
                                                         </button>
                                                     `).join('')}
                                                 </div>
@@ -792,7 +842,7 @@ export class DocumentReviewManager {
                         if (!overrideTaskId) {
                             saveBtn.disabled = false;
                             saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i> İndekslemeyi Tamamla';
-                            showNotification('İşlem iptal edildi. Evrakı kaydetmek için bir dosya seçmelisiniz.', 'warning');
+                            showNotification('İşlem iptal edildi.', 'warning');
                             return;
                         }
                     }

@@ -1766,16 +1766,14 @@ chrome.runtime?.onMessage?.addListener?.((request, sender, sendResponse) => {
   optsAlreadyProcessed = true;
   optsCurrentAppNo = appNo;
   
-  // Sayfa yüklenene kadar bekle
-  setTimeout(() => {
-    log('🚀 [OPTS] runOptsApplicationFlow başlatılıyor (hash fallback)');
-    runOptsApplicationFlow(appNo);
-  }, 2000);
+  // 🔥 DÜZELTME 1: OPTS için 2 saniyelik beklemeyi (setTimeout) tamamen kaldırdık. Anında tetiklenir!
+  log('🚀 [OPTS] runOptsApplicationFlow başlatılıyor (hash fallback)');
+  runOptsApplicationFlow(appNo);
 })();
 
-// OPTS için başvuru no akışı - Sadece scraping yapar (input doldurma YOK)
+// OPTS için başvuru no akışı - Kutucuğu bulur, yazar ve butona basar! (HIZLANDIRILDI 🚀)
 async function runOptsApplicationFlow(appNo) {
-  log('🚀 [OPTS] Scraping akışı başladı:', appNo);
+  log('🚀 [OPTS] Hızlı Scraping ve Arama akışı başladı:', appNo);
   
   if (!appNo) {
     err('[OPTS] appNo parametresi boş!');
@@ -1783,22 +1781,49 @@ async function runOptsApplicationFlow(appNo) {
   }
   
   try {
-    // Fraud modal varsa kapat
-    await closeFraudModalIfAny().catch(() => {});
+    // 🔥 DÜZELTME 2: OPTS sayfasında pop-up çıkmadığı için bu bekleme mantığını sildik! (Sıfır gecikme)
     
-    // Direkt sonuçları bekle ve scrape et
-    // OPTS sayfası hash ile açıldığında sonuçlar zaten yüklü oluyor
+    log('[OPTS] 🔎 Başvuru Numarası kutucuğu aranıyor...');
+    
+    // 🔥 DÜZELTME 3: Küçük/büyük harf ayrımını kaldırdık ("i" flag) ve bekleme süresini kıstık.
+    let appInput = await waitFor('input[placeholder*="numarası" i], input.MuiInputBase-input[type="text"]', { timeout: 3000 }).catch(()=>null);
+
+    if (!appInput) {
+        err('[OPTS] ❌ Başvuru Numarası input alanı bulunamadı!');
+        sendToOpener('HATA_OPTS', { message: 'Başvuru Numarası alanı sayfada bulunamadı.' });
+        return;
+    }
+
+    // Butonu bul
+    let container = appInput.closest('form') || document.body;
+    let sorgulaBtn = Array.from(container.querySelectorAll('button')).find(b => /sorgula|ara\b/i.test(b.textContent || '')) 
+                     || container.querySelector('button[aria-label="search"], button[aria-label="Ara"]') 
+                     || container.querySelector('svg[data-testid="SearchIcon"]')?.closest('button');
+
+    // Değeri Input'a Yaz ve Tıkla
+    appInput.focus();
+    setReactInputValue(appInput, String(appNo));
+    log('[OPTS] Numarayı inputa yazdı:', appNo);
+
+    await sleep(100); // React'ın state güncellemesi için saliselik bekleme
+
+    if (sorgulaBtn && click(sorgulaBtn)) {
+        log('[OPTS] Sorgula butonuna tıklandı. ✔');
+    } else {
+        pressEnter(appInput);
+        log('[OPTS] Enter tuşuna basıldı. ✔');
+    }
+
+    // Sonuçları bekle ve scrape et
     log('[OPTS] Sonuçlar bekleniyor ve scrape edilecek...');
     await waitForOptsResultsAndScrape(appNo); 
     
   } catch (error) {
     err('[OPTS] ❌ Genel hata:', error);
-    
-    // Hata mesajını sadece 1 kez gönder
     const errorKey = `ERROR_${optsCurrentAppNo || appNo}`;
     if (!__EVREKA_SENT_ERR_MAP__[errorKey]) {
       __EVREKA_SENT_ERR_MAP__[errorKey] = true;
-      sendToOpener('HATA_OPTS', { message: error.message || 'OPTS scraping hatası' });
+      sendToOpener('HATA_OPTS', { message: error.message || 'OPTS arama/scraping hatası' });
     }
   }
 }

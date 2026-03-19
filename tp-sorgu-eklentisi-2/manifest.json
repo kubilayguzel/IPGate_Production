@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Evreka IP - TÜRKPATENT Sorgu Yardımcısı",
-  "version": "2.2.10",
+  "version": "2.2.11",
   "description": "Evreka IP uygulamasından TÜRKPATENT üzerinde otomatik sorgulama yapar.",
   "permissions": [],
   "host_permissions": [
@@ -34,7 +34,9 @@
     "https://ip-manager-production-aab4b.web.app/*",
     "https://ip-manager-production-aab4b.firebaseapp.com/*",
     "https://ipgate-31bd2.web.app/*",
-    "https://ipgate-31bd2.firebaseapp.com/*"
+    "https://ipgate-31bd2.firebaseapp.com/*",
+    "https://ipgate.evrekagroup.com/*",
+    "https://ipgate-supa-test.web.app/*"
     ]
   }
 }

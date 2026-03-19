@@ -129,7 +129,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const allowedOrigins = [
           'http://localhost',
           'https://ip-manager-production-aab4b.web.app',
-          'https://kubilayguzel.github.io'
+          'https://kubilayguzel.github.io',
+          "https://ipgate.evrekagroup.com/",
+          "https://ipgate-supa-test.web.app/"
         ];
         
         const tabUrl = tab.url || '';

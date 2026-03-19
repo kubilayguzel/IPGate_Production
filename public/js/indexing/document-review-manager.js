@@ -724,6 +724,81 @@ export class DocumentReviewManager {
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> İşleniyor...';
 
         try {
+
+            let overrideTaskId = null;
+            const recOwnerType = this.matchedRecord.recordOwnerType || this.matchedRecord.record_owner_type;
+            
+            if (recOwnerType === 'third_party' && ['33', '34'].includes(String(childTypeId))) {
+                const { data: type20Txs, error: t20Err } = await supabase
+                    .from('transactions')
+                    .select('id, task_id, description, created_at, opposition_owner')
+                    .eq('ip_record_id', this.matchedRecord.id)
+                    .eq('transaction_type_id', '20')
+                    .not('task_id', 'is', null)
+                    .order('created_at', { ascending: false });
+
+                if (!t20Err && type20Txs && type20Txs.length > 0) {
+                    if (type20Txs.length === 1) {
+                        overrideTaskId = type20Txs[0].task_id;
+                    } else {
+                        overrideTaskId = await new Promise((resolve) => {
+                            const modalHtml = `
+                                <div class="modal fade" id="type20SelectionModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+                                    <div class="modal-dialog modal-dialog-centered" role="document">
+                                        <div class="modal-content border-0 shadow-lg">
+                                            <div class="modal-header bg-warning text-dark border-0">
+                                                <h5 class="modal-title font-weight-bold"><i class="fas fa-exclamation-triangle mr-2"></i>İtiraz Dosyası Seçimi</h5>
+                                            </div>
+                                            <div class="modal-body bg-light">
+                                                <p class="mb-3 text-muted">Bu evrak birden fazla <strong>Yayına İtiraz</strong> dosyasıyla ilişkili olabilir. Lütfen hangisi olduğunu seçin:</p>
+                                                <div class="list-group shadow-sm">
+                                                    ${type20Txs.map(tx => `
+                                                        <button type="button" class="list-group-item list-group-item-action type20-select-btn" data-task-id="${tx.task_id}">
+                                                            <div class="d-flex w-100 justify-content-between">
+                                                                <h6 class="mb-1 font-weight-bold text-primary">${tx.opposition_owner || 'Belirtilmemiş İtiraz Sahibi'}</h6>
+                                                                <small>${new Date(tx.created_at).toLocaleDateString('tr-TR')}</small>
+                                                            </div>
+                                                            <small class="text-muted">Görev ID: ${tx.task_id.substring(0,8)}...</small>
+                                                        </button>
+                                                    `).join('')}
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer border-0 bg-light">
+                                                <button type="button" class="btn btn-secondary" id="cancelType20Selection">İptal Et</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                            
+                            document.body.insertAdjacentHTML('beforeend', modalHtml);
+                            const modalEl = $('#type20SelectionModal');
+                            modalEl.modal('show');
+
+                            document.querySelectorAll('.type20-select-btn').forEach(btn => {
+                                btn.addEventListener('click', function() {
+                                    const selectedTaskId = this.getAttribute('data-task-id');
+                                    modalEl.modal('hide');
+                                    setTimeout(() => { modalEl.remove(); resolve(selectedTaskId); }, 300);
+                                });
+                            });
+
+                            document.getElementById('cancelType20Selection').addEventListener('click', () => {
+                                modalEl.modal('hide');
+                                setTimeout(() => { modalEl.remove(); resolve(null); }, 300);
+                            });
+                        });
+
+                        if (!overrideTaskId) {
+                            saveBtn.disabled = false;
+                            saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i> İndekslemeyi Tamamla';
+                            showNotification('İşlem iptal edildi. Evrakı kaydetmek için bir dosya seçmelisiniz.', 'warning');
+                            return;
+                        }
+                    }
+                }
+            }
+
             const childTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(childTypeId));
             const parentTx = this.currentTransactions.find(t => String(t.id) === String(parentTxId));
             const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTx?.transaction_type_id || parentTx?.type));
@@ -824,6 +899,8 @@ export class DocumentReviewManager {
                 parentId: finalParentId,
                 description: childTypeObj.alias || childTypeObj.name,
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
+                // 🔥 YENİ EKLENEN SATIR: Bulunan/Seçilen Task ID'yi işleme bağlıyoruz
+                taskId: typeof overrideTaskId !== 'undefined' ? overrideTaskId : null,
                 documents: [{
                     name: this.pdfData.fileName || 'Resmi Yazı.pdf',
                     url: finalPdfUrl,

@@ -51,31 +51,13 @@ serve(async (req: Request) => {
 
     let transactionData = null;
     let taskId = null;
-
-    // 🔥 GÖREVLERİ (TASKS) SÜRECİN EN BAŞINDA ÇEKİYORUZ Kİ "TETİKLENDİ Mİ?" BİLELİM
-    const evalTasksRes = await supabaseAdmin.from('tasks').select('id, official_due_date').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
-    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
-
-    const { data: triggeredTasks } = await supabaseAdmin
-        .from('tasks')
-        .select('id, official_due_date')
-        .eq('transaction_id', transactionId)
-        .eq('status', 'awaiting_client_approval')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
-    const isTaskTriggered = evalTaskId || newTriggeredTaskId;
     
-    // --- AKILLI SOYAĞACI (LINEAGE) VE İZ SÜRME ALGORİTMASI ---
+    // --- SOYAĞACI (LINEAGE) ALGORİTMASI ---
     let oppositionOwner = "Belirtilmemiş";
     const lineageTxIds: string[] = []; 
-    let resolvedRootTaskId = null; // Kök görev ID'si (Type 20 Task ID)
 
     if (transactionId) {
         let currentTxId = transactionId;
-        let foundType20TaskId = null;
-        let foundType19TxId = null;
         
         const { data: firstTx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
         if (firstTx) {
@@ -84,14 +66,10 @@ serve(async (req: Request) => {
             if (!txTypeId) txTypeId = String(firstTx.transaction_type_id || firstTx.type || '');
         }
 
-        // 1. AŞAMA: NORMAL TIRMANMA VE EVRAK TOPLAMA
         while (currentTxId) {
-            // Evrak kuralı: Yalnızca işlem 38 veya 27 ise tüm ebeveynlerin evraklarını al
-            if (currentTxId === transactionId || ['38', '27'].includes(txTypeId)) {
-                if (!lineageTxIds.includes(currentTxId)) lineageTxIds.push(currentTxId);
-            }
-
-            const { data: txData } = await supabaseAdmin.from('transactions').select('id, transaction_type_id, opposition_owner, parent_id, task_id').eq('id', currentTxId).single();
+            lineageTxIds.push(currentTxId);
+            const { data: txData } = await supabaseAdmin.from('transactions').select('opposition_owner, parent_id, task_id').eq('id', currentTxId).single();
+            
             if (!txData) break;
             
             if (!taskId && txData.task_id) taskId = txData.task_id;
@@ -100,51 +78,17 @@ serve(async (req: Request) => {
                 oppositionOwner = txData.opposition_owner;
             }
 
-            // Kök Görev (Root Task) Tespiti İçin Type 20 ve 19'u izle
-            if (txData.transaction_type_id === '20' && !foundType20TaskId) {
-                foundType20TaskId = txData.task_id;
-            } else if (txData.transaction_type_id === '19' && !foundType19TxId && !foundType20TaskId) {
-                foundType19TxId = txData.id;
-            }
-
-            if (txData.parent_id) {
+            if (['38', '27'].includes(txTypeId) && txData.parent_id) {
                 currentTxId = txData.parent_id;
             } else {
                 break;
             }
         }
+    }
 
-        const isPortfolio = viewData?.record_owner_type === 'self';
-
-        // 2. AŞAMA: ÜÇÜNCÜ TARAF (RAKİP) VE GÖREVSİZ İŞLEMLER İÇİN MÜVEKKİL İZ SÜRME ALGORİTMASI
-        if (!isPortfolio && !isTaskTriggered) {
-            if (foundType20TaskId) {
-                // Durum 1: Soyağacında zaten doğrudan Ana İşlem (Type 20) bulundu.
-                resolvedRootTaskId = foundType20TaskId;
-                console.log(`[HANDLE_INDEXED] 🕵️‍♂️ Doğrudan Kök Type 20 bulundu. Task ID: ${resolvedRootTaskId}`);
-            } else if (foundType19TxId) {
-                // Durum 2: Soyağacında Type 19 bulundu. (İstisnai Sıçrama Algoritması)
-                console.log(`[HANDLE_INDEXED] 🕵️‍♂️ Type 19 tespit edildi. Sıçrama algoritması başlatılıyor...`);
-                // Adım 1: Type 19'un Task'ını bul
-                const { data: tx19 } = await supabaseAdmin.from('transactions').select('task_id').eq('id', foundType19TxId).single();
-                if (tx19 && tx19.task_id) {
-                    // Adım 2: O Task'ı tetikleyen alt işlemi (child transaction) bul
-                    const { data: task19 } = await supabaseAdmin.from('tasks').select('transaction_id').eq('id', tx19.task_id).single();
-                    if (task19 && task19.transaction_id) {
-                        // Adım 3: O alt işlemin parent'ını (Yani Ana Type 20'yi) bul
-                        const { data: triggerTx } = await supabaseAdmin.from('transactions').select('parent_id').eq('id', task19.transaction_id).single();
-                        if (triggerTx && triggerTx.parent_id) {
-                            // Adım 4: O Type 20'nin task_id'sini (Kök Görevi) al!
-                            const { data: tx20 } = await supabaseAdmin.from('transactions').select('task_id').eq('id', triggerTx.parent_id).single();
-                            if (tx20 && tx20.task_id) {
-                                resolvedRootTaskId = tx20.task_id;
-                                console.log(`[HANDLE_INDEXED] 🎯 Sıçrama başarılı! Ana Type 20 Görevi (Task ID: ${resolvedRootTaskId}) bulundu.`);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if (taskId) {
+        const { data: checkTask } = await supabaseAdmin.from('tasks').select('id').eq('id', taskId).maybeSingle();
+        if (!checkTask) taskId = null;
     }
 
     const brandName = viewData?.brand_name || "-";
@@ -166,13 +110,11 @@ serve(async (req: Request) => {
 
         const ipType = viewData?.ip_type || 'trademark';
 
-        // Müvekkili (Task Owner) öncelikle gönderilen garantili Task ID üzerinden bul
         if (currentTaskId) {
             const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
             if (taskData && taskData.task_owner_id) personIds.push(String(taskData.task_owner_id));
         }
 
-        // Eğer hala görev veya müvekkil yoksa, o zaman applicants verisine bak
         if (personIds.length === 0 && viewData?.applicants_json) {
             let parsedApplicants = [];
             try { parsedApplicants = typeof viewData.applicants_json === 'string' ? JSON.parse(viewData.applicants_json) : viewData.applicants_json; } catch(e) {}
@@ -231,10 +173,23 @@ serve(async (req: Request) => {
         };
     }
 
-    // 🔥 Mail Alıcılarını Garantili Görev (Task) Üzerinden Bul
-    let taskForRecipients = evalTaskId || newTriggeredTaskId || resolvedRootTaskId || taskId;
-    const { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskForRecipients, txTypeId);
+    const { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskId, txTypeId);
 
+    // 🔥 GÖREVLERİ (TASKS) DAHA ERKEN ÇEKİYORUZ Kİ TARİHLERİ KULLANABİLELİM
+    const evalTasksRes = await supabaseAdmin.from('tasks').select('id, official_due_date').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
+    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
+
+    const { data: triggeredTasks } = await supabaseAdmin
+        .from('tasks')
+        .select('id, official_due_date')
+        .eq('transaction_id', transactionId)
+        .eq('status', 'awaiting_client_approval')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
+
+    // 🔥 ÇÖZÜM 1: GERÇEK GÖREV TARİHİNİ BULMA
     let taskOfficialDueDate = null;
     if (triggeredTasks && triggeredTasks.length > 0 && triggeredTasks[0].official_due_date) {
         taskOfficialDueDate = triggeredTasks[0].official_due_date;
@@ -245,6 +200,7 @@ serve(async (req: Request) => {
         if (mainTask && mainTask.official_due_date) taskOfficialDueDate = mainTask.official_due_date;
     }
 
+    // --- KARAR VE DAVA ANALİZİ ---
     let decisionAnalysis = {
         isLawsuitRequired: false,
         resultText: "-", statusText: "-", statusColor: "#333", 
@@ -286,6 +242,7 @@ serve(async (req: Request) => {
 
     if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
 
+    // 🔥 ÇÖZÜM 2: DAVA SON TARİHİ HESAPLAMASI (Sadece Dava ise 2 ay)
     let davaSonTarihi = "-";
     if (decisionAnalysis.isLawsuitRequired) {
         let calculatedDavaDate = new Date(tebligDate);
@@ -298,16 +255,19 @@ serve(async (req: Request) => {
         davaSonTarihi = formatTR(calculatedDavaDate);
     }
 
+    // 🔥 ÇÖZÜM 3: GENEL SON CEVAP TARİHİ (Öncelik Task Tarihi, yoksa Due Period, yoksa 2 ay)
     let genelSonTarih = "-";
     if (taskOfficialDueDate) {
         const d = new Date(taskOfficialDueDate);
         if (!isNaN(d.getTime())) {
             genelSonTarih = formatTR(d);
+            console.log(`[HANDLE_INDEXED] 📅 Tarih GÖREVDEN (Task) alındı: ${genelSonTarih}`);
         }
     } 
     
+    // Eğer görevden tarih gelmediyse (Manuel yedek hesaplama)
     if (genelSonTarih === "-") {
-        let duePeriodMonths = 2; 
+        let duePeriodMonths = 2; // Varsayılan
         if (txTypeId) {
             const { data: ttData } = await supabaseAdmin.from('transaction_types').select('due_period').eq('id', txTypeId).maybeSingle();
             if (ttData && ttData.due_period !== null) duePeriodMonths = Number(ttData.due_period);
@@ -321,6 +281,7 @@ serve(async (req: Request) => {
             iterGenel++;
         }
         genelSonTarih = formatTR(calculatedGenelDate);
+        console.log(`[HANDLE_INDEXED] 📅 Tarih Manuel (Due Period: ${duePeriodMonths}) hesaplandı: ${genelSonTarih}`);
     }
 
     const formattedTeblig = formatTR(tebligDate);
@@ -376,14 +337,17 @@ serve(async (req: Request) => {
         }
     }
 
+    if (finalTo.length === 0) {
+        finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
+    }
+
     let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
     const mailId = crypto.randomUUID();
     
     const mailPayload = {
         id: mailId, 
         related_ip_record_id: ipRecordId, 
-        // 🔥 Sihirli Dokunuş: taskForRecipients değişkeni, View'e doğru müvekkili gösterecek!
-        associated_task_id: taskForRecipients, 
+        associated_task_id: evalTaskId || newTriggeredTaskId || taskId, 
         source_document_id: record.id, 
         associated_transaction_id: transactionId,
         template_id: templateId, 

@@ -1,6 +1,6 @@
 // public/js/tp-file-transfer.js
 
-import { supabase, personService, ipRecordsService } from './supabase-config.js';
+import { supabase, personService, ipRecordsService } from './js/supabase-config.js';
 import { mapTurkpatentToIPRecord } from './turkpatent-mapper.js';
 
 function _el(id) { return document.getElementById(id); }

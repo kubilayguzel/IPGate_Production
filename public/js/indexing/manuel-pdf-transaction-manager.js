@@ -357,64 +357,128 @@ export class ManuelPdfTransactionManager {
         if (!container) return;
 
         const rawQuery = (queryText || '').trim();
-        if (rawQuery.length < 3) { container.style.display = 'none'; return; }
-
-        if (!this._isDataLoaded) {
-            container.innerHTML = '<div style="padding:10px; color:#e67e22;"><i class="fas fa-spinner fa-spin"></i> Veriler hazırlanıyor...</div>';
-            container.style.display = 'block';
-            return;
+        // En az 3 karakter girmeden arama yapma
+        if (rawQuery.length < 3) { 
+            container.style.display = 'none'; 
+            return; 
         }
 
-        const lowerQuery = rawQuery.toLowerCase();
-        let filteredPortfolio = this.allRecords.filter(r => {
-            const title = (r.title || r.markName || '').toLowerCase();
-            const appNo = String(r.applicationNumber || r.applicationNo || r.wipoIR || r.aripoIR || '').toLowerCase();
-            return title.includes(lowerQuery) || appNo.includes(lowerQuery);
-        }).map(r => ({ ...r, _isPortfolio: true }));
+        // Yükleniyor animasyonunu göster
+        container.innerHTML = '<div style="padding: 15px; text-align: center; color: #4e73df; font-weight: 600;"><i class="fas fa-spinner fa-spin mr-2"></i>Kayıtlar aranıyor...</div>';
+        container.style.display = 'block';
 
-        let filteredBulletins = [];
         try {
-            const { data: bData } = await supabase.from('bulletin_records').select('*')
-                .or(`brand_name.ilike.%${rawQuery}%,application_number.ilike.%${rawQuery}%`).limit(15);
-            
-            if (bData) {
-                bData.forEach(data => {
-                    const safeAppNo = String(data.application_number || '').replace(/[\s\/]/g, '');
-                    const inPortfolio = filteredPortfolio.some(p => String(p.applicationNumber || '').replace(/[\s\/]/g, '') === safeAppNo);
-                    if (!inPortfolio) {
-                        filteredBulletins.push({ 
-                            id: data.id, markName: data.brand_name, applicationNo: data.application_number,
-                            applicationDate: data.application_date, imagePath: data.image_path, _isBulletin: true 
-                        });
-                    }
+            // 1. ADIM: MÜŞTERİ PORTFÖYÜNDE (trademarks tablosu) ARA
+            const { data: portfolioData, error: pError } = await supabase
+                .from('trademarks')
+                .select('id, application_number, brand_name, origin, status, client_id, record_owner_type, applicants_json')
+                .or(`application_number.ilike.%${rawQuery}%,brand_name.ilike.%${rawQuery}%`)
+                .limit(10);
+
+            if (pError) console.error("Portföy arama hatası:", pError);
+
+            // 2. ADIM: YAYINLANAN BÜLTENLERDE (trademark_bulletin_records) ARA
+            const { data: bulletinData, error: bError } = await supabase
+                .from('trademark_bulletin_records')
+                .select('id, application_number, brand_name, bulletin_id, application_date, image_url')
+                .or(`application_number.ilike.%${rawQuery}%,brand_name.ilike.%${rawQuery}%`)
+                .limit(10);
+
+            if (bError) console.error("Bülten arama hatası:", bError);
+
+            // 3. ADIM: SONUÇLARI HARMANLA VE EKRANA ÇİZ
+            container.innerHTML = '';
+            let hasResults = false;
+
+            // --- Portföy Sonuçlarını Çiz ---
+            if (portfolioData && portfolioData.length > 0) {
+                hasResults = true;
+                container.innerHTML += `<div class="dropdown-header text-primary font-weight-bold bg-light border-bottom" style="padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;"><i class="fas fa-briefcase mr-1"></i> Müşteri Portföyü</div>`;
+                
+                portfolioData.forEach(record => {
+                    const item = document.createElement('div');
+                    item.className = 'search-result-item';
+                    item.style.cssText = `padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #eee; transition: background 0.2s;`;
+                    
+                    const title = record.brand_name || '(İsimsiz)';
+                    const appNo = record.application_number || '-';
+                    const originStr = record.origin || 'TR';
+
+                    // Tıklama efekti için hover olayı
+                    item.onmouseover = () => item.style.background = '#f8f9fa';
+                    item.onmouseout = () => item.style.background = 'transparent';
+
+                    item.innerHTML = `
+                        <div style="flex-grow: 1;">
+                            <div style="font-weight: 600; color: #1e3c72; margin-bottom: 3px;">${appNo}</div>
+                            <div style="font-size: 0.9em; color: #555;"><span class="text-truncate d-inline-block" style="max-width: 250px; vertical-align: bottom;">${title}</span> <span class="badge badge-light border ml-1">${originStr}</span></div>
+                        </div>`;
+                        
+                    // Tıklandığında ana fonksiyonunuza seçimi gönderin
+                    item.addEventListener('click', () => { 
+                        this.selectRecord({
+                            id: record.id,
+                            title: title,
+                            applicationNumber: appNo,
+                            origin: originStr,
+                            recordOwnerType: record.record_owner_type,
+                            client_id: record.client_id,
+                            applicants_json: record.applicants_json,
+                            _isBulletin: false // Portföy kaydı
+                        }); 
+                        container.style.display = 'none'; 
+                    });
+                    container.appendChild(item);
                 });
             }
-        } catch (err) {}
 
-        const finalResults = [...filteredPortfolio.slice(0, 15), ...filteredBulletins];
-        container.innerHTML = '';
-        container.style.display = 'block';
-        
-        if (finalResults.length === 0) { container.innerHTML = '<div style="padding:10px;">Kayıt bulunamadı.</div>'; return; }
-
-        finalResults.forEach(record => {
-            const item = document.createElement('div');
-            item.style.cssText = `display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid #eee; cursor: pointer;`;
-            
-            const title = record.markName || record.title || '(İsimsiz)';
-            const appNo = record.applicationNo || record.applicationNumber || record.wipoIR || '-';
-            const originStr = record.origin || (record._isBulletin ? 'TÜRKPATENT' : 'TR');
-            const badge = record._isBulletin ? '<span class="badge badge-warning mr-2">BÜLTEN</span>' : '<span class="badge badge-primary mr-2">PORTFÖY</span>';
-
-            item.innerHTML = `
-                <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #1e3c72;">${badge}${title}</div>
-                    <div style="font-size: 0.85em; color: #666;">${appNo} <span class="text-muted ml-1" style="font-size:0.9em;">(${originStr})</span></div>
-                </div>`;
+            // --- Bülten Sonuçlarını Çiz ---
+            if (bulletinData && bulletinData.length > 0) {
+                hasResults = true;
+                if (portfolioData && portfolioData.length > 0) container.innerHTML += `<div class="dropdown-divider my-0"></div>`;
+                container.innerHTML += `<div class="dropdown-header text-danger font-weight-bold bg-light border-bottom" style="padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;"><i class="fas fa-newspaper mr-1"></i> TPE Bülten Kayıtları</div>`;
                 
-            item.addEventListener('click', () => { this.selectRecord(record); container.style.display = 'none'; });
-            container.appendChild(item);
-        });
+                bulletinData.forEach(record => {
+                    const item = document.createElement('div');
+                    item.className = 'search-result-item';
+                    item.style.cssText = `padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #eee; transition: background 0.2s;`;
+                    
+                    const title = record.brand_name || '(İsimsiz)';
+                    const appNo = record.application_number || '-';
+
+                    item.onmouseover = () => item.style.background = '#fff5f5';
+                    item.onmouseout = () => item.style.background = 'transparent';
+
+                    item.innerHTML = `
+                        <div style="flex-grow: 1;">
+                            <div style="font-weight: 600; color: #e74a3b; margin-bottom: 3px;">${appNo}</div>
+                            <div style="font-size: 0.9em; color: #555;"><span class="text-truncate d-inline-block" style="max-width: 200px; vertical-align: bottom;">${title}</span> <span class="badge badge-secondary ml-1 float-right mt-1">Bülten: ${record.bulletin_id || '-'}</span></div>
+                        </div>`;
+                        
+                    // Tıklandığında bülten kaydını mevcut yapıya uygun olarak gönder
+                    item.addEventListener('click', () => { 
+                        this.selectRecord({
+                            id: record.id,
+                            title: title,
+                            applicationNumber: appNo,
+                            applicationDate: record.application_date,
+                            imagePath: record.image_url,
+                            _isBulletin: true // Tıklanınca bülteni portföye eklemesini sağlayacak tetikleyici
+                        }); 
+                        container.style.display = 'none'; 
+                    });
+                    container.appendChild(item);
+                });
+            }
+
+            if (!hasResults) {
+                container.innerHTML = '<div style="padding: 15px; text-align: center; color: #858796;">Bu kriterlere uygun kayıt bulunamadı.</div>';
+            }
+
+        } catch (error) {
+            console.error("Arama motoru hatası:", error);
+            container.innerHTML = '<div style="padding: 15px; text-align: center; color: #e74a3b;"><i class="fas fa-exclamation-circle mr-1"></i> Arama sırasında bir hata oluştu.</div>';
+        }
     }
 
     async selectRecord(record) {

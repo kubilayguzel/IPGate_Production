@@ -59,14 +59,15 @@
     .search-result-item:hover { background: #f8f9fa !important; }
     .empty-state { color: #6c757d; text-align: center; padding: 20px; }
 
-    /* Bulk tablo (portföy sayfası ile uyumlu, sade Bootstrap üstünde) */
-    .tp-results-table { width: 100%; }
-    .tp-results-table th, .tp-results-table td { vertical-align: middle; white-space: nowrap; }
-    .tp-results-table th { background: #f1f4f8; color: #1e3c72; font-weight: 700; border-top: none !important; }
-    .tp-results-table tbody tr:hover { background: #f9fbff; }
+/* Bulk tablo (portföy sayfası ile uyumlu, sade Bootstrap üstünde) */
+.tp-results-table { width: 100%; }
+.tp-results-table th, .tp-results-table td { vertical-align: middle; white-space: nowrap; }
+.tp-results-table th { background: #f1f4f8; color: #1e3c72; font-weight: 700; border-top: none !important; }
+.tp-results-table tbody tr:hover { background: #f9fbff; }
+
 /* Sahip Scraping Sonuçları Tablo Stilleri - ESNEKLİK */
 .tp-results-table {
-  table-layout: auto !important; /* Otomatik genişlik hesaplama */
+  table-layout: auto !important; 
   width: 100% !important;
   max-width: 100% !important;
 }
@@ -81,83 +82,94 @@
 .tp-results-table th,
 .tp-results-table td {
   padding: 8px 12px !important;
-  vertical-align: top !important;
+  vertical-align: middle !important; /* Logolarla metinleri dikeyde ortalar */
   word-wrap: break-word !important;
   overflow-wrap: break-word !important;
   white-space: normal !important;
   line-height: 1.3 !important;
 }
 
-/* SABİT GENIŞLIK - Sadece dar kolonlar için */
+/* 1. KOLON: Checkbox */
 .tp-results-table th:nth-child(1),
 .tp-results-table td:nth-child(1) {
-  width: 50px !important;
-  min-width: 50px !important;
-  max-width: 50px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
   text-align: center !important;
   white-space: nowrap !important;
 }
 
+/* 2. KOLON: Görsel (YENİ) */
 .tp-results-table th:nth-child(2),
 .tp-results-table td:nth-child(2) {
-  width: 70px !important;
-  min-width: 70px !important;
-  max-width: 70px !important;
+  width: 65px !important;
+  min-width: 65px !important;
+  max-width: 65px !important;
   text-align: center !important;
-  white-space: nowrap !important;
 }
 
-/* MİNİMUM GENIŞLIK - İçerik adaptif */
+/* 3. KOLON: Başvuru Numarası (Esnetildi, üst üste binme çözüldü) */
 .tp-results-table th:nth-child(3),
 .tp-results-table td:nth-child(3) {
   min-width: 120px !important;
-  white-space: nowrap !important; /* Başvuru no kırılmasın */
+  white-space: nowrap !important; 
 }
 
+/* 4. KOLON: Marka Adı */
 .tp-results-table th:nth-child(4),
 .tp-results-table td:nth-child(4) {
-  min-width: 150px !important;
-  max-width: 300px !important; /* Çok uzarsa kırılsın */
+  min-width: 160px !important;
 }
 
+/* 5. KOLON: Marka Sahibi */
 .tp-results-table th:nth-child(5),
 .tp-results-table td:nth-child(5) {
-  min-width: 100px !important;
-  white-space: nowrap !important; /* Tarih kırılmasın */
+  min-width: 150px !important;
+  max-width: 250px !important; 
 }
 
+/* 6. KOLON: Vekil Bilgisi (YENİ) */
 .tp-results-table th:nth-child(6),
 .tp-results-table td:nth-child(6) {
-  min-width: 120px !important;
-  white-space: nowrap !important; /* Tescil no kırılmasın */
+  min-width: 140px !important;
+  max-width: 200px !important; 
 }
 
+/* 7. KOLON: Başvuru Tarihi */
 .tp-results-table th:nth-child(7),
 .tp-results-table td:nth-child(7) {
   min-width: 100px !important;
+  white-space: nowrap !important; 
 }
 
+/* 8. KOLON: Tescil No */
 .tp-results-table th:nth-child(8),
 .tp-results-table td:nth-child(8) {
   min-width: 120px !important;
+  white-space: nowrap !important; 
 }
 
-/* Tablo satırları */
-.tp-results-table tr {
-  min-height: 50px;
+/* 9. KOLON: Durumu */
+.tp-results-table th:nth-child(9),
+.tp-results-table td:nth-child(9) {
+  min-width: 140px !important;
+}
+
+/* 10. KOLON: Nice Sınıfları */
+.tp-results-table th:nth-child(10),
+.tp-results-table td:nth-child(10) {
+  min-width: 100px !important;
 }
 
 /* Responsive - küçük ekranlarda */
 @media (max-width: 1200px) {
-  .tp-results-table th:nth-child(4),
-  .tp-results-table td:nth-child(4) {
-    max-width: 200px !important;
-  }
+  .tp-results-table th:nth-child(5), .tp-results-table td:nth-child(5),
+  .tp-results-table th:nth-child(6), .tp-results-table td:nth-child(6) { max-width: 200px !important; }
 }
 
 @media (max-width: 768px) {
-  .tp-results-table th:nth-child(4),
-  .tp-results-table td:nth-child(4) {
+  .tp-results-table th:nth-child(5),
+  .tp-results-table td:nth-child(5) {
     max-width: 150px !important;
   }
   
@@ -228,9 +240,10 @@
       <div id="singleResultContainer" class="section-card hide">
         <div class="section-title">Sonuç</div>
         <div id="singleResultInner"></div>
+      </div>
 
-        <hr class="my-4">
-        <div class="section-title">İlgili Taraf Ekle/Yönet</div>
+      <div id="relatedPartyContainer" class="section-card hide">
+        <div class="section-title">İlgili Taraf Ekle/Yönet (Portföye Kaydedilecek Kişi)</div>
         <div class="form-group full-width">
           <label for="relatedPartySearchInput" class="form-label">Sistemdeki Kişilerden Ara</label>
           <div class="d-flex" style="gap:10px; align-items:flex-start;">
@@ -257,7 +270,6 @@
         </div>
       </div>
 
-      <!-- BULK RESULT LIST -->
       <div id="bulkResultsContainer" class="section-card hide">
         <div class="section-title">
           <div><strong>Toplu Sonuçlar</strong> <small class="text-muted" id="bulkMeta"></small></div>
@@ -270,18 +282,18 @@
             <thead>
               <tr>
                 <th><input type="checkbox" id="selectAllRecords" checked></th>
+                <th>Görsel</th>
                 <th>Başvuru Numarası</th>
                 <th>Marka Adı</th>
                 <th>Marka Sahibi</th>
-                <th>Başvuru Tarihi</th>
+                <th>Vekil Bilgisi</th> <th>Başvuru Tarihi</th>
                 <th>Tescil No</th>
                 <th>Durumu</th>
                 <th>Nice Sınıfları</th>
               </tr>
             </thead>
             <tbody id="bulkResultsBody">
-              <!-- doldurulacak -->
-            </tbody>
+              </tbody>
           </table>
         </div>
       </div>

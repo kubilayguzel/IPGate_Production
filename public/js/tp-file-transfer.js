@@ -22,6 +22,7 @@ const loadingEl = _el('loading');
 const bulkLoadingEl = _el('bulkLoading');
 const singleResultContainer = _el('singleResultContainer');
 const singleResultInner = _el('singleResultInner');
+const relatedPartyContainer = _el('relatedPartyContainer');
 
 // İlgili Taraf Elementleri
 const relatedPartySearchInput = _el('relatedPartySearchInput');
@@ -48,10 +49,29 @@ async function fetchPersons() {
 }
 
 function setupEventListeners() {
-  document.addEventListener('click', (e) => {
-    if (e.target.id === 'queryBtn' || e.target.id === 'bulkQueryBtn') { e.preventDefault(); handleQuery(); }
-    if (e.target.id === 'savePortfolioBtn') { e.preventDefault(); handleSaveToPortfolio(); }
-  });
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'queryBtn' || e.target.id === 'bulkQueryBtn') { e.preventDefault(); handleQuery(); }
+        if (e.target.id === 'savePortfolioBtn') { e.preventDefault(); handleSaveToPortfolio(); }
+    });
+
+    // 🔥 EKSİK OLAN VE EKLENMESİ GEREKEN KISIM: Arayüz Değiştirici 🔥
+    const transferRadios = document.querySelectorAll('input[name="transferOption"]');
+    transferRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+        const singleFields = _el('singleFields');
+        const bulkFields = _el('bulkFields');
+        
+        if (e.target.value === 'single') {
+            _showBlock(singleFields);
+            _hideBlock(bulkFields);
+            sahipNoInput.value = ''; // Gizlenen kutuyu temizle ki hata yapmasın
+        } else {
+            _hideBlock(singleFields);
+            _showBlock(bulkFields);
+            basvuruNoInput.value = ''; // Gizlenen kutuyu temizle ki hata yapmasın
+        }
+        });
+    });
 
   // İlgili Taraf Arama Dinleyicisi
   if (relatedPartySearchInput) {
@@ -177,21 +197,107 @@ function setupMessageListener() {
         const msg = event.data;
         if (!msg || msg.source !== 'tp-sorgu-eklentisi-2') return;
 
+        // 🔥 YENİ: Toplam sayı belli olduğunda yükleme metnini güncelle
+        if (msg.type === 'SORGU_BASLADI' && msg.data?.total) {
+            const bulkLoading = _el('bulkLoading');
+            const loadingText = bulkLoading?.querySelector('span.ml-2');
+            _showBlock(bulkLoading);
+            if (loadingText) {
+                loadingText.innerHTML = `<strong>TPE veritabanı tarandı.</strong> Toplam <b>${msg.data.total}</b> kayıt çekilmeye başlanıyor...`;
+            }
+        }
+
+        // 1. TEKİL SONUÇ GELDİĞİNDE
         if (msg.type === 'VERI_GELDI_BASVURU' || msg.type === 'VERI_GELDI_OPTS') {
             _hideBlock(loadingEl);
             _showBlock(singleResultContainer);
-
+            _showBlock(relatedPartyContainer); 
             const data = Array.isArray(msg.data) ? msg.data[0] : msg.data;
             if (!data) return;
-
             currentOwnerResults = [data]; 
             renderSingleResult(data);
         }
 
-        if (msg.type === 'HATA_BASVURU' || msg.type === 'HATA_OPTS') {
+        // 🔥 2. TOPLU (BATCH) SONUÇLAR GELDİĞİNDE - CANLI PROGRESS!
+        if (msg.type === 'BATCH_VERI_GELDI_KISI') {
+            const bulkLoading = _el('bulkLoading');
+            const bulkContainer = _el('bulkResultsContainer');
+            const { batch, isLastBatch, totalCompleted, totalExpected } = msg.data;
+            
+            // Yüzdelik İlerleme Güncellemesi
+            if (!isLastBatch) {
+                _showBlock(bulkLoading);
+                const loadingText = bulkLoading?.querySelector('span.ml-2');
+                if (loadingText) {
+                    let percent = Math.round((totalCompleted / totalExpected) * 100);
+                    loadingText.innerHTML = `<strong class="text-primary">%${percent}</strong> - Arka planda veriler çekiliyor (${totalCompleted} / ${totalExpected})...`;
+                }
+            } else {
+                _hideBlock(bulkLoading);
+                // Bir sonraki sorgu için metni sıfırla
+                const loadingText = bulkLoading?.querySelector('span.ml-2');
+                if (loadingText) loadingText.innerText = "Sonuçlar çekiliyor..."; 
+            }
+
+            _showBlock(bulkContainer);
+            _showBlock(relatedPartyContainer); 
+            
+            // Tablonun üstündeki ufak bilgi metni (Header Meta)
+            const metaEl = _el('bulkMeta');
+            if (metaEl) {
+                if (isLastBatch) {
+                    metaEl.innerHTML = `<span class="text-success" style="font-weight:600;"><i class="fas fa-check-circle"></i> Yükleme Tamamlandı (${totalCompleted} Kayıt)</span>`;
+                } else {
+                    metaEl.innerHTML = `<span class="text-primary" style="font-weight:600;"><i class="fas fa-spinner fa-spin"></i> İşleniyor (${totalCompleted} / ${totalExpected})</span>`;
+                }
+            }
+            
+            renderBulkBatch(batch);
+            
+            if (isLastBatch) {
+                const saveBtn = _el('savePortfolioBtn');
+                if (saveBtn) saveBtn.disabled = false;
+            }
+        }
+
+        if (msg.type === 'HATA_BASVURU' || msg.type === 'HATA_OPTS' || msg.type === 'HATA_KISI') {
             _hideBlock(loadingEl);
+            _hideBlock(_el('bulkLoading'));
             alert("Sorgulama Hatası: " + (msg.data?.message || 'Sonuç bulunamadı.'));
         }
+    });
+}
+
+// 🔥 YENİ EKLENEN KISIM: Tabloya Görselli Satır Ekleyen Fonksiyon
+function renderBulkBatch(batch) {
+    const tbody = _el('bulkResultsBody');
+    if (!tbody) return;
+    
+    // Eğer ilk paketse tabloyu temizle
+    if (currentOwnerResults.length === 0) tbody.innerHTML = '';
+
+    batch.forEach(item => {
+        currentOwnerResults.push(item); // Genel listeye ekle (Kaydederken kullanılacak)
+        const index = currentOwnerResults.length - 1;
+        
+        // 🔥 GÖRSEL HTML'İ HAZIRLANIYOR
+        const imgHtml = item.brandImageDataUrl 
+            ? `<img src="${item.brandImageDataUrl}" alt="Logo" style="width:45px; height:45px; object-fit:contain; border-radius:4px; border:1px solid #ddd; background:#fff;">` 
+            : `<div style="width:45px; height:45px; background:#f8f9fa; border-radius:4px; border:1px solid #ddd; display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:10px;">Yok</div>`;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="checkbox" class="record-checkbox" data-index="${index}" checked></td>
+            <td>${imgHtml}</td>
+            <td><strong>${item.applicationNumber || '-'}</strong></td>
+            <td>${item.brandName || '-'}</td>
+            <td style="white-space:normal; max-width:200px;">${item.ownerName || '-'}</td>
+            <td style="white-space:normal; max-width:200px;" class="text-muted">${item.agentInfo || '-'}</td> <td>${item.applicationDate || '-'}</td>
+            <td>${item.registrationNumber || '-'}</td>
+            <td><span class="badge badge-soft">${item.status || '-'}</span></td>
+            <td style="white-space:normal; max-width:200px;">${item.niceClasses || '-'}</td>
+        `;
+        tbody.appendChild(tr);
     });
 }
 
@@ -232,19 +338,55 @@ async function handleSaveToPortfolio() {
   
   let successCount = 0;
   
-  for (const record of selectedRecords) {
-      try {
-        const mappedRecord = await mapTurkpatentToIPRecord(record, relatedParties);        
-        if (!mappedRecord) continue;
-        
-        const result = await ipRecordsService.createRecordFromDataEntry(mappedRecord);
-        if (result.success) {
-            successCount++;
-        } else {
-            console.error("Kayıt veritabanına yazılamadı:", result.error);
-        }
-      } catch (error) { console.error('Kayıt işlenirken hata:', error); }
-  }
+    for (const record of selectedRecords) {
+        try {
+            const mappedRecord = await mapTurkpatentToIPRecord(record, relatedParties);        
+            if (!mappedRecord) continue;
+            
+            // 1. Ana Kaydı Oluştur
+            const result = await ipRecordsService.createRecordFromDataEntry(mappedRecord);
+            
+            if (result.success) {
+                // =======================================================
+                // 🔥 YENİ: SADECE SCRAPER'A ÖZEL TRANSACTION KAYDI
+                // Config'i bozmadan doğrudan bu sayfadan DB'ye yazıyoruz
+                // =======================================================
+                if (mappedRecord.transactions && mappedRecord.transactions.length > 0) {
+                    const txRows = mappedRecord.transactions.map(tx => {
+                        let typeId = tx.type || null;
+                        if (!typeId && tx.description && tx.description.toLowerCase().includes('başvuru')) {
+                            typeId = '2'; // Sistemdeki "Marka Başvurusu" tip ID'si
+                        }
+
+                        // Tarih formatını garantiye al
+                        let txDate = new Date().toISOString();
+                        if (tx.date) {
+                            const parsedDate = new Date(tx.date);
+                            if (!isNaN(parsedDate.getTime())) txDate = parsedDate.toISOString();
+                        }
+
+                        return {
+                            id: crypto.randomUUID(),
+                            ip_record_id: result.id, // Supabase'in yeni ürettiği dosya ID'si
+                            transaction_type_id: typeId,
+                            description: tx.description || 'Sistem Kaydı',
+                            transaction_date: txDate,
+                            transaction_hierarchy: 'parent'
+                        };
+                    });
+                    
+                    // İşlemleri (Transactions) doğrudan veritabanına ekle
+                    const { error: txError } = await supabase.from('transactions').insert(txRows);
+                    if (txError) console.error("İşlem geçmişi yazılamadı:", txError);
+                }
+                // =======================================================
+
+                successCount++;
+            } else {
+                console.error("Kayıt veritabanına yazılamadı:", result.error);
+            }
+        } catch (error) { console.error('Kayıt işlenirken hata:', error); }
+    }
  
   alert(`${successCount} kayıt başarıyla portföye eklendi.`);
   currentOwnerResults = [];
@@ -261,10 +403,12 @@ async function handleQuery() {
   if (basvuruNo && !sahipNo) {
     _showBlock(loadingEl);
     _hideBlock(singleResultContainer);
+    _hideBlock(relatedPartyContainer);
     window.open(`https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(basvuruNo)}`, '_blank');
   } else if (sahipNo && !basvuruNo) {
     _showBlock(bulkLoadingEl || loadingEl);
     _hideBlock(singleResultContainer);
+    _hideBlock(relatedPartyContainer);
     window.open(`https://www.turkpatent.gov.tr/arastirma-yap?form=trademark&auto_query=${encodeURIComponent(sahipNo)}&query_type=sahip&source=${encodeURIComponent(window.location.origin)}`, '_blank');
   } else {
     alert('Lütfen sadece bir alan doldurun.');

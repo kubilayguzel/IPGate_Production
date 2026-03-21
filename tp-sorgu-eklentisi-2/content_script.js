@@ -4,6 +4,15 @@
 console.log('[Evreka IP] ========== CONTENT SCRIPT LOADED ==========');
 console.log('[Evreka IP] URL:', window.location.href);
 
+// 🔥 GÜVENLİ ENJEKSİYON (CSP'Yİ BYPASS EDER)
+const script = document.createElement('script');
+script.src = chrome.runtime.getURL('inject.js');
+script.onload = function() {
+    this.remove(); // Kod sayfaya yüklendikten sonra <script> etiketini siler (İz bırakmaz)
+    console.log('[Evreka IP] ✅ inject.js sayfaya başarıyla yerleştirildi!');
+};
+(document.head || document.documentElement).appendChild(script);
+
 const TAG = '[Evreka IP]';
 let __EVREKA_SENT_OPTS_MAP__ = {};
 let __EVREKA_SENT_ERR_MAP__ = {};
@@ -125,13 +134,23 @@ async function closeFraudModalIfAny() {
 
 function fetchFromApi(appNo) {
     return new Promise((resolve) => {
+        // TIMEOUT EKLENDİ (Sonsuza kadar beklemesin diye)
+        const timeoutId = setTimeout(() => {
+            window.removeEventListener('message', listener);
+            console.error(`[Evreka IP] ❌ ZAMAN AŞIMI! API cevap vermedi: ${appNo}`);
+            resolve({ error: "TIMEOUT" });
+        }, 15000); // 15 Saniye bekleme süresi
+
         const listener = (event) => {
             if (event.data.type === 'FETCH_RESULT' && event.data.appNo === appNo) {
+                clearTimeout(timeoutId); // Cevap gelirse zamanlayıcıyı iptal et
                 window.removeEventListener('message', listener);
                 resolve(event.data);
             }
         };
         window.addEventListener('message', listener);
+        
+        console.log(`[Evreka IP] 🔍 API'ye soruluyor: ${appNo}`); // YENİ LOG
         window.postMessage({ type: 'FETCH_TRADEMARK_FILE', appNo: appNo }, '*');
     });
 }
@@ -148,7 +167,11 @@ async function processApiQueueWithBatching(baseRecords) {
     return new Promise((resolve) => {
         function processNext() {
             if (!isRunning) return;
-            if (completedCount >= total && activeRequests === 0) { resolve(); return; }
+            if (completedCount >= total && activeRequests === 0) { 
+                console.log(`[Evreka IP] 🎯 TÜM İŞLEMLER BİTTİ. Toplam: ${completedCount}`);
+                resolve(); 
+                return; 
+            }
 
             while (activeRequests < CONCURRENCY_LIMIT && currentIndex < total) {
                 const record = baseRecords[currentIndex++];
@@ -157,6 +180,8 @@ async function processApiQueueWithBatching(baseRecords) {
                 fetchFromApi(record.appNo).then(apiResponse => {
                     activeRequests--;
                     completedCount++;
+                    
+                    console.log(`[Evreka IP] 📨 Cevap Geldi (${record.appNo}):`, apiResponse);
 
                     if (apiResponse.error) {
                         if (apiResponse.error.includes('grecaptcha') || apiResponse.error === 'HUMAN_CHECK_ERROR') {
@@ -167,24 +192,44 @@ async function processApiQueueWithBatching(baseRecords) {
                         }
                         finalResults.push({ applicationNumber: record.appNo, brandName: record.brandName, applicationDate: record.applicationDate, status: record.status, details: { "Durumu": record.status } });
                     } else if (apiResponse.data && apiResponse.data.success) {
-                        const apiData = apiResponse.data.data; 
-                        const info = apiData.markInformation || {};
-                        const niceInfo = apiData.niceInformation || [];
+                        const apiData = apiResponse.data.payload?.item; 
                         
-                        const mappedData = {
-                            applicationNumber: info.applicationNo || record.appNo,
-                            brandName: info.markName || record.brandName,
-                            applicationDate: info.applicationDate || record.applicationDate,
-                            registrationNumber: info.registrationNo,
-                            status: info.state || record.status,
-                            brandImageDataUrl: info.figure ? (info.figure.startsWith('/9j/') ? 'data:image/jpeg;base64,' + info.figure : info.figure) : null,
-                            niceClasses: info.niceClasses,
-                            details: { "Durumu": record.status, "Tescil Numarası": info.registrationNo, "Tescil Tarihi": info.protectionDate, "Karar": info.state },
-                            goodsAndServicesByClass: niceInfo.map(n => ({ classNo: parseInt(n.niceCode), items: [n.niceDescription] })),
-                            transactions: (apiData.dossierInformation || []).flatMap(d => (d.dossierTransaction || []).map(tx => ({ date: tx.date, description: tx.transaction + " - " + (tx.description || '') })))
-                        };
-                        finalResults.push(mappedData);
-                    } else { finalResults.push({ applicationNumber: record.appNo, status: record.status }); }
+                        if (apiData) {
+                            const info = apiData.markInformation || {};
+                            const niceInfo = apiData.niceInformation || [];
+                            
+                            // 🔥 1. YENİLİK: Transaction (İşlem) Listesini Garantile
+                            let txList = (apiData.dossierInformation || []).flatMap(d => (d.dossierTransaction || []).map(tx => ({ date: tx.date, description: tx.transaction + " - " + (tx.description || '') })));
+                            const appDate = info.applicationDate || record.applicationDate;
+                            if (appDate) {
+                                // Listede zaten 'başvuru' geçmiyorsa en başa manuel ekle
+                                const hasAppTx = txList.some(t => (t.description || '').toLowerCase().includes('başvuru'));
+                                if (!hasAppTx) {
+                                    txList.unshift({ date: appDate, description: "Marka Başvurusu" });
+                                }
+                            }
+                            
+                            const mappedData = {
+                                applicationNumber: info.applicationNo || record.appNo,
+                                brandName: info.markName || record.brandName,
+                                ownerName: (info.holderInformation && info.holderInformation.length > 0) ? info.holderInformation.map(h => h.holderName).join(', ') : (info.holdName || record.brandName || ''),
+                                agentInfo: info.agentName ? (info.agentName + (info.agentInfo ? ' - ' + info.agentInfo : '')) : '',
+                                applicationDate: appDate,
+                                registrationNumber: info.registrationNo,
+                                status: info.state || record.status,
+                                brandImageDataUrl: info.figure ? (info.figure.startsWith('/9j/') ? 'data:image/jpeg;base64,' + info.figure : info.figure) : null,
+                                niceClasses: info.niceClasses,
+                                details: { "Durumu": record.status, "Tescil Numarası": info.registrationNo, "Tescil Tarihi": info.protectionDate, "Karar": info.state, "Vekil": info.agentName ? (info.agentName + (info.agentInfo ? ' - ' + info.agentInfo : '')) : '' },
+                                goodsAndServicesByClass: niceInfo.map(n => ({ classNo: parseInt(n.niceCode), items: [n.niceDescription] })),
+                                transactions: txList // 🔥 GARANTİLİ LİSTE BURAYA EKLENDİ
+                            };
+                            finalResults.push(mappedData);
+                        } else {
+                            finalResults.push({ applicationNumber: record.appNo, status: record.status }); 
+                        }
+                    } else { 
+                        finalResults.push({ applicationNumber: record.appNo, status: record.status }); 
+                    }
 
                     if (finalResults.length >= 50 || completedCount >= total) {
                         sendToOpener('BATCH_VERI_GELDI_KISI', { batch: [...finalResults], isLastBatch: completedCount >= total, totalCompleted: completedCount, totalExpected: total });
@@ -342,12 +387,20 @@ async function waitAndSendOwnerResults() {
   });
 
   log(`Tablodan ${baseRecords.length} adet başvuru numarası toplandı. API Yağmuru başlıyor...`);
+  
+  // 🔥 Sitenin progress bar'ı için toplam sayıyı fırlatıyoruz!
+  sendToOpener('SORGU_BASLADI', { total: baseRecords.length }); 
+  
   await processApiQueueWithBatching(baseRecords);
   log('✅ Tüm kayıtlar API üzerinden sessizce çekildi!');
 }
 
+let isOwnerFlowRunning = false;
 // 🔥 EKSİKTİ, EKLENDİ! Toplu Sorgulamayı Başlatan Ana Fonksiyon
 async function runOwnerFlow() {
+  if (isOwnerFlowRunning) return; // Zaten çalışıyorsa durdur
+  isOwnerFlowRunning = true;
+
   log('Sahip No akışı başladı:', targetKisiNo);
   if (!targetKisiNo) { warn('targetKisiNo boş; çıkış.'); return; }
   try { await closeFraudModalIfAny(); } catch {}
@@ -427,6 +480,12 @@ function scrapeOptsTableResults(rows, appNo) {
   item.status = item.fields['Durumu'] || item.fields['Karar'] || '';
   item.brandName = item.fields['Marka Adı'] || '';
   item.applicationNumber = normalizeAppNo(item.fields['Başvuru Numarası'] || item.applicationNumber);
+
+  // 🔥 2. YENİLİK: OPTS İçin Başvuru Transaction'ı
+  item.transactions = [];
+  if (item.applicationDate) {
+      item.transactions.push({ date: item.applicationDate, description: "Marka Başvurusu" });
+  }
 
   if (item.applicationNumber) {
     if (__EVREKA_SENT_OPTS_MAP__[item.applicationNumber]) return;

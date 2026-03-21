@@ -172,7 +172,8 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
     applicants: Array.isArray(selectedApplicants) ? selectedApplicants.map(a => ({ id: a.id })) : [],
     
     bulletinNo: bNo,
-    bulletinDate: formatDate(bDate)
+    bulletinDate: formatDate(bDate),
+    transactions: transactions
   };
 }
 

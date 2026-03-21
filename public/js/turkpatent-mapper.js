@@ -14,12 +14,11 @@ function parseDDMMYYYYToISO(s) {
 function formatDate(dateStr) { return parseDDMMYYYYToISO(dateStr); }
 function uniq(arr) { return Array.from(new Set(arr)); }
 
+// 🔥 KURAL 1: Sadece GEÇERSİZ veya RED yazıyorsa rejected yap! (Published veya diğerlerini sildik)
 export function mapStatusToUtils(turkpatentStatus) {
   if (!turkpatentStatus) return null;
   const s = turkpatentStatus.toString().trim().toUpperCase();
-  if (/GEÇERSİZ|RED/i.test(s)) return 'rejected';
-  if (/YAYIN|İLAN/i.test(s)) return 'published';
-  if (/TESCİL/i.test(s)) return 'registered';
+  if (/GEÇERSİZ|RED|RET|İPTAL/i.test(s)) return 'rejected';
   return null;
 }
 
@@ -68,7 +67,6 @@ function createGoodsAndServicesByClass(inputGSC, niceClassesStr, details) {
       if (!groupedByClass.has(classNo)) groupedByClass.set(classNo, []);
       groupedByClass.get(classNo).push(...items.flatMap(item => typeof item === 'string' ? item.split(/[\n.]/).map(s => s.trim()).filter(Boolean) : []));
     });
-    // 🔥 DÜZELTME: Veritabanı fonksiyonu "classNo" bekliyor
     return Array.from(groupedByClass.entries()).map(([classNo, items]) => ({ classNo: parseInt(classNo), items: [...new Set(items)] })).sort((a, b) => a.classNo - b.classNo);
   }
 
@@ -85,11 +83,9 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
   const finalAppNo = applicationNumber || details?.['Başvuru Numarası'] || null;
   const brandImageUrl = await uploadBrandImage(finalAppNo, brandImageDataUrl, imageSrc);
 
-  let registrationDate = turkpatentData.registrationDate ? formatDate(turkpatentData.registrationDate) : formatDate(details?.['Tescil Tarihi']);
-  if (!registrationDate && Array.isArray(transactions)) {
-    const regTx = transactions.find(tx => (tx?.description || tx?.action || '').toUpperCase().includes('TESCİL EDİLDİ'));
-    if (regTx?.date) registrationDate = formatDate(regTx.date);
-  }
+  // 🔥 İŞLEM GEÇMİŞİ (TRANSACTIONS) ARAMASI TAMAMEN KALDIRILDI. SADECE ALANLARI OKUYORUZ.
+  const registrationDate = turkpatentData.registrationDate ? formatDate(turkpatentData.registrationDate) : formatDate(details?.['Tescil Tarihi']);
+  const regNo = registrationNumber || details?.['Tescil Numarası'] || null;
 
   let calculatedRenewalDate = null;
   const topLevelRenewal = turkpatentData?.renewalDate || details?.['Yenileme Tarihi'];
@@ -101,14 +97,36 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
     if (!isNaN(baseDate.getTime())) { baseDate.setFullYear(baseDate.getFullYear() + 10); calculatedRenewalDate = baseDate.toISOString().split('T')[0]; }
   }
 
-  let turkpatentStatusText = details?.['Durumu'] || details?.['Karar'] || status;
+  // ==========================================
+  // 🔥 SİZİN KESİN DURUM (STATUS) ALGORİTMANIZ
+  // ==========================================
+  let turkpatentStatusText = details?.['Durumu'] || details?.['Karar'] || status || '';
+  
+  // 1. KURAL: GEÇERSİZ veya RED yazıyorsa anında rejected!
   let finalStatus = mapStatusToUtils(turkpatentStatusText); 
 
-  if (!finalStatus && registrationDate && calculatedRenewalDate) {
-    const graceEnd = new Date(calculatedRenewalDate); graceEnd.setMonth(graceEnd.getMonth() + 6); 
-    if (new Date() < graceEnd) finalStatus = 'registered'; 
+  if (!finalStatus) {
+    // 2. KURAL: Tescil Tarihi veya Tescil Numarası Varsa
+    if (registrationDate || regNo) {
+      if (calculatedRenewalDate) {
+        const graceEnd = new Date(calculatedRenewalDate); 
+        graceEnd.setMonth(graceEnd.getMonth() + 6); // 6 aylık lütuf süresi
+        if (new Date() < graceEnd) {
+          finalStatus = 'registered'; // Süre bitmediyse Tescilli
+        } else {
+          finalStatus = 'rejected'; // Süre bitmişse ve yenilenmemişse düştü
+        }
+      } else {
+        finalStatus = 'registered'; // Yenileme tarihi hesaplanamadı ama Tescil tarihi var
+      }
+    }
   }
-  if (!finalStatus) finalStatus = 'filed';
+
+  // 3. KURAL: İkisi de değilse Başvuru Aşamasındadır!
+  if (!finalStatus) {
+    finalStatus = 'filed';
+  }
+  // ==========================================
 
   // Bülten bilgisi çıkarma
   const get = (k) => details?.[k] ?? null;
@@ -137,7 +155,7 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
     recordOwnerType: 'self',
     applicationNumber: finalAppNo,
     applicationDate: formatDate(applicationDate || details?.['Başvuru Tarihi']),
-    registrationNumber: registrationNumber || details?.['Tescil Numarası'] || null,
+    registrationNumber: regNo,
     registrationDate: registrationDate,
     renewalDate: calculatedRenewalDate,
     createdFrom: 'turkpatent_scraper',
@@ -151,11 +169,8 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
 
     // 3. İlişkisel Diziler
     goodsAndServicesByClass: createGoodsAndServicesByClass(goodsAndServicesByClass, niceClasses, details),
-    
-    // 🔥 DÜZELTME: Supabase-config kişi dizisini { id: ... } objeleri olarak bekliyor
     applicants: Array.isArray(selectedApplicants) ? selectedApplicants.map(a => ({ id: a.id })) : [],
     
-    // 🔥 DÜZELTME: Supabase-config bülteni dizi değil "bulletinNo" ve "bulletinDate" olarak bekliyor
     bulletinNo: bNo,
     bulletinDate: formatDate(bDate)
   };

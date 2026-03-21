@@ -1634,22 +1634,85 @@ export const taskService = {
         const enrichedData = await this._enrichTasksWithRelations([taskData]);
         const task = enrichedData[0];
 
-        const [docsRes, histRes] = await Promise.all([
-            supabase.from('task_documents').select('*').eq('task_id', String(taskId)),
-            supabase.from('task_history').select('*').eq('task_id', String(taskId)).order('created_at', { ascending: true })
+        // 🔥 1. YENİLİK: Tahakkukun bağlı olduğu ana görevin ID'sini tespit et
+        // 🔥 DÜZELTME: Artık hem 'parent_task_id' hem de 'relatedTaskId' kontrol ediliyor!
+        const parentTaskId = task.details?.parent_task_id || task.details?.relatedTaskId || null;
+        
+        const taskIdsToFetch = [String(taskId)];
+        if (parentTaskId) taskIdsToFetch.push(String(parentTaskId));
+
+        // 🔥 2. YENİLİK: Hem mevcut görevin hem de ana görevin dokümanlarını çek
+        const [docsRes, histRes, parentTaskRes] = await Promise.all([
+            supabase.from('task_documents').select('*').in('task_id', taskIdsToFetch), 
+            supabase.from('task_history').select('*').eq('task_id', String(taskId)).order('created_at', { ascending: true }),
+            // Ana görevin tasks tablosundaki JSON belgelerini (ePATS) okumak için kendisini çek
+            parentTaskId ? supabase.from('tasks').select('*').eq('id', String(parentTaskId)).maybeSingle() : Promise.resolve({ data: null })
         ]);
 
+        // 🔥 3. YENİLİK: task_documents tablosundan gelen evrakları haritala
         task.documents = (docsRes.data || []).map(d => ({
-            id: d.id, name: d.document_name, url: d.document_url, downloadURL: d.document_url,
-            type: d.document_type, uploadedAt: d.uploaded_at,
+            id: d.id, 
+            name: d.task_id === String(taskId) ? d.document_name : `(Ana Görev) ${d.document_name}`, 
+            url: d.document_url, 
+            downloadURL: d.document_url,
+            type: d.document_type, 
+            uploadedAt: d.uploaded_at,
             storagePath: d.document_url?.includes('/public/') ? d.document_url.split('/public/')[1] : ''
         }));
+
+        // 🔥 4. YENİLİK: Ana Görev'in (Parent Task) JSON datası içindeki ePATS veya ekstra evrakları yakala
+        if (parentTaskRes.data) {
+            const pTask = parentTaskRes.data;
+            
+            // Senaryo A: Yeni ePATS belge yapısı (details.epatsDocument)
+            if (pTask.details && pTask.details.epatsDocument) {
+                const epats = pTask.details.epatsDocument;
+                if (!task.documents.some(d => d.url === epats.url)) {
+                    task.documents.push({
+                        id: crypto.randomUUID(),
+                        name: `(Ana Görev) ${epats.name || 'ePATS Belgesi'}`,
+                        url: epats.url,
+                        downloadURL: epats.url,
+                        type: epats.type || 'epats_document'
+                    });
+                }
+            }
+            
+            // Senaryo B: Eski ePATS belge yapısı (epats_doc_url)
+            if (pTask.epats_doc_url || pTask.epats_doc_download_url) {
+                const epatsUrl = pTask.epats_doc_url || pTask.epats_doc_download_url;
+                if (!task.documents.some(d => d.url === epatsUrl)) {
+                    task.documents.push({
+                        id: crypto.randomUUID(),
+                        name: `(Ana Görev) ${pTask.epats_doc_name || 'ePATS Belgesi'}`,
+                        url: epatsUrl,
+                        downloadURL: epatsUrl,
+                        type: 'epats_document'
+                    });
+                }
+            }
+
+            // Senaryo C: JSON içinde liste halinde tutulan ekstra belgeler (details.documents)
+            if (pTask.details && Array.isArray(pTask.details.documents)) {
+                pTask.details.documents.forEach(doc => {
+                    if (doc.url && !task.documents.some(d => d.url === doc.url)) {
+                        task.documents.push({
+                            id: crypto.randomUUID(),
+                            name: `(Ana Görev) ${doc.name || 'Belge'}`,
+                            url: doc.url,
+                            downloadURL: doc.url,
+                            type: doc.type || 'document'
+                        });
+                    }
+                });
+            }
+        }
 
         task.history = (histRes.data || []).map(h => ({
             id: h.id, action: h.action, userEmail: h.user_id, timestamp: h.created_at
         }));
 
-        // 🔥 İtiraz Sahibi (Opposition Owner) Bulma Mantığı (Temizlenmiş)
+        // 🔥 İtiraz Sahibi (Opposition Owner) Bulma Mantığı
         let oppositionOwner = null;
         try {
             const { data: subTrans } = await supabase

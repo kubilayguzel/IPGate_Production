@@ -266,7 +266,7 @@ serve(async (req) => {
                 const BATCH_SIZE = Math.max(25, Math.min(250, Math.floor(50000 / (monitoredMarks.length || 1))));
                 
                 // 🔥 DB'deki "488" formatına tam uyması için sadece rakamları alıyoruz
-                const rawBulletinNumber = selectedBulletinId.replace(/\D/g, ''); 
+                const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
                 console.log(`[Worker ${workerId}] İşlem başlatıldı. Hedef bülten no: ${rawBulletinNumber}, Başlangıç ID: ${lastId}`);
 
@@ -464,7 +464,7 @@ serve(async (req) => {
         const jobId = `job_${Date.now()}`;
         
         // 🔥 Nokta atışı hedef bülten ID
-        const rawBulletinNumber = selectedBulletinId.replace(/\D/g, '');
+        const rawBulletinNumber = String(selectedBulletinId).split('_')[0];
         console.log(`[Main Job] Başlatılıyor... Job ID: ${jobId}, Hedef Bülten No: ${rawBulletinNumber}`);
 
         const { count, error: countError } = await supabase

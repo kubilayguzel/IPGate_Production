@@ -239,7 +239,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     return { finalScore, positionalExactMatchScore }; 
 }
 
-// Zırhlı Kapanış ve Takılı Kalma Önleyici Fonksiyon
 async function markWorkerStatus(supabase: any, jobId: string, workerId: string | number, status: 'completed' | 'failed') {
     await supabase.from('search_progress_workers').update({ status }).eq('id', `${jobId}_w${workerId}`);
     
@@ -260,41 +259,36 @@ serve(async (req) => {
         const body = await req.json();
 
         // =========================================================================
-        // İŞÇİ MODU (Zincirleme Tarama)
+        // İŞÇİ MODU (Zincirleme Tarama ve Akıllı Döngü)
         // =========================================================================
         if (body.action === 'worker') {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                const BATCH_SIZE = Math.max(25, Math.min(250, Math.floor(50000 / (monitoredMarks.length || 1))));
+                // 🔥 BATCH_SIZE 1000'e kadar yükseltildi (Supabase limiti). Az marka gelirse çok kayıt çekerek HTTP istek sayısını düşürür.
+                const BATCH_SIZE = Math.max(100, Math.min(1000, Math.floor(50000 / (monitoredMarks.length || 1))));
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
-                // 1. Önce Veritabanından Kayıtları Çekiyoruz
-                const { data: hits, error } = await supabase
-                    .from('trademark_bulletin_records')
-                    .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                    .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
-                    .order('id')
-                    .gt('id', lastId)
-                    .limit(BATCH_SIZE);
-
-                if (error) throw error;
-
-                if (!hits || hits.length === 0) {
-                    console.log(`[Worker ${workerId}] Kayıt kalmadı, başarıyla kapanıyor.`);
-                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
-                    return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
-                }
-
-                // 🔥 SÜRE SAYACINI DB SORGUSUNDAN SONRA BAŞLAT: DB yavaşlasa bile süre hesabımıza girmez
-                const startTime = Date.now();
-                const CPU_TIME_LIMIT = 1500; 
+                console.log(`[Worker ${workerId}] Başlatıldı. Hedef: ${rawBulletinNumber}, BATCH: ${BATCH_SIZE}, Başlangıç ID: ${lastId}`);
 
                 const preparedMarks = monitoredMarks.map((mark: any) => {
-                    const rawName = mark.searchMarkName || mark.markName || mark.title || mark.trademarkName;
-                    const primaryName = (rawName && rawName !== "undefined" && rawName !== "null") ? String(rawName).trim() : 'İsimsiz Marka';
+                    // 🔥 YENİ KONTROL: search_mark_name dolu mu?
+                    const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
                     
-                    const alternatives = Array.isArray(mark.brandTextSearch) ? mark.brandTextSearch : [];
+                    // Eğer search_mark_name varsa SADECE onu kullan. Yoksa orijinal markName'e düş.
+                    const primaryName = validSearchMarkName 
+                        ? String(mark.searchMarkName).trim() 
+                        : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
+                    
+                    let alternatives = Array.isArray(mark.brandTextSearch) ? mark.brandTextSearch : [];
+                    
+                    // 🔥 KRİTİK GÜVENLİK: Eğer search_mark_name doluysa ve geçmişteki hatalı kayıtlardan dolayı 
+                    // 'brand_text_search' içine uzun marka adı gizlice sızmışsa, onu arama sepetinden zorla siliyoruz!
+                    if (validSearchMarkName && mark.markName) {
+                        const exactMarkName = String(mark.markName).trim().toLowerCase();
+                        alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
+                    }
+
                     const searchTerms = [primaryName, ...alternatives]
                         .filter(t => t && String(t).trim().length > 0 && String(t) !== "undefined")
                         .map(term => {
@@ -330,126 +324,160 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
-                let newLastId = lastId; // Fallback
+                const startTime = Date.now();
+                const CPU_TIME_LIMIT = 1500; 
+
+                let currentLastId = lastId;
                 let actualProcessedCount = 0;
                 const uiResults = [];
                 const permanentRecords = []; 
+                let hasMoreRecords = true;
 
-                for (let i = 0; i < hits.length; i++) {
-                    actualProcessedCount++;
-                    const hit = hits[i];
-                    newLastId = hit.id; // 🔥 Hangi kaydı işliyorsak LastID odur, atlama yapılmaz
-                    
-                    let rawHitClasses: string[] = [];
-                    if (Array.isArray(hit.nice_classes)) rawHitClasses = hit.nice_classes.map(String);
-                    else if (typeof hit.nice_classes === 'string') rawHitClasses = hit.nice_classes.split(/[^\d]+/);
-                    else if (hit.nice_classes) rawHitClasses = [String(hit.nice_classes)];
-                    
-                    const cleanClass = (c: any) => {
-                        const num = parseInt(String(c).replace(/\D/g, ''), 10);
-                        return isNaN(num) ? '' : num.toString();
-                    };
-                    
-                    const hitClasses = rawHitClasses.map(cleanClass).filter(Boolean);
-                    
-                    const rawHitName = String(hit.brand_name || '');
-                    const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, '').replace(/\s+/g, ' ').trim();
-                    const isHitMultiWord = rawHitName.trim().split(/\s+/).length > 1;
-                    const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
+                // 🔥 KESİN ÇÖZÜM: İşçi uyanıp işlemi çok hızlı bitirirse (Örn: 38 marka), 
+                // dışarı çıkıp HTTP isteği atmak yerine CPU süresi dolana kadar VERİ ÇEKMEYE DEVAM EDER!
+                while (Date.now() - startTime < 1000) {
+                    const { data: hits, error } = await supabase
+                        .from('trademark_bulletin_records')
+                        .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
+                        .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
+                        .order('id')
+                        .gt('id', currentLastId)
+                        .limit(BATCH_SIZE);
 
-                    for (const mark of preparedMarks) {
-                        const isValidDate = isValidBasedOnDate(hit.application_date, mark.applicationDate);
-                        if (!isValidDate) continue;
+                    if (error) throw error;
 
-                        let hasPoolMatch = mark.bypassClassFilter; 
+                    if (!hits || hits.length === 0) {
+                        hasMoreRecords = false;
+                        break; 
+                    }
 
-                        hitClasses.forEach((hc: string) => {
-                            if (mark.greenSet.has(hc)) { hasPoolMatch = true; }
-                            else if (mark.orangeSet.has(hc)) { hasPoolMatch = true; }
-                            else if (mark.blueSet.has(hc)) { hasPoolMatch = true; }
-                        });
+                    let batchBreak = false;
 
-                        for (const searchItem of mark.searchTerms) {
-                            let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && rawCleanedHitName.includes(searchItem.cleanedSearchName);
-
-                            if (!hasPoolMatch && !isExactPrefixSuffix) continue;
-
-                            const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
-                                searchItem.term, rawHitName, searchItem.cleanedSearchName, cleanedHitName
-                            );
-
-                            if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) continue;
-
-                            uiResults.push({
-                                job_id: jobId, 
-                                monitored_trademark_id: mark.id, 
-                                mark_name: hit.brand_name,
-                                application_no: hit.application_number, 
-                                nice_classes: Array.isArray(hit.nice_classes) ? hit.nice_classes.join(', ') : String(hit.nice_classes || ''), 
-                                similarity_score: finalScore,
-                                holders: typeof hit.holders === 'string' ? hit.holders : JSON.stringify(hit.holders), 
-                                image_path: hit.image_url
-                            });
-
-                            permanentRecords.push({
-                                id: `${mark.id}_${hit.id}`, 
-                                monitored_trademark_id: mark.id,
-                                bulletin_record_id: hit.id,
-                                similarity_score: finalScore,
-                                is_earlier: false, 
-                                matched_term: searchItem.term, 
-                                source: 'auto',
-                                is_similar: false
-                            });
+                    for (let i = 0; i < hits.length; i++) {
+                        if (Date.now() - startTime > CPU_TIME_LIMIT && i < hits.length - 1) {
+                            currentLastId = i > 0 ? hits[i - 1].id : hits[0].id; 
+                            console.log(`[Worker ${workerId}] CPU limiti aşıldı, ${currentLastId} id'sinde duraklatıldı.`);
+                            batchBreak = true;
                             break;
+                        }
+
+                        actualProcessedCount++;
+                        const hit = hits[i];
+                        currentLastId = hit.id;
+                        
+                        let rawHitClasses: string[] = [];
+                        if (Array.isArray(hit.nice_classes)) rawHitClasses = hit.nice_classes.map(String);
+                        else if (typeof hit.nice_classes === 'string') rawHitClasses = hit.nice_classes.split(/[^\d]+/);
+                        else if (hit.nice_classes) rawHitClasses = [String(hit.nice_classes)];
+                        
+                        const cleanClass = (c: any) => {
+                            const num = parseInt(String(c).replace(/\D/g, ''), 10);
+                            return isNaN(num) ? '' : num.toString();
+                        };
+                        
+                        const hitClasses = rawHitClasses.map(cleanClass).filter(Boolean);
+                        
+                        const rawHitName = String(hit.brand_name || '');
+                        const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, '').replace(/\s+/g, ' ').trim();
+                        const isHitMultiWord = rawHitName.trim().split(/\s+/).length > 1;
+                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
+
+                        for (const mark of preparedMarks) {
+                            const isValidDate = isValidBasedOnDate(hit.application_date, mark.applicationDate);
+                            if (!isValidDate) continue;
+
+                            let hasPoolMatch = mark.bypassClassFilter; 
+
+                            hitClasses.forEach((hc: string) => {
+                                if (mark.greenSet.has(hc)) { hasPoolMatch = true; }
+                                else if (mark.orangeSet.has(hc)) { hasPoolMatch = true; }
+                                else if (mark.blueSet.has(hc)) { hasPoolMatch = true; }
+                            });
+
+                            for (const searchItem of mark.searchTerms) {
+                                let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && rawCleanedHitName.includes(searchItem.cleanedSearchName);
+
+                                if (!hasPoolMatch && !isExactPrefixSuffix) continue;
+
+                                const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
+                                    searchItem.term, rawHitName, searchItem.cleanedSearchName, cleanedHitName
+                                );
+
+                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) continue;
+
+                                uiResults.push({
+                                    job_id: jobId, 
+                                    monitored_trademark_id: mark.id, 
+                                    mark_name: hit.brand_name,
+                                    application_no: hit.application_number, 
+                                    nice_classes: Array.isArray(hit.nice_classes) ? hit.nice_classes.join(', ') : String(hit.nice_classes || ''), 
+                                    similarity_score: finalScore,
+                                    holders: typeof hit.holders === 'string' ? hit.holders : JSON.stringify(hit.holders), 
+                                    image_path: hit.image_url
+                                });
+
+                                permanentRecords.push({
+                                    id: `${mark.id}_${hit.id}`, 
+                                    monitored_trademark_id: mark.id,
+                                    bulletin_record_id: hit.id,
+                                    similarity_score: finalScore,
+                                    is_earlier: false, 
+                                    matched_term: searchItem.term, 
+                                    source: 'auto',
+                                    is_similar: false
+                                });
+                                break;
+                            }
                         }
                     }
 
-                    // 🔥 ZAMAN KONTROLÜ İŞLEMDEN SONRA YAPILIR (Sonsuz Döngü Koruması)
-                    if (Date.now() - startTime > CPU_TIME_LIMIT && i < hits.length - 1) {
-                        console.log(`[Worker ${workerId}] CPU limiti doldu, zincirleme çağrıya geçiliyor.`);
+                    if (batchBreak) break; // Süre bitti, döngüden çık
+                    
+                    if (hits.length < BATCH_SIZE) {
+                        hasMoreRecords = false; // Bülten sonuna gelindi
                         break;
                     }
+                } // DAHİLİ DÖNGÜ SONU
+
+                if (actualProcessedCount === 0 && !hasMoreRecords) {
+                    console.log(`[Worker ${workerId}] Kayıt kalmadı, başarıyla kapanıyor.`);
+                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
+                    return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
                 }
 
-                // 2. Veritabanına Yazma Aşaması
                 if (uiResults.length > 0) {
-                    console.log(`[Worker ${workerId}] ${uiResults.length} sonuç bulundu, parçalı yazılıyor...`);
-                    
+                    console.log(`[Worker ${workerId}] ${uiResults.length} sonuç bulundu, veritabanına yazılıyor...`);
                     const CHUNK_SIZE = 1000;
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
-                        const { error: insErr } = await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
-                        if (insErr) throw new Error("Arayüz sonuçları yazdırılamadı: " + insErr.message);
+                        await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
                     }
-                    
                     for (let i = 0; i < permanentRecords.length; i += CHUNK_SIZE) {
-                        const { error: permError } = await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
-                        if (permError) throw new Error("Kalıcı kayıtlar yazdırılamadı: " + permError.message);
+                        await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
                     }
-                    
                     const { data: jobData } = await supabase.from('search_progress').select('current_results').eq('id', jobId).single();
                     await supabase.from('search_progress').update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
                 }
 
-                // 3. İlerlemeyi Güncelle
                 const newProcessedCount = processedCount + actualProcessedCount;
                 const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
-                console.log(`[Worker ${workerId}] %${progressPercent} tamamlandı. Sonraki adıma geçiliyor.`);
+                if (hasMoreRecords) {
+                    console.log(`[Worker ${workerId}] %${progressPercent} tamamlandı. Sonraki blok için çağrı yapılıyor.`);
+                    EdgeRuntime.waitUntil(
+                        supabase.functions.invoke('perform-trademark-similarity-search', {
+                            body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: currentLastId, processedCount: newProcessedCount, totalBulletinRecords },
+                            headers: { Authorization: `Bearer ${supabaseKey}` }
+                        }).catch(async (err) => {
+                            console.error(`[Worker ${workerId}] Zincirleme çağrı başarısız oldu:`, err);
+                            await markWorkerStatus(supabase, jobId, workerId, 'failed');
+                        })
+                    );
+                } else {
+                    console.log(`[Worker ${workerId}] İşlemlerini tamamen bitirdi ve kapanıyor.`);
+                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
+                }
 
-                // 4. Sıradaki Partiyi Arka Planda Tetikle
-                EdgeRuntime.waitUntil(
-                    supabase.functions.invoke('perform-trademark-similarity-search', {
-                        body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: newLastId, processedCount: newProcessedCount, totalBulletinRecords },
-                        headers: { Authorization: `Bearer ${supabaseKey}` }
-                    }).catch(async (err) => {
-                        console.error(`[Worker ${workerId}] Zincirleme çağrı başarısız oldu:`, err);
-                        await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                    })
-                );
-
-                // 🔥 504 YEMEMEK İÇİN ZAMANINDA (1.5sn) YANIT VERİYORUZ
                 return new Response(JSON.stringify({ success: true, workerId }), { headers: corsHeaders });
 
             } catch (workerErr) {
@@ -479,11 +507,8 @@ serve(async (req) => {
         const totalRecords = count || 1;
         await supabase.from('search_progress').insert({ id: jobId, status: 'processing', current_results: 0, total_records: totalRecords });
         
-        // 🔥 AKILLI İŞÇİ SAYISI: Her 50 markaya 1 işçi düşecek şekilde ayarlar. Maksimum 10 işçi.
-        // Gelen 38 marka için sadece 1 işçi tetiklenir (Spam'ı ve 504'ü önler). 2000 marka gelirse 10 işçi tam güç çalışır.
-        const optimalWorkerCount = Math.ceil(monitoredMarks.length / 50);
-        const WORKER_COUNT = Math.max(1, Math.min(10, optimalWorkerCount));
-        
+        // 🔥 ESKİ KODDAKİ GİBİ HER ZAMAN 10 İŞÇİ ÇALIŞIR (Maksimum Paralellik ve Hız!)
+        const WORKER_COUNT = Math.min(10, monitoredMarks.length);
         const chunkSize = Math.ceil(monitoredMarks.length / WORKER_COUNT);
         
         const workerRecords = [];

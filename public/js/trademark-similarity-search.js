@@ -550,13 +550,16 @@ const createResultRow = (hit, rowIndex) => {
         applicationNo: hit.applicationNo || '' 
     }));
 
-    // Hangi marka arandıysa onun metinlerini (aranan kelimeleri) topla
+    // 🔥 Hangi marka arandıysa onun metinlerini (aranan kelimeleri) topla
     let searchKeywords = [];
-    if (monitoredTrademark.brandTextSearch && monitoredTrademark.brandTextSearch.length > 0) {
-        searchKeywords = monitoredTrademark.brandTextSearch;
+    if (monitoredTrademark.searchMarkName) {
+        searchKeywords.push(monitoredTrademark.searchMarkName);
     } else {
         const fallbackName = _pickName(null, monitoredTrademark);
         if (fallbackName && fallbackName !== '-') searchKeywords.push(fallbackName);
+    }
+    if (monitoredTrademark.brandTextSearch && monitoredTrademark.brandTextSearch.length > 0) {
+        searchKeywords.push(...monitoredTrademark.brandTextSearch);
     }
 
     // Sonuçtaki ibarenin neresi benzediğini soft bir highlight ile boya
@@ -621,7 +624,8 @@ const renderCurrentPageOfResults = () => {
 
         const [headerName, rawHeaderImg, appNo] = [_pickName(null, tmMeta), _pickImg(null, tmMeta), _pickAppNo(null, tmMeta)];
         const headerImg = _normalizeImageSrc(rawHeaderImg); // 🔥 DÜZELTME: Link formata çevrildi
-        const modalData = { id: tmMeta.id, ipRecordId: tmMeta.ipRecordId, markName: headerName, applicationNumber: appNo, owner: tmMeta.ownerName, niceClasses: getNiceClassNumbers(tmMeta), brandImageUrl: headerImg, brandTextSearch: tmMeta.brandTextSearch || [], niceClassSearch: tmMeta.niceClassSearch || [] };
+        // 🔥 ÇÖZÜM 2: Modala veri gönderirken 'searchMarkName' değerini de gönderiyoruz
+        const modalData = { id: tmMeta.id, ipRecordId: tmMeta.ipRecordId, markName: headerName, searchMarkName: tmMeta.searchMarkName, applicationNumber: appNo, owner: tmMeta.ownerName, niceClasses: getNiceClassNumbers(tmMeta), brandImageUrl: headerImg, brandTextSearch: tmMeta.brandTextSearch || [], niceClassSearch: tmMeta.niceClassSearch || [] };
         const imageHtml = headerImg ? `<div class="group-trademark-image"><div class="tm-img-box tm-img-box-sm"><img src="${headerImg}" class="group-header-img"></div></div>` : `<div class="group-trademark-image" data-header-appno="${appNo}"><div class="tm-img-box tm-img-box-sm tm-placeholder">?</div></div>`;
 
         const groupHeaderRow = document.createElement('tr');
@@ -829,7 +833,8 @@ const loadInitialData = async () => {
 
             const tmData = {
                 id: d.id, title: markName, markName: markName, 
-                applicationNo: ip.application_number || "-", applicationNumber: ip.application_number || "-", 
+                searchMarkName: d.search_mark_name || '', // 🔥 ÇÖZÜM 1: Veritabanından gelen asıl arama kriterini kaybetmemek için buraya ekliyoruz
+                applicationNo: ip.application_number || "-", applicationNumber: ip.application_number || "-",
                 applicationDate: ip.application_date, ipRecordId: d.ip_record_id, ownerName: ownerName,
                 brandTextSearch: ensureArray(d.brand_text_search), niceClassSearch: ensureArray(d.nice_class_search),
                 niceClasses: niceClassesArray, imagePath: details.brand_image_url || '', 
@@ -1425,6 +1430,8 @@ const createObjectionTasks = async (results, bulletinNo) => {
 
             if (invokeError || !taskResponse?.success) {
                 console.error("❌ Görev Oluşturulamadı:", invokeError || taskResponse?.error);
+            } else if (taskResponse.isDuplicate) {
+                console.log(`⚠️ Görev Zaten Mevcut: ${taskResponse.taskId}`);
             } else {
                 console.log(`✅ Görev, 3. Taraf Portföy ve Transaction Başarıyla Oluştu. Task ID: ${taskResponse.taskId}`);
                 createdTaskCount++;
@@ -1495,16 +1502,27 @@ const handleReportGeneration = async (event, options = {}) => {
             if (createTasks && reportData.length > 0) {
                 try {
                     const firstMark = reportData[0].monitoredMark;
-                    const targetRecordId = filteredResults[0].monitoredTrademarkId;
+                    const targetMonitoredId = filteredResults[0].monitoredTrademarkId;
                     
-                    let finalClientId = null;
-                    if (targetRecordId) {
-                        const { data: applicantData } = await supabase.from('ip_record_applicants').select('person_id').eq('ip_record_id', targetRecordId).order('order_index', { ascending: true }).limit(1).maybeSingle();
+                    // 🔥 ÇÖZÜM 1: Yanlış ID (İzleme ID'si) yerine gerçek IP Record ID'sini buluyoruz
+                    const monitoredTmObj = monitoringTrademarks.find(mt => mt.id === targetMonitoredId) || {};
+                    const realIpRecordId = monitoredTmObj.ipRecordId || null;
+
+                    let finalClientId = firstMark.clientId; 
+                    
+                    // Sistemde kayıtlı olmayan, sadece ismi bilinen sanal sahipler "owner_" ile başlar. Onları null yapıyoruz.
+                    if (String(finalClientId).startsWith('owner_')) {
+                        finalClientId = null;
+                    }
+
+                    // Eğer Client ID bulunamadıysa applicants tablosundan şansımızı gerçek IP Record ID ile deniyoruz
+                    if (!finalClientId && realIpRecordId) {
+                        const { data: applicantData } = await supabase.from('ip_record_applicants').select('person_id').eq('ip_record_id', realIpRecordId).order('order_index', { ascending: true }).limit(1).maybeSingle();
                         if (applicantData && applicantData.person_id) finalClientId = applicantData.person_id;
                     }
 
-                    // 1. 🔥 YENİ: Merkezi mailService ile TO ve CC Hesapla
-                    const mailRecipients = await mailService.resolveMailRecipients(targetRecordId, '20', finalClientId);
+                    // 🔥 Merkezi mailService'e artık DOĞRU ID'leri gönderiyoruz
+                    const mailRecipients = await mailService.resolveMailRecipients(realIpRecordId, '20', finalClientId);
                     const finalTo = mailRecipients.to || [];
                     const finalCc = mailRecipients.cc || [];
 
@@ -1552,8 +1570,8 @@ const handleReportGeneration = async (event, options = {}) => {
 
                     // 3. Veritabanına Kaydet (TO ve CC dahil)
                     const { data: insertedMail, error: mailError } = await supabase.from('mail_notifications').insert({
-                        id: crypto.randomUUID(), // <--- EKLENMESİ GEREKEN KRİTİK SATIR BURASI
-                        related_ip_record_id: targetRecordId,
+                        id: crypto.randomUUID(), 
+                        related_ip_record_id: realIpRecordId || targetMonitoredId, // 🔥 DÜZELTME: Eski değişken adını yeni doğru referanslarla değiştirdik
                         client_id: finalClientId,
                         dynamic_parent_context: JSON.stringify({ bulletin_no: bulletinNo, applicant_name: firstMark.ownerName }),
                         subject: subject,
@@ -1815,7 +1833,15 @@ async function openEditCriteriaModal(markData) {
     document.getElementById('modalTrademarkImage').src = _normalizeImageSrc(markData.brandImageUrl || '');
     document.getElementById('editCriteriaModal').dataset.markId = markData.id;
 
-    populateList(document.getElementById('brandTextSearchList'), markData.brandTextSearch || [], [markData.markName].filter(Boolean));
+    const permanentSearchTerm = markData.searchMarkName || markData.markName;
+    
+    // 🔥 YENİ: Geçmişteki hatalardan dolayı uzun marka adı brandTextSearch listesine sızmışsa, onu Modal'da UI listesinden temizle
+    let safeBrandTextSearch = markData.brandTextSearch || [];
+    if (markData.searchMarkName && markData.markName) {
+        safeBrandTextSearch = safeBrandTextSearch.filter(t => t.toLowerCase() !== markData.markName.toLowerCase());
+    }
+
+    populateList(document.getElementById('brandTextSearchList'), safeBrandTextSearch, [permanentSearchTerm].filter(Boolean));
     const niceContainer = document.getElementById('niceClassSelectionContainer'); niceContainer.innerHTML = '';
     for (let i = 1; i <= 45; i++) { const b = document.createElement('div'); b.className = 'nice-class-box'; b.textContent = i; b.dataset.classNo = i; niceContainer.appendChild(b); }
     populateNiceClassBoxes(markData.niceClassSearch || [], markData.niceClasses.map(String));
@@ -1881,26 +1907,55 @@ function setupEditCriteriaModal() {
 
 function populateNiceClassBoxes(selectedClasses, permanentClasses = []) {
     document.querySelectorAll('.nice-class-box').forEach(b => { b.classList.remove('selected', 'permanent-item'); });
-    const all = new Set([...selectedClasses.map(String), ...permanentClasses.map(String)]);
-    populateList(document.getElementById('niceClassSearchList'), [], permanentClasses.map(String));
+    
+    // 🔥 ÇÖZÜM 1: '09', ' 9 ' gibi tüm farklı formatları standart tekil rakama ('9') çeviriyoruz.
+    const cleanClass = val => String(parseInt(String(val).replace(/\D/g, ''), 10));
+    
+    const validSelected = selectedClasses.map(cleanClass).filter(c => !isNaN(c) && Number(c) >= 1 && Number(c) <= 45);
+    const validPermanent = permanentClasses.map(cleanClass).filter(c => !isNaN(c) && Number(c) >= 1 && Number(c) <= 45);
+    
+    const all = new Set([...validSelected, ...validPermanent]);
+    
+    // Sadece kalıcı olanları listeye ekleyerek başla (populateList zaten listeyi temizler)
+    populateList(document.getElementById('niceClassSearchList'), [], validPermanent);
+    
     all.forEach(cls => {
         const box = document.querySelector(`.nice-class-box[data-class-no="${cls}"]`);
-        if (box) { box.classList.add('selected'); if (permanentClasses.includes(cls)) box.classList.add('permanent-item'); addListItem(document.getElementById('niceClassSearchList'), cls, permanentClasses.includes(cls)); }
+        if (box) { 
+            box.classList.add('selected'); 
+            if (validPermanent.includes(cls)) {
+                box.classList.add('permanent-item'); 
+            } else {
+                // Sadece kalıcı olmayanları extra olarak ekle, çünkü kalıcıları yukarıda ekledik
+                addListItem(document.getElementById('niceClassSearchList'), cls, false);
+            }
+        }
     });
 }
 
 function addListItem(listElement, text, isPermanent = false) {
-    const existing = Array.from(listElement.querySelectorAll('.list-item-text')).map(el => el.textContent);
-    if (existing.includes(text)) return;
-    const li = document.createElement('li'); li.className = `list-group-item d-flex justify-content-between align-items-center ${isPermanent ? 'permanent-item' : ''}`;
-    li.innerHTML = `<span class="list-item-text">${text}</span><button type="button" class="btn btn-sm btn-danger remove-item">&times;</button>`;
+    // 🔥 ÇÖZÜM 2: Eklenen kelimelerin sağındaki solundaki boşlukları temizleyerek mükemmel eşleşme sağlıyoruz
+    const cleanText = String(text).trim();
+    if (!cleanText) return;
+    
+    const existing = Array.from(listElement.querySelectorAll('.list-item-text')).map(el => el.textContent.trim());
+    if (existing.includes(cleanText)) return; // Zaten varsa asla ekleme (Loop'u kıran satır)
+    
+    const li = document.createElement('li'); 
+    li.className = `list-group-item d-flex justify-content-between align-items-center ${isPermanent ? 'permanent-item' : ''}`;
+    li.innerHTML = `<span class="list-item-text">${cleanText}</span><button type="button" class="btn btn-sm btn-danger remove-item">&times;</button>`;
     listElement.appendChild(li);
 }
 
 function populateList(listElement, items, permanentItems = []) {
     listElement.innerHTML = '';
-    const all = new Set([...items.map(String), ...permanentItems.map(String)]);
-    all.forEach(item => addListItem(listElement, item, permanentItems.includes(item)));
+    
+    // 🔥 ÇÖZÜM 3: Gelen tüm dataları trim ile temizleyip Set ile tekilleştiriyoruz
+    const cleanItems = items.map(i => String(i).trim()).filter(Boolean);
+    const cleanPermanent = permanentItems.map(i => String(i).trim()).filter(Boolean);
+    
+    const all = new Set([...cleanItems, ...cleanPermanent]);
+    all.forEach(item => addListItem(listElement, item, cleanPermanent.includes(item)));
 }
 
 window.queryApplicationNumberWithExtension = (applicationNo) => {

@@ -73,6 +73,36 @@ serve(async (req) => {
             }
         }
 
+        // 🔥 ÇÖZÜM 2: MÜKERRER İŞ (DUPLICATE) KONTROLÜ
+        // Aynı müvekkil için, aynı bültendeki aynı rakip markaya zaten "Yayına İtiraz" işi açılmış mı?
+        const hitMarkName = similarMarkName || similarMark.markName || 'Bilinmeyen Marka';
+        
+        const duplicateSearchCriteria: any = {
+            bulletin_no: String(bulletinNo),
+            iprecordTitle: hitMarkName
+        };
+        // Eğer müvekkil belli ise, aramayı o müvekkile özel daralt (Farklı müvekkiller aynı rakibe itiraz edebilir)
+        if (clientId) {
+            duplicateSearchCriteria.relatedPartyId = clientId;
+        }
+
+        const { data: existingTasks } = await supabase
+            .from('tasks')
+            .select('id')
+            .eq('task_type_id', '20')
+            .contains('details', duplicateSearchCriteria)
+            .limit(1);
+
+        if (existingTasks && existingTasks.length > 0) {
+            console.log(`⚠️ Mükerrer Görev Engellendi. Mevcut Task ID: ${existingTasks[0].id}`);
+            return new Response(JSON.stringify({ 
+                success: true, 
+                taskId: existingTasks[0].id, 
+                message: "Bu görev zaten mevcut, tekrar oluşturulmadı.",
+                isDuplicate: true 
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        }
+        
         // 4. COUNTER MANTIĞI
         let taskId = crypto.randomUUID(); 
         try {
@@ -86,9 +116,7 @@ serve(async (req) => {
             }
             taskId = String(nextCount);
         } catch (e) { console.error("Sayaç okuma hatası:", e); }
-
-        const hitMarkName = similarMarkName || similarMark.markName || 'Bilinmeyen Marka';
-        
+     
         // 5. ÜÇÜNCÜ TARAF (THIRD PARTY) PORTFÖY KAYDINI OLUŞTUR
         const thirdPartyPortfolioId = thirdPartyIpRecordId || crypto.randomUUID();
         let hitImageUrl = bulletinRecordData?.imagePath || similarMark.imagePath || null;

@@ -708,6 +708,47 @@ const updateOwnerBasedPagination = () => {
     monitoringPagination.reset();
 };
 
+// 🔥 YENİ: Listede kalan markaların arama geçmişine göre butonları ayarlayan akıllı fonksiyon
+const updateSearchButtonsState = () => {
+    const startSearchBtn = document.getElementById('startSearchBtn');
+    const researchBtn = document.getElementById('researchBtn');
+    const btnGenerateReport = document.getElementById('btnGenerateReportAndNotifyGlobal');
+    const bulletinSelect = document.getElementById('bulletinSelect');
+    const infoMessageContainer = document.getElementById('infoMessageContainer');
+
+    if (!bulletinSelect || !bulletinSelect.value || filteredMonitoringTrademarks.length === 0) {
+        if (startSearchBtn) startSearchBtn.disabled = true;
+        if (researchBtn) researchBtn.disabled = true;
+        if (btnGenerateReport) btnGenerateReport.disabled = true;
+        if (infoMessageContainer) infoMessageContainer.innerHTML = '';
+        return;
+    }
+
+    const hasOriginal = bulletinSelect.options[bulletinSelect.selectedIndex]?.dataset?.hasOriginalBulletin === 'true';
+    const filteredIds = new Set(filteredMonitoringTrademarks.map(tm => tm.id));
+    
+    // Arayüzdeki (cache'deki) sonuçların içinde, ŞU AN FİLTRELENMİŞ markalara ait HİÇ sonuç var mı?
+    const hasExistingResultsForFiltered = allSimilarResults.some(r => filteredIds.has(r.monitoredTrademarkId));
+
+    if (hasExistingResultsForFiltered) {
+        // En az 1 tanesi daha önce aranmış: Yeniden Ara aktif
+        if (startSearchBtn) startSearchBtn.disabled = true;
+        if (researchBtn) researchBtn.disabled = false;
+        
+        // Rapor butonunu, sadece ekrandaki markaların 'Benzer' sonucu varsa aktif et
+        const hasAnySimilar = allSimilarResults.some(r => filteredIds.has(r.monitoredTrademarkId) && r.isSimilar);
+        if (btnGenerateReport) btnGenerateReport.disabled = !hasAnySimilar;
+        
+        if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message success"><strong>Bilgi:</strong> Listedeki markaların (en az birinin) sonuçları mevcut. Yeniden arama yapabilirsiniz.</div>`;
+    } else {
+        // Hiçbiri daha önce aranmamış: Aramayı Başlat aktif
+        if (startSearchBtn) startSearchBtn.disabled = !hasOriginal;
+        if (researchBtn) researchBtn.disabled = true;
+        if (btnGenerateReport) btnGenerateReport.disabled = true;
+        if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message info"><strong>Bilgi:</strong> Listedeki markalar için henüz arama yapılmamış. Aramayı başlatabilirsiniz.</div>`;
+    }
+};
+
 const applyMonitoringListFilters = () => {
     const [ownerFilter, niceFilter, brandFilter] = [
         document.getElementById('ownerSearch')?.value || '', 
@@ -726,20 +767,8 @@ const applyMonitoringListFilters = () => {
     renderMonitoringList(); 
     updateMonitoringCount(); 
     updateOwnerBasedPagination(); 
-    
-    // 🔥 AĞIR DB SORGUSU YAPAN FONKSİYON SİLİNDİ. Sadece butonların disable/enable durumunu UI üzerinden çözüyoruz.
-    const startSearchBtn = document.getElementById('startSearchBtn');
-    const btnGenerateReport = document.getElementById('btnGenerateReportAndNotifyGlobal');
-    if (filteredMonitoringTrademarks.length === 0) {
-        if (startSearchBtn) startSearchBtn.disabled = true;
-        if (btnGenerateReport) btnGenerateReport.disabled = true;
-    } else {
-        const bulletinSelect = document.getElementById('bulletinSelect');
-        if (bulletinSelect?.value && startSearchBtn && allSimilarResults.length === 0) {
-            const hasOriginal = bulletinSelect.options[bulletinSelect.selectedIndex]?.dataset?.hasOriginalBulletin === 'true';
-            startSearchBtn.disabled = !hasOriginal;
-        }
-    }
+    // 🔥 YENİ: Butonları mevcut listeye göre güncelle
+    updateSearchButtonsState();
     
     if (pagination) { pagination.goToPage(1); renderCurrentPageOfResults(); }
 };
@@ -860,15 +889,16 @@ const loadDataFromCache = async (realBulletinId) => {
     const infoMessageContainer = document.getElementById('infoMessageContainer');
     
     try {
-            const { data, error } = await supabase
+        // 🔥 ÇÖZÜM: Hem "488" hem "bulletin_main_488" formatını kapsayan ortam-bağımsız sorgu
+        const { data, error } = await supabase
             .from('monitoring_trademark_records')
             .select(`
                 id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
-                bulletin_record:trademark_bulletin_records!inner (
+                trademark_bulletin_records!inner (
                     id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                 )
             `)
-            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`]);
+            .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]);
 
         if (error) throw error;
 
@@ -876,7 +906,10 @@ const loadDataFromCache = async (realBulletinId) => {
 
         if (data && data.length > 0) {
             cachedResults = data.map(item => {
-                const bRec = item.bulletin_record || {};
+                // 🔥 ÇÖZÜM: Supabase JOIN sonucu bazen nesne bazen de tek elemanlı dizi dönebilir. Garantiliyoruz:
+                let bRec = item.trademark_bulletin_records || {};
+                if (Array.isArray(bRec)) bRec = bRec[0] || {};
+
                 return {
                     id: item.id,
                     objectID: item.id,
@@ -901,14 +934,17 @@ const loadDataFromCache = async (realBulletinId) => {
         
         if (infoMessageContainer) {
             infoMessageContainer.innerHTML = cachedResults.length > 0 
-                ? `<div class="info-message success">Önbellekten ${cachedResults.length} benzer sonuç ışık hızında yüklendi.</div>` 
+                ? `<div class="info-message success">Önbellekten ${cachedResults.length} benzer sonuç başarıyla yüklendi.</div>` 
                 : '';
         }
         
         if (noRecordsMessage) noRecordsMessage.style.display = cachedResults.length > 0 ? 'none' : 'block';
         
         await groupAndSortResults();
-        if (pagination) pagination.update(allSimilarResults.length);
+        if (pagination) {
+            pagination.update(allSimilarResults.length);
+            pagination.goToPage(1); // 🔥 ÇÖZÜM 1: Yeni veri gelince UI'ı her zaman 1. sayfayı çizmeye zorluyoruz!
+        }
         renderCurrentPageOfResults();
         
     } catch (error) {
@@ -951,44 +987,34 @@ const checkCacheAndToggleButtonStates = async () => {
         const hasOriginalBulletin = selectedOption?.dataset?.hasOriginalBulletin === 'true';
         
         // 🔥 ÇÖZÜM: '484_20260112' gibi bir değeri 'bulletin_main_484' ID'sine çevir
-        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        const realBulletinId = String(bulletinKey).split('_')[0];
         
         // Supabase JOIN ile bu bültene ait kaydedilmiş sonuç var mı diye bakıyoruz
         const { data, error } = await supabase
             .from('monitoring_trademark_records')
-            .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
-            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`])
+            .select('id, trademark_bulletin_records!inner(bulletin_id)')
+            .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
             .limit(1);
 
         const hasCache = data && data.length > 0;
 
         if (hasCache) {
-            // Sonuçları Yükle
             await loadDataFromCache(realBulletinId);
-            
-            if (startSearchBtn) startSearchBtn.disabled = true;  // Arama Başlat gizlenir
-            if (researchBtn) researchBtn.disabled = false;       // Yeniden Ara aktif olur
-            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = allSimilarResults.length === 0;
-            
-            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message success"><strong>Bilgi:</strong> Bu bülten için arama daha önce yapılmış. Sonuçlar yüklendi.</div>`;
         } else {
-            // Sonuç yok, Yeni Arama Yapılacak
-            if (startSearchBtn) startSearchBtn.disabled = false; // Arama Başlat aktif olur
-            if (researchBtn) researchBtn.disabled = true;        // Yeniden Ara gizlenir
-            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
-            
-            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message info"><strong>Bilgi:</strong> Aramayı başlatmak için "Arama Başlat" butonuna tıklayınız.</div>`;
-            
             allSimilarResults = [];
             if (pagination) pagination.update(0);
             renderCurrentPageOfResults();
         }
-    } catch (error) {
-        console.error('Cache check error:', error);
-        if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> Bülten bilgileri kontrol edilirken bir hata oluştu.</div>`;
-    } finally {
-        if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
-    }
+        
+        // Yükleme bittikten sonra butonları listedeki filtrelenmiş markalara göre ayarla
+        updateSearchButtonsState();
+
+        } catch (error) {
+            console.error('Cache check error:', error);
+            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> Bülten bilgileri kontrol edilirken bir hata oluştu.</div>`;
+        } finally {
+            if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
+        }
 };
 
 const performSearch = async () => {
@@ -1057,8 +1083,14 @@ const performSearch = async () => {
         // 1. Arama Motorunu Çalıştır (Edge Function sonuçları bulur ve asıl tabloya kaydeder)
         await runTrademarkSearch(monitoredMarksPayload, bulletinKey, onProgress);
         
-        // 2. 🔥 ÇÖZÜM: İşlem bitince verileri doğrudan "Gerçek" ID'leriyle tablodan çekip ekrana bas!
-        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        // 🔥 ÇÖZÜM 2: Supabase'in on binlerce satırı veritabanına indekslemesi için kısa bir nefes (1.5 sn) veriyoruz.
+        if (typeof SimpleLoading !== 'undefined') {
+            SimpleLoading.update('Veriler Derleniyor...', 'Sonuçlar ekrana aktarılıyor, lütfen bekleyin...');
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // 2. İşlem bitince verileri doğrudan "Gerçek" ID'leriyle tablodan çekip ekrana bas!
+        const realBulletinId = String(bulletinKey).split('_')[0];
         await loadDataFromCache(realBulletinId);
 
     } catch (error) {
@@ -1067,20 +1099,14 @@ const performSearch = async () => {
     } finally {
         if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
         
-        if (allSimilarResults.length > 0) {
-            infoMessageContainer.innerHTML = `<div class="info-message success">Toplam ${allSimilarResults.length} benzer sonuç bulundu.</div>`;
-            if (startSearchBtn) startSearchBtn.disabled = true;
-            if (researchBtn) researchBtn.disabled = false;
-            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = false;
-            if (noRecordsMessage) noRecordsMessage.style.display = 'none';
-        } else {
-            if (noRecordsMessage) {
-                noRecordsMessage.textContent = 'Arama sonucu bulunamadı.';
-                noRecordsMessage.style.display = 'block';
-            }
-            if (startSearchBtn) startSearchBtn.disabled = false;
-            if (researchBtn) researchBtn.disabled = true;
-            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
+    // Sonuç ekranını akıllı buton fonksiyonuna devrettik
+        updateSearchButtonsState();
+        
+        if (allSimilarResults.length > 0 && noRecordsMessage) {
+            noRecordsMessage.style.display = 'none';
+        } else if (allSimilarResults.length === 0 && noRecordsMessage) {
+            noRecordsMessage.textContent = 'Arama sonucu bulunamadı.';
+            noRecordsMessage.style.display = 'block';
         }
     }
 };
@@ -1090,22 +1116,28 @@ const performResearch = async () => {
     if (!bulletinKey) return;
     
     if (typeof SimpleLoading !== 'undefined') {
-        SimpleLoading.show('Hazırlanıyor...', 'Eski arama sonuçları temizleniyor...');
+        SimpleLoading.show('Hazırlanıyor...', 'Listedeki markaların eski sonuçları temizleniyor...');
     }
     
     try {
-        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        const realBulletinId = String(bulletinKey).split('_')[0];
+        
+        // Sadece ekranda listelenmiş/filtrelenmiş olan markaların ID'leri
+        const filteredIds = filteredMonitoringTrademarks.map(tm => tm.id);
         
         // 1. Silinecek eski kayıtların ID'lerini bul
         const { data } = await supabase
             .from('monitoring_trademark_records')
-            .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
-            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`]);
+            .select('id, monitored_trademark_id, trademark_bulletin_records!inner(bulletin_id)')
+            .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]);
             
-        // 2. ID'leri kullanarak tabloyu temizle
         if (data && data.length > 0) {
-            const idsToDelete = data.map(d => d.id);
-            // Supabase "in()" limiti olabileceğinden 500'lük gruplar halinde siliyoruz
+            // 2. 🔥 KESİN ÇÖZÜM: Sadece filtrelenmiş listemizde yer alan markalara ait ID'leri ayır
+            const idsToDelete = data
+                .filter(d => filteredIds.includes(d.monitored_trademark_id))
+                .map(d => d.id);
+                
+            // 3. ID'leri kullanarak sadece hedef tabloyu temizle
             for (let i = 0; i < idsToDelete.length; i += 500) {
                 await supabase.from('monitoring_trademark_records').delete().in('id', idsToDelete.slice(i, i + 500));
             }
@@ -1114,7 +1146,7 @@ const performResearch = async () => {
         console.error("Önbellek temizlenirken hata:", e);
     }
     
-    // Temizlik bitti, aramayı baştan tetikle
+    // Temizlik bitti, SADECE FİLTRELENMİŞ MARKALAR İÇİN aramayı baştan tetikle
     await performSearch();
 };
 

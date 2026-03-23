@@ -860,8 +860,7 @@ const loadDataFromCache = async (realBulletinId) => {
     const infoMessageContainer = document.getElementById('infoMessageContainer');
     
     try {
-        // 🔥 YENİ DB: realBulletinId (Örn: bulletin_main_484) ile arama yapıyoruz
-        const { data, error } = await supabase
+            const { data, error } = await supabase
             .from('monitoring_trademark_records')
             .select(`
                 id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
@@ -869,7 +868,7 @@ const loadDataFromCache = async (realBulletinId) => {
                     id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                 )
             `)
-            .eq('bulletin_record.bulletin_id', realBulletinId);
+            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`]);
 
         if (error) throw error;
 
@@ -958,7 +957,7 @@ const checkCacheAndToggleButtonStates = async () => {
         const { data, error } = await supabase
             .from('monitoring_trademark_records')
             .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
-            .eq('bulletin_record.bulletin_id', realBulletinId)
+            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`])
             .limit(1);
 
         const hasCache = data && data.length > 0;
@@ -1101,7 +1100,7 @@ const performResearch = async () => {
         const { data } = await supabase
             .from('monitoring_trademark_records')
             .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
-            .eq('bulletin_record.bulletin_id', realBulletinId);
+            .in('bulletin_record.bulletin_id', [realBulletinId, `bulletin_main_${realBulletinId}`]);
             
         // 2. ID'leri kullanarak tabloyu temizle
         if (data && data.length > 0) {

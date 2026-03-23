@@ -314,7 +314,7 @@ serve(async (req) => {
                 const { data: hits, error } = await supabase
                     .from('trademark_bulletin_records')
                     .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                    .eq('bulletin_id', rawBulletinNumber) 
+                    .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
                     .order('id')
                     .gt('id', lastId)
                     .limit(BATCH_SIZE);
@@ -470,7 +470,7 @@ serve(async (req) => {
         const { count, error: countError } = await supabase
             .from('trademark_bulletin_records')
             .select('*', { count: 'exact', head: true })
-            .eq('bulletin_id', rawBulletinNumber); // DB'deki string yapısıyla tam eşleştiriyoruz
+            .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]);
         
         if (countError) throw countError;
 

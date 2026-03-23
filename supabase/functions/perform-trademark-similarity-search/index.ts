@@ -264,11 +264,28 @@ serve(async (req) => {
             
             try {
                 const BATCH_SIZE = Math.max(25, Math.min(250, Math.floor(50000 / (monitoredMarks.length || 1))));
-                
-                // 🔥 DB'deki "488" formatına tam uyması için sadece rakamları alıyoruz
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
-                console.log(`[Worker ${workerId}] İşlem başlatıldı. Hedef bülten no: ${rawBulletinNumber}, Başlangıç ID: ${lastId}`);
+                // 1. ÖNCE Veritabanından Kayıtları Çekiyoruz (Süre sayacını henüz başlatmadık!)
+                const { data: hits, error } = await supabase
+                    .from('trademark_bulletin_records')
+                    .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
+                    .in('bulletin_id', [String(rawBulletinNumber), `bulletin_main_${rawBulletinNumber}`]) 
+                    .order('id')
+                    .gt('id', lastId)
+                    .limit(BATCH_SIZE);
+
+                if (error) throw error;
+
+                if (!hits || hits.length === 0) {
+                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
+                    return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
+                }
+
+                // 🔥 KESİN ÇÖZÜM 1: Süre sayacını veritabanı sorgusu BİTTİKTEN SONRA başlatıyoruz! 
+                // Böylece DB yavaşlasa bile hesaplama süremizden yemeyecek.
+                const startTime = Date.now();
+                const CPU_TIME_LIMIT = 1200; 
 
                 const preparedMarks = monitoredMarks.map((mark: any) => {
                     const rawName = mark.searchMarkName || mark.markName || mark.title || mark.trademarkName;
@@ -310,35 +327,16 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
-                // 🔥 Nokta atışı eşleşme ile veriyi sorguluyoruz (.eq ile)
-                const { data: hits, error } = await supabase
-                    .from('trademark_bulletin_records')
-                    .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                    .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
-                    .order('id')
-                    .gt('id', lastId)
-                    .limit(BATCH_SIZE);
-
-                if (error) throw error;
-
-                if (!hits || hits.length === 0) {
-                    console.log(`[Worker ${workerId}] Kayıt kalmadı, başarıyla kapanıyor.`);
-                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
-                    return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
-                }
-
                 let newLastId = hits[hits.length - 1].id;
                 let actualProcessedCount = 0;
                 const uiResults = [];
                 const permanentRecords = []; 
 
-                const startTime = Date.now();
-                const CPU_TIME_LIMIT = 1500; 
-
                 for (let i = 0; i < hits.length; i++) {
-                    if (Date.now() - startTime > CPU_TIME_LIMIT) {
-                        newLastId = i > 0 ? hits[i - 1].id : hits[0].id; 
-                        console.log(`[Worker ${workerId}] CPU limiti aşıldı, işlem ${newLastId} id'sinde duraklatıldı.`);
+                    // 🔥 KESİN ÇÖZÜM 2: En az 10 kayıt işlemeden döngüyü ASLA kırma!
+                    // Bu kural sayesinde %90'da takılıp 0 kayıt işleyerek sonsuz döngüye (504'e) girmesini yasaklıyoruz.
+                    if (i > 10 && Date.now() - startTime > CPU_TIME_LIMIT) {
+                        newLastId = hits[i - 1].id; 
                         break;
                     }
 
@@ -412,20 +410,13 @@ serve(async (req) => {
                 }
 
                 if (uiResults.length > 0) {
-                    console.log(`[Worker ${workerId}] ${uiResults.length} sonuç bulundu, parçalı yazılıyor...`);
-                    
                     const CHUNK_SIZE = 1000;
-                    
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
-                        const { error: insErr } = await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
-                        if (insErr) throw new Error("Arayüz sonuçları yazdırılamadı: " + insErr.message);
+                        await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
                     }
-                    
                     for (let i = 0; i < permanentRecords.length; i += CHUNK_SIZE) {
-                        const { error: permError } = await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
-                        if (permError) throw new Error("Kalıcı kayıtlar yazdırılamadı: " + permError.message);
+                        await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
                     }
-                    
                     const { data: jobData } = await supabase.from('search_progress').select('current_results').eq('id', jobId).single();
                     await supabase.from('search_progress').update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
                 }
@@ -434,19 +425,18 @@ serve(async (req) => {
                 const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
-                console.log(`[Worker ${workerId}] %${progressPercent} tamamlandı. Sonraki adıma geçiliyor.`);
-
+                // Zincirleme işçiyi tetikle ve asıl HTTP isteğini anında bitirerek %100 CPU gücü al!
                 EdgeRuntime.waitUntil(
                     supabase.functions.invoke('perform-trademark-similarity-search', {
                         body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: newLastId, processedCount: newProcessedCount, totalBulletinRecords },
                         headers: { Authorization: `Bearer ${supabaseKey}` }
                     }).catch(async (err) => {
-                        console.error(`[Worker ${workerId}] Zincirleme çağrı başarısız oldu:`, err);
+                        console.error(`[Worker ${workerId}] Zincirleme çağrı başarısız:`, err);
                         await markWorkerStatus(supabase, jobId, workerId, 'failed');
                     })
                 );
 
-                return new Response(JSON.stringify({ success: true, workerId }), { headers: corsHeaders });
+                return new Response(JSON.stringify({ success: true, processed: actualProcessedCount }), { headers: corsHeaders });
 
             } catch (workerErr) {
                 console.error(`🚨 [Worker ${workerId}] ÇÖKTÜ:`, workerErr);

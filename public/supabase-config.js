@@ -1513,6 +1513,12 @@ export const taskService = {
                 .in('ip_record_id', recordIds);
 
             if (appErr) console.error("❌ ip_record_applicants Hatası:", appErr);
+            // 🔥 YENİ EKLENDİ: D) Bülten Verileri (ip_record_bulletins)
+            const { data: bulletins, error: bullErr } = await supabase.from('ip_record_bulletins')
+                .select('ip_record_id, bulletin_no, bulletin_date')
+                .in('ip_record_id', recordIds);
+            
+            if (bullErr) console.error("❌ ip_record_bulletins Hatası:", bullErr);
 
             // Başvuru sahiplerinin isimlerini persons tablosundan alalım
             let appPersonsMap = {};
@@ -1529,7 +1535,6 @@ export const taskService = {
                 console.log("⚠️ DİKKAT: ip_record_applicants tablosu bu ip_record_id'ler için BOŞ döndü!");
             }
 
-            // Javascript eşleştirmesi
             if (ipRecords) {
                 ipRecords.forEach(ip => {
                     const detail = (tmDetails || []).find(d => d.ip_record_id === ip.id);
@@ -1537,10 +1542,16 @@ export const taskService = {
                     const apps = (applicants || []).filter(a => a.ip_record_id === ip.id);
                     const applicantNames = apps.map(a => appPersonsMap[a.person_id]).filter(Boolean).join(', ');
 
+                    // 🔥 YENİ EKLENDİ: Bülten verisini bul
+                    const bulletin = (bulletins || []).find(b => b.ip_record_id === ip.id);
+
                     recordsMap[ip.id] = {
                         appNo: ip.application_number,
                         brandName: detail ? detail.brand_name : null,
-                        applicantFallback: applicantNames || null
+                        applicantFallback: applicantNames || null,
+                        // 🔥 YENİ EKLENDİ: Map'e kaydet
+                        bulletinNo: bulletin ? bulletin.bulletin_no : null,
+                        bulletinDate: bulletin ? bulletin.bulletin_date : null
                     };
                 });
             }
@@ -1582,6 +1593,10 @@ export const taskService = {
             const finalBrandName = recordData.brandName || d.brand_name || t.title || "-";
             const finalApplicant = ownerName || recordData.applicantFallback || d.applicant_name || "-";
 
+            // 🔥 YENİ EKLENDİ: Bülten verilerini task'ın içine at
+            const finalBulletinNo = recordData.bulletinNo || d.bulletinNo || d.bulletin_no || "-";
+            const finalBulletinDate = recordData.bulletinDate || d.bulletinDate || d.bulletin_date || "-";
+
             return {
                 ...t, 
                 id: String(t.id),
@@ -1605,7 +1620,9 @@ export const taskService = {
                 
                 iprecordApplicationNo: finalAppNo,
                 iprecordTitle: finalBrandName,
-                iprecordApplicantName: finalApplicant
+                iprecordApplicantName: finalApplicant,
+                bulletinNo: finalBulletinNo,
+                bulletinDate: finalBulletinDate
             };
         });
     },

@@ -239,7 +239,7 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     return { finalScore, positionalExactMatchScore }; 
 }
 
-// 🔥 ÇÖZÜM 1: Zırhlı Kapanış ve Takılı Kalma Önleyici Fonksiyon
+// Zırhlı Kapanış ve Takılı Kalma Önleyici Fonksiyon
 async function markWorkerStatus(supabase: any, jobId: string, workerId: string | number, status: 'completed' | 'failed') {
     await supabase.from('search_progress_workers').update({ status }).eq('id', `${jobId}_w${workerId}`);
     
@@ -262,12 +262,13 @@ serve(async (req) => {
         if (body.action === 'worker') {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
-            // 🔥 ÇÖZÜM 2: İşçi tamamen try-catch zırhı içinde çalışır, çökerse sonsuza kadar beklemez.
             try {
                 const BATCH_SIZE = Math.max(25, Math.min(250, Math.floor(50000 / (monitoredMarks.length || 1))));
-                const realBulletinId = `bulletin_main_${selectedBulletinId.split('_')[0]}`;
                 
-                console.log(`[Worker ${workerId}] İşlem başlatıldı. Hedef bülten: ${realBulletinId}, Başlangıç ID: ${lastId}`);
+                // 🔥 DB'deki "488" formatına tam uyması için sadece rakamları alıyoruz
+                const rawBulletinNumber = selectedBulletinId.replace(/\D/g, ''); 
+                
+                console.log(`[Worker ${workerId}] İşlem başlatıldı. Hedef bülten no: ${rawBulletinNumber}, Başlangıç ID: ${lastId}`);
 
                 const preparedMarks = monitoredMarks.map((mark: any) => {
                     const rawName = mark.searchMarkName || mark.markName || mark.title || mark.trademarkName;
@@ -309,10 +310,11 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
+                // 🔥 Nokta atışı eşleşme ile veriyi sorguluyoruz (.eq ile)
                 const { data: hits, error } = await supabase
                     .from('trademark_bulletin_records')
                     .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                    .eq('bulletin_id', realBulletinId)
+                    .eq('bulletin_id', rawBulletinNumber) 
                     .order('id')
                     .gt('id', lastId)
                     .limit(BATCH_SIZE);
@@ -409,7 +411,6 @@ serve(async (req) => {
                     }
                 }
 
-                // 🔥 ÇÖZÜM 3: Devasa verileri yutabilmek için "Chunking" (1000'erli paketleme) yapıldı.
                 if (uiResults.length > 0) {
                     console.log(`[Worker ${workerId}] ${uiResults.length} sonuç bulundu, parçalı yazılıyor...`);
                     
@@ -435,7 +436,6 @@ serve(async (req) => {
 
                 console.log(`[Worker ${workerId}] %${progressPercent} tamamlandı. Sonraki adıma geçiliyor.`);
 
-                // 🔥 ÇÖZÜM 4: Sonraki işçiye görev verirken zaman aşımı olursa onu da yakalayan catch eklendi.
                 EdgeRuntime.waitUntil(
                     supabase.functions.invoke('perform-trademark-similarity-search', {
                         body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: newLastId, processedCount: newProcessedCount, totalBulletinRecords },
@@ -462,10 +462,15 @@ serve(async (req) => {
         if (!monitoredMarks || !selectedBulletinId) throw new Error("Eksik parametre.");
 
         const jobId = `job_${Date.now()}`;
-        const realBulletinId = `bulletin_main_${selectedBulletinId.split('_')[0]}`;
-        console.log(`[Main Job] Başlatılıyor... Job ID: ${jobId}, Hedef Bülten: ${realBulletinId}`);
+        
+        // 🔥 Nokta atışı hedef bülten ID
+        const rawBulletinNumber = selectedBulletinId.replace(/\D/g, '');
+        console.log(`[Main Job] Başlatılıyor... Job ID: ${jobId}, Hedef Bülten No: ${rawBulletinNumber}`);
 
-        const { count, error: countError } = await supabase.from('trademark_bulletin_records').select('*', { count: 'exact', head: true }).eq('bulletin_id', realBulletinId);
+        const { count, error: countError } = await supabase
+            .from('trademark_bulletin_records')
+            .select('*', { count: 'exact', head: true })
+            .eq('bulletin_id', rawBulletinNumber); // DB'deki string yapısıyla tam eşleştiriyoruz
         
         if (countError) throw countError;
 

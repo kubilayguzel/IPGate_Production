@@ -6,21 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const TURKEY_HOLIDAYS = [
-    "2025-01-01", "2025-03-30", "2025-03-31", "2025-04-01", "2025-04-23", "2025-05-01", "2025-05-19", "2025-06-06", "2025-06-07", "2025-06-08", "2025-06-09", "2025-07-15", "2025-08-30", "2025-10-29",
-    "2026-01-01", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-04-23", "2026-05-01", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-07-15", "2026-08-30", "2026-10-29"
-];
-
-function isWeekend(date: Date) { return date.getDay() === 0 || date.getDay() === 6; }
-function isHoliday(date: Date) { return TURKEY_HOLIDAYS.includes(date.toISOString().split('T')[0]); }
-
-// 🔥 TARİHLERİ %100 TÜRKİYE FORMATINA ÇEVİREN GARANTİ FONKSİYON
-function formatTR(date: Date) {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    return `${day}.${month}.${date.getFullYear()}`;
-}
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -28,135 +13,142 @@ serve(async (req: Request) => {
     const payload = await req.json();
     const { type, record, old_record } = payload;
 
-    const isNewIndexed = type === 'INSERT' && record.status === 'indexed';
-    const isUpdatedToIndexed = type === 'UPDATE' && record.status === 'indexed' && old_record?.status !== 'indexed';
+    if (!['INSERT', 'UPDATE'].includes(type) || !record) {
+      return new Response("İlgisiz işlem, atlandı.", { status: 200 });
+    }
 
-    if (!isNewIndexed && !isUpdatedToIndexed) return new Response("İşlem atlandı.", { status: 200 });
+    console.log(`\n[MAIL-DEBUG] ==========================================`);
+    console.log(`[MAIL-DEBUG] FUNCTION TRIGGERED. Type: ${type}, Task ID: ${record.id}, Status: ${record.status}`);
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const ipRecordId = record.ip_record_id;
-    const transactionId = record.created_transaction_id;
-    let txTypeId = String(record.transaction_type_id || '');
-
     let viewData: any = null;
-    const { data: vwData } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', ipRecordId).single();
-    if (vwData) viewData = vwData;
+    const targetIpRecordId = record.ip_record_id || record.details?.relatedIpRecordId || record.details?.ip_record_id || record.related_ip_record_id;
 
-    let transactionData = null;
-    let taskId = null;
+    if (targetIpRecordId) {
+        const { data } = await supabaseAdmin.from('portfolio_list_view').select('*').eq('id', targetIpRecordId).single();
+        if (data) viewData = data;
+    }
+
+    let triggeredByUserId = null;
+    const associatedTxId = record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id;
     
-    // 🔥 DEĞİŞİKLİK 1: SOYAĞACI VE İTİRAZ SAHİBİ (Sadece Type 38 için ebeveyne çıkar)
-    let oppositionOwner = "Belirtilmemiş";
-    const lineageTxIds: string[] = []; 
-
-    if (transactionId) {
-        let currentTxId = transactionId;
-        
-        // İlk (tetiklenen) işlemi çek
-        const { data: firstTx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
-        if (firstTx) {
-            transactionData = firstTx;
-            taskId = firstTx.task_id;
-            if (!txTypeId) txTypeId = String(firstTx.transaction_type_id || firstTx.type || '');
-        }
-
-        while (currentTxId) {
-            lineageTxIds.push(currentTxId);
-            const { data: txData } = await supabaseAdmin.from('transactions').select('opposition_owner, parent_id, task_id').eq('id', currentTxId).single();
-            
-            if (!txData) break;
-            
-            // Eğer task_id yoksa ve parent'ta varsa onu da al
-            if (!taskId && txData.task_id) taskId = txData.task_id;
-
-            // İtiraz sahibini bulduğumuz an kaydet
-            if (oppositionOwner === "Belirtilmemiş" && txData.opposition_owner && txData.opposition_owner.trim() !== '') {
-                oppositionOwner = txData.opposition_owner;
-            }
-
-            // SADECE TYPE 38 İSE VE PARENT'I VARSA YUKARI TIRMAN! Aksi halde döngüyü kır.
-            if (txTypeId === '38' && txData.parent_id) {
-                currentTxId = txData.parent_id;
-            } else {
-                break;
-            }
-        }
+    if (associatedTxId) {
+        const { data: txData } = await supabaseAdmin.from('transactions').select('user_id').eq('id', associatedTxId).maybeSingle();
+        if (txData && txData.user_id) triggeredByUserId = txData.user_id;
+    }
+    if (!triggeredByUserId && record.created_by) {
+        triggeredByUserId = record.created_by;
     }
 
-    if (taskId) {
-        const { data: checkTask } = await supabaseAdmin.from('tasks').select('id').eq('id', taskId).maybeSingle();
-        if (!checkTask) taskId = null;
-    }
-
-    const brandName = viewData?.brand_name || "-";
-    const appNo = viewData?.application_number || viewData?.registration_number || "-";
+    const brandName = viewData?.brand_name || record.details?.iprecordTitle || record.title || "-";
+    const appNo = viewData?.application_number || viewData?.registration_number || record.details?.iprecordApplicationNo || record.details?.applicationNo || "-";
     const applicantNames = viewData?.applicant_names || "-";
-    const isPortfolio = viewData?.record_owner_type === 'self';
-
-    let tebligDate = new Date();
-    if (record.teblig_tarihi) {
-        const dString = record.teblig_tarihi.split('T')[0];
-        const [y, m, d] = dString.split('-');
-        tebligDate = new Date(Number(y), Number(m) - 1, Number(d));
+    const taskTypeId = String(record.task_type_id || '');
+    
+    let renewalDateText = "-";
+    if (viewData?.renewal_date) {
+        renewalDateText = new Date(viewData.renewal_date).toLocaleDateString('tr-TR');
     }
 
-    async function getRecipients(viewData: any, currentTaskId: any, currentTaskType: string) {
+    // 🔥 ÇÖZÜM 2: Mailde gösterilecek İşlem (Evrak) Tarihi
+    let transactionDate = new Date().toLocaleDateString('tr-TR'); // Varsayılan: Bugün
+    
+    // Eğer Task'ın detaylarında arayüzden kaydettiğimiz EPATS evrak tarihi varsa onu kullan
+    if (record.details && record.details.epatsDocumentDate) {
+        const d = new Date(record.details.epatsDocumentDate);
+        if (!isNaN(d.getTime())) {
+            transactionDate = d.toLocaleDateString('tr-TR');
+        } else {
+            // Eğer tarih JS tarafından algılanamazsa doğrudan kullanıcının yazdığı metni bas
+            transactionDate = record.details.epatsDocumentDate;
+        }
+        console.log(`[MAIL-DEBUG] Evrak Tarihi algılandı ve maile eklenecek: ${transactionDate}`);
+    }
+
+    const imgUrl = viewData?.brand_image_url || record.details?.brandImageUrl || "";
+
+    // 🔥 ÇÖZÜM: İTİRAZ SAHİBİNİ (OPPONENT) TRANSACTION HİYERARŞİSİNDEN BULMA
+    let itirazSahibi = "-";
+    
+    if (associatedTxId) {
+        // 1. Task'a bağlı Transaction'ı bul
+        const { data: childTx } = await supabaseAdmin
+            .from('transactions')
+            .select('parent_id, opposition_owner')
+            .eq('id', associatedTxId)
+            .maybeSingle();
+
+        if (childTx) {
+            if (childTx.opposition_owner) {
+                // Eğer bu transaction'ın kendisinde veri varsa al
+                itirazSahibi = childTx.opposition_owner;
+                console.log(`[MAIL-DEBUG] İtiraz Sahibi bağlı transaction'dan bulundu: ${itirazSahibi}`);
+            } else if (childTx.parent_id) {
+                // 2. Veri yoksa ve parent'ı varsa, Parent Transaction'a git
+                const { data: parentTx } = await supabaseAdmin
+                    .from('transactions')
+                    .select('opposition_owner')
+                    .eq('id', childTx.parent_id)
+                    .maybeSingle();
+
+                if (parentTx && parentTx.opposition_owner) {
+                    itirazSahibi = parentTx.opposition_owner;
+                    console.log(`[MAIL-DEBUG] İtiraz Sahibi Parent Transaction'dan (${childTx.parent_id}) bulundu: ${itirazSahibi}`);
+                }
+            }
+        }
+    }
+
+    // Eğer tüm bu hiyerarşide bulunamazsa eski metotlara (fallback) başvur
+    if (itirazSahibi === "-") {
+        itirazSahibi = record.details?.opponent?.name || record.details?.itiraz_sahibi || "-";
+        if (itirazSahibi === "-" && record.task_owner_id) {
+            const { data: pData } = await supabaseAdmin.from('persons').select('name').eq('id', record.task_owner_id).maybeSingle();
+            if (pData) itirazSahibi = pData.name;
+        }
+    }
+
+    const emailParams: Record<string, string> = {
+        "{{applicationNo}}": appNo,
+        "{{markName}}": brandName,
+        "{{is_basligi}}": record.title || "",
+        "{{relatedIpRecordTitle}}": brandName,
+        "{{applicantNames}}": applicantNames,
+        "{{transactionDate}}": transactionDate,
+        "{{renewalDate}}": renewalDateText,
+        "{{markImageUrl}}": imgUrl,
+        "{{itiraz_sahibi}}": itirazSahibi
+    };
+
+    console.log(`[MAIL-DEBUG] Oluşturulan E-posta Parametreleri:`, JSON.stringify(emailParams));
+
+    // ALICI BULMA (RECIPIENTS) FONKSİYONU
+    async function getRecipients(viewData: any, record: any, currentTaskType: string) {
         const to: string[] = [];
         const cc: string[] = [];
         let personIds: string[] = [];
-        let debugLog = ""; 
-
-        const ipType = viewData?.ip_type || 'trademark';
-
-        if (currentTaskId) {
-            const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
-            if (taskData && taskData.task_owner_id) personIds.push(String(taskData.task_owner_id));
-        }
-
-        if (personIds.length === 0 && viewData?.applicants_json) {
-            let parsedApplicants = [];
-            try { parsedApplicants = typeof viewData.applicants_json === 'string' ? JSON.parse(viewData.applicants_json) : viewData.applicants_json; } catch(e) {}
-            if (Array.isArray(parsedApplicants)) personIds = parsedApplicants.map((a: any) => String(a.id)).filter(Boolean);
+        
+        if (record.task_owner_id) {
+            personIds = [record.task_owner_id];
+        } else if (record.details?.task_owner_id || record.details?.clientId || record.details?.client_id) {
+            personIds = [record.details.task_owner_id || record.details.clientId || record.details.client_id];
+        } else if (viewData?.record_owner_type !== 'third_party' && viewData?.applicants_json && viewData.applicants_json.length > 0) {
+            personIds = viewData.applicants_json.map((a: any) => a.id).filter(Boolean);
         }
         
-        debugLog += `Aranan Person IDs: ${JSON.stringify(personIds)} | IP Type: ${ipType} <br>`;
-
-        if (personIds.length > 0) {
-            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds);
-
+        if (personIds && personIds.length > 0) {
+            const { data: prData } = await supabaseAdmin.from('persons_related').select('*').in('person_id', personIds).eq('resp_trademark', true);
             if (prData && prData.length > 0) {
-                debugLog += `Bulunan Persons Related: ${JSON.stringify(prData.map((p:any)=>p.email))} <br>`;
                 for (const pr of prData) {
                     if (pr.email) {
-                        let isResponsible = false, notifyTo = false, notifyCc = false;
-
-                        if (ipType === 'trademark') { isResponsible = pr.resp_trademark; notifyTo = pr.notify_trademark_to; notifyCc = pr.notify_trademark_cc; } 
-                        else if (ipType === 'patent') { isResponsible = pr.resp_patent; notifyTo = pr.notify_patent_to; notifyCc = pr.notify_patent_cc; } 
-                        else if (ipType === 'design') { isResponsible = pr.resp_design; notifyTo = pr.notify_design_to; notifyCc = pr.notify_design_cc; }
-
-                        if (isResponsible) {
-                            if (notifyTo) to.push(pr.email.trim());
-                            if (notifyCc) cc.push(pr.email.trim());
-                            if (!notifyTo && !notifyCc) to.push(pr.email.trim());
-                        }
+                        if (pr.notify_trademark_to) to.push(pr.email);
+                        if (pr.notify_trademark_cc) cc.push(pr.email);
+                        if (!pr.notify_trademark_to && !pr.notify_trademark_cc) to.push(pr.email); 
                     }
-                }
-            }
-            
-            if (to.length === 0 && cc.length > 0) {
-                to.push(cc[0]);
-                debugLog += `Sadece CC seçilmiş, ilk CC kişisi mecburen TO yapıldı.<br>`;
-            }
-
-            if (to.length === 0) {
-                debugLog += `TO listesi hala BOŞ! Ana persons tablosuna bakılıyor...<br>`;
-                const { data: pData } = await supabaseAdmin.from('persons').select('email').in('id', personIds);
-                if (pData && pData.length > 0) {
-                    pData.forEach((p: any) => { if (p.email) to.push(p.email.trim()); });
                 }
             }
         }
@@ -173,212 +165,273 @@ serve(async (req: Request) => {
             });
         }
 
-        return { 
-            to: [...new Set(to)].filter(Boolean), 
-            cc: [...new Set(cc)].filter(Boolean).filter(e => !to.includes(e)), 
-            primaryClientId: personIds.length > 0 ? personIds[0] : null,
-            debugInfo: debugLog
-        };
-    }
-
-    const { to: finalTo, cc: finalCc, primaryClientId, debugInfo } = await getRecipients(viewData, taskId, txTypeId);
-
-    let decisionAnalysis = {
-        isLawsuitRequired: false,
-        resultText: "-", statusText: "-", statusColor: "#333", 
-        summaryText: "Bu evrak ile ilgili tarafınızca yapılması gereken bir işlem bulunmamaktadır.", 
-        boxColor: "#e8f0fe", boxBorder: "#0d6efd"      
-    };
-
-    if (["31", "32", "33", "34", "35", "36"].includes(txTypeId)) {
-        if (txTypeId === "31") {
-            decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ KABUL";
-            if (isPortfolio) { decisionAnalysis.statusText = "LEHİMİZE (Kazanıldı)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "Başvurumuza ilişkin yapılan itiraz kabul edilmiştir. Tescil süreci devam edecektir."; } 
-            else { decisionAnalysis.statusText = "ALEYHİMİZE (Rakip Kazandı)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Rakip başvuru lehine karar verilmiştir. Bu karara karşı dava açılması gerekmektedir."; }
-        } else if (txTypeId === "32") {
-            decisionAnalysis.resultText = "KISMEN KABUL"; decisionAnalysis.statusText = "KISMEN ALEYHE"; decisionAnalysis.statusColor = "#d97706"; decisionAnalysis.isLawsuitRequired = true; 
-            if (isPortfolio) decisionAnalysis.summaryText = "Başvurumuz kısmen kabul edilmiş, kısmen reddedilmiştir. Reddedilen sınıflar için dava açma hakkımız doğmuştur.";
-            else decisionAnalysis.summaryText = "Rakip başvuru kısmen kabul edilmiştir. Rakibin kazandığı kısımlar için dava açma hakkımız vardır.";
-        } else if (txTypeId === "33") {
-            decisionAnalysis.resultText = "BAŞVURU SAHİBİ - İTİRAZ RET";
-            if (isPortfolio) { decisionAnalysis.statusText = "ALEYHİMİZE (Başvurumuz Reddedildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Başvurumuza ilişkin itiraz süreci aleyhimize sonuçlanmış ve başvurumuz reddedilmiştir. Dava açılması gerekmektedir."; } 
-            else { decisionAnalysis.statusText = "LEHİMİZE (Rakip Reddedildi)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "Başvuru sahibi markasının reddedilmesine karar verilmiştir. Karar lehimizedir."; }
-        } else if (txTypeId === "34") {
-            decisionAnalysis.resultText = "İTİRAZ SAHİBİ - İTİRAZ KABUL";
-            if (isPortfolio) { decisionAnalysis.statusText = "ALEYHİMİZE (Karşı Taraf Kazandı)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "İtiraz sahibi lehine karar verilmiştir (Aleyhimize). Dava açılması gerekmektedir."; } 
-            else { decisionAnalysis.statusText = "LEHİMİZE"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "İtiraz sahibi lehine verilen karar bizim lehimizedir."; }
-        } else if (txTypeId === "35") {
-            decisionAnalysis.resultText = "KISMEN KABUL"; decisionAnalysis.statusText = "KISMEN ALEYHE"; decisionAnalysis.statusColor = "#d97706"; decisionAnalysis.isLawsuitRequired = true;
-            if (isPortfolio) decisionAnalysis.summaryText = "Karar kısmen aleyhimize sonuçlanmıştır. Kaybettiğimiz kısımlar için dava açma hakkımız vardır.";
-            else decisionAnalysis.summaryText = "Karar kısmen lehimize, kısmen aleyhimizedir. Aleyhe olan kısımlar için dava açılabilir.";
-        } else if (txTypeId === "36") {
-            decisionAnalysis.resultText = "İTİRAZ SAHİBİ - İTİRAZ RET";
-            if (isPortfolio) { decisionAnalysis.statusText = "LEHİMİZE (İtiraz Reddedildi)"; decisionAnalysis.statusColor = "#237804"; decisionAnalysis.isLawsuitRequired = false; decisionAnalysis.summaryText = "İtiraz sahibinin talebi reddedilmiştir. Karar lehimizedir."; } 
-            else { decisionAnalysis.statusText = "ALEYHİMİZE (İtirazımız Reddedildi)"; decisionAnalysis.statusColor = "#d32f2f"; decisionAnalysis.isLawsuitRequired = true; decisionAnalysis.summaryText = "Yaptığımız itiraz nihai olarak reddedilmiştir. Dava açma hakkınız bulunmaktadır."; }
-        }
-    } else if (txTypeId === "29" || txTypeId === "42") { 
-        decisionAnalysis = { isLawsuitRequired: true, resultText: "KISMEN KABUL", statusText: "KISMEN RET", statusColor: "#d97706", summaryText: "Karara itirazımız kısmen kabul edilmiştir.", boxColor: "#fff2f0", boxBorder: "#ff4d4f" };
-    } else if (txTypeId === "30" || txTypeId === "43") { 
-        decisionAnalysis = { isLawsuitRequired: true, resultText: "RET", statusText: "NİHAİ RET", statusColor: "#d32f2f", summaryText: "Karara itirazımız reddedilmiştir.", boxColor: "#fff2f0", boxBorder: "#ff4d4f" };
-    }
-
-    if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
-
-    let calculatedDeadlineDate = new Date(tebligDate);
-    calculatedDeadlineDate.setMonth(calculatedDeadlineDate.getMonth() + 2);
-    let iter = 0;
-    while ((isWeekend(calculatedDeadlineDate) || isHoliday(calculatedDeadlineDate)) && iter < 30) {
-        calculatedDeadlineDate.setDate(calculatedDeadlineDate.getDate() + 1);
-        iter++;
-    }
-    
-    const genelSonTarih = formatTR(calculatedDeadlineDate);
-    const formattedTeblig = formatTR(tebligDate);
-
-    let davaSonTarihi = "-";
-    if (decisionAnalysis.isLawsuitRequired) {
-        davaSonTarihi = genelSonTarih;
-    }
-
-    let finalSubject = "Yeni Evrak Bildirimi";
-    let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
-    let templateId = null;
-
-    const { data: rule } = await supabaseAdmin.from('template_rules').select('template_id').eq('source_type', 'document').eq('sub_process_type', txTypeId).maybeSingle();
-
-    if (rule && rule.template_id) {
-        templateId = rule.template_id;
-        const { data: template } = await supabaseAdmin.from('mail_templates').select('*').eq('id', templateId).maybeSingle();
+        const finalTo = [...new Set(to)].filter(Boolean);
+        const finalCc = [...new Set(cc)].filter(Boolean).filter(e => !finalTo.includes(e));
         
-        if (template) {
-            finalSubject = template.mail_subject || template.subject || finalSubject;
-            let rawBody = template.body || finalBody;
+        console.log(`[MAIL-DEBUG] SONUÇ TO Listesi:`, finalTo);
+        console.log(`[MAIL-DEBUG] SONUÇ CC Listesi:`, finalCc);
 
-            if (!isPortfolio && template.body2) {
-                rawBody = template.body2;
-            } else if (isPortfolio && template.body1) {
-                rawBody = template.body1;
+        return { to: finalTo, cc: finalCc };
+    }
+
+    // YENİ GÖREV (INSERT)
+    if (type === 'INSERT' && taskTypeId === '22' && record.status === 'awaiting_client_approval') {
+        let subject = `${appNo} - "${brandName}" - Marka Yenileme İşlemi / Talimat Bekleniyor`;
+        let body = record.description || "Yenileme işlemi için onayınızı rica ederiz.";
+        let templateId = null;
+
+        const { data: ruleData } = await supabaseAdmin.from('template_rules').select('template_id').eq('source_type', 'task').eq('task_type', '22').maybeSingle();
+        if (ruleData && ruleData.template_id) {
+            templateId = ruleData.template_id;
+            const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', templateId).maybeSingle();
+            if (tmplData) {
+                subject = tmplData.mail_subject || tmplData.subject || subject;
+                let rawBody = tmplData.body || body;
+                for (const [k, v] of Object.entries(emailParams)) {
+                    subject = subject.replaceAll(k, String(v));
+                    rawBody = rawBody.replaceAll(k, String(v));
+                }
+                body = rawBody;
             }
-
-            const placeholders: Record<string, string> = {
-                "{{applicationNo}}": appNo,
-                "{{markName}}": brandName,
-                "{{basvuru_no}}": appNo,
-                "{{proje_adi}}": brandName,
-                "{{teblig_tarihi}}": formattedTeblig, 
-                "{{islem_turu_adi}}": record.description || txTypeId,
-                "{{epats_evrak_no}}": record.document_number || "-",
-                "{{applicantNames}}": applicantNames,
-                "{{karar_sonucu_baslik}}": decisionAnalysis.resultText,
-                "{{karar_durumu_metni}}": decisionAnalysis.statusText,
-                "{{karar_durumu_renk}}": decisionAnalysis.statusColor,
-                "{{aksiyon_kutusu_bg}}": decisionAnalysis.boxColor,
-                "{{aksiyon_kutusu_border}}": decisionAnalysis.boxBorder,
-                "{{karar_ozeti_detay}}": decisionAnalysis.summaryText + (decisionAnalysis.isLawsuitRequired ? "<br><br>Bu karara karşı belirtilen tarihe kadar <strong>YİDK Kararının İptali davası</strong> açma hakkınız bulunmaktadır." : ""),
-                "{{dava_son_tarihi}}": davaSonTarihi,
-                "{{dava_son_tarihi_display_style}}": decisionAnalysis.isLawsuitRequired ? "block" : "none",
-                "{{markImageUrl}}": viewData?.brand_image_url || "",
-                // 🔥 DEĞİŞİKLİK 2: Bulduğumuz İtiraz Sahibini Template'e yerleştiriyoruz
-                "{{itiraz_sahibi}}": oppositionOwner, 
-                "{{resmi_son_cevap_tarihi}}": genelSonTarih, 
-                "{{son_odeme_tarihi}}": genelSonTarih,
-                "{{son_itiraz_tarihi}}": genelSonTarih
-            };
-
-            for (const [k, v] of Object.entries(placeholders)) {
-                finalSubject = finalSubject.replaceAll(k, String(v));
-                rawBody = rawBody.replaceAll(k, String(v));
-            }
-            finalBody = rawBody;
         }
+
+        let { to, cc } = await getRecipients(viewData, record, taskTypeId);
+        const missingFields = [];
+        if (to.length === 0 && cc.length === 0) missingFields.push("recipients");
+
+        await supabaseAdmin.from('mail_notifications').insert({
+            id: crypto.randomUUID(),
+            associated_task_id: record.id,
+            associated_transaction_id: record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id || null,
+            related_ip_record_id: targetIpRecordId,
+            client_id: record.task_owner_id || (viewData?.applicants_json?.[0]?.id || null),
+            to_list: to,
+            cc_list: cc,
+            subject: subject,
+            body: body,
+            status: missingFields.length > 0 ? "missing_info" : "awaiting_client_approval",
+            missing_fields: missingFields,
+            is_draft: true,
+            mode: "draft",
+            notification_type: "marka",
+            template_id: templateId,
+            source: "task_renewal_auto",
+            triggered_by_user_id: triggeredByUserId
+        });
     }
 
-    if (finalTo.length === 0) {
-        finalBody += `<br><br><hr><p style="color:red; font-size:12px;"><b>⚠️ SİSTEM TEŞHİS BİLGİSİ (Neden Alıcı Bulunamadı?):</b><br>${debugInfo}</p>`;
-    }
+    // GÜNCELLEME (UPDATE)
+    if (type === 'UPDATE' && old_record) {
+        const hadMainEpats = !!(old_record.details?.epatsDocument);
+        const hasMainEpats = !!(record.details?.epatsDocument);
+        
+        if (hadMainEpats && !hasMainEpats) {
+            await supabaseAdmin.from('mail_notifications').delete().eq('associated_task_id', record.id).in('status', ['draft', 'awaiting_client_approval', 'missing_info', 'pending', 'evaluation_pending']);
+        }
 
-    const evalTasksRes = await supabaseAdmin.from('tasks').select('id').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
-    const evalTaskId = (evalTasksRes.data && evalTasksRes.data.length > 0) ? evalTasksRes.data[0].id : null;
+        const becameCompleted = old_record.status !== 'completed' && record.status === 'completed';
+        const wasAwaiting = ['awaiting_client_approval', 'awaiting-approval'].includes(old_record.status);
+        const clientApproved = wasAwaiting && record.status === 'open';
+        const clientClosed = wasAwaiting && ['client_approval_closed', 'client_no_response_closed'].includes(record.status);
 
-    const { data: triggeredTasks } = await supabaseAdmin
-        .from('tasks')
-        .select('id')
-        .eq('transaction_id', transactionId)
-        .eq('status', 'awaiting_client_approval')
-        .order('created_at', { ascending: false })
-        .limit(1);
+        if (becameCompleted && !['53', '66'].includes(taskTypeId)) {
+            console.log(`[MAIL-DEBUG] Görev Tamamlandı Algılandı! İşlemler Başlıyor...`);
+            
+            const { data: taskDocs, error: docsErr } = await supabaseAdmin
+                .from('task_documents')
+                .select('*')
+                .eq('task_id', record.id);
+                
+            console.log(`[MAIL-DEBUG] Göreve (Task: ${record.id}) ait task_documents araması yapıldı. Bulunan evrak sayısı: ${taskDocs ? taskDocs.length : 0}`);
+            if (docsErr) console.error(`[MAIL-DEBUG] task_documents çekilirken hata:`, docsErr);
 
-    const newTriggeredTaskId = (triggeredTasks && triggeredTasks.length > 0) ? triggeredTasks[0].id : null;
+            let primaryDocId = null;
+            if (taskDocs && taskDocs.length > 0) {
+                const epats = taskDocs.find(d => d.document_type === 'epats_document');
+                primaryDocId = epats ? epats.id : taskDocs[0].id;
+            }
+            
+            let templateId = null;
+            const { data: ruleData } = await supabaseAdmin.from('template_rules').select('template_id').eq('source_type', 'task_completion_epats').eq('task_type', taskTypeId).maybeSingle();
+            if (ruleData) templateId = ruleData.template_id;
 
-    let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
-    const mailId = crypto.randomUUID();
-    
-    const mailPayload = {
-        id: mailId, 
-        related_ip_record_id: ipRecordId, 
-        associated_task_id: evalTaskId || newTriggeredTaskId || taskId, 
-        source_document_id: record.id, 
-        associated_transaction_id: transactionId,
-        template_id: templateId, 
-        to_list: finalTo, 
-        cc_list: finalCc, 
-        client_id: primaryClientId, 
-        subject: finalSubject, 
-        body: finalBody, 
-        status: finalStatus, 
-        mode: "draft", 
-        objection_deadline: davaSonTarihi !== "-" ? davaSonTarihi : null, 
-        notification_type: 'marka', 
-        source: 'document_index', 
-        is_draft: finalStatus === "missing_info", 
-        missing_fields: finalTo.length === 0 ? ['recipients'] : []
-    };
+            let subject = "İşleminiz Tamamlandı";
+            let body = "İlgili görev tamamlanmıştır.";
+            let hasTemplate = false;
 
-    const { error: mailInsertError } = await supabaseAdmin.from('mail_notifications').insert(mailPayload);
-    if (mailInsertError) throw new Error(`Mail tablosuna yazılamadı: ${mailInsertError.message}`);
+            if (templateId) {
+                const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body, body1, body2').eq('id', templateId).maybeSingle();
+                if (tmplData) {
+                    hasTemplate = true;
+                    subject = tmplData.mail_subject || tmplData.subject || subject;
+                    const recordOwnerType = viewData?.record_owner_type || 'self';
+                    
+                    if (templateId === 'tmpl_50_document') {
+                        if (recordOwnerType === 'third_party' && tmplData.body2) body = tmplData.body2;
+                        else if (recordOwnerType === 'self' && tmplData.body1) body = tmplData.body1;
+                        else body = tmplData.body || body;
+                    } else {
+                        body = tmplData.body || body;
+                    }
 
-    // 🔥 DEĞİŞİKLİK 3: EKLERİ `mail_attachments` TABLOSUNA YAZMA 
-    const attachmentsToInsert: any[] = [];
+                    for (const [k, v] of Object.entries(emailParams)) {
+                        subject = subject.replaceAll(k, String(v));
+                        body = body.replaceAll(k, String(v));
+                    }
+                }
+            }
 
-    // Eğer işlemimiz Type 38 ise soy ağacından (lineageTxIds) belgeleri topla
-    if (lineageTxIds.length > 0) {
-        const { data: txDocs } = await supabaseAdmin
-            .from('transaction_documents')
-            .select('document_name, document_url')
-            .in('transaction_id', lineageTxIds);
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
+            const missingFields = [];
+            if (to.length === 0) missingFields.push("to_list"); 
+            if (!hasTemplate) missingFields.push("template");
 
-        if (txDocs && txDocs.length > 0) {
-            txDocs.forEach(doc => {
-                attachmentsToInsert.push({
-                    notification_id: mailId,
-                    file_name: doc.document_name || "Ek_Evrak.pdf",
-                    storage_path: null,
-                    url: doc.document_url
+            const notificationId = crypto.randomUUID();
+
+            console.log(`[MAIL-DEBUG] Bildirim (mail_notifications) oluşturuluyor... Notification ID: ${notificationId}`);
+            const { error: insErr } = await supabaseAdmin.from('mail_notifications').insert({
+                id: notificationId,
+                
+                // 🔥 ÇÖZÜM: Arayüzün "Müvekkil" sütununda kimi göstereceğini bulması için Akıllı Zırh!
+                // Önce Task Sahibine bakar, yoksa detaylardaki İtiraz Sahibine bakar, o da yoksa Marka Sahibine bakar.
+                client_id: record.task_owner_id || record.details?.task_owner_id || record.details?.clientId || record.details?.client_id || (viewData?.applicants_json?.[0]?.id || null),
+                
+                associated_task_id: record.id,
+                associated_transaction_id: record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id || null,
+                related_ip_record_id: targetIpRecordId,
+                
+                source_document_id: primaryDocId,
+
+                to_list: to,
+                cc_list: cc,
+                subject: subject,
+                body: body,
+                status: missingFields.length > 0 ? "missing_info" : "pending",
+                missing_fields: missingFields,
+                is_draft: false,
+                mode: "draft",
+                notification_type: "marka",
+                template_id: templateId,
+                source: "task_completion",
+                triggered_by_user_id: triggeredByUserId
+            });
+
+            if (insErr) {
+                console.error(`[MAIL-DEBUG] KRİTİK HATA: mail_notifications eklenemedi!`, insErr);
+            } else {
+                if (taskDocs && taskDocs.length > 0) {
+                    console.log(`[MAIL-DEBUG] Bildirime ait ${taskDocs.length} adet evrak 'mail_attachments' tablosuna KOPYALANIYOR...`);
+                    
+                    const attachmentsToInsert = taskDocs.map(doc => ({
+                        id: crypto.randomUUID(),
+                        notification_id: notificationId,
+                        file_name: doc.document_name,
+                        url: doc.document_url,
+                        storage_path: doc.document_url 
+                    }));
+
+                    const { error: attErr } = await supabaseAdmin.from('mail_attachments').insert(attachmentsToInsert);
+                    
+                    if (attErr) {
+                        console.error(`[MAIL-DEBUG] HATA: mail_attachments tablosuna eklenemedi!`, attErr);
+                    } else {
+                        console.log(`[MAIL-DEBUG] BAŞARILI: Evraklar mail_attachments tablosuna resmen bağlandı!`);
+                    }
+                } else {
+                    console.log(`[MAIL-DEBUG] Kopyalanacak evrak bulunamadı.`);
+                }
+            }
+        }
+
+        if (clientApproved) {
+            try {
+                const { data: counterData } = await supabaseAdmin.from('counters').select('last_id').eq('id', 'tasks_accruals').single();
+                let currentCount = counterData ? Number(counterData.last_id) : 0;
+                currentCount++;
+                const newAccrualId = `T-${currentCount}`;
+                const { data: assignData } = await supabaseAdmin.from('task_assignments').select('assignee_ids').eq('id', '53').single();
+                const assignedUid = assignData?.assignee_ids?.[0] || null;
+
+                await supabaseAdmin.from('tasks').insert({
+                    id: newAccrualId,
+                    task_type_id: "53",
+                    title: `Tahakkuk Oluşturma: ${record.title || ''}`,
+                    description: `"${record.title || ''}" işi onaylandı. Lütfen finansal kaydı oluşturun.`,
+                    priority: 'high',
+                    status: 'pending',
+                    assigned_to: assignedUid,
+                    task_owner_id: record.task_owner_id,
+                    ip_record_id: targetIpRecordId,
+                    details: { 
+                        parent_task_id: record.id, 
+                        originalTaskType: taskTypeId,
+                        iprecordApplicationNo: appNo,
+                        iprecordTitle: brandName,
+                        iprecordApplicantName: applicantNames
+                    }
                 });
+                await supabaseAdmin.from('counters').upsert({ id: 'tasks_accruals', last_id: currentCount });
+            } catch (accErr) { console.error("Tahakkuk görev hatası:", accErr); }
+
+            const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', 'tmpl_clientInstruction_1').maybeSingle();
+            let subject = tmplData?.mail_subject || tmplData?.subject || "{{relatedIpRecordTitle}} - Talimatınız Alındı";
+            let body = tmplData?.body || "<p>Talimatınız alınmıştır, işlem başlatılıyor.</p>";
+
+            for (const [k, v] of Object.entries(emailParams)) {
+                subject = subject.replaceAll(k, String(v));
+                body = body.replaceAll(k, String(v));
+            }
+
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
+            await supabaseAdmin.from('mail_notifications').insert({
+                id: crypto.randomUUID(),
+                associated_task_id: record.id,
+                related_ip_record_id: targetIpRecordId,
+                to_list: to,
+                cc_list: cc,
+                subject: subject,
+                body: body,
+                status: "pending",
+                notification_type: "general_notification",
+                source: "auto_instruction_response",
+                is_draft: false,
+                triggered_by_user_id: triggeredByUserId
+            });
+        }
+
+        // 🔥 YENİ KORUMA: Yayına İtiraz (Type 20) görevleri kapatıldığında "Dosya Kapatıldı" maili ATMA!
+        if (clientClosed && taskTypeId !== '20') {
+            const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', 'tmpl_clientInstruction_2').maybeSingle();
+            let subject = tmplData?.mail_subject || tmplData?.subject || "{{relatedIpRecordTitle}} - Dosya Kapatıldı";
+            let body = tmplData?.body || "<p>Talimatınız üzerine dosya kapatılmıştır.</p>";
+
+            for (const [k, v] of Object.entries(emailParams)) {
+                subject = subject.replaceAll(k, String(v));
+                body = body.replaceAll(k, String(v));
+            }
+
+            let { to, cc } = await getRecipients(viewData, record, taskTypeId);
+            await supabaseAdmin.from('mail_notifications').insert({
+                id: crypto.randomUUID(),
+                associated_task_id: record.id,
+                related_ip_record_id: targetIpRecordId,
+                to_list: to,
+                cc_list: cc,
+                subject: subject,
+                body: body,
+                status: "pending",
+                notification_type: "general_notification",
+                source: "auto_instruction_response",
+                is_draft: false,
+                triggered_by_user_id: triggeredByUserId
             });
         }
     }
-
-    // Gelen asıl tebligatı da (incoming_documents) dahil et
-    if (record.file_url) {
-        const alreadyAdded = attachmentsToInsert.some(a => a.url === record.file_url);
-        if (!alreadyAdded) {
-            attachmentsToInsert.push({
-                notification_id: mailId, 
-                file_name: record.file_name || "Tebligat.pdf", 
-                storage_path: record.file_path || null, 
-                url: record.file_url 
-            });
-        }
-    }
-
-    if (attachmentsToInsert.length > 0) {
-        await supabaseAdmin.from('mail_attachments').insert(attachmentsToInsert);
-    }
-
-    return new Response(JSON.stringify({ success: true, mailId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    
+    console.log(`[MAIL-DEBUG] ================== İŞLEM BİTTİ ==================\n`);
+    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   } catch (error: any) {
-    console.error("❌ Evrak Endeksleme Hatası:", error.message);
+    console.error(`[MAIL-DEBUG] KRİTİK HATA:`, error);
     return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: corsHeaders });
   }
 });

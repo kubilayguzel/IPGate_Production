@@ -83,17 +83,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         async loadAllData() {
+            // 1. YÜKLEME ANİMASYONUNU BAŞLAT
             if (window.SimpleLoadingController) {
                 window.SimpleLoadingController.show({
-                    text: 'İşleriniz Hazırlanıyor',
-                    subtext: 'Verileriniz optimize ediliyor, lütfen bekleyiniz...'
+                    text: 'İşleriniz Yükleniyor',
+                    subtext: 'Lütfen bekleyiniz...'
                 });
             }
-            const loader = document.getElementById('loadingIndicator');
-            if(loader) loader.style.display = 'none';
+            const oldLoader = document.getElementById('loadingIndicator');
+            if (oldLoader) oldLoader.style.display = 'none';
 
             try {
-                // Sadece görevleri çek (_enrichTasksWithRelations içinde ilişkiler zaten haritalanıyor)
+                // Sadece görevleri çek
                 const tasksResult = await taskService.getTasksForUser(this.currentUser.uid);
                 this.allTasks = tasksResult.success ? tasksResult.data.filter(t => t.status !== 'awaiting_client_approval') : [];
 
@@ -120,12 +121,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 this.processData();
 
-                if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
-
             } catch (error) {
                 console.error(error);
                 if (typeof showNotification === 'function') showNotification('Hata: ' + error.message, 'error');
-                if (window.SimpleLoadingController) window.SimpleLoadingController.hide();
+            } finally {
+                // 2. İŞLEM BİTİNCE (Başarılı da olsa, hata da verse) ANİMASYONU GİZLE
+                if (window.SimpleLoadingController) {
+                    window.SimpleLoadingController.hide();
+                }
             }
         }
         

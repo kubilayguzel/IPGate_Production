@@ -1482,174 +1482,62 @@ export const taskService = {
         return { success: true, data: data.map(u => ({ id: u.id, email: u.email, displayName: u.display_name || u.email })) };
     },
 
-    // 🔥 ADIM 2 DETAYLI LOGLAMALI HARİTALAMA
-    async _enrichTasksWithRelations(tasks) {
-        if (!tasks || tasks.length === 0) return [];
-
-        const recordIds = [...new Set(tasks.map(t => t.ip_record_id).filter(Boolean))];
-        const ownerIds = [...new Set(tasks.map(t => t.task_owner_id).filter(Boolean))];
-
-        let recordsMap = {};
-        let personsMap = {};
-
-        // 1. GÖREV SAHİBİNİ ÇEK (task_owner_id)
-        if (ownerIds.length > 0) {
-            const { data: persons } = await supabase.from('persons').select('id, name').in('id', ownerIds);
-            if (persons) persons.forEach(p => { personsMap[p.id] = p.name; });
-        }
-
-        // 2. PORTFÖY VERİLERİNİ ÇEK
-        if (recordIds.length > 0) {
-
-            // A) Başvuru Numaraları
-            const { data: ipRecords } = await supabase.from('ip_records').select('id, application_number').in('id', recordIds);
-            
-            // B) Marka İsimleri
-            const { data: tmDetails } = await supabase.from('ip_record_trademark_details').select('ip_record_id, brand_name').in('ip_record_id', recordIds);
-            
-            // C) Başvuru Sahipleri (ip_record_applicants)
-            const { data: applicants, error: appErr } = await supabase.from('ip_record_applicants')
-                .select('ip_record_id, person_id')
-                .in('ip_record_id', recordIds);
-
-            if (appErr) console.error("❌ ip_record_applicants Hatası:", appErr);
-            // 🔥 YENİ EKLENDİ: D) Bülten Verileri (ip_record_bulletins)
-            const { data: bulletins, error: bullErr } = await supabase.from('ip_record_bulletins')
-                .select('ip_record_id, bulletin_no, bulletin_date')
-                .in('ip_record_id', recordIds);
-            
-            if (bullErr) console.error("❌ ip_record_bulletins Hatası:", bullErr);
-
-            // Başvuru sahiplerinin isimlerini persons tablosundan alalım
-            let appPersonsMap = {};
-            if (applicants && applicants.length > 0) {
-                const appPersonIds = [...new Set(applicants.map(a => a.person_id).filter(Boolean))];
-
-                if (appPersonIds.length > 0) {
-                    const { data: appPersons, error: persErr } = await supabase.from('persons').select('id, name').in('id', appPersonIds);
-                    if (persErr) console.error("❌ persons (applicant) Hatası:", persErr);
-                    
-                    if (appPersons) appPersons.forEach(p => appPersonsMap[p.id] = p.name);
-                }
-            } else {
-                console.log("⚠️ DİKKAT: ip_record_applicants tablosu bu ip_record_id'ler için BOŞ döndü!");
-            }
-
-            if (ipRecords) {
-                ipRecords.forEach(ip => {
-                    const detail = (tmDetails || []).find(d => d.ip_record_id === ip.id);
-                    
-                    const apps = (applicants || []).filter(a => a.ip_record_id === ip.id);
-                    const applicantNames = apps.map(a => appPersonsMap[a.person_id]).filter(Boolean).join(', ');
-
-                    // 🔥 YENİ EKLENDİ: Bülten verisini bul
-                    const bulletin = (bulletins || []).find(b => b.ip_record_id === ip.id);
-
-                    recordsMap[ip.id] = {
-                        appNo: ip.application_number,
-                        brandName: detail ? detail.brand_name : null,
-                        applicantFallback: applicantNames || null,
-                        // 🔥 YENİ EKLENDİ: Map'e kaydet
-                        bulletinNo: bulletin ? bulletin.bulletin_no : null,
-                        bulletinDate: bulletin ? bulletin.bulletin_date : null
-                    };
-                });
-            }
-
-            // D) Davalar (suits) - Portföyde bulunamayan id'leri davalarda ararız
-            const foundIpIds = Object.keys(recordsMap);
-            const missingIds = recordIds.filter(id => !foundIpIds.includes(id));
-            if (missingIds.length > 0) {
-                const { data: suits } = await supabase.from('suits').select('id, file_no, title, court_name, client_id').in('id', missingIds);
-                if (suits) {
-                    const suitClientIds = [...new Set(suits.map(s => s.client_id).filter(Boolean))];
-                    let suitClientMap = {};
-                    if (suitClientIds.length > 0) {
-                        const { data: sPersons } = await supabase.from('persons').select('id, name').in('id', suitClientIds);
-                        if (sPersons) sPersons.forEach(p => suitClientMap[p.id] = p.name);
-                    }
-
-                    suits.forEach(s => {
-                        recordsMap[s.id] = {
-                            appNo: s.file_no,
-                            brandName: s.title || s.court_name,
-                            applicantFallback: suitClientMap[s.client_id] || null
-                        };
-                    });
-                }
-            }
-        }
-
-        // 3. UI Formatına Hazırla
+    // 🔥 ÇÖZÜM: Karmaşık haritalama fonksiyonu silindi. Veriyi doğrudan hazır View'dan alıyoruz.
+    _mapTaskViewData(tasks) {
         return tasks.map(t => {
-            const ipId = t.ip_record_id || t.related_ip_record_id || (t.details && t.details.ip_record_id);
-            const ownerId = t.task_owner_id || t.task_owner || t.related_party_id || (t.details && t.details.task_owner_id);
-            
-            const recordData = recordsMap[ipId] || {};
-            const ownerName = personsMap[ownerId] || null;
             const d = t.details || {};
-
-            const finalAppNo = recordData.appNo || d.application_number || "-";
-            const finalBrandName = recordData.brandName || d.brand_name || t.title || "-";
-            const finalApplicant = ownerName || recordData.applicantFallback || d.applicant_name || "-";
-
-            // 🔥 YENİ EKLENDİ: Bülten verilerini task'ın içine at
-            const finalBulletinNo = recordData.bulletinNo || d.bulletinNo || d.bulletin_no || "-";
-            const finalBulletinDate = recordData.bulletinDate || d.bulletinDate || d.bulletin_date || "-";
-
             return {
-                ...t, 
-                id: String(t.id),
-                title: t.title,
-                description: t.description,
+                ...t,
                 taskType: String(t.task_type_id || t.task_type),
-                status: t.status,
-                priority: t.priority,
                 dueDate: t.operational_due_date || t.official_due_date,
                 officialDueDate: t.official_due_date,
                 operationalDueDate: t.operational_due_date,
                 deliveryDate: t.delivery_date,
                 assignedTo_uid: t.assigned_to, 
-                relatedIpRecordId: ipId,
-                relatedPartyId: ownerId, // 🔥 ÇÖZÜM 1: UI formunda seçili taraf artık gözükecek
+                relatedIpRecordId: t.ip_record_id,
+                relatedPartyId: t.task_owner_id, 
                 transactionId: t.transaction_id,
                 history: d.history || [],
-                documents: d.documents || [], 
-                createdAt: t.created_at,
-                updatedAt: t.updated_at,
-                
-                iprecordApplicationNo: finalAppNo,
-                iprecordTitle: finalBrandName,
-                iprecordApplicantName: finalApplicant,
-                bulletinNo: finalBulletinNo,
-                bulletinDate: finalBulletinDate
+                documents: d.documents || []
             };
         });
     },
 
     async getTasksForUser(uid) {
-        const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false });
+        // Tarayıcıyı çökertmemek için son 2000 işi çekiyoruz (Tam çözüm için Server-Side Pagination gerekir)
+        const { data, error } = await supabase.from('v_tasks_dashboard')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(2000); 
+
         if (error) return { success: false, error: error.message };
-        return { success: true, data: await this._enrichTasksWithRelations(data) };
+        return { success: true, data: this._mapTaskViewData(data) };
     },
 
     async getTasksByStatus(status, uid = null) {
-        let query = supabase.from('tasks').select('*').eq('status', status).order('created_at', { ascending: false });
-        
-        // 🔥 KRİTİK DÜZELTME: assigned_to_uid yerine veritabanındaki doğru kolon olan assigned_to kullanıldı
+        let query = supabase.from('v_tasks_dashboard')
+            .select('*')
+            .eq('status', status)
+            .order('created_at', { ascending: false })
+            .limit(2000);
+            
         if (uid) query = query.eq('assigned_to', uid); 
         
         const { data, error } = await query;
         if (error) return { success: false, error: error.message };
-        return { success: true, data: await this._enrichTasksWithRelations(data) };
+        return { success: true, data: this._mapTaskViewData(data) };
     },
 
     async getTaskById(taskId) {
-        const { data: taskData, error } = await supabase.from('tasks').select('*').eq('id', String(taskId)).single();
+        // 🔥 ÇÖZÜM: 'tasks' tablosu yerine doğrudan hazır birleştirilmiş View'ımızdan (v_tasks_dashboard) çekiyoruz
+        const { data: taskData, error } = await supabase.from('v_tasks_dashboard').select('*').eq('id', String(taskId)).single();
         if (error) return { success: false, error: error.message };
         
-        const enrichedData = await this._enrichTasksWithRelations([taskData]);
-        const task = enrichedData[0];
+        // Sildiğimiz eski fonksiyon yerine, yeni hafif haritalama fonksiyonumuzu kullanıyoruz
+        const mappedData = this._mapTaskViewData([taskData]);
+        const task = mappedData[0];
+
+        // 🔥 1. YENİLİK: Tahakkukun bağlı olduğu ana görevin ID'sini tespit et
 
         // 🔥 1. YENİLİK: Tahakkukun bağlı olduğu ana görevin ID'sini tespit et
         // 🔥 DÜZELTME: Artık hem 'parent_task_id' hem de 'relatedTaskId' kontrol ediliyor!

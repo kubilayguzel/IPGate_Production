@@ -253,43 +253,62 @@ export class AccrualUIManager {
             
             console.log(`[DEBUG-DOC] 1. Supabase'den tahakkuk görevi (ID: ${accrual.taskId}) çekiliyor...`);
             
-            supabase.from('tasks').select('details').eq('id', accrual.taskId).single()
+        supabase.from('tasks').select('details').eq('id', accrual.taskId).single()
             .then(({data, error}) => {
                 if (error) {
                     console.error("[DEBUG-DOC] ❌ Tahakkuk işi çekilirken hata:", error.message);
                     return;
                 }
                 
-                console.log(`[DEBUG-DOC] 2. Tahakkuk işi bulundu. Details:`, data?.details);
-
                 if (data && data.details) {
-                    const targetTaskId = data.details.parent_task_id || accrual.taskId;
+                    let pDetails = typeof data.details === 'string' ? JSON.parse(data.details) : data.details;
+                    const targetTaskId = pDetails.parent_task_id || pDetails.relatedTaskId || accrual.taskId;
+                    
                     console.log(`[DEBUG-DOC] 3. Aranacak Asıl Görev ID'si (Target Task ID): ${targetTaskId}`);
                     
-                    console.log(`[DEBUG-DOC] 4. task_documents tablosunda aranıyor...`);
-                    supabase.from('task_documents')
-                        .select('document_name, document_url, document_type')
-                        .eq('task_id', targetTaskId)
-                        .order('uploaded_at', { ascending: false })
-                    .then(({data: docData, error: docError}) => {
-                        if (docError) {
-                            console.error("[DEBUG-DOC] ❌ task_documents sorgu hatası:", docError.message);
-                            return;
+                    // 🔥 ÇÖZÜM 1: Önce Parent Task'ın kendisine (JSON içine) bakıyoruz, yoksa task_documents tablosuna iniyoruz!
+                    supabase.from('tasks').select('details, documents').eq('id', targetTaskId).single()
+                    .then(({data: pTask}) => {
+                        let epatsDoc = null;
+                        
+                        if (pTask) {
+                            // 1. documents array'inde ara
+                            if (pTask.documents && Array.isArray(pTask.documents)) {
+                                epatsDoc = pTask.documents.find(d => d.type === 'epats_document');
+                            }
+                            // 2. details JSON'ında ara
+                            if (!epatsDoc && pTask.details) {
+                                let pd = typeof pTask.details === 'string' ? JSON.parse(pTask.details) : pTask.details;
+                                if (pd.documents && Array.isArray(pd.documents)) {
+                                    epatsDoc = pd.documents.find(d => d.type === 'epats_document');
+                                }
+                            }
                         }
 
-                        console.log(`[DEBUG-DOC] 5. task_documents sonucu:`, docData);
-
-                        if (docData && docData.length > 0) {
-                            const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
-                            console.log(`[DEBUG-DOC] ✅ Ekrana Basılacak Belge Seçildi:`, targetDoc);
-                            
-                            this.editFormManager.showEpatsDoc({
-                                url: targetDoc.document_url,
-                                name: targetDoc.document_name
-                            });
+                        // JSON içinde bulduysak gönder
+                        if (epatsDoc) {
+                            console.log(`[DEBUG-DOC] ✅ JSON'dan EPATS Belgesi Bulundu:`, epatsDoc);
+                            this.editFormManager.showEpatsDoc(epatsDoc);
                         } else {
-                            console.warn(`[DEBUG-DOC] ⚠️ HATA: task_documents tablosunda 'task_id=${targetTaskId}' olan hiç kayıt bulunamadı!`);
-                            this.editFormManager.showEpatsDoc(null);
+                            // JSON'da yoksa eski task_documents tablosuna bak
+                            console.log(`[DEBUG-DOC] 4. task_documents tablosunda aranıyor...`);
+                            supabase.from('task_documents')
+                                .select('document_name, document_url, document_type')
+                                .eq('task_id', targetTaskId)
+                                .order('uploaded_at', { ascending: false })
+                            .then(({data: docData, error: docError}) => {
+                                if (docData && docData.length > 0) {
+                                    const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
+                                    console.log(`[DEBUG-DOC] ✅ task_documents tablosundan Belge Seçildi:`, targetDoc);
+                                    this.editFormManager.showEpatsDoc({
+                                        url: targetDoc.document_url,
+                                        name: targetDoc.document_name
+                                    });
+                                } else {
+                                    console.warn(`[DEBUG-DOC] ⚠️ EPATS hiçbir yerde bulunamadı!`);
+                                    this.editFormManager.showEpatsDoc(null);
+                                }
+                            });
                         }
                     });
                 }

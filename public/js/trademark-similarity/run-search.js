@@ -1,6 +1,6 @@
 import { supabase } from '../../supabase-config.js';
 
-console.log(">>> run-search.js modülü yüklendi (Supabase & 100% Tamamlanmış Versiyon) <<<");
+console.log(">>> run-search.js modülü yüklendi (Realtime/WebSocket Versiyonu) <<<");
 
 export async function runTrademarkSearch(monitoredMarks, selectedBulletinId, onProgress) {
     try {
@@ -32,119 +32,97 @@ export async function runTrademarkSearch(monitoredMarks, selectedBulletinId, onP
 
 async function monitorSearchProgress(jobId, onProgress) {
     return new Promise((resolve, reject) => {
-        const interval = setInterval(async () => {
-            try {
-                // 1. Ana İş Durumunu Kontrol Et
-                const { data: mainData, error: mainError } = await supabase
-                    .from('search_progress')
-                    .select('status, current_results, total_records, error_message')
-                    .eq('id', jobId)
-                    .single();
+        // İşçilerin (workers) yüzdelerini hafızada tutarak veritabanına sormadan ortalama hesaplayacağız
+        const workerProgressMap = new Map();
+        let currentResultsCount = 0;
 
-                if (mainError) throw mainError;
+        // 🔥 1. SUPABASE REALTIME (CANLI) KANALINI OLUŞTUR
+        const channel = supabase.channel(`progress-${jobId}`);
 
-                if (mainData.status === 'processing' || mainData.status === 'started') {
-                    
-                    // İşçilerin % ilerlemesini al
-                    const { data: workersData } = await supabase
-                        .from('search_progress_workers')
-                        .select('progress')
-                        .eq('job_id', jobId);
+        // İşçilerin (Workers) ilerlemesini anlık dinle
+        channel.on('postgres_changes', {
+            event: '*', // INSERT ve UPDATE'leri anında yakala
+            schema: 'public',
+            table: 'search_progress_workers',
+            filter: `job_id=eq.${jobId}`
+        }, (payload) => {
+            const newRecord = payload.new;
+            if (newRecord && newRecord.id) {
+                // Hangi işçi yüzde kaça geldi lokal hafızaya yaz
+                workerProgressMap.set(newRecord.id, newRecord.progress || 0);
+                
+                // Ortalama ilerlemeyi anlık hesapla (Sıfır veritabanı yorgunluğu!)
+                const totalProgress = Array.from(workerProgressMap.values()).reduce((a, b) => a + b, 0);
+                const avgProgress = workerProgressMap.size > 0 ? Math.floor(totalProgress / workerProgressMap.size) : 0;
 
-                    let avgProgress = 0;
-                    if (workersData && workersData.length > 0) {
-                        const totalProgress = workersData.reduce((sum, w) => sum + (w.progress || 0), 0);
-                        avgProgress = Math.floor(totalProgress / workersData.length); 
-                    }
-
-                    if (onProgress) {
-                        onProgress({ 
-                            status: 'processing', 
-                            progress: avgProgress, 
-                            currentResults: mainData.current_results || 0 
-                        });
-                    }
-                } 
-                else if (mainData.status === 'completed') {
-                    // 🔥 İŞ BİTTİĞİNDE BURASI ÇALIŞIR VE SONUÇLARI İNDİRİR
-                    clearInterval(interval);
-                    
-                    if (onProgress) {
-                        onProgress({ 
-                            status: 'fetching_results', 
-                            progress: 100, 
-                            currentResults: mainData.current_results || 0,
-                            message: 'Sonuçlar arayüze yükleniyor...'
-                        });
-                    }
-                    
-                    const results = await fetchResults(jobId, onProgress);
-                    resolve(results); // Sonuçları performSearch (trademark-similarity-search.js) fonksiyonuna yollar
-                } 
-                else if (mainData.status === 'failed' || mainData.status === 'error') {
-                    clearInterval(interval);
-                    reject(new Error(mainData.error_message || "Arama işlemi başarısız oldu."));
+                if (onProgress) {
+                    onProgress({ 
+                        status: 'processing', 
+                        progress: avgProgress, 
+                        currentResults: currentResultsCount 
+                    });
                 }
-            } catch (err) {
-                clearInterval(interval);
-                reject(err);
             }
-        }, 2000); // 2 saniyede bir durumu kontrol et
+        });
+
+        // Ana görevin (Job) bitişini ve toplam tespit edilen marka sayısını dinle
+        channel.on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'search_progress',
+            filter: `id=eq.${jobId}`
+        }, (payload) => {
+            const newRecord = payload.new;
+            
+            if (newRecord.current_results !== undefined) {
+                currentResultsCount = newRecord.current_results;
+            }
+
+            if (newRecord.status === 'completed') {
+                if (onProgress) {
+                    onProgress({ 
+                        status: 'fetching_results', 
+                        progress: 100, 
+                        currentResults: currentResultsCount,
+                        message: 'Arama tamamlandı, veriler derleniyor...'
+                    });
+                }
+                
+                clearInterval(fallbackInterval);
+                supabase.removeChannel(channel);
+                resolve(true); // Veriyi artık loadDataFromCache çektiği için sadece true dönüyoruz
+            } 
+            else if (newRecord.status === 'failed' || newRecord.status === 'error') {
+                clearInterval(fallbackInterval);
+                supabase.removeChannel(channel);
+                reject(new Error(newRecord.error_message || "Arama arka planda başarısız oldu."));
+            }
+        });
+
+        // Kanala Abone Ol
+        channel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log(`✅ Realtime kanalına başarıyla abone olundu. Kesintisiz veri akışı başladı: ${jobId}`);
+            }
+        });
+
+        // 🔥 2. GÜVENLİK AĞI (FALLBACK)
+        // Eğer kullanıcının interneti anlık koparsa veya WebSocket engellenirse diye 
+        // işi şansa bırakmayıp her 3 saniyede bir sessizce sadece sonucu kontrol ediyoruz.
+        const fallbackInterval = setInterval(async () => {
+            const { data } = await supabase.from('search_progress').select('status, current_results').eq('id', jobId).single();
+            if (data) {
+                currentResultsCount = data.current_results || currentResultsCount;
+                if (data.status === 'completed') {
+                    clearInterval(fallbackInterval);
+                    supabase.removeChannel(channel);
+                    resolve(true);
+                } else if (data.status === 'failed' || data.status === 'error') {
+                    clearInterval(fallbackInterval);
+                    supabase.removeChannel(channel);
+                    reject(new Error("Arama işlemi başarısız oldu."));
+                }
+            }
+        }, 3000);
     });
-}
-
-async function fetchResults(jobId, onProgress) {
-    let allResults = [];
-    let offset = 0;
-    const limit = 20000;
-    let hasMore = true;
-
-    while (hasMore) {
-        // 🔥 VERİTABANINDAN ÇEK
-        const { data, error } = await supabase
-            .from('search_progress_results')
-            .select('*')
-            .eq('job_id', jobId)
-            .order('id', { ascending: true }) 
-            .range(offset, offset + limit - 1);
-
-        if (error) {
-            console.error("Sonuçları çekerken hata:", error);
-            throw error;
-        }
-
-        if (data && data.length > 0) {
-            // 🔥 ÇEVİRMEN: Veritabanındaki alt_tireli isimleri, arayüzün anladığı camelCase formata çevir
-            const mappedData = data.map(item => ({
-                id: item.id,
-                objectID: item.id,
-                jobId: item.job_id,
-                monitoredTrademarkId: item.monitored_trademark_id,
-                markName: item.similar_mark_name || item.mark_name, // Kalıcı veya Geçici tablodan gelmesine göre
-                applicationNo: item.similar_application_no || item.application_no,
-                applicationDate: item.application_date,
-                niceClasses: item.nice_classes,
-                similarityScore: item.similarity_score,
-                holders: item.holders,
-                imagePath: item.image_path,
-                // 🔥 DÜZELTME 3: Yeni arama sonuçlarında da bu alanı netleştirelim
-                isSimilar: false
-            }));
-            
-            allResults = allResults.concat(mappedData);
-            offset += limit;
-            
-            if (onProgress) {
-                 onProgress({
-                     status: 'downloading',
-                     message: `Arayüze yükleniyor... (${allResults.length} kayıt eklendi)`
-                 });
-            }
-            
-        } else {
-            hasMore = false; // Veri kalmadı, döngüden çık
-        }
-    }
-
-    return allResults;
 }

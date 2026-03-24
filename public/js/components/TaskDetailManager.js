@@ -611,7 +611,14 @@ export class TaskDetailManager {
     // 🔥 BELGELERİ YANYANA (FLEX/GRID) DİZEN GÜNCELLENMİŞ FONKSİYON
     _generateDocsHtml(task, isHorizontal = false) {
         let items = [];
-        const docs = task.documents || [];
+        let docs = task.documents || [];
+        
+        // 🔥 ÇÖZÜM 3: Eğer bu görev bir "Tahakkuk" işiyse (Tip 53), Görüntüle (View) ekranında EPATS'ı GİZLE!
+        const isAccrualTask = String(task.taskType) === '53' || (task.title && task.title.toLowerCase().includes('tahakkuk'));
+        if (isAccrualTask) {
+            docs = docs.filter(d => d.type !== 'epats_document');
+        }
+
         const epatsDoc = docs.find(d => d.type === 'epats_document');
         const epatsUrl = epatsDoc?.downloadURL || epatsDoc?.url;
 

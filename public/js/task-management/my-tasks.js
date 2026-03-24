@@ -923,30 +923,49 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // Asıl İşin (Parent) ID'sini bul
-                const parentId = task.related_task_id || task.relatedTaskId || detailsObj.parent_task_id;
+                // 🔥 ÇÖZÜM 1 & 2: Asıl İşin (Parent) ID'sini tüm olası yerlerde arıyoruz
+                const parentId = task.related_task_id || task.relatedTaskId || detailsObj.parent_task_id || detailsObj.relatedTaskId;
                 
                 // Başlangıçta evrak alanını temizle
                 this.completeTaskFormManager.showEpatsDoc(null);
 
-                // Eğer asıl işin ID'sini bulduysak, task_documents tablosuna gidip PDF'i çekiyoruz
+                // Eğer asıl işin ID'sini bulduysak, EPATS belgesini her delikten arayarak çekiyoruz
                 if (parentId) {
                     try {
-                        const { data: docData } = await supabase
-                            .from('task_documents')
-                            .select('document_name, document_url, document_type')
-                            .eq('task_id', String(parentId))
-                            .order('uploaded_at', { ascending: false });
+                        const { data: pTask } = await supabase.from('tasks').select('details, documents').eq('id', String(parentId)).single();
+                        
+                        let epatsDoc = null;
+                        
+                        // 1. Parent Task'ın "documents" array'inde ara
+                        if (pTask && pTask.documents && Array.isArray(pTask.documents)) {
+                            epatsDoc = pTask.documents.find(d => d.type === 'epats_document');
+                        }
+                        
+                        // 2. Parent Task'ın "details" JSON'ının içindeki documents array'inde ara
+                        if (!epatsDoc && pTask && pTask.details) {
+                            let pDetails = typeof pTask.details === 'string' ? JSON.parse(pTask.details) : pTask.details;
+                            if (pDetails.documents && Array.isArray(pDetails.documents)) {
+                                epatsDoc = pDetails.documents.find(d => d.type === 'epats_document');
+                            }
+                        }
 
-                        if (docData && docData.length > 0) {
-                            // Öncelik EPATS belgesi, yoksa ilk belge
-                            const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
-                            
-                            // Bulunan belgeyi forma gönderiyoruz
-                            this.completeTaskFormManager.showEpatsDoc({
-                                url: targetDoc.document_url,
-                                name: targetDoc.document_name
-                            });
+                        // 3. Eğer JSON içinde yoksa, eski usül "task_documents" tablosuna DB sorgusu at
+                        if (!epatsDoc) {
+                            const { data: docData } = await supabase
+                                .from('task_documents')
+                                .select('document_name, document_url, document_type')
+                                .eq('task_id', String(parentId))
+                                .order('uploaded_at', { ascending: false });
+
+                            if (docData && docData.length > 0) {
+                                const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
+                                epatsDoc = { name: targetDoc.document_name, url: targetDoc.document_url, type: 'epats_document' };
+                            }
+                        }
+
+                        // EPATS belgesini bulduysak düzenle formuna (modala) aktar
+                        if (epatsDoc) {
+                            this.completeTaskFormManager.showEpatsDoc(epatsDoc);
                         }
                     } catch (e) { 
                         console.warn('Belge çekilirken hata oluştu:', e); 

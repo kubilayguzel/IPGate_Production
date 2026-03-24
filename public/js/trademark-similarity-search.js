@@ -1285,70 +1285,81 @@ const buildReportData = async (results) => {
         }
     }
 
+    // 🔥 KESİN ÇÖZÜM (N+1 Problemi): Döngüye girmeden önce tüm gerekli ID'leri toplayıp tek bir sorgu atıyoruz!
+    const appNosToSearch = [];
+    const recordIdsToSearch = [];
+    
+    results.forEach(r => {
+        const monitoredTm = monitoringTrademarks.find(mt => mt.id === r.monitoredTrademarkId) || {};
+        const appNo = monitoredTm.applicationNumber || monitoredTm.applicationNo;
+        const recId = monitoredTm.ipRecordId || monitoredTm.sourceRecordId;
+        if (appNo) appNosToSearch.push(appNo);
+        if (recId) recordIdsToSearch.push(recId);
+    });
+
+    const uniqueAppNos = [...new Set(appNosToSearch)].filter(Boolean);
+    const uniqueRecordIds = [...new Set(recordIdsToSearch)].filter(Boolean);
+    
+    const ipQuery = `*, ip_record_trademark_details(*), ip_record_applicants(*), ip_record_classes(*)`;
+    let bulkIpRecords = [];
+
+    // Tek seferde Application Number ile ara
+    if (uniqueAppNos.length > 0) {
+        const { data } = await supabase.from('ip_records').select(ipQuery).in('application_number', uniqueAppNos);
+        if (data) bulkIpRecords.push(...data);
+    }
+    
+    // Tek seferde ID ile ara
+    if (uniqueRecordIds.length > 0) {
+        const { data } = await supabase.from('ip_records').select(ipQuery).in('id', uniqueRecordIds);
+        if (data) {
+            data.forEach(d => { if (!bulkIpRecords.find(existing => existing.id === d.id)) bulkIpRecords.push(d); });
+        }
+    }
+
+    // Artık döngü içinde veritabanına GİTMİYORUZ, her şey hafızadaki `bulkIpRecords` içinde hazır!
     for (const r of results) {
         const monitoredTm = monitoringTrademarks.find(mt => mt.id === r.monitoredTrademarkId) || {};
-        let ipData = null;
-
         const appNoToSearch = monitoredTm.applicationNumber || monitoredTm.applicationNo;
         
-        // 🔥 YENİ DB: Sınıfları, Detayları ve Kişileri JOIN ile tek seferde çekiyoruz.
-        const ipQuery = `
-            *, 
-            ip_record_trademark_details(*), 
-            ip_record_applicants(*), 
-            ip_record_classes(*)
-        `;
-        
+        let ipData = null;
         if (appNoToSearch) {
-            const { data: ipSnap } = await supabase.from('ip_records').select(ipQuery).eq('application_number', appNoToSearch).limit(1).maybeSingle();
-            if (ipSnap) ipData = ipSnap;
+            ipData = bulkIpRecords.find(ip => ip.application_number === appNoToSearch);
         }
         if (!ipData && (monitoredTm.ipRecordId || monitoredTm.sourceRecordId)) {
-            const { data: ipDoc } = await supabase.from('ip_records').select(ipQuery).eq('id', monitoredTm.ipRecordId || monitoredTm.sourceRecordId).limit(1).maybeSingle();
-            if (ipDoc) ipData = ipDoc;
+            ipData = bulkIpRecords.find(ip => ip.id === (monitoredTm.ipRecordId || monitoredTm.sourceRecordId));
         }
 
-        // 🔥 YENİ DB: İlişkisel tablolardan dönen verileri güvenle çıkarıyoruz
         const tmDetails = ipData?.ip_record_trademark_details ? (Array.isArray(ipData.ip_record_trademark_details) ? ipData.ip_record_trademark_details[0] : ipData.ip_record_trademark_details) : {};
         const ipClasses = ipData?.ip_record_classes || [];
         const ipApplicants = ipData?.ip_record_applicants || [];
 
         let hitHolders = r.holders || [];
         
-        // 🔥 ÇÖZÜM: Yeni aramadan geliyorsa 'applicationDate', Cache'den geliyorsa 'application_date' olarak okunabilir.
         let hitAppDateRaw = r.applicationDate || r.application_date || "-"; 
         let hitAppDate = "-";
-        
         let hitAppNo = r.applicationNo || "-";
         let hitNice = r.niceClasses || [];
 
-        // Bülten Markasının (Benzer) tarih formatını güzelleştir
         if (hitAppDateRaw && hitAppDateRaw !== "-") {
             const hd = new Date(hitAppDateRaw);
             if (!isNaN(hd.getTime())) {
                 hitAppDate = `${String(hd.getDate()).padStart(2, '0')}.${String(hd.getMonth() + 1).padStart(2, '0')}.${hd.getFullYear()}`;
             } else {
-                // Eğer tarih parçalanamıyorsa (zaten düzgün string gelmişse) olduğu gibi kullan
                 hitAppDate = String(hitAppDateRaw);
             }
         }
 
-        // 🔥 YENİ DB: Sınıfları `ip_record_classes` tablosundan alıyoruz
         let mClasses = [];
         if (ipClasses.length > 0) {
             mClasses = ipClasses.map(c => String(c.class_no));
         } else {
-             // Fallback
              let rawClasses = monitoredTm?.niceClasses || monitoredTm?.nice_classes;
-             if (typeof rawClasses === 'string') {
-                 mClasses = rawClasses.split(/[,\s]+/).filter(Boolean);
-             } else if (Array.isArray(rawClasses)) {
-                 mClasses = rawClasses.map(String).filter(Boolean);
-             }
+             if (typeof rawClasses === 'string') mClasses = rawClasses.split(/[,\s]+/).filter(Boolean);
+             else if (Array.isArray(rawClasses)) mClasses = rawClasses.map(String).filter(Boolean);
         }
         mClasses = Array.from(new Set(mClasses)).sort((a, b) => Number(a) - Number(b));
 
-        // 🔥 YENİ DB: Sahip Bilgisini person listesinden ID eşleştirerek buluyoruz
         let ownerNameStr = "-";
         if (ipApplicants.length > 0 && ipApplicants[0].person_id) {
              const foundPerson = allPersons.find(p => p.id === ipApplicants[0].person_id);
@@ -1358,11 +1369,8 @@ const buildReportData = async (results) => {
         }
         
         let monitoredClientId = ipData?.client_id || monitoredTm.ownerInfo?.id;
-        if(!monitoredClientId) {
-             monitoredClientId = _getOwnerKey(ipData, monitoredTm, allPersons).id;
-        }
+        if(!monitoredClientId) monitoredClientId = _getOwnerKey(ipData, monitoredTm, allPersons).id;
 
-        // 🔥 YENİ DB: İsim ve Resmi `ip_record_trademark_details` içinden okuyoruz
         const monitoredName = tmDetails?.brand_name || ipData?.title || monitoredTm?.title || monitoredTm?.markName || "Marka Adı Yok";
         const monitoredImg = _normalizeImageSrc(tmDetails?.brand_image_url || ipData?.image_path || monitoredTm?.imagePath || '');
         const monitoredAppNo = ipData?.application_number || monitoredTm?.applicationNo || "-";

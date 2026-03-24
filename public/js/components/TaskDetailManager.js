@@ -479,7 +479,7 @@ export class TaskDetailManager {
     async _renderEvaluationEditor(task) {
         this.showLoading();
         try {
-            // 🔥 ÇÖZÜM: Mail taslağını task içinden değil, doğrudan mail tablosundaki 'associated_task_id' üzerinden buluyoruz!
+            // 1. İlişkili mail taslağını bul
             const { data: mail } = await supabase.from('mail_notifications')
                 .select('*')
                 .eq('associated_task_id', String(task.id))
@@ -489,6 +489,36 @@ export class TaskDetailManager {
 
             if (!mail) throw new Error("İlişkili mail taslağı bulunamadı.");
 
+            // 2. 🔥 YENİ: Görevin bağlı olduğu Transaction ID'sinden ilgili evrakları (Örn: İtiraz Dilekçesi, Resmi Yazı) çek
+            let documentHtml = '';
+            const txId = task.transactionId || task.transaction_id || (task.details && task.details.transactionId);
+            
+            if (txId) {
+                const { data: txDocs } = await supabase
+                    .from('transaction_documents')
+                    .select('document_name, document_url')
+                    .eq('transaction_id', String(txId));
+
+                if (txDocs && txDocs.length > 0) {
+                    documentHtml = `
+                        <div class="mb-4 p-3 bg-light border rounded">
+                            <label class="d-block small font-weight-bold text-muted text-uppercase mb-2">
+                                <i class="fas fa-paperclip mr-1"></i> İLGİLİ EVRAKLAR (Tebliğ / Dilekçe vs.)
+                            </label>
+                            <div class="d-flex flex-wrap" style="gap: 10px;">
+                                ${txDocs.map(doc => `
+                                    <a href="${doc.document_url}" target="_blank" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center shadow-sm">
+                                        <i class="fas fa-file-pdf text-danger mr-2 fa-lg"></i> 
+                                        <span class="font-weight-bold">${doc.document_name || 'İlgili Evrak'}</span>
+                                    </a>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // 3. Editör UI'ını çiz
             this.container.innerHTML = `
                 <div class="card shadow-sm border-0">
                     <div class="card-header bg-white border-bottom py-3">
@@ -502,8 +532,9 @@ export class TaskDetailManager {
                             <label class="d-block small font-weight-bold text-muted text-uppercase mb-2">KONU</label>
                             <input type="text" class="form-control font-weight-bold text-dark" value="${mail.subject}" readonly style="background-color: #f8f9fa;">
                         </div>
-                        <div class="mb-4">
-                             <label class="d-block small font-weight-bold text-muted text-uppercase mb-2">İÇERİK DÜZENLEME</label>
+                        
+                        ${documentHtml} <div class="mb-4">
+                             <label class="d-block small font-weight-bold text-muted text-uppercase mb-2">İÇERİK DÜZENLEME (Müvekkile Gidecek Mail)</label>
                              <div id="eval-body-editor" contenteditable="true" class="form-control p-3" style="min-height: 400px; height: auto; border: 1px solid #ced4da; line-height: 1.6;">${mail.body}</div>
                         </div>
                         <div class="d-flex justify-content-end pt-3 border-top">

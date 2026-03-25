@@ -73,6 +73,20 @@ function setupEventListeners() {
         });
     });
 
+    // 🔥 YENİ: Kayıt Tipi Değiştiğinde "İlgili Taraf" Kutusunu Gizle/Göster
+    const ownerRadios = document.querySelectorAll('input[name="recordOwnerOption"]');
+    ownerRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const isThirdParty = e.target.value === 'third_party';
+            const hasResults = (singleResultInner.innerHTML !== '') || (currentOwnerResults.length > 0);
+            
+            if (hasResults) {
+                if (isThirdParty) _hideBlock(relatedPartyContainer);
+                else _showBlock(relatedPartyContainer);
+            }
+        });
+    });
+
   // İlgili Taraf Arama Dinleyicisi
   if (relatedPartySearchInput) {
       relatedPartySearchInput.addEventListener('input', handlePersonSearch);
@@ -211,7 +225,12 @@ function setupMessageListener() {
         if (msg.type === 'VERI_GELDI_BASVURU' || msg.type === 'VERI_GELDI_OPTS') {
             _hideBlock(loadingEl);
             _showBlock(singleResultContainer);
-            _showBlock(relatedPartyContainer); 
+            
+            // 🔥 YENİ: Seçilen kayıt tipine göre kişi seçme kutusunu göster veya gizle
+            const ownerType = document.querySelector('input[name="recordOwnerOption"]:checked').value;
+            if (ownerType === 'self') _showBlock(relatedPartyContainer); 
+            else _hideBlock(relatedPartyContainer);
+
             const data = Array.isArray(msg.data) ? msg.data[0] : msg.data;
             if (!data) return;
             currentOwnerResults = [data]; 
@@ -240,7 +259,11 @@ function setupMessageListener() {
             }
 
             _showBlock(bulkContainer);
-            _showBlock(relatedPartyContainer); 
+            
+            // 🔥 YENİ: Seçilen kayıt tipine göre kişi seçme kutusunu göster veya gizle
+            const currentOwnerType = document.querySelector('input[name="recordOwnerOption"]:checked').value;
+            if (currentOwnerType === 'self') _showBlock(relatedPartyContainer);
+            else _hideBlock(relatedPartyContainer);
             
             // Tablonun üstündeki ufak bilgi metni (Header Meta)
             const metaEl = _el('bulkMeta');
@@ -338,10 +361,17 @@ async function handleSaveToPortfolio() {
   
   let successCount = 0;
   
+    const ownerType = document.querySelector('input[name="recordOwnerOption"]:checked').value;
+
     for (const record of selectedRecords) {
         try {
-            const mappedRecord = await mapTurkpatentToIPRecord(record, relatedParties);        
+            // Eğer third_party ise, seçilen kişileri (müvekkilleri) yollama
+            const partiesToPass = ownerType === 'third_party' ? [] : relatedParties;
+            const mappedRecord = await mapTurkpatentToIPRecord(record, partiesToPass);        
             if (!mappedRecord) continue;
+            
+            // 🔥 YENİ: Kaydın sahiplik tipini (self veya third_party) ayarla
+            mappedRecord.recordOwnerType = ownerType;
             
             // 1. Ana Kaydı Oluştur
             const result = await ipRecordsService.createRecordFromDataEntry(mappedRecord);

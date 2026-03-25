@@ -370,8 +370,8 @@ export class ManuelPdfTransactionManager {
         try {
             // 1. ADIM: MÜŞTERİ PORTFÖYÜNDE (trademarks tablosu) ARA
             const { data: portfolioData, error: pError } = await supabase
-                .from('trademarks')
-                .select('id, application_number, brand_name, origin, status, client_id, record_owner_type, applicants_json')
+                .from('portfolio_list_view')
+                .select('id, application_number, brand_name, origin, status, record_owner_type, applicants_json')
                 .or(`application_number.ilike.%${rawQuery}%,brand_name.ilike.%${rawQuery}%`)
                 .limit(10);
 

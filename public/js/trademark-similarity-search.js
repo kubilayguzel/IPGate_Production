@@ -1510,10 +1510,16 @@ const handleReportGeneration = async (event, options = {}) => {
             console.log(`[RAPOR BAŞARILI] Rapor indiriliyor!`);
             showNotification(createTasks ? `Rapor oluşturuldu. Oluşturulan itiraz görevi: ${createdTaskCount} adet.` : 'Rapor oluşturuldu.', 'success');
 
-            const blob = new Blob([Uint8Array.from(atob(response.file), c => c.charCodeAt(0))], { type: 'application/zip' });
+            // 🔥 ÇÖZÜM 1: ZIP MIME type'ı yerine doğrudan Word (.docx) MIME type'ı ve uzantısı kullanıyoruz
+            const blob = new Blob([Uint8Array.from(atob(response.file), c => c.charCodeAt(0))], { 
+                type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+            });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = isGlobal ? `Toplu_Rapor.zip` : `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor.zip`;
+            
+            // Eğer Edge Function'dan özel 'fileName' dönüyorsa onu kullan, yoksa kendin .docx olarak üret
+            link.download = response.fileName || (isGlobal ? `Toplu_Rapor.docx` : `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor.docx`);
+            
             document.body.appendChild(link); link.click(); document.body.removeChild(link);
 
             // 🔥 TO/CC ve Ek Dosya (Attachment) İşlemleriyle Birlikte Mail Taslağı
@@ -1605,28 +1611,26 @@ const handleReportGeneration = async (event, options = {}) => {
                     }).select('id').single();
 
                     if (mailError) throw mailError;
-                    // 4. 🔥 ATTACHMENT: Zip Raporunu Storage'a Yükle ve Mail'e Bağla
+                    // 4. 🔥 ATTACHMENT: Word Raporunu Storage'a Yükle ve Mail'e Bağla
                     if (insertedMail && insertedMail.id) {
                         try {
-                            const zipFileName = `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor_${bulletinNo}.zip`;
+                            // 🔥 ÇÖZÜM 2: Dosya uzantısını zip yerine .docx yapıyoruz ve ismini güncelliyoruz
+                            const reportFileName = response.fileName || `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor_${bulletinNo}.docx`;
                             
-                            // 1. DEĞİŞİKLİK: Klasör adını "watch_reports" olarak ayarladık
-                            const storagePath = `watch_reports/${Date.now()}_${zipFileName}`;
+                            const storagePath = `watch_reports/${Date.now()}_${reportFileName}`;
                             
-                            // 2. DEĞİŞİKLİK: Bucket adını "documents" olarak değiştirdik
                             const { error: uploadError } = await supabase.storage.from('documents').upload(storagePath, blob);
                             
                             if (uploadError) {
                                 console.error("⚠️ Dosya Storage'a yüklenemedi (RLS/Yetki Hatası Olabilir):", uploadError);
                             } else {
-                                // 3. DEĞİŞİKLİK: URL'i alırken de "documents" bucket'ını kullandık
                                 const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
                                 
                                 const { error: attachError } = await supabase.from('mail_attachments').insert({
                                     id: crypto.randomUUID(), 
                                     notification_id: insertedMail.id,
                                     url: urlData.publicUrl,
-                                    file_name: zipFileName,
+                                    file_name: reportFileName, // 🔥 YENİ İSİM BURAYA EKLENDİ
                                     storage_path: storagePath
                                 });
                                 

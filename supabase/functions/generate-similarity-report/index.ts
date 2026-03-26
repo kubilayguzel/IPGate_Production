@@ -2,11 +2,10 @@
 
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import JSZip from "npm:jszip@3.10.1";
+import { encode } from "https://deno.land/std@0.192.0/encoding/base64.ts"; // 🔥 YENİ: Deno Base64 Çevirici
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, PageBreak, ImageRun, BorderStyle } from "npm:docx@8.5.0";
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' };
-
 const FONT_FAMILY = "Montserrat"; const GLOBAL_FONT_SIZE = 18; 
 const COLORS = { CLIENT_HEADER: "1E40AF", SIMILAR_HEADER: "64748B", TEXT_DARK: "1E293B", NICE_BG: "F1F5F9", BORDER_LIGHT: "E2E8F0", DEADLINE_BG: "DBEAFE", DEADLINE_TEXT: "1E40AF", EXPERT_BG: "F8FAFC", EXPERT_BORDER: "1E40AF" };
 
@@ -80,7 +79,7 @@ async function createComparisonPage(group: any, supabase: any) {
             new TableCell({ columnSpan: 2, children: deadlineContent, shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.CLIENT_HEADER } } }) 
         ] }));
     }
-    
+
     const comparisonTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: { top: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, bottom: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, left: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: COLORS.BORDER_LIGHT }, insideVertical: { style: BorderStyle.SINGLE, size: 2, color: COLORS.BORDER_LIGHT } }, rows: tableRows });
     elements.push(comparisonTable);
 
@@ -111,7 +110,8 @@ serve(async (req) => {
             owners[ownerName].push(m);
         });
 
-        const zip = new JSZip();
+        let finalDocBase64 = "";
+        let finalFileName = "Benzerlik_Raporu.docx";
 
         for (const [ownerNameKey, matches] of Object.entries(owners)) {
             const grouped: Record<string, any> = {};
@@ -135,7 +135,10 @@ serve(async (req) => {
             
             const safeDocName = ownerNameKey.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25);
             const fileName = `${safeDocName}_Rapor.docx`;
-            zip.file(fileName, docBuffer);
+            
+            // 🔥 ÇÖZÜM: Zip'e eklemek yerine doğrudan saf Word dosyasını Base64'e çeviriyoruz
+            finalDocBase64 = encode(new Uint8Array(docBuffer));
+            finalFileName = fileName;
 
             const targetClientId = matches[0]?.monitoredMark?.clientId || matches[0]?.monitoredMark?.details?.clientId || null;
 
@@ -147,8 +150,8 @@ serve(async (req) => {
             }
         }
 
-        const zipBase64 = await zip.generateAsync({ type: "base64" });
-        return new Response(JSON.stringify({ success: true, file: zipBase64 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        // 🔥 ÇÖZÜM: Ziplenmiş veri yerine doğrudan Word (.docx) dosyasının verisini ve adını dönüyoruz!
+        return new Response(JSON.stringify({ success: true, file: finalDocBase64, fileName: finalFileName }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 
     } catch (error) {
         console.error("❌ Rapor Hatası:", error);

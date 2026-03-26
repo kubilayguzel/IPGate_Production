@@ -512,26 +512,35 @@ serve(async (req) => {
         const chunkSize = Math.ceil(monitoredMarks.length / WORKER_COUNT);
         
         const workerRecords = [];
+        const activeChunks = [];
+        
+        let activeWorkerId = 1;
         for (let i = 0; i < WORKER_COUNT; i++) {
             const chunk = monitoredMarks.slice(i * chunkSize, (i + 1) * chunkSize);
             if (chunk.length === 0) continue;
             
-            const workerId = i + 1;
-            workerRecords.push({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: 0 });
+            workerRecords.push({ id: `${jobId}_w${activeWorkerId}`, job_id: jobId, status: 'processing', progress: 0 });
+            activeChunks.push({ workerId: activeWorkerId, chunk });
+            activeWorkerId++;
+        }
 
+        // 🔥 ÇÖZÜM 1: ÖNCE İŞÇİLERİ VERİTABANINA KAYDET (Yarış Durumu / Race Condition Engellendi)
+        if (workerRecords.length > 0) {
+            await supabase.from('search_progress_workers').insert(workerRecords);
+        }
+
+        // 🔥 ÇÖZÜM 2: KAYITLAR OLUŞTUKTAN SONRA İŞÇİLERİ TETİKLE
+        for (const item of activeChunks) {
             EdgeRuntime.waitUntil(
                 supabase.functions.invoke('perform-trademark-similarity-search', {
-                    body: { action: 'worker', jobId, workerId, monitoredMarks: chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
+                    body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
                     headers: { Authorization: `Bearer ${supabaseKey}` }
                 }).catch(async (err) => {
-                    console.error(`[Worker ${workerId}] Başlangıç çağrısı başarısız oldu:`, err);
-                    await markWorkerStatus(supabase, jobId, workerId, 'failed');
+                    console.error(`[Worker ${item.workerId}] Başlangıç çağrısı başarısız oldu:`, err);
+                    await markWorkerStatus(supabase, jobId, item.workerId, 'failed');
                 })
             );
         }
-
-        await supabase.from('search_progress_workers').insert(workerRecords);
-
         return new Response(JSON.stringify({ success: true, jobId }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });

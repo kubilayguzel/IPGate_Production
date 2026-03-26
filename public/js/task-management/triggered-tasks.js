@@ -635,29 +635,61 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             let newStatus = document.getElementById('newTriggeredTaskStatus').value;
             
+            // Eğer müşteri portalı statüsü manuel olarak "açık" (open) yapılıyorsa
             if (newStatus === 'client_approval_opened') {
                 newStatus = 'open';
             }
 
             try {
-                const newHistoryEntry = {
-                    action: `Durum değiştirildi: ${newStatus} (Müvekkil Onayı ile)`,
+                const updatePayload = {
+                    status: newStatus
+                };
+
+                const history = this.currentTaskForStatusChange.history ? [...this.currentTaskForStatusChange.history] : [];
+                history.push({
+                    action: `Durum değiştirildi: ${newStatus} (Manuel Müdahale ile)`,
                     timestamp: new Date().toISOString(),
                     userEmail: this.currentUser.email
-                };
-                
-                const history = this.currentTaskForStatusChange.history ? [...this.currentTaskForStatusChange.history] : [];
-                history.push(newHistoryEntry);
-
-                await taskService.updateTask(this.currentTaskForStatusChange.id, {
-                    status: newStatus,
-                    history: history
                 });
+                updatePayload.history = history;
+
+                // 🔥 PARALEL GELİŞTİRME: İş durumu "Açık" (open) yapılırsa, işi asıl sahibine (departman/kişi) geri ata!
+                if (newStatus === 'open' && this.currentTaskForStatusChange.taskType) {
+                    try {
+                        const { data: assignData } = await supabase
+                            .from('task_assignments')
+                            .select('assignee_ids')
+                            .eq('id', String(this.currentTaskForStatusChange.taskType))
+                            .single();
+                            
+                        if (assignData && assignData.assignee_ids && assignData.assignee_ids.length > 0) {
+                            const correctAssigneeId = assignData.assignee_ids[0];
+                            
+                            // Eğer şu anki atanan kişi doğru kişi değilse, payload'a yeni atananı da ekle
+                            if (this.currentTaskForStatusChange.assignedTo_uid !== correctAssigneeId) {
+                                updatePayload.assigned_to = correctAssigneeId;
+                                
+                                history.push({
+                                    action: `Görev Onaylandı: Sistem tarafından asıl sorumlusuna (Departmana) geri atandı.`,
+                                    timestamp: new Date().toISOString(),
+                                    userEmail: "Sistem Otomasyonu"
+                                });
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("Görev atama kuralı (Task Assignment) çekilemedi:", err);
+                    }
+                }
+
+                // Supabase'e tüm güncellemeleri tek seferde gönder
+                await taskService.updateTask(this.currentTaskForStatusChange.id, updatePayload);
                 
-                showNotification('Durum güncellendi ve işleme alındı.', 'success');
+                showNotification('Durum güncellendi ve ilgili kişiye atandı.', 'success');
                 this.closeModal('changeTriggeredTaskStatusModal');
                 await this.loadAllData();
+                
             } catch (e) {
+                console.error("Durum Güncelleme Hatası:", e);
                 showNotification('Hata: ' + e.message, 'error');
             }
         }

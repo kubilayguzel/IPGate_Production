@@ -624,7 +624,7 @@ export class TaskSubmitHandler {
             nonLatinAlphabet: nonLatin !== '', 
             
             // 🔥 ÇÖZÜM 2: Veritabanının beklediği tüm potansiyel (snake_case vb.) kolon isimlerini yedekli gönderiyoruz!
-            brand_image_url: brandImageUrl,          
+            brandImageUrl: brandImageUrl, // 🔥 ÇÖZÜM: Servisin beklediği asıl CamelCase parametresi eklendi!
             origin: origin,
             countryCode: originCountry,
             createdFrom: 'create_task', 

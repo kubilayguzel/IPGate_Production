@@ -22,6 +22,9 @@ export class ETEBSManager {
 
         // Pagination Referansları
         this.paginations = { matched: null, unmatched: null };
+        
+        // 🔥 ÇÖZÜM 1: Çift yüklemeyi engellemek için kilit (lock) mekanizması
+        this._isLoading = false;
 
         // Başlat
         this.init();
@@ -142,6 +145,10 @@ export class ETEBSManager {
     }
 
     async loadAndProcessDocuments(isBackgroundRefresh = false) {
+        // 🔥 ÇÖZÜM 2: Eğer zaten yükleniyorsa, ikinci çağrıyı reddet (Çift listelemeyi engeller)
+        if (this._isLoading) return;
+        this._isLoading = true;
+
         if (!isBackgroundRefresh && window.SimpleLoadingController) {
             window.SimpleLoadingController.show({ text: 'Evraklar taranıyor...', subtext: 'Veriler kontrol ediliyor...' });
         }
@@ -236,6 +243,8 @@ export class ETEBSManager {
             if (!isBackgroundRefresh) showNotification('Evrak listesi alınamadı.', 'error');
         } finally {
             if (!isBackgroundRefresh && window.SimpleLoadingController) window.SimpleLoadingController.hide();
+            // 🔥 ÇÖZÜM 3: İşlem bitti, kilidi aç ki sonraki güncellemeler çalışabilsin!
+            this._isLoading = false;
         }
     }
 

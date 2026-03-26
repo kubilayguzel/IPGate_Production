@@ -94,6 +94,7 @@ class NotificationsManager {
 
     async loadData() {
         this.toggleLoading(true);
+        // Artık View'ımızda task_status kendiliğinden var, ekstra sorguya gerek yok!
         const { data, error } = await supabase
                 .from('v_mail_notifications_list')
                 .select('*')
@@ -143,15 +144,16 @@ class NotificationsManager {
             let filtered = [];
             
             for (const n of sentList) {
-                // Görünmez boşlukları temizleyerek statüyü al
                 const tStatus = n.task_status ? n.task_status.trim() : null;
+                // 🔥 Sadece "Onay Bekliyor" değil, müvekkil linke tıklamış olsa bile (opened) hatırlatmada kalır
+                const isWaitingForClient = ['awaiting_client_approval', 'client_approval_opened', 'awaiting-approval'].includes(tStatus);
                 
-                // KURAL 1: HATIRLATMALAR SEKMESİ (Görev Var VE Statüsü Müvekkil Onayı Bekliyor)
-                if (this.activeTab === 'reminders' && n.associated_task_id && tStatus === 'awaiting_client_approval') {
+                // KURAL 1: HATIRLATMALAR SEKMESİ
+                if (this.activeTab === 'reminders' && n.associated_task_id && isWaitingForClient) {
                     filtered.push(n);
                 }
-                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ (Görev Yok YADA Statüsü Onay Beklemiyor)
-                else if (this.activeTab === 'sent' && (!n.associated_task_id || tStatus !== 'awaiting_client_approval')) {
+                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ
+                else if (this.activeTab === 'sent' && (!n.associated_task_id || !isWaitingForClient)) {
                     filtered.push(n);
                 }
             }
@@ -164,7 +166,7 @@ class NotificationsManager {
         }
 
         if (this.notificationsData.length === 0) {
-            this.elements.tableBody.innerHTML = `<tr><td colspan="11" class="no-records">Bu sekmede bildirim bulunamadı.</td></tr>`;
+            this.elements.tableBody.innerHTML = `<tr><td colspan="15" class="text-center text-muted p-4">Bu sekmede bildirim bulunamadı.</td></tr>`;
         } else {
             await this.renderCurrentPage();
         }

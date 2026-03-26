@@ -2403,3 +2403,4 @@ export const reminderService = {
         return { success: !error };
     }
 };
+window.supabase = supabase;

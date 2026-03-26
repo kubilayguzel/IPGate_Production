@@ -244,7 +244,7 @@ async function markWorkerStatus(supabase: any, jobId: string, workerId: string |
     
     const { data: activeWorkers } = await supabase.from('search_progress_workers').select('id').eq('job_id', jobId).eq('status', 'processing');
     if (!activeWorkers || activeWorkers.length === 0) {
-        console.log(`[Job ${jobId}] Tüm işçiler (${status}) işlemi bitirdi. Ana job 'completed' yapılıyor.`);
+        console.log(`[Job ${jobId}] 🎉 TıM İŞÇİLER (${status}) İŞLEMİ BİTİRDİ. Ana Job 'completed' yapılıyor.`);
         await supabase.from('search_progress').update({ status: 'completed' }).eq('id', jobId);
     }
 }
@@ -259,31 +259,26 @@ serve(async (req) => {
         const body = await req.json();
 
         // =========================================================================
-        // İŞÇİ MODU (Zincirleme Tarama ve Akıllı Döngü)
+        // İŞÇİ MODU (Zincirleme Tarama - Bayrak Yarışı)
         // =========================================================================
         if (body.action === 'worker') {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                // 🔥 BATCH_SIZE 1000'e kadar yükseltildi (Supabase limiti). Az marka gelirse çok kayıt çekerek HTTP istek sayısını düşürür.
-                const BATCH_SIZE = Math.max(100, Math.min(1000, Math.floor(50000 / (monitoredMarks.length || 1))));
+                // 🔥 KESİN ÇÖZÜM 1: BATCH_SIZE (Lokma Boyutu) çok küçültüldü. 
+                // Ağır işlemci algoritmalarında tek seferde 250 kayıt çekmek Edge Fonksiyonlarını asla çökertmez.
+                const BATCH_SIZE = 250;
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
-                console.log(`[Worker ${workerId}] Başlatıldı. Hedef: ${rawBulletinNumber}, BATCH: ${BATCH_SIZE}, Başlangıç ID: ${lastId}`);
+                console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç ID: ${lastId}`);
 
                 const preparedMarks = monitoredMarks.map((mark: any) => {
-                    // 🔥 YENİ KONTROL: search_mark_name dolu mu?
                     const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
-                    
-                    // Eğer search_mark_name varsa SADECE onu kullan. Yoksa orijinal markName'e düş.
                     const primaryName = validSearchMarkName 
                         ? String(mark.searchMarkName).trim() 
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
                     let alternatives = Array.isArray(mark.brandTextSearch) ? mark.brandTextSearch : [];
-                    
-                    // 🔥 KRİTİK GÜVENLİK: Eğer search_mark_name doluysa ve geçmişteki hatalı kayıtlardan dolayı 
-                    // 'brand_text_search' içine uzun marka adı gizlice sızmışsa, onu arama sepetinden zorla siliyoruz!
                     if (validSearchMarkName && mark.markName) {
                         const exactMarkName = String(mark.markName).trim().toLowerCase();
                         alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
@@ -324,43 +319,27 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
-                const startTime = Date.now();
-                const CPU_TIME_LIMIT = 1500; 
-
                 let currentLastId = lastId;
                 let actualProcessedCount = 0;
                 const uiResults = [];
                 const permanentRecords = []; 
-                let hasMoreRecords = true;
 
-                // 🔥 KESİN ÇÖZÜM: İşçi uyanıp işlemi çok hızlı bitirirse (Örn: 38 marka), 
-                // dışarı çıkıp HTTP isteği atmak yerine CPU süresi dolana kadar VERİ ÇEKMEYE DEVAM EDER!
-                while (Date.now() - startTime < 1000) {
-                    const { data: hits, error } = await supabase
-                        .from('trademark_bulletin_records')
-                        .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                        .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
-                        .order('id')
-                        .gt('id', currentLastId)
-                        .limit(BATCH_SIZE);
+                // 🔥 KESİN ÇÖZÜM 2: WHİLE DÖNGÜSÜ TAMAMEN SİLİNDİ! 
+                // İşçi uyanır uyanmaz veritabanından sadece 250 kayıt (1 lokma) çeker, işler, kapatır ve bayrağı sıradaki işçiye devreder.
+                const { data: hits, error } = await supabase
+                    .from('trademark_bulletin_records')
+                    .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
+                    .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
+                    .order('id')
+                    .gt('id', currentLastId)
+                    .limit(BATCH_SIZE);
 
-                    if (error) throw error;
+                if (error) throw error;
 
-                    if (!hits || hits.length === 0) {
-                        hasMoreRecords = false;
-                        break; 
-                    }
+                const hasMoreRecords = hits && hits.length === BATCH_SIZE;
 
-                    let batchBreak = false;
-
+                if (hits && hits.length > 0) {
                     for (let i = 0; i < hits.length; i++) {
-                        if (Date.now() - startTime > CPU_TIME_LIMIT && i < hits.length - 1) {
-                            currentLastId = i > 0 ? hits[i - 1].id : hits[0].id; 
-                            console.log(`[Worker ${workerId}] CPU limiti aşıldı, ${currentLastId} id'sinde duraklatıldı.`);
-                            batchBreak = true;
-                            break;
-                        }
-
                         actualProcessedCount++;
                         const hit = hits[i];
                         currentLastId = hit.id;
@@ -430,23 +409,16 @@ serve(async (req) => {
                             }
                         }
                     }
-
-                    if (batchBreak) break; // Süre bitti, döngüden çık
-                    
-                    if (hits.length < BATCH_SIZE) {
-                        hasMoreRecords = false; // Bülten sonuna gelindi
-                        break;
-                    }
-                } // DAHİLİ DÖNGÜ SONU
+                } 
 
                 if (actualProcessedCount === 0 && !hasMoreRecords) {
-                    console.log(`[Worker ${workerId}] Kayıt kalmadı, başarıyla kapanıyor.`);
+                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Kayıt kalmadı, işçi başarıyla kapanıyor.`);
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                     return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
                 }
 
                 if (uiResults.length > 0) {
-                    console.log(`[Worker ${workerId}] ${uiResults.length} sonuç bulundu, veritabanına yazılıyor...`);
+                    console.log(`[Worker ${workerId}] 💾 DB YAZIMI | ${uiResults.length} adet benzerlik sonucu bulundu ve kaydediliyor...`);
                     const CHUNK_SIZE = 1000;
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
                         await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
@@ -463,18 +435,24 @@ serve(async (req) => {
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
                 if (hasMoreRecords) {
-                    console.log(`[Worker ${workerId}] %${progressPercent} tamamlandı. Sonraki blok için çağrı yapılıyor.`);
+                    console.log(`[Worker ${workerId}] 🔄 DEVAM EDİYOR | Toplam İşlenen: ${newProcessedCount}/${totalBulletinRecords} (%${progressPercent}) | Sonraki (Bayrak Devredilen) ID: ${currentLastId}`);
+                    
                     EdgeRuntime.waitUntil(
                         supabase.functions.invoke('perform-trademark-similarity-search', {
                             body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: currentLastId, processedCount: newProcessedCount, totalBulletinRecords },
                             headers: { Authorization: `Bearer ${supabaseKey}` }
+                        }).then(async (res) => {
+                            if (res.error) {
+                                console.error(`[Worker ${workerId}] 🚨 Zincirleme API Çağrı Hatası:`, res.error);
+                                await markWorkerStatus(supabase, jobId, workerId, 'failed');
+                            }
                         }).catch(async (err) => {
-                            console.error(`[Worker ${workerId}] Zincirleme çağrı başarısız oldu:`, err);
+                            console.error(`[Worker ${workerId}] 🚨 Zincirleme Ağ/İletişim Hatası:`, err);
                             await markWorkerStatus(supabase, jobId, workerId, 'failed');
                         })
                     );
                 } else {
-                    console.log(`[Worker ${workerId}] İşlemlerini tamamen bitirdi ve kapanıyor.`);
+                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Tüm bülten başarıyla tarandı ve işçi kapandı. Toplam İşlenen: ${newProcessedCount}`);
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                 }
 
@@ -495,7 +473,7 @@ serve(async (req) => {
 
         const jobId = `job_${Date.now()}`;
         const rawBulletinNumber = String(selectedBulletinId).split('_')[0];
-        console.log(`[Main Job] Başlatılıyor... Job ID: ${jobId}, Hedef Bülten No: ${rawBulletinNumber}`);
+        console.log(`[Main Job] 🟢 ARAMA BAŞLATILDI | Job ID: ${jobId}, Hedef Bülten No: ${rawBulletinNumber}`);
 
         const { count, error: countError } = await supabase
             .from('trademark_bulletin_records')
@@ -507,7 +485,6 @@ serve(async (req) => {
         const totalRecords = count || 1;
         await supabase.from('search_progress').insert({ id: jobId, status: 'processing', current_results: 0, total_records: totalRecords });
         
-        // 🔥 ESKİ KODDAKİ GİBİ HER ZAMAN 10 İŞÇİ ÇALIŞIR (Maksimum Paralellik ve Hız!)
         const WORKER_COUNT = Math.min(10, monitoredMarks.length);
         const chunkSize = Math.ceil(monitoredMarks.length / WORKER_COUNT);
         
@@ -524,12 +501,10 @@ serve(async (req) => {
             activeWorkerId++;
         }
 
-        // 🔥 ÇÖZÜM 1: ÖNCE İŞÇİLERİ VERİTABANINA KAYDET (Yarış Durumu / Race Condition Engellendi)
         if (workerRecords.length > 0) {
             await supabase.from('search_progress_workers').insert(workerRecords);
         }
 
-        // 🔥 ÇÖZÜM 2: KAYITLAR OLUŞTUKTAN SONRA İŞÇİLERİ TETİKLE
         for (const item of activeChunks) {
             EdgeRuntime.waitUntil(
                 supabase.functions.invoke('perform-trademark-similarity-search', {
@@ -541,6 +516,7 @@ serve(async (req) => {
                 })
             );
         }
+
         return new Response(JSON.stringify({ success: true, jobId }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });

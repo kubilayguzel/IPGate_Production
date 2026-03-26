@@ -345,10 +345,36 @@ export class AccrualDataManager {
         const currentAccrual = this.allAccruals.find(a => a.id === accrualId);
         if (!currentAccrual) throw new Error("Tahakkuk bulunamadı.");
 
+        // 🔥 ÇÖZÜM 1: Ücretler güncellendiyse Total ve Remaining (Kalan Tutar) Array'lerini yeniden hesapla!
+        const vatRate = formData.vatRate !== undefined ? formData.vatRate : (currentAccrual.vatRate || 20);
+        const applyVatOff = formData.applyVatToOfficialFee !== undefined ? formData.applyVatToOfficialFee : currentAccrual.applyVatToOfficialFee;
+        const vatMultiplier = 1 + (vatRate / 100);
+
+        const offAmt = parseFloat(formData.officialFee?.amount || currentAccrual.officialFeeAmount || 0);
+        const offCur = formData.officialFee?.currency || currentAccrual.officialFeeCurrency || 'TRY';
+        const finalOffAmt = applyVatOff ? offAmt * vatMultiplier : offAmt;
+
+        const srvAmt = parseFloat(formData.serviceFee?.amount || currentAccrual.serviceFeeAmount || 0);
+        const srvCur = formData.serviceFee?.currency || currentAccrual.serviceFeeCurrency || 'TRY';
+        const finalSrvAmt = srvAmt * vatMultiplier;
+
+        // Tutarları kurlarına göre gruplayıp toplayalım
+        const sumsMap = {};
+        if (finalOffAmt > 0) sumsMap[offCur] = (sumsMap[offCur] || 0) + finalOffAmt;
+        if (finalSrvAmt > 0) sumsMap[srvCur] = (sumsMap[srvCur] || 0) + finalSrvAmt;
+
+        // Dizi (Array) formatına çevir
+        const newTotalArray = Object.entries(sumsMap).map(([c, a]) => ({ amount: a, currency: c }));
+
         const payload = {
             ...formData,
+            totalAmount: newTotalArray,
+            // Eğer statü 'unpaid' (ödenmedi) ise Kalan Tutar, Toplam Tutar'a eşittir.
+            // Eğer 'paid' (ödendi) ise Kalan Tutar boş dizi [] olmalıdır.
+            remainingAmount: (formData.status || currentAccrual.status) === 'unpaid' ? newTotalArray : ((formData.status || currentAccrual.status) === 'paid' ? [] : currentAccrual.remainingAmount),
             files: fileToUpload ? [fileToUpload] : formData.files
         };
+
         const res = await accrualService.updateAccrual(accrualId, payload);
         if (!res.success) throw new Error(res.error);
         await this.fetchAllData(); 

@@ -94,13 +94,13 @@ class NotificationsManager {
 
     async loadData() {
         this.toggleLoading(true);
-        // Artık View'ımızda task_status kendiliğinden var, ekstra sorguya gerek yok!
         const { data, error } = await supabase
                 .from('v_mail_notifications_list')
                 .select('*')
                 .order('created_at', { ascending: false });
         
         if (data && !error) {
+            // 🔥 enrichment sildik, sadece datayı state'e atıyoruz.
             this.allNotifications = data; 
             
             if (!this.pagination) {
@@ -213,6 +213,16 @@ class NotificationsManager {
             const typeText = notification.type_text || notification.associated_transaction_id || '-';
             const dueDate = this.formatDate(notification.objection_deadline) || '-';
 
+            // 🔥 ÇÖZÜM: View'dan doğrudan gelen marka adını okuyoruz
+            let finalSubject = notification.subject || '<span class="missing-field">Konu Eksik</span>';
+            // Marka adı yoksa (örn: dava dosyasıysa), eski referansı kullanabilmek için güvenlik (fallback) ekledik
+            const brandName = notification.brand_name || notification.ip_record_title;
+            
+            // Eğer marka adı varsa ve konunun içinde zaten geçmiyorsa, konunun başına ekle
+            if (brandName && finalSubject !== '<span class="missing-field">Konu Eksik</span>' && !finalSubject.includes(brandName)) {
+                finalSubject = `<strong>${brandName}</strong> - ${finalSubject}`;
+            }
+
             tr.innerHTML = `
                 <td><strong>${globalIndex + 1}</strong></td>
                 <td>
@@ -224,7 +234,7 @@ class NotificationsManager {
                 </td>
                 <td><span class="status-badge ${statusClass}">${statusMap[notification.status] || notification.status}</span></td>
                 <td>${clientName}</td>
-                <td>${notification.subject || '<span class="missing-field">Konu Eksik</span>'}</td>
+                <td>${finalSubject}</td>
                 <td>${appNo}</td>
                 <td>${typeText}</td>
                 <td class="attachment-cell" data-tx-id="${notification.associated_transaction_id || ''}" data-doc-id="${notification.source_document_id || ''}">

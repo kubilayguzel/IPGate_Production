@@ -106,23 +106,53 @@ async function monitorSearchProgress(jobId, onProgress) {
             }
         });
 
-        // 🔥 2. GÜVENLİK AĞI (FALLBACK)
-        // Eğer kullanıcının interneti anlık koparsa veya WebSocket engellenirse diye 
-        // işi şansa bırakmayıp her 3 saniyede bir sessizce sadece sonucu kontrol ediyoruz.
+        // 🔥 2. GÜVENLİK AĞI VE POLLING (FALLBACK)
+        // Kurum ağlarında WebSocket (Realtime) engellenebildiği için,
+        // ilerleme durumunu klasik yöntemle (HTTP Polling) her 2 saniyede bir çekip arayüzü güncelliyoruz!
         const fallbackInterval = setInterval(async () => {
-            const { data } = await supabase.from('search_progress').select('status, current_results').eq('id', jobId).single();
-            if (data) {
-                currentResultsCount = data.current_results || currentResultsCount;
-                if (data.status === 'completed') {
+            // 1. Ana Job durumunu kontrol et
+            const { data: jobData } = await supabase.from('search_progress').select('status, current_results').eq('id', jobId).single();
+            
+            if (jobData) {
+                currentResultsCount = jobData.current_results || currentResultsCount;
+                
+                // 2. Eğer iş bitmediyse, işçilerin (workers) durumunu çekip ilerlemeyi (progress) hesapla
+                if (jobData.status !== 'completed' && jobData.status !== 'failed' && jobData.status !== 'error') {
+                    const { data: workers } = await supabase.from('search_progress_workers').select('progress').eq('job_id', jobId);
+                    if (workers && workers.length > 0) {
+                        const totalProgress = workers.reduce((sum, w) => sum + (w.progress || 0), 0);
+                        const avgProgress = Math.floor(totalProgress / workers.length);
+                        
+                        // 🔥 Arayüzdeki Progress Bar'ı Güncelle!
+                        if (onProgress) {
+                            onProgress({ 
+                                status: 'processing', 
+                                progress: avgProgress, 
+                                currentResults: currentResultsCount 
+                            });
+                        }
+                    }
+                }
+
+                // 3. İş bitmişse arayüzü sonuca yönlendir
+                if (jobData.status === 'completed') {
+                    if (onProgress) {
+                        onProgress({ 
+                            status: 'fetching_results', 
+                            progress: 100, 
+                            currentResults: currentResultsCount,
+                            message: 'Arama tamamlandı, veriler derleniyor...'
+                        });
+                    }
                     clearInterval(fallbackInterval);
                     supabase.removeChannel(channel);
                     resolve(true);
-                } else if (data.status === 'failed' || data.status === 'error') {
+                } else if (jobData.status === 'failed' || jobData.status === 'error') {
                     clearInterval(fallbackInterval);
                     supabase.removeChannel(channel);
                     reject(new Error("Arama işlemi başarısız oldu."));
                 }
             }
-        }, 3000);
+        }, 2000); // Daha akıcı bir UI için 3 saniye yerine 2 saniyeye düşürüldü
     });
 }

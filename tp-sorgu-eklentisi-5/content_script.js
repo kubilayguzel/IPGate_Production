@@ -28,7 +28,9 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                     const apiData = json.payload.item;
                     const info = apiData.markInformation || {};
                     const niceInfo = apiData.niceInformation || [];
-                    const holders = apiData.holderInformation || [];
+                    
+                    // 🔥 KESİN ÇÖZÜM: holderInformation, apiData'nın değil, 'info' objesinin (markInformation) içindedir!
+                    const holders = info.holderInformation || [];
                     
                     let cleanedClasses = "";
                     if (info.niceClasses) {

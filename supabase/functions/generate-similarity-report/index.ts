@@ -61,8 +61,26 @@ async function createComparisonPage(group: any, supabase: any) {
     tableRows.push(createInfoRow("Sahip", monitoredMark.ownerName, similarMark.ownerName));
 
     const successChance = similarMark.bs || "";
-    tableRows.push(new TableRow({ height: { value: 600, rule: "atLeast" }, children: [ new TableCell({ children: [ new Paragraph({ children: [new TextRun({ text: "İTİRAZ İÇİN SON TARİH", size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { before: 120, after: 60 } }), new Paragraph({ children: [new TextRun({ text: docObjectionDeadline, bold: true, size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { after: 120 } }) ], shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.CLIENT_HEADER }, right: { style: BorderStyle.SINGLE, size: 4, color: "FFFFFF" } } }), new TableCell({ children: [ new Paragraph({ children: [new TextRun({ text: "İTİRAZ BAŞARI ŞANSI", size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { before: 120, after: 60 } }), new Paragraph({ children: [ new TextRun({ text: successChance ? (successChance.includes('%') ? successChance : `%${successChance}`) : "-", bold: true, size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY }) ], alignment: AlignmentType.CENTER, spacing: { after: 120 } }) ], shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.SIMILAR_HEADER } } }) ] }));
+    
+    // Ortak "Son Tarih" içeriği
+    const deadlineContent = [ 
+        new Paragraph({ children: [new TextRun({ text: "İTİRAZ İÇİN SON TARİH", size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { before: 120, after: 60 } }), 
+        new Paragraph({ children: [new TextRun({ text: docObjectionDeadline, bold: true, size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { after: 120 } }) 
+    ];
 
+    if (successChance && String(successChance).trim() !== "") {
+        // 🔥 ÇÖZÜM 1: Başarı şansı girilmişse İKİ KOLONLU göster (Eski düzen)
+        tableRows.push(new TableRow({ height: { value: 600, rule: "atLeast" }, children: [ 
+            new TableCell({ children: deadlineContent, shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.CLIENT_HEADER }, right: { style: BorderStyle.SINGLE, size: 4, color: "FFFFFF" } } }), 
+            new TableCell({ children: [ new Paragraph({ children: [new TextRun({ text: "İTİRAZ BAŞARI ŞANSI", size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY })], alignment: AlignmentType.CENTER, spacing: { before: 120, after: 60 } }), new Paragraph({ children: [ new TextRun({ text: successChance.includes('%') ? successChance : `%${successChance}`, bold: true, size: GLOBAL_FONT_SIZE, color: COLORS.DEADLINE_TEXT, font: FONT_FAMILY }) ], alignment: AlignmentType.CENTER, spacing: { after: 120 } }) ], shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.SIMILAR_HEADER } } }) 
+        ] }));
+    } else {
+        // 🔥 ÇÖZÜM 2: Başarı şansı BOŞSA sadece Son Tarihi göster ve tablo genişliğine (columnSpan: 2) yay!
+        tableRows.push(new TableRow({ height: { value: 600, rule: "atLeast" }, children: [ 
+            new TableCell({ columnSpan: 2, children: deadlineContent, shading: { fill: COLORS.DEADLINE_BG }, verticalAlign: "center", borders: { top: { style: BorderStyle.SINGLE, size: 8, color: COLORS.CLIENT_HEADER } } }) 
+        ] }));
+    }
+    
     const comparisonTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: { top: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, bottom: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, left: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.SIMILAR_HEADER }, insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: COLORS.BORDER_LIGHT }, insideVertical: { style: BorderStyle.SINGLE, size: 2, color: COLORS.BORDER_LIGHT } }, rows: tableRows });
     elements.push(comparisonTable);
 

@@ -147,7 +147,13 @@ class ClientPortalController {
     updateDashboardCounts() {
         document.getElementById('dashPortfolio').textContent = this.state.portfolios.length;
         let pendingTasks = 0, unpaidInvoices = 0;
-        this.state.tasks.forEach(t => { if (t.status === 'awaiting_client_approval' || t.status === 'pending') pendingTasks++; });
+        
+        // 🔥 ÇÖZÜM 1: Tüm onay bekliyor durumlarını yakala
+        const isPending = (status) => ['awaiting_client_approval', 'awaiting-approval', 'client_approval_opened'].includes(status);
+
+        this.state.tasks.forEach(t => { 
+            if (isPending(t.status) || t.status === 'pending') pendingTasks++; 
+        });
         this.state.invoices.forEach(i => { if (i.status === 'unpaid') unpaidInvoices++; });
 
         document.getElementById('dashPendingApprovals').textContent = pendingTasks;
@@ -158,7 +164,7 @@ class ClientPortalController {
         let davaPending = 0, davaCompleted = 0;
         this.state.tasks.forEach(t => {
             if (String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava')) {
-                t.status === 'awaiting_client_approval' ? davaPending++ : davaCompleted++;
+                isPending(t.status) ? davaPending++ : davaCompleted++;
             }
         });
         document.getElementById('taskCount-dava-total').textContent = davaPending;
@@ -587,24 +593,69 @@ class ClientPortalController {
     }
 
     filterTasks() {
+        console.group("🔍 [DEDEKTİF] filterTasks Analizi Başladı");
         const searchVal = (document.getElementById('taskSearchText')?.value || '').toLowerCase().trim();
         const statusVal = document.getElementById('taskStatusFilter')?.value || 'TÜMÜ';
         const activeSubCard = document.querySelector('.detail-card-link.active-list-type');
         const taskTypeFilter = activeSubCard ? activeSubCard.dataset.taskType : 'pending-approval';
+
+        console.log(`📌 Kriterler -> Arama: '${searchVal}', Durum: '${statusVal}', Alt Sekme: '${taskTypeFilter}'`);
+        console.log(`📌 Toplam Görev Sayısı (this.state.tasks): ${this.state.tasks.length}`);
+        
+        if (this.state.tasks.length > 0) {
+            console.log("🧐 İlk 3 Görevin Örneği:", this.state.tasks.slice(0, 3).map(t => ({id: t.id, title: t.title, status: t.status, taskType: t.taskType})));
+        }
 
         let filtered = this.state.tasks.filter(t => {
             if (statusVal !== 'TÜMÜ' && t.status !== statusVal) return false;
             if (searchVal && !`${t.title} ${t.appNo} ${t.recordTitle}`.toLowerCase().includes(searchVal)) return false;
 
             const isDava = String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava');
-            if (taskTypeFilter === 'pending-approval') return !isDava && t.status === 'awaiting_client_approval' && String(t.taskType) !== '20' && String(t.taskType) !== '22';
-            if (taskTypeFilter === 'completed-tasks') return !isDava && t.status !== 'awaiting_client_approval';
-            if (taskTypeFilter === 'bulletin-watch') return String(t.taskType) === '20';
-            if (taskTypeFilter === 'renewal-approval') return String(t.taskType) === '22';
-            if (taskTypeFilter === 'dava-pending') return isDava && t.status === 'awaiting_client_approval';
-            if (taskTypeFilter === 'dava-completed') return isDava && t.status !== 'awaiting_client_approval';
-            return true;
+            
+            let isMatch = false;
+            let rejectReason = "";
+
+            if (taskTypeFilter === 'pending-approval') {
+                if (isDava) rejectReason = "Dava dosyası olduğu için elendi.";
+                else if (t.status !== 'awaiting_client_approval') rejectReason = `Statüsü uymadı: ${t.status}`;
+                else if (String(t.taskType) === '20') rejectReason = "Görev Tipi 20 (Bülten İzleme). Bu sekmede gizli, kendi özel sekmesi var.";
+                else if (String(t.taskType) === '22') rejectReason = "Görev Tipi 22 (Yenileme). Bu sekmede gizli, kendi özel sekmesi var.";
+                else isMatch = true;
+            }
+            else if (taskTypeFilter === 'completed-tasks') {
+                 if (isDava) rejectReason = "Dava";
+                 else if (t.status === 'awaiting_client_approval') rejectReason = "Onay bekliyor";
+                 else if (String(t.taskType) === '20') rejectReason = "Tip 20";
+                 else if (String(t.taskType) === '22') rejectReason = "Tip 22";
+                 else isMatch = true;
+            }
+            else if (taskTypeFilter === 'bulletin-watch') {
+                 isMatch = String(t.taskType) === '20';
+            }
+            else if (taskTypeFilter === 'renewal-approval') {
+                 isMatch = String(t.taskType) === '22';
+            }
+            else if (taskTypeFilter === 'dava-pending') {
+                 isMatch = isDava && t.status === 'awaiting_client_approval';
+            }
+            else if (taskTypeFilter === 'dava-completed') {
+                 isMatch = isDava && t.status !== 'awaiting_client_approval';
+            }
+            else {
+                 isMatch = true;
+            }
+
+            // Sadece 'pending-approval' (Onay Bekleyenler) sekmesindeyken, 
+            // veritabanındaki statüsü 'awaiting_client_approval' olan ama listeye giremeyenleri konsola bas:
+            if (taskTypeFilter === 'pending-approval' && t.status === 'awaiting_client_approval' && !isMatch) {
+                console.log(`⚠️ ELENDİ: [Görev: ${t.title}] -> Sebep: ${rejectReason}`);
+            }
+
+            return isMatch;
         });
+
+        console.log(`🚀 Filtreleme Bitti! Ekrana basılacak kayıt sayısı: ${filtered.length}`);
+        console.groupEnd();
 
         this.state.filteredTasks = filtered;
         this.renderHelper.renderTaskSection(filtered, 'task-list-container', taskTypeFilter);
@@ -626,43 +677,33 @@ class ClientPortalController {
             }
         });
 
-        // DASHBOARD LİNKLERİ (Tıklanan Karta Göre İlgili Sekmeyi Açma)
-        $('[data-target-tab]').on('click', (e) => {
-            const target = $(e.currentTarget).data('target-tab');
-            $(`#sidebar a[href="#${target}"]`).tab('show');
-            if (target === 'portfolio-content') {
-                setTimeout(() => $('#portfolioTopTabs a[href="#marka-list"]').tab('show'), 100);
-            }
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
-
-        $('#menseFilter, #portfolioDurumFilter').on('change', () => this.filterPortfolios());
-        $('#portfolioSearchText').on('keyup', () => this.filterPortfolios());
-        $('#invoiceDurumFilter').on('change', () => this.filterInvoices());
-        $('#invoiceSearchText').on('keyup', () => this.filterInvoices());
-        $('#contractsSearchText').on('keyup', () => this.filterContracts());
-
-        $('.task-card-link').click((e) => {
-            const el = e.currentTarget;
-            $('.task-card-link').removeClass('active-task-area'); el.classList.add('active-task-area');
-            $('#task-detail-cards, #dava-task-detail-cards, #task-list-filters').slideUp();
-            $('#task-list-container').html('');
-            if(el.dataset.targetArea === 'marka-tasks') $('#task-detail-cards').slideDown();
-            else if(el.dataset.targetArea === 'dava-tasks') $('#dava-task-detail-cards').slideDown();
-        });
-
-        $('.detail-card-link').click((e) => {
-            const el = e.currentTarget;
-            $('.detail-card-link').removeClass('active-list-type'); el.classList.add('active-list-type');
-            $('#task-list-filters').slideDown();
-            this.filterTasks();
-        });
-
+        
         $(document).on('click', '.task-action-btn', async (e) => {
             const btn = e.currentTarget; const taskId = btn.dataset.id; const action = btn.dataset.action;
             if (action === 'approve' && confirm('Bu işi onaylamak istiyor musunuz?')) {
-                await supabase.from('tasks').update({ status: 'open' }).eq('id', taskId);
-                alert('İş onaylandı.'); await this.loadAllData();
+                
+                // 🔥 PARALEL GELİŞTİRME: İş Onaylandığında görevi asıl departmanına/sorumlusuna geri ata!
+                const taskObj = this.state.tasks.find(t => String(t.id) === String(taskId));
+                let updatePayload = { status: 'open' };
+
+                if (taskObj && taskObj.taskType) {
+                    try {
+                        const { data: assignData } = await supabase
+                            .from('task_assignments')
+                            .select('assignee_ids')
+                            .eq('id', String(taskObj.taskType))
+                            .single();
+                            
+                        if (assignData && assignData.assignee_ids && assignData.assignee_ids.length > 0) {
+                            updatePayload.assigned_to = assignData.assignee_ids[0]; // Doğru yetkiliye geri ata
+                        }
+                    } catch (err) {
+                        console.warn("Atama kuralı çekilemedi:", err);
+                    }
+                }
+
+                await supabase.from('tasks').update(updatePayload).eq('id', taskId);
+                alert('İş onaylandı.'); await this.loadAllData();   
             } else if (action === 'reject') {
                 const reason = prompt('Lütfen ret sebebini yazınız:');
                 if (reason) {

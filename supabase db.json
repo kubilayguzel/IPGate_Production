@@ -7,26 +7,42 @@
           "view_definition": " SELECT r.id,\n    r.ip_type,\n    r.origin,\n    r.status,\n    r.portfolio_status,\n    r.record_owner_type,\n    r.application_number,\n    r.application_date,\n    r.registration_number,\n    r.registration_date,\n    r.renewal_date,\n    r.country_code,\n    r.wipo_ir,\n    r.aripo_ir,\n    r.transaction_hierarchy,\n    r.parent_id,\n    r.created_at,\n    r.updated_at,\n    td.brand_name,\n    td.brand_image_url,\n    COALESCE(( SELECT string_agg(p.name, ', '::text ORDER BY a.order_index) AS string_agg\n           FROM (ip_record_applicants a\n             JOIN persons p ON ((p.id = a.person_id)))\n          WHERE (a.ip_record_id = r.id)), ''::text) AS applicant_names,\n    COALESCE(( SELECT jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name, 'personType', p.type) ORDER BY a.order_index) AS jsonb_agg\n           FROM (ip_record_applicants a\n             JOIN persons p ON ((p.id = a.person_id)))\n          WHERE (a.ip_record_id = r.id)), '[]'::jsonb) AS applicants_json,\n    COALESCE(( SELECT array_agg(DISTINCT c.class_no ORDER BY c.class_no) AS array_agg\n           FROM ip_record_classes c\n          WHERE (c.ip_record_id = r.id)), '{}'::integer[]) AS nice_classes\n   FROM (ip_records r\n     LEFT JOIN ip_record_trademark_details td ON ((td.ip_record_id = r.id)));"
         },
         {
+          "view_name": "v_tasks_dashboard",
+          "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tmd.brand_name, s.title, s.court_name, (t.details ->> 'brand_name'::text), t.title) AS \"iprecordTitle\",\n    COALESCE(p_owner.name, p_suit_client.name, p_task_owner.name, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    COALESCE(bull.bulletin_no, (t.details ->> 'bulletin_no'::text)) AS \"bulletinNo\",\n    COALESCE((bull.bulletin_date)::text, (t.details ->> 'bulletin_date'::text)) AS \"bulletinDate\"\n   FROM ((((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tmd ON ((ip.id = tmd.ip_record_id)))\n     LEFT JOIN ip_record_bulletins bull ON ((ip.id = bull.ip_record_id)))\n     LEFT JOIN ip_record_applicants ipa ON (((ip.id = ipa.ip_record_id) AND (ipa.order_index = 0))))\n     LEFT JOIN persons p_owner ON ((ipa.person_id = p_owner.id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p_suit_client ON ((s.client_id = p_suit_client.id)))\n     LEFT JOIN persons p_task_owner ON ((t.task_owner_id = p_task_owner.id)));"
+        },
+        {
           "view_name": "v_tasks_expanded",
           "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tm.brand_name, s.title, t.title, (t.details ->> 'brand_name'::text)) AS \"iprecordTitle\",\n    COALESCE(p.name, plv.applicant_names, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    b.bulletin_no AS \"bulletinNo\",\n    b.bulletin_date AS \"bulletinDate\"\n   FROM ((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tm ON ((ip.id = tm.ip_record_id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p ON ((t.task_owner_id = p.id)))\n     LEFT JOIN portfolio_list_view plv ON ((t.ip_record_id = plv.id)))\n     LEFT JOIN ip_record_bulletins b ON ((t.ip_record_id = b.ip_record_id)));"
         },
         {
           "view_name": "v_mail_notifications_list",
-          "view_definition": " SELECT mn.id,\n    mn.subject,\n    mn.status,\n    mn.created_at,\n    mn.is_held,\n    mn.to_list,\n    mn.cc_list,\n    mn.objection_deadline,\n    mn.associated_transaction_id,\n    mn.source_document_id,\n    mn.related_ip_record_id,\n    ir.application_number AS app_no,\n    tt.alias AS type_text,\n    COALESCE(( SELECT p.name\n           FROM (tasks t\n             JOIN persons p ON ((p.id = t.task_owner_id)))\n          WHERE (t.id = tx.task_id)\n         LIMIT 1), ( SELECT p.name\n           FROM (ip_record_applicants ira\n             JOIN persons p ON ((p.id = ira.person_id)))\n          WHERE (ira.ip_record_id = ir.id)\n         LIMIT 1), '-'::text) AS client_name,\n    mn.associated_task_id,\n    mn.triggered_by_user_id,\n    mn.sent_by,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.triggered_by_user_id)\n         LIMIT 1) AS triggered_by_name,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.sent_by)\n         LIMIT 1) AS sent_by_name\n   FROM (((mail_notifications mn\n     LEFT JOIN ip_records ir ON ((ir.id = mn.related_ip_record_id)))\n     LEFT JOIN transactions tx ON ((tx.id = mn.associated_transaction_id)))\n     LEFT JOIN transaction_types tt ON ((tt.id = tx.transaction_type_id)));"
+          "view_definition": " SELECT mn.id,\n    mn.subject,\n    mn.status,\n    mn.created_at,\n    mn.is_held,\n    mn.to_list,\n    mn.cc_list,\n    mn.objection_deadline,\n    mn.associated_transaction_id,\n    mn.source_document_id,\n    mn.related_ip_record_id,\n    ir.application_number AS app_no,\n    tt.alias AS type_text,\n    COALESCE(( SELECT p.name\n           FROM (tasks t\n             JOIN persons p ON ((p.id = t.task_owner_id)))\n          WHERE (t.id = tx.task_id)\n         LIMIT 1), ( SELECT p.name\n           FROM (ip_record_applicants ira\n             JOIN persons p ON ((p.id = ira.person_id)))\n          WHERE (ira.ip_record_id = ir.id)\n         LIMIT 1), '-'::text) AS client_name,\n    mn.associated_task_id,\n    mn.triggered_by_user_id,\n    mn.sent_by,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.triggered_by_user_id)\n         LIMIT 1) AS triggered_by_name,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.sent_by)\n         LIMIT 1) AS sent_by_name,\n    tsk.status AS task_status,\n    td.brand_name\n   FROM (((((mail_notifications mn\n     LEFT JOIN ip_records ir ON ((ir.id = mn.related_ip_record_id)))\n     LEFT JOIN transactions tx ON ((tx.id = mn.associated_transaction_id)))\n     LEFT JOIN transaction_types tt ON ((tt.id = tx.transaction_type_id)))\n     LEFT JOIN tasks tsk ON ((tsk.id = mn.associated_task_id)))\n     LEFT JOIN ip_record_trademark_details td ON ((td.ip_record_id = ir.id)));"
         }
       ],
       "tables": [
         {
           "columns": [
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "uploaded_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "text",
-              "column_name": "bulletin_key",
+              "column_name": "document_name",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "monitored_trademark_id",
+              "column_name": "document_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -37,10 +53,214 @@
               "column_default": "gen_random_uuid()"
             },
             {
+              "data_type": "text",
+              "column_name": "accrual_id",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "accrual_documents"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "numeric",
+              "column_name": "official_fee_amount",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "date",
+              "column_name": "payment_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_foreign_transaction",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "text",
+              "column_name": "service_fee_currency",
+              "is_nullable": "YES",
+              "column_default": "'TRY'::text"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "apply_vat_to_official_fee",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "vat_rate",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "service_fee_amount",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "text",
+              "column_name": "official_fee_currency",
+              "is_nullable": "YES",
+              "column_default": "'TRY'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_by_uid",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "service_invoice_party_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "tp_invoice_party_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": "'unpaid'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "accrual_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "evreka_invoice_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "tpe_invoice_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "remaining_amount",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "total_amount",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
+            },
+            {
               "data_type": "timestamp with time zone",
-              "column_name": "last_similarity_update",
+              "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "accruals"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "error_message",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "uuid_generate_v4()"
+            },
+            {
+              "data_type": "character varying",
+              "column_name": "bulletin_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "character varying",
+              "column_name": "application_number",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "character varying",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": "'pending'::character varying"
+            }
+          ],
+          "triggers": null,
+          "table_name": "bulletin_fetch_queue"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "results",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletin_key",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
@@ -49,33 +269,37 @@
               "column_default": "now()"
             },
             {
-              "data_type": "jsonb",
-              "column_name": "results",
+              "data_type": "text",
+              "column_name": "monitored_trademark_id",
               "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "last_similarity_update",
+              "is_nullable": "YES",
+              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "bulletin_search_results"
         },
         {
           "columns": [
             {
-              "data_type": "jsonb",
-              "column_name": "data",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
               "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "data",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "common"
         },
         {
@@ -93,12 +317,95 @@
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "counters"
         },
         {
           "columns": [
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "action",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "context",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "text",
+              "column_name": "error_message",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "etebs_logs"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "teblig_tarihi",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "token_used",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "evrak_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "processed_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "fetched_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
             {
               "data_type": "text",
               "column_name": "status",
@@ -107,7 +414,67 @@
             },
             {
               "data_type": "text",
-              "column_name": "error_message",
+              "column_name": "document_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "belge_tarihi",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "raw_data",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            }
+          ],
+          "triggers": null,
+          "table_name": "etebs_notifications"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "usage_stats",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "expires_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_active",
+              "is_nullable": "YES",
+              "column_default": "true"
+            },
+            {
+              "data_type": "text",
+              "column_name": "token",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "last_used_at",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -122,80 +489,43 @@
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "context",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
-              "data_type": "text",
-              "column_name": "action",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "etebs_logs"
+          "triggers": null,
+          "table_name": "etebs_tokens"
         },
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "indexed_at",
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "transaction_types",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "email",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "user_id",
+              "column_name": "name",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_auto_processed",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "date",
-              "column_name": "teblig_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "belge_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "transaction_type_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
+            }
+          ],
+          "triggers": null,
+          "table_name": "evreka_mail_cc_list"
+        },
+        {
+          "columns": [
             {
               "data_type": "text",
               "column_name": "id",
@@ -217,6 +547,12 @@
             {
               "data_type": "text",
               "column_name": "file_path",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "belge_tarihi",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -245,195 +581,28 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "data_type": "date",
+              "column_name": "teblig_tarihi",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_type_id",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "text",
               "column_name": "created_transaction_id",
               "is_nullable": "YES",
               "column_default": null
-            }
-          ],
-          "triggers": [
-            {
-              "trigger_name": "incoming_document_indexed",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-indexed-document', 'POST', '{\"Content-type\":\"application/json\"}', '{}', '5000')",
-              "event_manipulation": "INSERT"
-            },
-            {
-              "trigger_name": "incoming_document_indexed",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-indexed-document', 'POST', '{\"Content-type\":\"application/json\"}', '{}', '5000')",
-              "event_manipulation": "UPDATE"
-            }
-          ],
-          "relations": [],
-          "table_name": "incoming_documents"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "person_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_invoice_client",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "integer",
-              "column_name": "order_index",
-              "is_nullable": "YES",
-              "column_default": "0"
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "person_id",
-              "constraint_name": "fk_ip_record_applicants_person",
-              "foreign_table_name": "persons",
-              "foreign_column_name": "id"
-            },
-            {
-              "column_name": "ip_record_id",
-              "constraint_name": "ip_record_applicants_ip_record_id_fkey",
-              "foreign_table_name": "ip_records",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "ip_record_applicants"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "token_used",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "evrak_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "belge_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "teblig_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "raw_data",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "fetched_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "processed_at",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "etebs_notifications"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "expires_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "token",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_active",
-              "is_nullable": "YES",
-              "column_default": "true"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "last_used_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -442,83 +611,8 @@
               "column_default": null
             },
             {
-              "data_type": "jsonb",
-              "column_name": "usage_stats",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "etebs_tokens"
-        },
-        {
-          "columns": [
-            {
               "data_type": "text",
-              "column_name": "email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "transaction_types",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "evreka_mail_cc_list"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "bulletin_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "bulletin_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "ip_record_bulletins"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "ip_type",
+              "column_name": "description",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -529,120 +623,34 @@
               "column_default": "now()"
             },
             {
-              "data_type": "jsonb",
-              "column_name": "old_transactions",
+              "data_type": "boolean",
+              "column_name": "is_auto_processed",
               "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
-            },
-            {
-              "data_type": "text",
-              "column_name": "portfolio_status",
-              "is_nullable": "YES",
-              "column_default": "'active'::text"
-            },
-            {
-              "data_type": "date",
-              "column_name": "renewal_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "registration_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "record_owner_type",
-              "is_nullable": "YES",
-              "column_default": "'self'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "application_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "column_default": "false"
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "origin",
+              "column_name": "indexed_at",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "parent_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "created_from",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "country_code",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "registration_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "application_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "aripo_ir",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "wipo_ir",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "transaction_hierarchy",
-              "is_nullable": "YES",
-              "column_default": "'parent'::text"
             }
           ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "ip_records"
+          "triggers": [
+            {
+              "definition": "CREATE TRIGGER incoming_document_indexed AFTER INSERT OR UPDATE ON public.incoming_documents FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-indexed-document', 'POST', '{\"Content-type\":\"application/json\"}', '{}', '5000')",
+              "trigger_name": "incoming_document_indexed"
+            }
+          ],
+          "table_name": "incoming_documents"
         },
         {
           "columns": [
+            {
+              "data_type": "boolean",
+              "column_name": "is_invoice_client",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
             {
               "data_type": "uuid",
               "column_name": "id",
@@ -651,41 +659,58 @@
             },
             {
               "data_type": "text",
-              "column_name": "url",
+              "column_name": "person_id",
               "is_nullable": "YES",
               "column_default": null
             },
-            {
-              "data_type": "text",
-              "column_name": "storage_path",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "notification_id",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "mail_attachments"
-        },
-        {
-          "columns": [
             {
               "data_type": "text",
               "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
+            {
+              "data_type": "integer",
+              "column_name": "order_index",
+              "is_nullable": "YES",
+              "column_default": "0"
+            }
+          ],
+          "triggers": null,
+          "table_name": "ip_record_applicants"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "date",
+              "column_name": "bulletin_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletin_no",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "ip_record_bulletins"
+        },
+        {
+          "columns": [
             {
               "data_type": "integer",
               "column_name": "class_no",
@@ -699,36 +724,34 @@
               "column_default": null
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "items",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "ip_record_id",
-              "constraint_name": "ip_record_classes_ip_record_id_fkey",
-              "foreign_table_name": "ip_records",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "ip_record_classes"
-        },
-        {
-          "columns": [
-            {
               "data_type": "text",
               "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
+              "data_type": "ARRAY",
+              "column_name": "items",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "ip_record_classes"
+        },
+        {
+          "columns": [
+            {
               "data_type": "uuid",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
@@ -749,30 +772,11 @@
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "ip_record_persons"
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "priority_country",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "priority_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
             {
               "data_type": "text",
               "column_name": "ip_record_id",
@@ -784,14 +788,43 @@
               "column_name": "priority_date",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "priority_country",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "priority_number",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "ip_record_priorities"
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "brand_category",
+              "is_nullable": "YES",
+              "column_default": null
+            },
             {
               "data_type": "text",
               "column_name": "brand_image_url",
@@ -800,7 +833,19 @@
             },
             {
               "data_type": "text",
-              "column_name": "brand_category",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "consent_request",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "cover_letter_request",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -818,51 +863,181 @@
             },
             {
               "data_type": "text",
-              "column_name": "brand_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "brand_type",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "cover_letter_request",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "consent_request",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
+              "column_name": "brand_name",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "ip_record_id",
-              "constraint_name": "ip_record_trademark_details_ip_record_id_fkey",
-              "foreign_table_name": "ip_records",
-              "foreign_column_name": "id"
-            }
-          ],
+          "triggers": null,
           "table_name": "ip_record_trademark_details"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "date",
+              "column_name": "registration_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "origin",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "portfolio_status",
+              "is_nullable": "YES",
+              "column_default": "'active'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "record_owner_type",
+              "is_nullable": "YES",
+              "column_default": "'self'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "application_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "registration_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "country_code",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_from",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "parent_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_hierarchy",
+              "is_nullable": "YES",
+              "column_default": "'parent'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "wipo_ir",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "aripo_ir",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "application_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "renewal_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "old_transactions",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
+            }
+          ],
+          "triggers": null,
+          "table_name": "ip_records"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "notification_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "file_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "storage_path",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "url",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "mail_attachments"
         },
         {
           "columns": [
@@ -873,10 +1048,34 @@
               "column_default": "gen_random_uuid()"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "sent_at",
+              "data_type": "ARRAY",
+              "column_name": "cc_emails",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "body",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "thread_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "from_email",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "to_emails",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
             },
             {
               "data_type": "timestamp with time zone",
@@ -903,204 +1102,26 @@
               "column_default": null
             },
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "sent_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "text",
               "column_name": "subject",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "body",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "from_email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "to_emails",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "cc_emails",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "thread_id",
-              "is_nullable": "YES",
-              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "mail_messages"
         },
         {
           "columns": [
             {
               "data_type": "text",
-              "column_name": "first_message_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_message_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "thread_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "parent_context",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "root_subject",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_triggering_child_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_triggering_task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "last_updated",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "mail_threads"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
               "column_name": "source",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "similarity_score",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_earlier",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "monitored_trademark_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "bulletin_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "matched_term",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "success_chance",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "note",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_similar",
-              "is_nullable": "YES",
-              "column_default": "false"
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "monitored_trademark_id",
-              "constraint_name": "fk_monitored_trademark_id",
-              "foreign_table_name": "monitoring_trademarks",
-              "foreign_column_name": "id"
-            },
-            {
-              "column_name": "bulletin_record_id",
-              "constraint_name": "fk_bulletin_record_id",
-              "foreign_table_name": "trademark_bulletin_records",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "monitoring_trademark_records"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "message_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1154,121 +1175,19 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "mode",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "provider",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "subject",
+              "column_name": "message_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "body",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "to_list",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "cc_list",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "missing_fields",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "notification_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "source",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "objection_deadline",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "client_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "related_ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "associated_task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "associated_transaction_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "template_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "assigned_to_uid",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "source_document_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "dynamic_parent_context",
+              "column_name": "gmail_thread_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1280,17 +1199,130 @@
             },
             {
               "data_type": "text",
-              "column_name": "gmail_thread_id",
+              "column_name": "dynamic_parent_context",
               "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "source_document_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to_uid",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "template_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "associated_transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "associated_task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "related_ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "client_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "objection_deadline",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "notification_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "missing_fields",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "cc_list",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "to_list",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "body",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "subject",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "mode",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "mail_notifications"
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "payload",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            },
             {
               "data_type": "text",
               "column_name": "action_type",
@@ -1298,10 +1330,10 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "record_id",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -1314,53 +1346,22 @@
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "payload",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "mail_queue"
         },
         {
           "columns": [
             {
               "data_type": "text",
-              "column_name": "body1",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "body2",
+              "column_name": "mail_subject",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
               "column_name": "subject",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "mail_subject",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1372,35 +1373,184 @@
             },
             {
               "data_type": "text",
-              "column_name": "body",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "template_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "body2",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "body1",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "body",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "mail_templates"
         },
         {
           "columns": [
             {
               "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "column_name": "last_updated",
               "is_nullable": "YES",
               "column_default": "now()"
             },
+            {
+              "data_type": "text",
+              "column_name": "root_subject",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "last_message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "first_message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "last_triggering_child_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "last_triggering_task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "parent_context",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "thread_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "mail_threads"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_similar",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_earlier",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "similarity_score",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "text",
+              "column_name": "source",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "note",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "success_chance",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "matched_term",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletin_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "monitored_trademark_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "monitoring_trademark_records"
+        },
+        {
+          "columns": [
             {
               "data_type": "text",
               "column_name": "search_mark_name",
@@ -1420,85 +1570,10 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "ARRAY",
               "column_name": "nice_class_search",
               "is_nullable": "YES",
               "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "brand_text_search",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "ip_record_id",
-              "constraint_name": "monitoring_trademarks_ip_record_id_fkey",
-              "foreign_table_name": "ip_records",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "monitoring_trademarks"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "thread_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "processed_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "processed_mail_threads"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "due_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "title",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
@@ -1513,21 +1588,14 @@
               "column_default": "now()"
             },
             {
-              "data_type": "text",
-              "column_name": "user_id",
+              "data_type": "ARRAY",
+              "column_name": "brand_text_search",
               "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "column_default": "'{}'::text[]"
             }
           ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "reminders"
+          "triggers": null,
+          "table_name": "monitoring_trademarks"
         },
         {
           "columns": [
@@ -1538,16 +1606,16 @@
               "column_default": "'[]'::jsonb"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             },
             {
               "data_type": "integer",
@@ -1562,12 +1630,35 @@
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "nice_classes"
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "country_code",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "file_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "url",
+              "is_nullable": "YES",
+              "column_default": null
+            },
             {
               "data_type": "text",
               "column_name": "person_id",
@@ -1581,55 +1672,41 @@
               "column_default": "gen_random_uuid()"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "url",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
               "data_type": "text",
               "column_name": "validity_date",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "country_code",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "person_id",
-              "constraint_name": "fk_person_documents_person_id",
-              "foreign_table_name": "persons",
-              "foreign_column_name": "id"
-            }
-          ],
+          "triggers": null,
           "table_name": "person_documents"
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "phone",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
             {
               "data_type": "timestamp with time zone",
               "column_name": "updated_at",
@@ -1638,31 +1715,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "tax_office",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "tax_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "tpe_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "phone",
+              "column_name": "country_code",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1674,43 +1727,31 @@
             },
             {
               "data_type": "text",
-              "column_name": "province",
+              "column_name": "email",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "country_code",
+              "column_name": "tpe_no",
               "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "birth_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_evaluation_required",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "name",
+              "column_name": "tax_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "tax_office",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "tckn",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1721,29 +1762,64 @@
               "column_default": null
             },
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_evaluation_required",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
               "data_type": "text",
-              "column_name": "tckn",
+              "column_name": "province",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "birth_date",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "persons"
         },
         {
           "columns": [
             {
               "data_type": "boolean",
-              "column_name": "resp_litigation",
+              "column_name": "notify_litigation_cc",
               "is_nullable": "YES",
               "column_default": "false"
             },
             {
               "data_type": "boolean",
-              "column_name": "resp_trademark",
+              "column_name": "notify_litigation_to",
               "is_nullable": "YES",
               "column_default": "false"
+            },
+            {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "phone",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "boolean",
@@ -1758,10 +1834,28 @@
               "column_default": "false"
             },
             {
+              "data_type": "text",
+              "column_name": "email",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_litigation",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
               "data_type": "boolean",
               "column_name": "resp_finance",
               "is_nullable": "YES",
               "column_default": "false"
+            },
+            {
+              "data_type": "text",
+              "column_name": "person_id",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "boolean",
@@ -1770,32 +1864,14 @@
               "column_default": "false"
             },
             {
-              "data_type": "boolean",
-              "column_name": "notify_trademark_cc",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": "false"
+              "column_default": "now()"
             },
             {
               "data_type": "boolean",
-              "column_name": "notify_patent_to",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "notify_patent_cc",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "notify_design_to",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "notify_design_cc",
+              "column_name": "notify_finance_cc",
               "is_nullable": "YES",
               "column_default": "false"
             },
@@ -1807,9 +1883,237 @@
             },
             {
               "data_type": "boolean",
-              "column_name": "notify_finance_cc",
+              "column_name": "notify_design_cc",
               "is_nullable": "YES",
               "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_trademark",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "notify_design_to",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "notify_patent_cc",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "notify_patent_to",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "notify_trademark_cc",
+              "is_nullable": "YES",
+              "column_default": "false"
+            }
+          ],
+          "triggers": null,
+          "table_name": "persons_related"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "applicant_names",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "nice_classes",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_hierarchy",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "renewal_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "registration_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "applicants_json",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "application_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "origin",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "portfolio_status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "record_owner_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "application_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "registration_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "country_code",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "wipo_ir",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "aripo_ir",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "parent_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "brand_image_url",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "portfolio_list_view"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "processed_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "thread_id",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "processed_mail_threads"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "title",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
@@ -1818,16 +2122,10 @@
               "column_default": "now()"
             },
             {
-              "data_type": "boolean",
-              "column_name": "notify_litigation_to",
+              "data_type": "text",
+              "column_name": "description",
               "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "notify_litigation_cc",
-              "is_nullable": "YES",
-              "column_default": "false"
+              "column_default": null
             },
             {
               "data_type": "text",
@@ -1836,46 +2134,33 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "person_id",
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
               "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "phone",
-              "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "persons_related"
+          "triggers": null,
+          "table_name": "reminders"
         },
         {
           "columns": [
             {
-              "data_type": "integer",
-              "column_name": "total_records",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
               "data_type": "text",
               "column_name": "status",
               "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -1885,16 +2170,10 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "data_type": "integer",
+              "column_name": "total_records",
               "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "column_default": "0"
             },
             {
               "data_type": "integer",
@@ -1903,240 +2182,14 @@
               "column_default": "0"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "search_progress"
         },
         {
           "columns": [
             {
               "data_type": "text",
-              "column_name": "document_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "uploaded_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_url",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "accrual_id",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "accrual_id",
-              "constraint_name": "fk_accrual_id",
-              "foreign_table_name": "accruals",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "accrual_documents"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "tp_invoice_party_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "created_by_uid",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "official_fee_currency",
-              "is_nullable": "YES",
-              "column_default": "'TRY'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "service_invoice_party_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": "'unpaid'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "accrual_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "evreka_invoice_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "tpe_invoice_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "service_fee_currency",
-              "is_nullable": "YES",
-              "column_default": "'TRY'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "total_amount",
-              "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_foreign_transaction",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "apply_vat_to_official_fee",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "vat_rate",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "service_fee_amount",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "official_fee_amount",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "date",
-              "column_name": "payment_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "remaining_amount",
-              "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "accruals"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "job_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "similarity_score",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "holders",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "application_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "nice_classes",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "mark_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2151,56 +2204,12 @@
               "column_name": "image_path",
               "is_nullable": "YES",
               "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "search_progress_results"
-        },
-        {
-          "columns": [
+            },
             {
-              "data_type": "text",
-              "column_name": "status",
+              "data_type": "numeric",
+              "column_name": "similarity_score",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "integer",
-              "column_name": "progress",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "job_id",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "search_progress_workers"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "uploaded_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "uuid",
@@ -2210,13 +2219,79 @@
             },
             {
               "data_type": "text",
-              "column_name": "suit_id",
+              "column_name": "job_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "document_name",
+              "column_name": "holders",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "nice_classes",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "mark_name",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "search_progress_results"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "integer",
+              "column_name": "progress",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "text",
+              "column_name": "job_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "search_progress_workers"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_type",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2228,20 +2303,49 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_type",
+              "column_name": "document_name",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "suit_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "uploaded_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "suit_documents"
         },
         {
           "columns": [
             {
               "data_type": "text",
-              "column_name": "description",
+              "column_name": "file_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "title",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_type_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2258,32 +2362,14 @@
               "column_default": "now()"
             },
             {
-              "data_type": "text",
-              "column_name": "transaction_type_id",
+              "data_type": "timestamp with time zone",
+              "column_name": "opening_date",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "client_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "opposing_counsel",
+              "column_name": "client_role",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2295,13 +2381,25 @@
             },
             {
               "data_type": "text",
-              "column_name": "client_role",
+              "column_name": "opposing_counsel",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "opening_date",
+              "data_type": "text",
+              "column_name": "client_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2325,46 +2423,33 @@
             },
             {
               "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "court_name",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "title",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "suits"
         },
         {
           "columns": [
             {
-              "data_type": "ARRAY",
-              "column_name": "assignee_ids",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
+              "column_default": "now()"
             },
             {
-              "data_type": "text",
-              "column_name": "assignment_type",
+              "data_type": "boolean",
+              "column_name": "allow_manual_override",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "true"
             },
             {
               "data_type": "timestamp with time zone",
@@ -2373,12 +2458,6 @@
               "column_default": "now()"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
@@ -2386,19 +2465,24 @@
             },
             {
               "data_type": "text",
-              "column_name": "updated_by",
+              "column_name": "assignment_type",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "boolean",
-              "column_name": "allow_manual_override",
+              "data_type": "ARRAY",
+              "column_name": "assignee_ids",
               "is_nullable": "YES",
-              "column_default": "true"
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "updated_by",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "task_assignments"
         },
         {
@@ -2411,6 +2495,12 @@
             },
             {
               "data_type": "text",
+              "column_name": "document_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
@@ -2418,12 +2508,6 @@
             {
               "data_type": "text",
               "column_name": "document_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2440,31 +2524,11 @@
               "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "task_id",
-              "constraint_name": "fk_task_docs_tasks",
-              "foreign_table_name": "tasks",
-              "foreign_column_name": "id"
-            }
-          ],
+          "triggers": null,
           "table_name": "task_documents"
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "action",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
             {
               "data_type": "text",
               "column_name": "user_id",
@@ -2472,10 +2536,10 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
             },
             {
               "data_type": "jsonb",
@@ -2484,15 +2548,155 @@
               "column_default": "'{}'::jsonb"
             },
             {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "action",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "task_history"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "created_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "operational_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "details",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "title",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_type_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "priority",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_owner_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "delivery_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "official_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": [
+            {
+              "definition": "CREATE TRIGGER trigger_task_delete_cleanup AFTER DELETE ON public.tasks FOR EACH ROW EXECUTE FUNCTION trg_on_task_delete_cleanup()",
+              "trigger_name": "trigger_task_delete_cleanup"
+            },
+            {
+              "definition": "CREATE TRIGGER trigger_handle_accrual_task_status AFTER UPDATE OF status ON public.tasks FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION trg_handle_accrual_task_status()",
+              "trigger_name": "trigger_handle_accrual_task_status"
+            },
+            {
+              "definition": "CREATE TRIGGER trigger_cleanup_transaction_on_rejection AFTER UPDATE OF status ON public.tasks FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION trg_cleanup_transaction_on_rejection()",
+              "trigger_name": "trigger_cleanup_transaction_on_rejection"
+            },
+            {
+              "definition": "CREATE TRIGGER task_mail_triggers AFTER INSERT OR UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-task-mails', 'POST', '{\"Content-type\":\"application/json\",\"Authorization\":\"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE3ODQ0OCwiZXhwIjoyMDg3NzU0NDQ4fQ.WUKhJrBnWNABIZnUj9EF2zKyIsan7M3DCm7Nwu1NeGQ\"}', '{}', '5000')",
+              "trigger_name": "task_mail_triggers"
+            },
+            {
+              "definition": "CREATE TRIGGER unlock_evaluation_mail_trigger AFTER UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION trg_unlock_evaluation_mail()",
+              "trigger_name": "unlock_evaluation_mail_trigger"
+            }
+          ],
+          "table_name": "tasks"
         },
         {
           "columns": [
@@ -2504,15 +2708,21 @@
             },
             {
               "data_type": "text",
-              "column_name": "task_type",
+              "column_name": "template_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "sub_process_type",
+              "column_name": "description",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -2527,26 +2737,19 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
-              "column_name": "template_id",
+              "column_name": "sub_process_type",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "description",
+              "column_name": "task_type",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "template_rules"
         },
         {
@@ -2558,14 +2761,20 @@
               "column_default": null
             },
             {
+              "data_type": "integer",
+              "column_name": "class_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
             },
             {
-              "data_type": "integer",
-              "column_name": "class_number",
+              "data_type": "text",
+              "column_name": "bulletin_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2574,29 +2783,16 @@
               "column_name": "class_text",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "bulletin_record_id",
-              "is_nullable": "YES",
-              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "trademark_bulletin_goods"
         },
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "image_url",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "brand_name",
+              "data_type": "date",
+              "column_name": "application_date",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2607,6 +2803,30 @@
               "column_default": null
             },
             {
+              "data_type": "text",
+              "column_name": "brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "nice_classes",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "image_url",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "jsonb",
               "column_name": "holders",
               "is_nullable": "YES",
@@ -2614,8 +2834,8 @@
             },
             {
               "data_type": "text",
-              "column_name": "application_number",
-              "is_nullable": "YES",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -2626,53 +2846,16 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "application_date",
+              "column_name": "application_number",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "nice_classes",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "trademark_bulletin_records"
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "type",
-              "is_nullable": "YES",
-              "column_default": "'marka'::text"
-            },
-            {
-              "data_type": "date",
-              "column_name": "bulletin_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
             {
               "data_type": "text",
               "column_name": "bulletin_no",
@@ -2680,24 +2863,35 @@
               "column_default": null
             },
             {
+              "data_type": "text",
+              "column_name": "type",
+              "is_nullable": "YES",
+              "column_default": "'marka'::text"
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "bulletin_date",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "trademark_bulletins"
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "document_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
             {
               "data_type": "text",
               "column_name": "id",
@@ -2724,30 +2918,94 @@
             },
             {
               "data_type": "text",
-              "column_name": "transaction_id",
+              "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "document_url",
+              "column_name": "document_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_id",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "transaction_id",
-              "constraint_name": "fk_transaction_docs_txn",
-              "foreign_table_name": "transactions",
-              "foreign_column_name": "id"
-            }
-          ],
+          "triggers": null,
           "table_name": "transaction_documents"
         },
         {
           "columns": [
+            {
+              "data_type": "ARRAY",
+              "column_name": "allowed_child_types",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_file",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_bulk",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_manuel",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_triggered",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "applicable_to_main_type",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "hierarchy",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "alias",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
             {
               "data_type": "integer",
               "column_name": "order_index",
@@ -2780,92 +3038,19 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "alias",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "hierarchy",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "applicable_to_main_type",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
               "column_name": "document_designation_default",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "allowed_child_types",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "index_file",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "index_bulk",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "index_manuel",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_triggered",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "transaction_types"
         },
         {
           "columns": [
             {
               "data_type": "text",
-              "column_name": "parent_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "opposition_owner",
+              "column_name": "note",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2877,49 +3062,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "note",
+              "column_name": "opposition_owner",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "transaction_date",
+              "column_name": "task_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2931,7 +3080,25 @@
             },
             {
               "data_type": "text",
-              "column_name": "transaction_type_id",
+              "column_name": "user_email",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "parent_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2943,89 +3110,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "task_id",
-              "constraint_name": "fk_transactions_tasks",
-              "foreign_table_name": "tasks",
-              "foreign_column_name": "id"
-            },
-            {
               "column_name": "transaction_type_id",
-              "constraint_name": "fk_transactions_transaction_types",
-              "foreign_table_name": "transaction_types",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "transactions"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "boolean",
-              "column_name": "is_primary",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "perm_approval",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "text",
-              "column_name": "person_id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "perm_view",
-              "is_nullable": "YES",
-              "column_default": "true"
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_id",
-              "is_nullable": "NO",
-              "column_default": null
-            }
-          ],
-          "triggers": [],
-          "relations": [
-            {
-              "column_name": "person_id",
-              "constraint_name": "fk_user_person_links_person",
-              "foreign_table_name": "persons",
-              "foreign_column_name": "id"
-            }
-          ],
-          "table_name": "user_person_links"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "text",
-              "column_name": "display_name",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "role",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "email",
+              "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3037,32 +3128,349 @@
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "column_name": "transaction_date",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "transactions"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "boolean",
+              "column_name": "perm_approval",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_primary",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "text",
+              "column_name": "person_id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "perm_view",
+              "is_nullable": "YES",
+              "column_default": "true"
+            }
+          ],
+          "triggers": null,
+          "table_name": "user_person_links"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "display_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "email",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "role",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "boolean",
               "column_name": "disabled",
               "is_nullable": "YES",
               "column_default": "false"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             }
           ],
-          "triggers": [],
-          "relations": [],
+          "triggers": null,
           "table_name": "users"
         },
         {
           "columns": [
             {
               "data_type": "text",
+              "column_name": "sent_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "triggered_by_user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "associated_task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "sent_by_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "client_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "type_text",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "app_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_held",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "related_ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "source_document_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "associated_transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "objection_deadline",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "cc_list",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "to_list",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "subject",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "triggered_by_name",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "v_mail_notifications_list"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicantName",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "title",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_type_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "priority",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_owner_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicationNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordTitle",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletinNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletinDate",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "details",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3083,11 +3491,83 @@
               "column_name": "delivery_date",
               "is_nullable": "YES",
               "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "v_tasks_dashboard"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "bulletinNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "delivery_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "official_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "operational_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "details",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "iprecordApplicantName",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordTitle",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "bulletinDate",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicationNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
@@ -3116,7 +3596,25 @@
             },
             {
               "data_type": "text",
+              "column_name": "priority",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_type_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3128,174 +3626,42 @@
             },
             {
               "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "assigned_to",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_type_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "details",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            }
-          ],
-          "triggers": [
-            {
-              "trigger_name": "trigger_cleanup_transaction_on_rejection",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION trg_cleanup_transaction_on_rejection()",
-              "event_manipulation": "UPDATE"
-            },
-            {
-              "trigger_name": "task_mail_triggers",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-task-mails', 'POST', '{\"Content-type\":\"application/json\",\"Authorization\":\"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE3ODQ0OCwiZXhwIjoyMDg3NzU0NDQ4fQ.WUKhJrBnWNABIZnUj9EF2zKyIsan7M3DCm7Nwu1NeGQ\"}', '{}', '5000')",
-              "event_manipulation": "INSERT"
-            },
-            {
-              "trigger_name": "trigger_task_delete_cleanup",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION trg_on_task_delete_cleanup()",
-              "event_manipulation": "DELETE"
-            },
-            {
-              "trigger_name": "unlock_evaluation_mail_trigger",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION trg_unlock_evaluation_mail()",
-              "event_manipulation": "UPDATE"
-            },
-            {
-              "trigger_name": "task_mail_triggers",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-task-mails', 'POST', '{\"Content-type\":\"application/json\",\"Authorization\":\"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE3ODQ0OCwiZXhwIjoyMDg3NzU0NDQ4fQ.WUKhJrBnWNABIZnUj9EF2zKyIsan7M3DCm7Nwu1NeGQ\"}', '{}', '5000')",
-              "event_manipulation": "UPDATE"
-            },
-            {
-              "trigger_name": "trigger_handle_accrual_task_status",
-              "action_timing": "AFTER",
-              "action_statement": "EXECUTE FUNCTION trg_handle_accrual_task_status()",
-              "event_manipulation": "UPDATE"
-            }
-          ],
-          "relations": [],
-          "table_name": "tasks"
-        },
-        {
-          "columns": [
-            {
-              "data_type": "character varying",
-              "column_name": "application_number",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "error_message",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "character varying",
-              "column_name": "bulletin_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "uuid",
               "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "uuid_generate_v4()"
-            },
-            {
-              "data_type": "character varying",
-              "column_name": "status",
               "is_nullable": "YES",
-              "column_default": "'pending'::character varying"
+              "column_default": null
             }
           ],
-          "triggers": [],
-          "relations": [],
-          "table_name": "bulletin_fetch_queue"
+          "triggers": null,
+          "table_name": "v_tasks_expanded"
         }
       ],
       "functions": [
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nBEGIN\r\n-- Eğer statü \"Onay Bekliyor\"dan \"Kapalı/Reddedildi\" statülerinden birine geçerse\r\nIF OLD.status IN ('awaiting_client_approval', 'awaiting-approval') \r\n    AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n    \r\n    -- A) Önce bu göreve ait ana işlemlerin alt (child) işlemlerini sil\r\n    DELETE FROM transactions WHERE parent_id IN (\r\n        SELECT id FROM transactions WHERE task_id = NEW.id\r\n    );\r\n    \r\n    -- B) Ardından ana işlemi (transaction) sil\r\n    DELETE FROM transactions WHERE task_id = NEW.id;\r\n\r\nEND IF;\r\n\r\nRETURN NEW;\r\nEND;\r\n",
-          "return_type": "trigger",
+          "definition": "CREATE OR REPLACE FUNCTION public.trg_cleanup_transaction_on_rejection()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n-- Eğer statü \"Onay Bekliyor\"dan \"Kapalı/Reddedildi\" statülerinden birine geçerse\r\nIF OLD.status IN ('awaiting_client_approval', 'awaiting-approval') \r\n    AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n    \r\n    -- A) Önce bu göreve ait ana işlemlerin alt (child) işlemlerini sil\r\n    DELETE FROM transactions WHERE parent_id IN (\r\n        SELECT id FROM transactions WHERE task_id = NEW.id\r\n    );\r\n    \r\n    -- B) Ardından ana işlemi (transaction) sil\r\n    DELETE FROM transactions WHERE task_id = NEW.id;\r\n\r\nEND IF;\r\n\r\nRETURN NEW;\r\nEND;\r\n$function$\n",
           "function_name": "trg_cleanup_transaction_on_rejection"
         },
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nbegin\r\ninsert into public.users (id, email, display_name, role)\r\nvalues (\r\n    new.id,\r\n    new.email,\r\n    -- Kayıtta isim verilmişse onu al, yoksa e-postanın '@' öncesini isim yap\r\n    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)), \r\n    'belirsiz' -- Varsayılan rol\r\n);\r\nreturn new;\r\nend;\r\n",
-          "return_type": "trigger",
+          "definition": "CREATE OR REPLACE FUNCTION public.handle_new_user()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nbegin\r\ninsert into public.users (id, email, display_name, role)\r\nvalues (\r\n    new.id,\r\n    new.email,\r\n    -- Kayıtta isim verilmişse onu al, yoksa e-postanın '@' öncesini isim yap\r\n    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)), \r\n    'belirsiz' -- Varsayılan rol\r\n);\r\nreturn new;\r\nend;\r\n$function$\n",
           "function_name": "handle_new_user"
         },
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nBEGIN\r\n-- A) Bu göreve bağlı TAHAKKUKLARI (accruals) sil\r\nDELETE FROM accruals WHERE task_id = OLD.id;\r\n\r\n-- B) Bu göreve bağlı DAVA KAYITLARINI (suits) sil\r\nDELETE FROM suits WHERE task_id = OLD.id;\r\n\r\n-- C) Bu göreve bağlı TRANSACTION GEÇMİŞİNİ SİL (Hiyerarşik Silme)\r\n-- Önce bu göreve bağlı olan ana işlemlerin alt (child) işlemlerini silelim\r\nDELETE FROM transactions WHERE parent_id IN (\r\n    SELECT id FROM transactions WHERE task_id = OLD.id\r\n);\r\n-- Ardından ana işlemleri silelim\r\nDELETE FROM transactions WHERE task_id = OLD.id;\r\n\r\n-- D) Bu göreve bağlı BİLDİRİMLERİ (mail_notifications) güncelle/sil\r\n-- Gönderilmiş (sent) veya kapatılmış olanların sadece bağını (associated_task_id) kopar\r\nUPDATE mail_notifications \r\nSET associated_task_id = NULL \r\nWHERE associated_task_id = OLD.id AND status = 'sent';\r\n\r\n-- Gönderilmemiş olanları (draft, pending, missing_info vb.) tamamen sil\r\nDELETE FROM mail_notifications \r\nWHERE associated_task_id = OLD.id AND status != 'sent';\r\n\r\n-- E) ALT GÖREVLERİ SİL (details->>'parent_task_id' kontrolü ile)\r\n-- Eğer jsonb içinde parent_task_id değeri, şu an silinen görevin ID'sine eşitse o görevleri de sil\r\nDELETE FROM tasks WHERE details->>'parent_task_id' = OLD.id;\r\n\r\n-- F) GÖREV GEÇMİŞİNİ SİL (task_history)\r\nDELETE FROM task_history WHERE task_id = OLD.id;\r\n\r\n-- G) GÖREVE EKLENEN BELGELERİ SİL (task_documents)\r\nDELETE FROM task_documents WHERE task_id = OLD.id;\r\n\r\n-- İşlemi tamamla ve devam et\r\nRETURN OLD;\r\nEND;\r\n",
-          "return_type": "trigger",
+          "definition": "CREATE OR REPLACE FUNCTION public.trg_on_task_delete_cleanup()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n-- A) Bu göreve bağlı TAHAKKUKLARI (accruals) sil\r\nDELETE FROM accruals WHERE task_id = OLD.id;\r\n\r\n-- B) Bu göreve bağlı DAVA KAYITLARINI (suits) sil\r\nDELETE FROM suits WHERE task_id = OLD.id;\r\n\r\n-- C) Bu göreve bağlı TRANSACTION GEÇMİŞİNİ SİL (Hiyerarşik Silme)\r\n-- Önce bu göreve bağlı olan ana işlemlerin alt (child) işlemlerini silelim\r\nDELETE FROM transactions WHERE parent_id IN (\r\n    SELECT id FROM transactions WHERE task_id = OLD.id\r\n);\r\n-- Ardından ana işlemleri silelim\r\nDELETE FROM transactions WHERE task_id = OLD.id;\r\n\r\n-- D) Bu göreve bağlı BİLDİRİMLERİ (mail_notifications) güncelle/sil\r\n-- Gönderilmiş (sent) veya kapatılmış olanların sadece bağını (associated_task_id) kopar\r\nUPDATE mail_notifications \r\nSET associated_task_id = NULL \r\nWHERE associated_task_id = OLD.id AND status = 'sent';\r\n\r\n-- Gönderilmemiş olanları (draft, pending, missing_info vb.) tamamen sil\r\nDELETE FROM mail_notifications \r\nWHERE associated_task_id = OLD.id AND status != 'sent';\r\n\r\n-- E) ALT GÖREVLERİ SİL (details->>'parent_task_id' kontrolü ile)\r\n-- Eğer jsonb içinde parent_task_id değeri, şu an silinen görevin ID'sine eşitse o görevleri de sil\r\nDELETE FROM tasks WHERE details->>'parent_task_id' = OLD.id;\r\n\r\n-- F) GÖREV GEÇMİŞİNİ SİL (task_history)\r\nDELETE FROM task_history WHERE task_id = OLD.id;\r\n\r\n-- G) GÖREVE EKLENEN BELGELERİ SİL (task_documents)\r\nDELETE FROM task_documents WHERE task_id = OLD.id;\r\n\r\n-- İşlemi tamamla ve devam et\r\nRETURN OLD;\r\nEND;\r\n$function$\n",
           "function_name": "trg_on_task_delete_cleanup"
         },
         {
-          "language": "sql",
-          "arguments": "",
-          "definition": "\r\nSELECT table_name::text\r\nFROM information_schema.tables\r\nWHERE table_schema = 'public' AND table_type = 'BASE TABLE';\r\n",
-          "return_type": "TABLE(table_name text)",
+          "definition": "CREATE OR REPLACE FUNCTION public.get_all_tables()\n RETURNS TABLE(table_name text)\n LANGUAGE sql\nAS $function$\r\nSELECT table_name::text\r\nFROM information_schema.tables\r\nWHERE table_schema = 'public' AND table_type = 'BASE TABLE';\r\n$function$\n",
           "function_name": "get_all_tables"
         },
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nBEGIN\r\n-- DURUM A: Görev yeni tamamlandıysa (completed)\r\nIF NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    UPDATE tasks\r\n    SET \r\n    status = 'open',\r\n    updated_at = NOW()\r\n    WHERE details->>'parent_task_id' = NEW.id\r\n    AND task_type_id = '53'\r\n    AND status = 'pending';\r\n\r\n-- DURUM B: Görev \"tamamlandı\" statüsünden geri alındıysa (re-open)\r\nELSIF OLD.status = 'completed' AND NEW.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    UPDATE tasks\r\n    SET \r\n    status = 'pending',\r\n    updated_at = NOW()\r\n    WHERE details->>'parent_task_id' = NEW.id\r\n    AND task_type_id = '53'\r\n    AND status = 'open';\r\n    \r\nEND IF;\r\n\r\nRETURN NEW;\r\nEND;\r\n",
-          "return_type": "trigger",
+          "definition": "CREATE OR REPLACE FUNCTION public.trg_handle_accrual_task_status()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n-- DURUM A: Görev yeni tamamlandıysa (completed)\r\nIF NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    UPDATE tasks\r\n    SET \r\n    status = 'open',\r\n    updated_at = NOW()\r\n    WHERE details->>'parent_task_id' = NEW.id\r\n    AND task_type_id = '53'\r\n    AND status = 'pending';\r\n\r\n-- DURUM B: Görev \"tamamlandı\" statüsünden geri alındıysa (re-open)\r\nELSIF OLD.status = 'completed' AND NEW.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    UPDATE tasks\r\n    SET \r\n    status = 'pending',\r\n    updated_at = NOW()\r\n    WHERE details->>'parent_task_id' = NEW.id\r\n    AND task_type_id = '53'\r\n    AND status = 'open';\r\n    \r\nEND IF;\r\n\r\nRETURN NEW;\r\nEND;\r\n$function$\n",
           "function_name": "trg_handle_accrual_task_status"
         },
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nDECLARE\r\n    tbl record;\r\n    result jsonb := '{}'::jsonb;\r\n    rows jsonb;\r\nBEGIN\r\n    -- public şemasındaki tüm tabloları dön\r\n    FOR tbl IN \r\n        SELECT table_name \r\n        FROM information_schema.tables \r\n        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'\r\n    LOOP\r\n        -- Her tablodan 3 kayıt çek ve JSON'a çevir\r\n        EXECUTE format('SELECT COALESCE(jsonb_agg(row_to_json(t)), ''[]''::jsonb) FROM (SELECT * FROM public.%I LIMIT 3) t', tbl.table_name)\r\n        INTO rows;\r\n        \r\n        -- Sonuç objesine tablo adıyla birlikte ekle\r\n        result := jsonb_set(result, ARRAY[tbl.table_name], rows);\r\n    END LOOP;\r\n    \r\n    RETURN result;\r\nEND;\r\n",
-          "return_type": "json",
+          "definition": "CREATE OR REPLACE FUNCTION public.export_mini_db()\n RETURNS json\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n    tbl record;\r\n    result jsonb := '{}'::jsonb;\r\n    rows jsonb;\r\nBEGIN\r\n    -- public şemasındaki tüm tabloları dön\r\n    FOR tbl IN \r\n        SELECT table_name \r\n        FROM information_schema.tables \r\n        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'\r\n    LOOP\r\n        -- Her tablodan 3 kayıt çek ve JSON'a çevir\r\n        EXECUTE format('SELECT COALESCE(jsonb_agg(row_to_json(t)), ''[]''::jsonb) FROM (SELECT * FROM public.%I LIMIT 3) t', tbl.table_name)\r\n        INTO rows;\r\n        \r\n        -- Sonuç objesine tablo adıyla birlikte ekle\r\n        result := jsonb_set(result, ARRAY[tbl.table_name], rows);\r\n    END LOOP;\r\n    \r\n    RETURN result;\r\nEND;\r\n$function$\n",
           "function_name": "export_mini_db"
         },
         {
-          "language": "plpgsql",
-          "arguments": "",
-          "definition": "\r\nBEGIN\r\n  -- Eğer güncellenen görev 66 (Değerlendirme) tipindeyse VE statüsü yeni 'completed' olmuşsa\r\n  IF NEW.task_type_id = '66' AND NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    -- Bu görevin bağlı olduğu PDF işlemine ait 'evaluation_pending' durumundaki maili serbest bırak\r\n    UPDATE public.mail_notifications\r\n    SET \r\n        status = 'awaiting_client_approval'\r\n        -- Hata veren updated_at = NOW() satırını buradan kaldırdık!\r\n    WHERE associated_transaction_id = NEW.transaction_id\r\n      AND status = 'evaluation_pending';\r\n      \r\n  END IF;\r\n\r\n  RETURN NEW;\r\nEND;\r\n",
-          "return_type": "trigger",
+          "definition": "CREATE OR REPLACE FUNCTION public.trg_unlock_evaluation_mail()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  -- Eğer güncellenen görev 66 (Değerlendirme) tipindeyse VE statüsü yeni 'completed' olmuşsa\r\n  IF NEW.task_type_id = '66' AND NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    -- Bu görevin bağlı olduğu PDF işlemine ait 'evaluation_pending' durumundaki maili serbest bırak\r\n    UPDATE public.mail_notifications\r\n    SET \r\n        status = 'awaiting_client_approval'\r\n        -- Hata veren updated_at = NOW() satırını buradan kaldırdık!\r\n    WHERE associated_transaction_id = NEW.transaction_id\r\n      AND status = 'evaluation_pending';\r\n      \r\n  END IF;\r\n\r\n  RETURN NEW;\r\nEND;\r\n$function$\n",
           "function_name": "trg_unlock_evaluation_mail"
         }
       ]

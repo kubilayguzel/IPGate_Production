@@ -147,13 +147,7 @@ class ClientPortalController {
     updateDashboardCounts() {
         document.getElementById('dashPortfolio').textContent = this.state.portfolios.length;
         let pendingTasks = 0, unpaidInvoices = 0;
-        
-        // 🔥 ÇÖZÜM 1: Tüm onay bekliyor durumlarını yakala
-        const isPending = (status) => ['awaiting_client_approval', 'awaiting-approval', 'client_approval_opened'].includes(status);
-
-        this.state.tasks.forEach(t => { 
-            if (isPending(t.status) || t.status === 'pending') pendingTasks++; 
-        });
+        this.state.tasks.forEach(t => { if (t.status === 'awaiting_client_approval' || t.status === 'pending') pendingTasks++; });
         this.state.invoices.forEach(i => { if (i.status === 'unpaid') unpaidInvoices++; });
 
         document.getElementById('dashPendingApprovals').textContent = pendingTasks;
@@ -164,7 +158,7 @@ class ClientPortalController {
         let davaPending = 0, davaCompleted = 0;
         this.state.tasks.forEach(t => {
             if (String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava')) {
-                isPending(t.status) ? davaPending++ : davaCompleted++;
+                t.status === 'awaiting_client_approval' ? davaPending++ : davaCompleted++;
             }
         });
         document.getElementById('taskCount-dava-total').textContent = davaPending;
@@ -603,16 +597,12 @@ class ClientPortalController {
             if (searchVal && !`${t.title} ${t.appNo} ${t.recordTitle}`.toLowerCase().includes(searchVal)) return false;
 
             const isDava = String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava');
-            
-            // 🔥 ÇÖZÜM: Sayaçla tamamen aynı mantıkta çalışacak merkezi bir kontrol (pending ve awaiting dahil)
-            const isPendingApproval = t.status === 'awaiting_client_approval' || t.status === 'pending';
-
-            if (taskTypeFilter === 'pending-approval') return !isDava && isPendingApproval && String(t.taskType) !== '20' && String(t.taskType) !== '22';
-            if (taskTypeFilter === 'completed-tasks') return !isDava && !isPendingApproval && String(t.taskType) !== '20' && String(t.taskType) !== '22';
+            if (taskTypeFilter === 'pending-approval') return !isDava && t.status === 'awaiting_client_approval' && String(t.taskType) !== '20' && String(t.taskType) !== '22';
+            if (taskTypeFilter === 'completed-tasks') return !isDava && t.status !== 'awaiting_client_approval';
             if (taskTypeFilter === 'bulletin-watch') return String(t.taskType) === '20';
             if (taskTypeFilter === 'renewal-approval') return String(t.taskType) === '22';
-            if (taskTypeFilter === 'dava-pending') return isDava && isPendingApproval;
-            if (taskTypeFilter === 'dava-completed') return isDava && !isPendingApproval;
+            if (taskTypeFilter === 'dava-pending') return isDava && t.status === 'awaiting_client_approval';
+            if (taskTypeFilter === 'dava-completed') return isDava && t.status !== 'awaiting_client_approval';
             return true;
         });
 
@@ -636,33 +626,43 @@ class ClientPortalController {
             }
         });
 
-        
+        // DASHBOARD LİNKLERİ (Tıklanan Karta Göre İlgili Sekmeyi Açma)
+        $('[data-target-tab]').on('click', (e) => {
+            const target = $(e.currentTarget).data('target-tab');
+            $(`#sidebar a[href="#${target}"]`).tab('show');
+            if (target === 'portfolio-content') {
+                setTimeout(() => $('#portfolioTopTabs a[href="#marka-list"]').tab('show'), 100);
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        $('#menseFilter, #portfolioDurumFilter').on('change', () => this.filterPortfolios());
+        $('#portfolioSearchText').on('keyup', () => this.filterPortfolios());
+        $('#invoiceDurumFilter').on('change', () => this.filterInvoices());
+        $('#invoiceSearchText').on('keyup', () => this.filterInvoices());
+        $('#contractsSearchText').on('keyup', () => this.filterContracts());
+
+        $('.task-card-link').click((e) => {
+            const el = e.currentTarget;
+            $('.task-card-link').removeClass('active-task-area'); el.classList.add('active-task-area');
+            $('#task-detail-cards, #dava-task-detail-cards, #task-list-filters').slideUp();
+            $('#task-list-container').html('');
+            if(el.dataset.targetArea === 'marka-tasks') $('#task-detail-cards').slideDown();
+            else if(el.dataset.targetArea === 'dava-tasks') $('#dava-task-detail-cards').slideDown();
+        });
+
+        $('.detail-card-link').click((e) => {
+            const el = e.currentTarget;
+            $('.detail-card-link').removeClass('active-list-type'); el.classList.add('active-list-type');
+            $('#task-list-filters').slideDown();
+            this.filterTasks();
+        });
+
         $(document).on('click', '.task-action-btn', async (e) => {
             const btn = e.currentTarget; const taskId = btn.dataset.id; const action = btn.dataset.action;
             if (action === 'approve' && confirm('Bu işi onaylamak istiyor musunuz?')) {
-                
-                // 🔥 PARALEL GELİŞTİRME: İş Onaylandığında görevi asıl departmanına/sorumlusuna geri ata!
-                const taskObj = this.state.tasks.find(t => String(t.id) === String(taskId));
-                let updatePayload = { status: 'open' };
-
-                if (taskObj && taskObj.taskType) {
-                    try {
-                        const { data: assignData } = await supabase
-                            .from('task_assignments')
-                            .select('assignee_ids')
-                            .eq('id', String(taskObj.taskType))
-                            .single();
-                            
-                        if (assignData && assignData.assignee_ids && assignData.assignee_ids.length > 0) {
-                            updatePayload.assigned_to = assignData.assignee_ids[0]; // Doğru yetkiliye geri ata
-                        }
-                    } catch (err) {
-                        console.warn("Atama kuralı çekilemedi:", err);
-                    }
-                }
-
-                await supabase.from('tasks').update(updatePayload).eq('id', taskId);
-                alert('İş onaylandı.'); await this.loadAllData();   
+                await supabase.from('tasks').update({ status: 'open' }).eq('id', taskId);
+                alert('İş onaylandı.'); await this.loadAllData();
             } else if (action === 'reject') {
                 const reason = prompt('Lütfen ret sebebini yazınız:');
                 if (reason) {

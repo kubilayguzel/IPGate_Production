@@ -201,20 +201,36 @@ export class RenderHelper {
                 if (isExp) {
                     expired.push({ ...t, status: 'Bülten Kapandı' });
                 } else {
-                    const bNo = t.details?.bulletinNo || 'Diğer';
+                    // YENİ: JSON'daki farklı yolları kontrol et ve sadece numarayı al (bulletin_no eklendi)
+                    let rawBNo = t.details?.brandInfo?.opposedMarkBulletinNo || t.details?.brandInfo?.bulletinNo || t.details?.bulletin_no || t.details?.bulletinNo;
+                    let bNo = 'Diğer';
+                    
+                    if (rawBNo) {
+                        const match = String(rawBNo).match(/\d+/); // "Bülten 480" gibi metinlerden sadece "480" rakamını çeker
+                        if (match) bNo = match[0];
+                    }
+                    
                     if (!groups[bNo]) groups[bNo] = [];
                     groups[bNo].push(t);
                 }
             });
 
-            const bNumbers = Object.keys(groups).sort((a, b) => Number(b) - Number(a));
+            // YENİ: Akıllı Sıralama (Diğer sekmesini en sona atar, numaraları büyükten küçüğe sıralar)
+            const bNumbers = Object.keys(groups).sort((a, b) => {
+                if (a === 'Diğer') return 1;
+                if (b === 'Diğer') return -1;
+                return Number(b) - Number(a);
+            });
 
             let html = '<ul class="nav nav-tabs mb-3">';
             let content = '<div class="tab-content">';
 
             bNumbers.forEach((no, i) => {
                 const active = i === 0 ? 'active' : '';
-                html += `<li class="nav-item"><a class="nav-link ${active}" data-toggle="tab" href="#b-${no}">Bülten ${no} (${groups[no].length})</a></li>`;
+                // YENİ: İstenilen sekme adı formatı "480. Bülten (10)" veya "Diğer Bültenler (5)"
+                const tabTitle = no === 'Diğer' ? `Diğer Bültenler (${groups[no].length})` : `${no}. Bülten (${groups[no].length})`;
+                
+                html += `<li class="nav-item"><a class="nav-link ${active}" data-toggle="tab" href="#b-${no}">${tabTitle}</a></li>`;
                 content += `<div class="tab-pane fade ${active ? 'show active' : ''}" id="b-${no}"><div class="row">${this.generateTaskCardsHtml(groups[no], taskTypeFilter)}</div></div>`;
             });
 
@@ -249,13 +265,13 @@ export class RenderHelper {
             }
 
             let comparisonRow = '';
-            
-            // 🔥 MUHTEŞEM İKİYE BÖLÜNMÜŞ KIYASLAMA EKRANI
-            if (isBulletinWatch) {
-                const myImgUrl = task.brandImageUrl || 'https://placehold.co/100x100?text=Yok';
-                const myClasses = task.details?.niceClasses || '-';
-
+                // DÜZELTME: Scope (kapsam) hatasını önlemek için targetAppNo'yu dışarı aldık
                 const targetAppNo = task.details?.targetAppNo || '-';
+                
+                // 🔥 MUHTEŞEM İKİYE BÖLÜNMÜŞ KIYASLAMA EKRANI
+                if (isBulletinWatch) {
+                    const myImgUrl = task.brandImageUrl || 'https://placehold.co/100x100?text=Yok';
+                    const myClasses = task.details?.niceClasses || '-';
                 const compName = task.details?.objectionTarget || 'Benzer Marka';
                 let compClasses = task.details?.competitorClasses || '-';
                 if (Array.isArray(compClasses)) compClasses = compClasses.join(', ');

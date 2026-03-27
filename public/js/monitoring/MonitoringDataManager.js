@@ -75,7 +75,8 @@ export class MonitoringDataManager {
                     ownerName: ipRecord.applicantName || '-',
                     niceClasses: ipRecord.niceClasses || [],
                     brandTextSearch: bts,
-                    searchMarkName: bts.length > 0 ? bts[0] : (d.mark_name || ''),
+                    // 🔥 ÇÖZÜM: Veritabanındaki 'search_mark_name' verisine EN YÜKSEK önceliği verdik!
+                    searchMarkName: d.search_mark_name || ipRecord.title || d.mark_name || '',
                     niceClassSearch: ensureArray(d.nice_class_search),
                     createdAt: d.created_at,
                     applicants: ipRecord.applicants || []

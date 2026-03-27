@@ -1,11 +1,10 @@
 const TAG = '[IPGate API Bot]';
 console.log(TAG, 'Ajan sayfaya yerleşti! Inject dosyası yükleniyor...');
 
-// Güvenli (CSP'ye takılmayan) Enjeksiyon Yöntemi
 const script = document.createElement('script');
 script.src = chrome.runtime.getURL('inject.js');
 script.onload = function() {
-    this.remove(); // Yüklendikten sonra iz bırakmamak için kendini siler
+    this.remove(); 
 };
 (document.head || document.documentElement).appendChild(script);
 
@@ -29,8 +28,9 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                     const info = apiData.markInformation || {};
                     const niceInfo = apiData.niceInformation || [];
                     
-                    // 🔥 DÜZELTME 1: HAR dosyasına göre holderInformation 'apiData' (item) içindedir!
-                    const holders = apiData.holderInformation || [];
+                    // 🔥 KESİN ÇÖZÜM: holderInformation dizisi 'info' (markInformation) içindeymiş!
+                    const holders = info.holderInformation || [];
+                    const fallbackHolderName = info.holdName || "";
                     
                     let cleanedClasses = "";
                     if (info.niceClasses) {
@@ -46,12 +46,14 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                         application_date: info.applicationDate,
                         nice_classes: cleanedClasses,
                         image_base64: info.figure,
-                        holders: holders,
-                        nice_details: niceInfo,
                         
-                        // 🔥 DÜZELTME 2: Bülten No ve Bülten Tarihi Artık Dışarı Aktarılıyor
+                        // Sahip ve Bülten Verileri
+                        holders: holders,
+                        fallback_holder_name: fallbackHolderName, 
                         bulletin_no: info.bulletinNumber || apiData.bulletinNo || null,
-                        bulletin_date: info.bulletinDate || null
+                        bulletin_date: info.bulletinDate || null,
+                        
+                        nice_details: niceInfo
                     };
                     sendResponse({ success: true, data: resultData, appNo: appNo });
                 } else if (json && !json.success) {

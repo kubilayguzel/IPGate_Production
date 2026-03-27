@@ -115,12 +115,11 @@ export class OppositionReport {
         container.innerHTML = html;
     }
 
-    // 2. VERİLERİ ÇEK VE JAVASCRIPT İLE HARMANLA (Bülten Tablosu Entegreli & UUID Korumalı)
+    // 2. VERİLERİ ÇEK VE YENİ TERTEMİZ ŞEMAYA GÖRE HARMANLA
     async fetchData() {
         console.log("🚀 Rapor Üretimi Başladı...");
         const clientIds = Array.from(this.selectedClients.keys());
         
-        // 1. Görevleri Çek
         console.log("1. Görevler çekiliyor...");
         const { data: tasks, error } = await supabase
             .from('tasks')
@@ -139,30 +138,22 @@ export class OppositionReport {
         }
         console.log(`✅ ${tasks.length} adet görev bulundu.`);
 
-        // 2. İşlem Tiplerini Çek
         const { data: txTypes } = await supabase.from('transaction_types').select('id, name, alias').in('id', this.targetTaskTypes);
         const txTypesMap = new Map();
         if (txTypes) txTypes.forEach(t => txTypesMap.set(String(t.id), t));
 
-        // 🔥 UUID FORMAT KONTROLÜ İÇİN REGEX 🔥
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-        // 3. Marka Ana Bilgilerini Çek ve Başvuru Numaralarını Topla
         const rawIpRecordIds = [...new Set(tasks.map(t => t.ip_record_id).filter(Boolean))];
-        const ipRecordIds = rawIpRecordIds.filter(id => uuidRegex.test(id)); // Sadece geçerli UUID'leri al
-        
-        if (rawIpRecordIds.length !== ipRecordIds.length) {
-            console.warn(`⚠️ ${rawIpRecordIds.length - ipRecordIds.length} adet eski tip (Firebase) ID sorgudan çıkarıldı (400 hatasını önlemek için).`);
-        }
+        const ipRecordIds = rawIpRecordIds.filter(id => uuidRegex.test(id)); 
 
         const ipMap = new Map();
         let appNosToFetch = [];
 
         if (ipRecordIds.length > 0) {
-            console.log("3. IP Records çekiliyor...", ipRecordIds);
+            console.log("3. IP Records çekiliyor...");
             const { data: ipRecords, error: ipError } = await supabase
                 .from('ip_records')
-                .select('id, application_number, record_owner_type') // DÜZELTME: 'title' kolonu silindi!
+                .select('id, application_number, record_owner_type')
                 .in('id', ipRecordIds);
                 
             if (ipError) console.error("❌ ip_records hatası:", ipError);
@@ -174,7 +165,6 @@ export class OppositionReport {
             }
         }
 
-        // Details İçindeki Başvuru Numaralarını da Topla (Garanti olsun diye)
         tasks.forEach(t => {
             let details = {};
             if (t.details) {
@@ -186,56 +176,42 @@ export class OppositionReport {
                 }
             }
             t._parsedDetails = details; 
-            
             const appNo = details.target_app_no || details.iprecordApplicationNo || details.targetAppNo || details.application_number;
             if (appNo) appNosToFetch.push(appNo);
         });
 
-        // 4. Marka Adını Çek (tmDetails tablosundan)
         const tmDetailsMap = new Map();
         if (ipRecordIds.length > 0) {
-            console.log("4. Marka Detayları (Brand Names) çekiliyor...");
             const { data: tmDetails, error: tmError } = await supabase
                 .from('ip_record_trademark_details')
                 .select('ip_record_id, brand_name')
                 .in('ip_record_id', ipRecordIds);
-                
-            if (tmError) console.error("❌ trademark_details hatası:", tmError);
-            else if (tmDetails) tmDetails.forEach(tm => tmDetailsMap.set(tm.ip_record_id, tm));
+            if (!tmError && tmDetails) tmDetails.forEach(tm => tmDetailsMap.set(tm.ip_record_id, tm));
         }
 
-        // 5. Kişileri (Görev Sahiplerini) Çek - (UUID Korumalı)
         const rawOwnerIds = [...new Set(tasks.map(t => t.task_owner_id).filter(Boolean))];
         const ownerIds = rawOwnerIds.filter(id => uuidRegex.test(id));
-        
         const personsMap = new Map();
         if (ownerIds.length > 0) {
-            console.log("5. Kişiler (Persons) çekiliyor...");
             const { data: persons, error: pError } = await supabase.from('persons').select('id, name').in('id', ownerIds);
-            if (pError) console.error("❌ persons hatası:", pError);
-            else if (persons) persons.forEach(p => personsMap.set(p.id, p));
+            if (!pError && persons) persons.forEach(p => personsMap.set(p.id, p));
         }
 
-        // 6. Bülten Verilerini Çek (Eksik Bülten No ve Marka Sahibi İçin)
         const bulletinMap = new Map();
         appNosToFetch = [...new Set(appNosToFetch.filter(Boolean))]; 
-        
         if (appNosToFetch.length > 0) {
-            console.log(`6. Bülten Kayıtları çekiliyor (${appNosToFetch.length} adet başvuru no ile)...`);
             const { data: bulletinRecords, error: bError } = await supabase
                 .from('trademark_bulletin_records')
                 .select('application_number, bulletin_id, holders')
                 .in('application_number', appNosToFetch);
-            
-            if (bError) console.error("❌ bulletin_records hatası:", bError);
-            else if (bulletinRecords) {
+            if (!bError && bulletinRecords) {
                 bulletinRecords.forEach(br => bulletinMap.set(br.application_number, br));
             }
         }
 
         console.log("✅ Tüm veriler çekildi, JSON ve Kurallar harmanlanıyor...");
 
-        // KURALLARI UYGULAYARAK VERİYİ HAZIRLA
+        // 🔥 YENİ VE TEMİZ ŞEMAYA GÖRE HARMANLAMA 🔥
         this.reportData = tasks.map(t => {
             const details = t._parsedDetails || {};
             const typeObj = txTypesMap.get(String(t.task_type_id)) || {};
@@ -245,38 +221,47 @@ export class OppositionReport {
             
             const taskType = typeObj.alias || typeObj.name || `Tip ${t.task_type_id}`;
             
-            let appNo = details.target_app_no || details.iprecordApplicationNo || ipRecord.application_number || details.targetAppNo || details.application_number || '-';
+            // Başvuru Numarası: Öncelik ip_records tablosunda, yoksa detaylarda
+            let appNo = ipRecord.application_number || details.target_app_no || details.iprecordApplicationNo || details.targetAppNo || details.application_number || '-';
             if (String(appNo).trim().toLowerCase() === 'undefined') appNo = '-';
 
             const bulletinRecord = appNo !== '-' ? bulletinMap.get(appNo) : null;
 
-            let bultenNo = bulletinRecord?.bulletin_id || details.bulletin_no || details.bulletinNo || details.brandInfo?.opposedMarkBulletinNo || details.brandInfo?.bulletinNo || '-';
+            // Bülten Numarası: Öncelik yeni temizlenen 'bulletin_no' alanında
+            let bultenNo = details.bulletin_no || details.bulletinNo || bulletinRecord?.bulletin_id || details.brandInfo?.opposedMarkBulletinNo || '-';
             if (String(bultenNo).trim().toLowerCase() === 'undefined') bultenNo = '-';
 
+            // Talep Sahibi (Görev Sahibi)
             let talepSahibi = personObj.name || '-';
-            let markaSahibi = '-';
             
-            if (bulletinRecord && bulletinRecord.holders) {
-                try {
-                    const holdersArr = typeof bulletinRecord.holders === 'string' ? JSON.parse(bulletinRecord.holders) : bulletinRecord.holders;
-                    if (Array.isArray(holdersArr) && holdersArr.length > 0) {
-                        markaSahibi = holdersArr.map(h => h.holderName).filter(Boolean).join(', ');
-                    }
-                } catch(e) {}
-            }
+            // Marka Sahibi (Rakip)
+            // 1. ÖNCELİK: Sizin için özel oluşturduğumuz TPE API onaylı 'opposed_mark_owner'
+            let markaSahibi = details.opposed_mark_owner || '-';
             
+            // 2. ÖNCELİK (Diğer görev tipleri için eski fallback'ler):
             if (markaSahibi === '-' || !markaSahibi) {
-                if (details.iprecordApplicantName) {
-                    markaSahibi = details.iprecordApplicantName;
-                } else if (ipRecord.record_owner_type === 'third_party') {
-                    markaSahibi = details.relatedPartyName || details.competitorOwner || '-';
-                } else {
-                    markaSahibi = personObj.name || '-';
+                if (bulletinRecord && bulletinRecord.holders) {
+                    try {
+                        const holdersArr = typeof bulletinRecord.holders === 'string' ? JSON.parse(bulletinRecord.holders) : bulletinRecord.holders;
+                        if (Array.isArray(holdersArr) && holdersArr.length > 0) {
+                            markaSahibi = holdersArr.map(h => h.holderName).filter(Boolean).join(', ');
+                        }
+                    } catch(e) {}
+                }
+                
+                if (markaSahibi === '-' || !markaSahibi) {
+                    if (details.iprecordApplicantName) {
+                        markaSahibi = details.iprecordApplicantName;
+                    } else if (ipRecord.record_owner_type === 'third_party') {
+                        markaSahibi = details.relatedPartyName || details.competitorOwner || '-';
+                    } else {
+                        markaSahibi = personObj.name || '-';
+                    }
                 }
             }
 
-            // DÜZELTME: ipRecord.title yedeklerden silindi!
-            let markaAdi = tmDetail.brand_name || details.iprecordTitle || details.related_ip_record_title || details.recordTitle || details.objectionTarget || '-';
+            // Marka Adı
+            let markaAdi = tmDetail.brand_name || details.recordTitle || details.iprecordTitle || details.related_ip_record_title || details.objectionTarget || '-';
 
             if (String(markaAdi).trim().toLowerCase() === 'undefined') markaAdi = '-';
             if (String(markaSahibi).trim().toLowerCase() === 'undefined') markaSahibi = '-';

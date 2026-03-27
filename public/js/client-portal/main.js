@@ -593,18 +593,10 @@ class ClientPortalController {
     }
 
     filterTasks() {
-        console.group("🔍 [DEDEKTİF] filterTasks Analizi Başladı");
         const searchVal = (document.getElementById('taskSearchText')?.value || '').toLowerCase().trim();
         const statusVal = document.getElementById('taskStatusFilter')?.value || 'TÜMÜ';
         const activeSubCard = document.querySelector('.detail-card-link.active-list-type');
         const taskTypeFilter = activeSubCard ? activeSubCard.dataset.taskType : 'pending-approval';
-
-        console.log(`📌 Kriterler -> Arama: '${searchVal}', Durum: '${statusVal}', Alt Sekme: '${taskTypeFilter}'`);
-        console.log(`📌 Toplam Görev Sayısı (this.state.tasks): ${this.state.tasks.length}`);
-        
-        if (this.state.tasks.length > 0) {
-            console.log("🧐 İlk 3 Görevin Örneği:", this.state.tasks.slice(0, 3).map(t => ({id: t.id, title: t.title, status: t.status, taskType: t.taskType})));
-        }
 
         let filtered = this.state.tasks.filter(t => {
             if (statusVal !== 'TÜMÜ' && t.status !== statusVal) return false;
@@ -612,50 +604,17 @@ class ClientPortalController {
 
             const isDava = String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava');
             
-            let isMatch = false;
-            let rejectReason = "";
+            // 🔥 ÇÖZÜM: Sayaçla tamamen aynı mantıkta çalışacak merkezi bir kontrol (pending ve awaiting dahil)
+            const isPendingApproval = t.status === 'awaiting_client_approval' || t.status === 'pending';
 
-            if (taskTypeFilter === 'pending-approval') {
-                if (isDava) rejectReason = "Dava dosyası olduğu için elendi.";
-                else if (t.status !== 'awaiting_client_approval') rejectReason = `Statüsü uymadı: ${t.status}`;
-                else if (String(t.taskType) === '20') rejectReason = "Görev Tipi 20 (Bülten İzleme). Bu sekmede gizli, kendi özel sekmesi var.";
-                else if (String(t.taskType) === '22') rejectReason = "Görev Tipi 22 (Yenileme). Bu sekmede gizli, kendi özel sekmesi var.";
-                else isMatch = true;
-            }
-            else if (taskTypeFilter === 'completed-tasks') {
-                 if (isDava) rejectReason = "Dava";
-                 else if (t.status === 'awaiting_client_approval') rejectReason = "Onay bekliyor";
-                 else if (String(t.taskType) === '20') rejectReason = "Tip 20";
-                 else if (String(t.taskType) === '22') rejectReason = "Tip 22";
-                 else isMatch = true;
-            }
-            else if (taskTypeFilter === 'bulletin-watch') {
-                 isMatch = String(t.taskType) === '20';
-            }
-            else if (taskTypeFilter === 'renewal-approval') {
-                 isMatch = String(t.taskType) === '22';
-            }
-            else if (taskTypeFilter === 'dava-pending') {
-                 isMatch = isDava && t.status === 'awaiting_client_approval';
-            }
-            else if (taskTypeFilter === 'dava-completed') {
-                 isMatch = isDava && t.status !== 'awaiting_client_approval';
-            }
-            else {
-                 isMatch = true;
-            }
-
-            // Sadece 'pending-approval' (Onay Bekleyenler) sekmesindeyken, 
-            // veritabanındaki statüsü 'awaiting_client_approval' olan ama listeye giremeyenleri konsola bas:
-            if (taskTypeFilter === 'pending-approval' && t.status === 'awaiting_client_approval' && !isMatch) {
-                console.log(`⚠️ ELENDİ: [Görev: ${t.title}] -> Sebep: ${rejectReason}`);
-            }
-
-            return isMatch;
+            if (taskTypeFilter === 'pending-approval') return !isDava && isPendingApproval && String(t.taskType) !== '20' && String(t.taskType) !== '22';
+            if (taskTypeFilter === 'completed-tasks') return !isDava && !isPendingApproval && String(t.taskType) !== '20' && String(t.taskType) !== '22';
+            if (taskTypeFilter === 'bulletin-watch') return String(t.taskType) === '20';
+            if (taskTypeFilter === 'renewal-approval') return String(t.taskType) === '22';
+            if (taskTypeFilter === 'dava-pending') return isDava && isPendingApproval;
+            if (taskTypeFilter === 'dava-completed') return isDava && !isPendingApproval;
+            return true;
         });
-
-        console.log(`🚀 Filtreleme Bitti! Ekrana basılacak kayıt sayısı: ${filtered.length}`);
-        console.groupEnd();
 
         this.state.filteredTasks = filtered;
         this.renderHelper.renderTaskSection(filtered, 'task-list-container', taskTypeFilter);

@@ -62,24 +62,43 @@ export class TaskSubmitHandler {
                 if (!taskDesc) taskDesc = `${selectedTaskType.alias || selectedTaskType.name} işlemi.`;
             }
 
-            let ipAppNo = "-", ipTitle = "-", ipAppName = "-";
+            // 🔥 YENİ, TERTEMİZ VE MİNİMAL JSON HAZIRLIĞI
+            let ipAppName = "-";
+            let bulletinNo = null;
+            let bulletinDate = null;
+            let similarityScore = null;
+
             if (selectedIpRecord) {
-                ipAppNo = selectedIpRecord.application_number || selectedIpRecord.applicationNo || "-";
-                ipTitle = selectedIpRecord.title || selectedIpRecord.brand_name || "-";
-                if (Array.isArray(selectedIpRecord.applicants) && selectedIpRecord.applicants.length > 0) ipAppName = selectedIpRecord.applicants[0].name || "-";
-                else if (selectedIpRecord.client && selectedIpRecord.client.name) ipAppName = selectedIpRecord.client.name;
+                // Sadece Rakip Firma (Opposed Mark Owner) ve Bülten bilgilerini alıyoruz
+                if (Array.isArray(selectedIpRecord.applicants) && selectedIpRecord.applicants.length > 0) {
+                    ipAppName = selectedIpRecord.applicants[0].name || "-";
+                } else if (selectedIpRecord.client && selectedIpRecord.client.name) {
+                    ipAppName = selectedIpRecord.client.name;
+                } else if (selectedIpRecord.holders) {
+                    let hArr = selectedIpRecord.holders;
+                    if (typeof hArr === 'string') { try { hArr = JSON.parse(hArr); } catch(e){} }
+                    if (Array.isArray(hArr) && hArr.length > 0) {
+                        ipAppName = hArr.map(h => typeof h === 'object' ? (h.holderName || h.name) : h).filter(Boolean).join(', ');
+                    }
+                } else if (selectedIpRecord.applicantName || selectedIpRecord.holder) {
+                    ipAppName = selectedIpRecord.applicantName || selectedIpRecord.holder;
+                }
+
+                bulletinNo = selectedIpRecord.bulletin_id || selectedIpRecord.bulletinNo || null;
+                // Bülten tarihini çeşitli kaynaklardan güvenle çekiyoruz
+                bulletinDate = selectedIpRecord.bulletin_date || selectedIpRecord.bulletinDate || selectedIpRecord.adDate || selectedIpRecord.applicationDate || null;
+                similarityScore = selectedIpRecord.similarityScore || selectedIpRecord.similarity_score || null;
+
             } else if (selectedTaskType.alias === 'Başvuru' && selectedTaskType.ipType === 'trademark') {
-                ipTitle = document.getElementById('brandExampleText')?.value || taskTitle || "-";
                 if (selectedApplicants && selectedApplicants.length > 0) ipAppName = selectedApplicants[0].name || "-";
             }
 
-            // 🔥 1. KULLANICIYI DOĞRU EŞLEŞTİRME (FK Hatasını Engeller)
             const session = await authService.getCurrentSession();
             const currentUserEmail = session?.user?.email;
             const dbUser = state.allUsers.find(u => u.email === currentUserEmail);
             const userNameOrEmail = dbUser?.display_name || dbUser?.name || currentUserEmail || 'Sistem';
 
-            // 🔥 2. SÜTUN İSİMLERİ SUPABASE İLE %100 EŞLEŞTİRİLDİ
+            // 🔥 YEPYENİ, TEK TİP VE İLİŞKİSEL JSON YAPISI
             let taskData = {
                 task_type_id: String(selectedTaskType.id),
                 title: taskTitle,
@@ -91,10 +110,10 @@ export class TaskSubmitHandler {
                 
                 details: {
                     assigned_to_email: assignedUser ? assignedUser.email : null,
-                    ip_record_title: selectedIpRecord ? (selectedIpRecord.title || selectedIpRecord.brand_name) : taskTitle,
-                    iprecord_application_no: ipAppNo,
-                    iprecord_title: ipTitle,
-                    iprecord_applicant_name: ipAppName,
+                    bulletin_no: bulletinNo ? String(bulletinNo) : null,
+                    bulletin_date: bulletinDate ? String(bulletinDate) : null,
+                    similarity_score: similarityScore,
+                    opposed_mark_owner: ipAppName !== "-" ? ipAppName : null,
                     documents: [],
                     history: [{
                         action: "Görev oluşturuldu",
@@ -127,6 +146,9 @@ export class TaskSubmitHandler {
                 if (selectedApplicants && selectedApplicants.length > 0) {
                     taskData.task_owner_id = String(selectedApplicants[0].id);
                     taskData.details.related_party_name = selectedApplicants[0].name;
+                    // Edge Function uyumu için camelCase versiyonları da ekleniyor
+                    taskData.details.relatedPartyId = String(selectedApplicants[0].id);
+                    taskData.details.relatedPartyName = selectedApplicants[0].name;
                 }
             }
             
@@ -453,11 +475,9 @@ export class TaskSubmitHandler {
 
     _enrichTaskWithParties(taskData, taskType, relatedParties, singleParty, ipRecord) {
         const tIdStr = String(taskType.id);
-        
         let finalOwnerId = null;
         let finalOwnerName = null;
 
-        // 1. STRATEJİ: Formda açıkça "İlgili Kişi / Müvekkil / Sahip" seçilmişse onu al.
         if (relatedParties && relatedParties.length > 0) {
             finalOwnerId = String(relatedParties[0].id);
             finalOwnerName = relatedParties[0].name;
@@ -466,33 +486,31 @@ export class TaskSubmitHandler {
                 taskData.details.related_party_id = finalOwnerId;
                 taskData.details.related_party_name = finalOwnerName;
             }
-        } 
-        // 2. STRATEJİ: Seçilmediyse, doğrudan IP Record'un (Varlığın) sahibine/müvekkiline bak.
-        else if (ipRecord) {
-            // A) 3. Taraf dosyasıysa (Rakipse) veya atanmış müvekkil varsa
+        } else if (ipRecord) {
             if (ipRecord.client_id) {
                 finalOwnerId = String(ipRecord.client_id);
                 finalOwnerName = ipRecord.client?.name || "Müvekkil";
-            } 
-            // B) Kendi dosyamızsa ve başvuru sahibi varsa
-            else if (ipRecord.applicants && ipRecord.applicants.length > 0) {
+            } else if (ipRecord.applicants && ipRecord.applicants.length > 0) {
                 const firstApp = ipRecord.applicants[0];
                 finalOwnerId = String(firstApp.id || firstApp.person_id || (firstApp.persons && firstApp.persons.id));
                 finalOwnerName = firstApp.name || (firstApp.persons && firstApp.persons.name) || "Başvuru Sahibi";
             }
         }
 
-        // 🔥 Şelale mantığıyla bulunan en geçerli ID'yi Task Owner olarak set et
         if (finalOwnerId) {
             taskData.task_owner_id = finalOwnerId;
+            // 🔥 EDGE FUNCTION UYUMU İÇİN EKLENDİ
+            taskData.details.relatedPartyId = finalOwnerId;
+            taskData.details.relatedPartyName = finalOwnerName;
         }
 
-        // Karşı Taraf (Rakip) Bilgisi (İtiraz işlemleri için)
         if (['7', '19', '20'].includes(tIdStr)) {
             const opponent = singleParty || (relatedParties && relatedParties.length > 1 ? relatedParties[1] : null);
             if (opponent) {
                 taskData.details.opponent_id = opponent.id;
                 taskData.details.opponent_name = opponent.name;
+                // 🔥 EDGE FUNCTION UYUMU İÇİN EKLENDİ
+                taskData.details.competitorOwner = opponent.name;
             }
         }
     }

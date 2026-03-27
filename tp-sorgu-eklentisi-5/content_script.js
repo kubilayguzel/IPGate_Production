@@ -29,8 +29,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                     const info = apiData.markInformation || {};
                     const niceInfo = apiData.niceInformation || [];
                     
-                    // 🔥 KESİN ÇÖZÜM: holderInformation, apiData'nın değil, 'info' objesinin (markInformation) içindedir!
-                    const holders = info.holderInformation || [];
+                    // 🔥 DÜZELTME 1: HAR dosyasına göre holderInformation 'apiData' (item) içindedir!
+                    const holders = apiData.holderInformation || [];
                     
                     let cleanedClasses = "";
                     if (info.niceClasses) {
@@ -47,7 +47,11 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                         nice_classes: cleanedClasses,
                         image_base64: info.figure,
                         holders: holders,
-                        nice_details: niceInfo
+                        nice_details: niceInfo,
+                        
+                        // 🔥 DÜZELTME 2: Bülten No ve Bülten Tarihi Artık Dışarı Aktarılıyor
+                        bulletin_no: info.bulletinNumber || apiData.bulletinNo || null,
+                        bulletin_date: info.bulletinDate || null
                     };
                     sendResponse({ success: true, data: resultData, appNo: appNo });
                 } else if (json && !json.success) {

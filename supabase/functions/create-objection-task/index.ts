@@ -187,36 +187,29 @@ serve(async (req) => {
         }
 
         // 7. KENDİ DOSYAMIZA (TASK) GÖREVİ EKLE
-        // 🔥 ÇÖZÜM: Yeni Tasks Şemasına Tam Uyum ve Detayların JSON'a Taşınması
         const taskPayload = {
             id: taskId,
-            task_type_id: '20', // task_type -> task_type_id oldu
+            task_type_id: '20', 
             status: 'awaiting_client_approval',
             priority: 'medium',
-            ip_record_id: thirdPartyPortfolioId, // related_ip_record_id yerine
-            task_owner_id: clientId, // client_id yerine
+            ip_record_id: thirdPartyPortfolioId, 
+            task_owner_id: clientId, 
             transaction_id: transactionId, 
-            assigned_to: assignedUid, // assigned_to_uid yerine
-            created_by: callerEmail || 'system', // created_by_email yerine
+            assigned_to: assignedUid, 
+            created_by: callerEmail || 'system', 
             title: `Yayına İtiraz: ${hitMarkName} (Bülten No: ${bulletinNo})`,
             description: `"${ipTitle}" markamız için bültende benzer bulunan "${hitMarkName}" markasına itiraz işi.`,
-            delivery_date: officialDueDate, // due_date yerine
+            delivery_date: officialDueDate, 
             official_due_date: officialDueDate,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            // Tüm dağınık bilgiler artık muazzam ve esnek JSON 'details' kolonunda tutulacak
+            // 🔥 TERTEMİZ MİNİMAL JSON
             details: {
                 assigned_to_email: assignedEmail,
-                iprecordApplicationNo: similarMark.applicationNo || "-",
-                iprecordTitle: hitMarkName,
-                iprecordApplicantName: hitHoldersStr,
-                target_app_no: similarMark.applicationNo || null,
-                target_nice_classes: parsedNiceClasses,
                 bulletin_no: String(bulletinNo),
+                bulletin_date: bulletinData?.bulletin_date ? new Date(bulletinData.bulletin_date).toISOString().split('T')[0] : null,
                 similarity_score: similarMark.similarityScore || 0,
-                relatedPartyId: clientId,
-                relatedPartyName: ipAppName,
-                related_ip_record_title: hitMarkName
+                opposed_mark_owner: hitHoldersStr !== "-" ? hitHoldersStr : null
             }
         };
         const { error: taskErr } = await supabase.from('tasks').insert(taskPayload);

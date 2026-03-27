@@ -643,7 +643,7 @@ class TaskUpdateController {
 
     async saveTaskChanges() {
         const epatsDocIndex = this.currentDocuments.findIndex(d => d.type === 'epats_document');
-        let epatsDocumentDateForDB = null; // 🔥 YENİ: Tarihi arka plana taşımak için
+        let epatsDocumentDateForDB = null; 
         
         if (epatsDocIndex !== -1) {
             const evrakNo = document.getElementById('turkpatentEvrakNo')?.value;
@@ -651,20 +651,39 @@ class TaskUpdateController {
             if (!evrakNo || !evrakDate) return showNotification('Lütfen EPATS evrak bilgilerini (No ve Tarih) doldurunuz.', 'warning');
             this.currentDocuments[epatsDocIndex].turkpatentEvrakNo = evrakNo;
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
-            epatsDocumentDateForDB = evrakDate; // 🔥 YENİ
+            epatsDocumentDateForDB = evrakDate; 
         }
 
         try {
-            // 🔥 ÇÖZÜM 1: Evrak Tarihini (EPATS) Tasks tablosunun 'details' kolonuna JSON olarak direkt kaydediyoruz!
-            // Bu sayede Mail Edge Function'ı bu tarihi anında görebilecek.
+            // 🔥 ÖLÜMCÜL HATA ÇÖZÜMÜ: Eski veriyi ezmemek için önce veritabanındaki en güncel JSON'u çekiyoruz
             if (epatsDocumentDateForDB) {
-                let newDetails = this.taskData.details || {};
-                if (typeof newDetails === 'string') { try { newDetails = JSON.parse(newDetails); } catch(e){ newDetails = {}; } }
+                // 1. Veritabanındaki en güncel (arka planda dolmuş olabilen) 'details' verisini çek
+                const { data: dbTask } = await supabase
+                    .from('tasks')
+                    .select('details')
+                    .eq('id', this.taskId)
+                    .single();
                 
-                newDetails.epatsDocumentDate = epatsDocumentDateForDB;
-                newDetails.epatsDocumentNo = document.getElementById('turkpatentEvrakNo')?.value;
+                let currentDetails = {};
+                if (dbTask && dbTask.details) {
+                    if (typeof dbTask.details === 'string') {
+                        try { currentDetails = JSON.parse(dbTask.details); } catch(e) {}
+                        // Çift stringify olmuşsa bir kez daha parse et
+                        if (typeof currentDetails === 'string') { try { currentDetails = JSON.parse(currentDetails); } catch(e) {} }
+                    } else if (typeof dbTask.details === 'object') {
+                        currentDetails = dbTask.details;
+                    }
+                }
                 
-                await supabase.from('tasks').update({ details: newDetails }).eq('id', this.taskId);
+                // 2. Eski veriyi KORUYARAK EPATS bilgilerini içine ekle (Spread Operator ...)
+                const mergedDetails = {
+                    ...currentDetails,
+                    epatsDocumentDate: epatsDocumentDateForDB,
+                    epatsDocumentNo: document.getElementById('turkpatentEvrakNo')?.value
+                };
+                
+                // 3. Harmanlanmış (zengin verisi korunmuş) objeyi veritabanına yaz
+                await supabase.from('tasks').update({ details: mergedDetails }).eq('id', this.taskId);
             }
 
             if (this.selectedIpRecordId && this.tempRenewalData) {

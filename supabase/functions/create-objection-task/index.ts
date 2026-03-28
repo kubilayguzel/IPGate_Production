@@ -203,13 +203,25 @@ serve(async (req) => {
             official_due_date: officialDueDate,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            // 🔥 TERTEMİZ MİNİMAL JSON
+            // 🔥 TERTEMİZ MİNİMAL JSON (Arayüz / Frontend ile Birebir Aynı)
             details: {
                 assigned_to_email: assignedEmail,
                 bulletin_no: String(bulletinNo),
                 bulletin_date: bulletinData?.bulletin_date ? new Date(bulletinData.bulletin_date).toISOString().split('T')[0] : null,
                 similarity_score: similarMark.similarityScore || 0,
-                opposed_mark_owner: hitHoldersStr !== "-" ? hitHoldersStr : null
+                opposed_mark_owner: hitHoldersStr !== "-" ? hitHoldersStr : null,
+                
+                // Şema Standart Alanları (Başlangıç Değerleri)
+                statusBeforeEpatsUpload: "open",
+                target_accrual_id: null, // Edge function şu an tahakkuk kesmediği için null kalır
+                epatsDocumentNo: null,
+                epatsDocumentDate: null,
+                documents: [],
+                history: [{
+                    action: "Görev oluşturuldu (Otomatik İzleme Sistemi)",
+                    timestamp: new Date().toISOString(),
+                    userEmail: callerEmail || 'system@evreka.com'
+                }]
             }
         };
         const { error: taskErr } = await supabase.from('tasks').insert(taskPayload);

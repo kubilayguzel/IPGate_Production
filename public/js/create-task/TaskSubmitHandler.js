@@ -85,12 +85,13 @@ export class TaskSubmitHandler {
                     ipAppName = selectedIpRecord.applicantName || selectedIpRecord.holder;
                 }
 
-                // 2. BÜLTEN BİLGİLERİNİ DOĞRUDAN TABLOLARDAN ÇEK (NET VE KESİN YOL)
-                const appNum = selectedIpRecord.application_number || selectedIpRecord.applicationNo || selectedIpRecord.appNo;
+                // 2. BÜLTEN BİLGİLERİNİ DOĞRUDAN TABLOLARDAN ÇEK
+                // 🔥 HATA BURADAYDI: Servis veriyi applicationNumber olarak döndürüyor!
+                const appNum = selectedIpRecord.applicationNumber || selectedIpRecord.application_number || selectedIpRecord.applicationNo || selectedIpRecord.appNo;
                 
                 if (appNum) {
                     // ADIM A: trademark_bulletin_records tablosundan bulletin_id'yi al
-                    const { data: bullRecord } = await window.supabase
+                    const { data: bullRecord } = await supabase
                         .from('trademark_bulletin_records')
                         .select('bulletin_id')
                         .eq('application_number', String(appNum).trim())
@@ -98,17 +99,20 @@ export class TaskSubmitHandler {
                         .maybeSingle();
                     
                     if (bullRecord && bullRecord.bulletin_id) {
+                        const bullId = String(bullRecord.bulletin_id).trim();
+                        bulletinNo = bullId; // En kötü ihtimalle ID'yi cebimize koyalım
+                        
                         // ADIM B: trademark_bulletins tablosundan bulletin_no ve bulletin_date al
-                        const { data: bullDateRecord } = await window.supabase
+                        const { data: bullDateRecord } = await supabase
                             .from('trademark_bulletins')
                             .select('bulletin_no, bulletin_date')
-                            .eq('id', String(bullRecord.bulletin_id).trim())
+                            .eq('id', bullId)
                             .limit(1)
                             .maybeSingle();
 
                         if (bullDateRecord) {
-                            bulletinNo = bullDateRecord.bulletin_no;
-                            bulletinDate = bullDateRecord.bulletin_date;
+                            bulletinNo = bullDateRecord.bulletin_no || bulletinNo;
+                            bulletinDate = bullDateRecord.bulletin_date || null;
                         }
                     }
                 }

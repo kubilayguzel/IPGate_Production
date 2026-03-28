@@ -826,6 +826,62 @@ export class ManuelPdfTransactionManager {
                 }
             }
 
+            // 🔥 DETAYLI LOGLU VE KESİN FALLBACK MEKANİZMASI
+            const isOwnerInvalid = !opposedMarkOwner || opposedMarkOwner === '-' || opposedMarkOwner === 'Bilinmeyen Sahip';
+            const isBulletinInvalid = !bulletinNo || !bulletinDate;
+
+            console.log("🔍 [FALLBACK KONTROLÜ] Rakip Geçerli Mi:", !isOwnerInvalid, "Mevcut Değer:", opposedMarkOwner);
+            console.log("🔍 [FALLBACK KONTROLÜ] Bülten Geçerli Mi:", !isBulletinInvalid, "Mevcut Değer:", bulletinNo);
+
+            if ((isOwnerInvalid || isBulletinInvalid) && parentTx) {
+                console.log("🔄 [FALLBACK TETİKLENDİ] Eksik veya geçersiz veri var. Ana İşlem (ParentTx) inceleniyor...");
+                console.log("   👉 Parent Transaction ID:", parentTx.id);
+                console.log("   👉 Parent Transaction Type:", parentTx.transaction_type_id || parentTx.type);
+                
+                const pTaskId = parentTx.task_id || parentTx.taskId;
+                console.log("   👉 Parent Task ID:", pTaskId);
+
+                if (pTaskId) {
+                    try {
+                        console.log(`   ⏳ Supabase'den Task verisi çekiliyor (ID: ${pTaskId})...`);
+                        const { data: pTaskData } = await supabase
+                            .from('tasks')
+                            .select('details')
+                            .eq('id', String(pTaskId))
+                            .maybeSingle();
+                        
+                        if (pTaskData && pTaskData.details) {
+                            console.log("   ✅ Parent Task bulundu! Details objesi:", JSON.stringify(pTaskData.details, null, 2));
+
+                            if (isOwnerInvalid && pTaskData.details.opposed_mark_owner) {
+                                opposedMarkOwner = pTaskData.details.opposed_mark_owner;
+                                console.log(`   ✨ opposed_mark_owner güncellendi -> ${opposedMarkOwner}`);
+                            }
+                            if (isBulletinInvalid && pTaskData.details.bulletin_no) {
+                                bulletinNo = pTaskData.details.bulletin_no;
+                                bulletinDate = pTaskData.details.bulletin_date || bulletinDate;
+                                console.log(`   ✨ bulletin_no güncellendi -> ${bulletinNo} (${bulletinDate})`);
+                            }
+                            if (!similarityScore && pTaskData.details.similarity_score) {
+                                similarityScore = pTaskData.details.similarity_score;
+                                console.log(`   ✨ similarity_score güncellendi -> ${similarityScore}`);
+                            }
+                            console.log("🚀 [FALLBACK BAŞARILI] Veriler Ana Görev'den kopyalandı!");
+                        } else {
+                            console.warn("   ⚠️ Parent Task bulundu ama 'details' kolonu boş veya görev yok!");
+                        }
+                    } catch(e) { 
+                        console.error("❌ Fallback Task Hatası:", e); 
+                    }
+                } else {
+                    console.warn("   ⚠️ Parent İşlemde (Transaction) bağlı bir Task ID bulunamadı!");
+                }
+            } else if (!parentTx) {
+                console.log("ℹ️ [FALLBACK ATLANDI] Parent Transaction (Ana İşlem) bulunamadı.");
+            } else {
+                console.log("ℹ️ [FALLBACK ATLANDI] Veriler zaten eksiksiz, işlem gerekmiyor.");
+            }
+
             // GÖREVLERİ VERİTABANINA YAZ
             if (tasksToCreate.length > 0) {
                 if (!taskOwnerId) {

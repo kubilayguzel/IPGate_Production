@@ -63,13 +63,14 @@ export class TaskSubmitHandler {
             }
 
             // 🔥 YENİ, TERTEMİZ VE MİNİMAL JSON HAZIRLIĞI
+            // 🔥 TERTEMİZ JSON HAZIRLIĞI (Bülten & Sahip)
             let ipAppName = "-";
             let bulletinNo = null;
             let bulletinDate = null;
             let similarityScore = null;
 
             if (selectedIpRecord) {
-                // Sadece Rakip Firma (Opposed Mark Owner) ve Bülten bilgilerini alıyoruz
+                // 1. SAHİP (HOLDER) BİLGİSİNİ ÇIKAR
                 if (Array.isArray(selectedIpRecord.applicants) && selectedIpRecord.applicants.length > 0) {
                     ipAppName = selectedIpRecord.applicants[0].name || "-";
                 } else if (selectedIpRecord.client && selectedIpRecord.client.name) {
@@ -84,11 +85,35 @@ export class TaskSubmitHandler {
                     ipAppName = selectedIpRecord.applicantName || selectedIpRecord.holder;
                 }
 
-                bulletinNo = selectedIpRecord.bulletin_id || selectedIpRecord.bulletinNo || null;
-                // Bülten tarihini çeşitli kaynaklardan güvenle çekiyoruz
-                bulletinDate = selectedIpRecord.bulletin_date || selectedIpRecord.bulletinDate || selectedIpRecord.adDate || selectedIpRecord.applicationDate || null;
-                similarityScore = selectedIpRecord.similarityScore || selectedIpRecord.similarity_score || null;
+                // 2. BÜLTEN BİLGİLERİNİ DOĞRUDAN TABLOLARDAN ÇEK (NET VE KESİN YOL)
+                const appNum = selectedIpRecord.application_number || selectedIpRecord.applicationNo || selectedIpRecord.appNo;
+                
+                if (appNum) {
+                    // ADIM A: trademark_bulletin_records tablosundan bulletin_id'yi al
+                    const { data: bullRecord } = await window.supabase
+                        .from('trademark_bulletin_records')
+                        .select('bulletin_id')
+                        .eq('application_number', String(appNum).trim())
+                        .limit(1)
+                        .maybeSingle();
+                    
+                    if (bullRecord && bullRecord.bulletin_id) {
+                        // ADIM B: trademark_bulletins tablosundan bulletin_no ve bulletin_date al
+                        const { data: bullDateRecord } = await window.supabase
+                            .from('trademark_bulletins')
+                            .select('bulletin_no, bulletin_date')
+                            .eq('id', String(bullRecord.bulletin_id).trim())
+                            .limit(1)
+                            .maybeSingle();
 
+                        if (bullDateRecord) {
+                            bulletinNo = bullDateRecord.bulletin_no;
+                            bulletinDate = bullDateRecord.bulletin_date;
+                        }
+                    }
+                }
+
+                similarityScore = selectedIpRecord.similarityScore || selectedIpRecord.similarity_score || null;
             } else if (selectedTaskType.alias === 'Başvuru' && selectedTaskType.ipType === 'trademark') {
                 if (selectedApplicants && selectedApplicants.length > 0) ipAppName = selectedApplicants[0].name || "-";
             }
@@ -112,8 +137,15 @@ export class TaskSubmitHandler {
                     assigned_to_email: assignedUser ? assignedUser.email : null,
                     bulletin_no: bulletinNo ? String(bulletinNo) : null,
                     bulletin_date: bulletinDate ? String(bulletinDate) : null,
-                    similarity_score: similarityScore,
+                    similarity_score: similarityScore || null,
                     opposed_mark_owner: ipAppName !== "-" ? ipAppName : null,
+                    
+                    // Şema Standart Alanları (Başlangıç null olarak set edilir)
+                    statusBeforeEpatsUpload: 'open',
+                    target_accrual_id: null,
+                    epatsDocumentNo: null,
+                    epatsDocumentDate: null,
+
                     documents: [],
                     history: [{
                         action: "Görev oluşturuldu",
@@ -168,11 +200,16 @@ export class TaskSubmitHandler {
             }
 
             await this._calculateTaskDates(taskData, selectedTaskType, selectedIpRecord);
-
-            // 1. ÖNCE GÖREVİ (TASK) VERİTABANINA YAZ Kİ BİZE BİR ID VERSİN
+            // 1. GÖREVİ VERİTABANINA YAZ
+            console.log("🔥 1. SUPABASE'E GÖNDERİLEN HAM VERİ:", JSON.stringify(taskData.details, null, 2));
+            
             const taskResult = await taskService.addTask(taskData);
             if (!taskResult.success) throw new Error(taskResult.error);
-            const newTaskId = taskResult.data.id;
+            const newTaskId = taskResult.data?.id || taskResult.id;
+            
+            // Veritabanına yazıldıktan hemen sonra okuyup kontrol edelim
+            const { data: checkDb } = await supabase.from('tasks').select('details').eq('id', newTaskId).single();
+            console.log("🔥 2. SUPABASE'E YAZILDIKTAN SONRAKİ VERİ:", JSON.stringify(checkDb?.details, null, 2));
 
             // 2. DOSYALARI OLUŞAN GÖREVİN ID'Sİ İLE "tasks/TASK_ID/" DİZİNİNE YÜKLE
             if (uploadedFiles && uploadedFiles.length > 0) {
@@ -213,8 +250,10 @@ export class TaskSubmitHandler {
                     await supabase.from('task_documents').insert(taskDocInserts);
                 }
                 
-                // Görevin detaylarını (JSON) yeni dosya URL'leri ile güncelle
-                await supabase.from('tasks').update({ details: taskData.details }).eq('id', newTaskId);
+                // Görevin detaylarını (JSON) yeni dosya URL'leri ile GÜNCELLE
+                console.log("🔥 3. DOSYALAR YÜKLENDİKTEN SONRA GÜNCELLENEN VERİ:", JSON.stringify(taskData.details, null, 2));
+                const { error: finalUpdateErr } = await supabase.from('tasks').update({ details: taskData.details }).eq('id', newTaskId);
+                if(finalUpdateErr) console.error("Update hatası:", finalUpdateErr);
             }
 
             // Dava İşlemleri
@@ -335,9 +374,16 @@ export class TaskSubmitHandler {
             try {
                 const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
                 if (accError) throw accError;
-                console.log("✅ Tahakkuk başarıyla kaydedildi.");
+                
+                // 🔥 ÇÖZÜM 2: Oluşan Tahakkuk ID'sini ana görevin details objesine bağla!
+                const { data: taskDataDb } = await supabase.from('tasks').select('details').eq('id', String(taskId)).single();
+                if (taskDataDb) {
+                    let currentDetails = taskDataDb.details || {};
+                    currentDetails.target_accrual_id = String(newAccrualId);
+                    await supabase.from('tasks').update({ details: currentDetails }).eq('id', String(taskId));
+                }
 
-                if (!accrualData.files || accrualData.files.length === 0) {
+                if (accrualData.files && accrualData.files.length > 0) {
                     console.warn("⚠️ Tahakkuk PDF dosyası eklenmemiş, işlem atlandı.");
                 } else {
                     console.log(`➡️ Yüklenecek ${accrualData.files.length} adet dosya bulundu. Yükleme başlıyor...`);
@@ -482,7 +528,8 @@ export class TaskSubmitHandler {
             finalOwnerId = String(relatedParties[0].id);
             finalOwnerName = relatedParties[0].name;
             
-            if (RELATED_PARTY_REQUIRED.has(tIdStr)) {
+            // Eğer görev Yayına İtiraz (20) DEĞİLSE, eski çöp alanları ekle (diğer sistemleri bozmamak için)
+            if (tIdStr !== '20' && RELATED_PARTY_REQUIRED.has(tIdStr)) {
                 taskData.details.related_party_id = finalOwnerId;
                 taskData.details.related_party_name = finalOwnerName;
             }
@@ -499,18 +546,23 @@ export class TaskSubmitHandler {
 
         if (finalOwnerId) {
             taskData.task_owner_id = finalOwnerId;
-            // 🔥 EDGE FUNCTION UYUMU İÇİN EKLENDİ
-            taskData.details.relatedPartyId = finalOwnerId;
-            taskData.details.relatedPartyName = finalOwnerName;
+            if (tIdStr !== '20') {
+                taskData.details.relatedPartyId = finalOwnerId;
+                taskData.details.relatedPartyName = finalOwnerName;
+            }
         }
 
         if (['7', '19', '20'].includes(tIdStr)) {
             const opponent = singleParty || (relatedParties && relatedParties.length > 1 ? relatedParties[1] : null);
             if (opponent) {
-                taskData.details.opponent_id = opponent.id;
-                taskData.details.opponent_name = opponent.name;
-                // 🔥 EDGE FUNCTION UYUMU İÇİN EKLENDİ
-                taskData.details.competitorOwner = opponent.name;
+                // Yayına itiraz ise çöp atma, sadece bizim tertemiz 'opposed_mark_owner'ı doldur
+                if (tIdStr === '20') {
+                    taskData.details.opposed_mark_owner = opponent.name;
+                } else {
+                    taskData.details.opponent_id = opponent.id;
+                    taskData.details.opponent_name = opponent.name;
+                    taskData.details.competitorOwner = opponent.name;
+                }
             }
         }
     }

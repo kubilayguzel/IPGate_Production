@@ -1689,7 +1689,7 @@ export const taskService = {
                 const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id, retryCount);
                 console.log(`[TASK SERVICE] 🎫 Üretilen / Denenecek Task ID: ${nextId}`);
                 
-                const payload = { 
+            const payload = { 
                     id: nextId, 
                     title: taskData.title,
                     description: taskData.description || null,
@@ -1698,12 +1698,18 @@ export const taskService = {
                     priority: taskData.priority || 'normal',
                     official_due_date: taskData.officialDueDate || taskData.official_due_date || null,
                     operational_due_date: taskData.operationalDueDate || taskData.operational_due_date || null,
-                    assigned_to: finalAssignedTo, // 🛡️ Koruma 2 burada kullanıldı
+                    assigned_to: finalAssignedTo,
                     ip_record_id: taskData.relatedIpRecordId || taskData.ip_record_id ? String(taskData.relatedIpRecordId || taskData.ip_record_id) : null,
                     task_owner_id: taskData.relatedPartyId || taskData.task_owner_id || null,
                     transaction_id: taskData.transactionId || taskData.transaction_id ? String(taskData.transactionId || taskData.transaction_id) : null,
-                    details: { target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || null },
-                    created_by: taskData.createdBy || taskData.created_by || createdByUser // 🛡️ Koruma 1 burada kullanıldı
+                    
+                    // 🔥 ÇÖZÜM: Gelen details objesini KORU, eski target_accrual_id mantığını da güvenli bir şekilde içine yedir.
+                    details: {
+                        ...(taskData.details || {}),
+                        target_accrual_id: taskData.target_accrual_id || taskData.targetAccrualId || taskData.details?.target_accrual_id || null
+                    },
+                    
+                    created_by: taskData.createdBy || taskData.created_by || createdByUser
                 };
 
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });

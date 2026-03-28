@@ -54,11 +54,11 @@ serve(async (req) => {
             ipAppName = "-";
         }
 
-        // 🔥 2. ATAMA (DÜZELTİLDİ)
-        // İş "awaiting_client_approval" statüsünde açıldığı için task_assignments tablosundaki 
-        // standart kuralı eziyoruz ve doğrudan onay sürecinden sorumlu kişiye atıyoruz.
-        const assignedUid = "788e10fb-f137-4a78-b03d-840b14a14b87"; 
-        const assignedEmail = "selcanakoglu@evrekapatent.com";
+        // 🔥 2. ATAMA (TEST/CANLI ORTAM KONTROLLÜ)
+        // supabaseUrl üzerinden hangi veritabanında (Test mi Canlı mı) olduğumuzu anlıyoruz.
+        const isTestEnv = supabaseUrl.includes('guicrctynauzxhyfpdfe');
+        const assignedUid = isTestEnv ? "b0f29aa1-e3e7-4314-a117-4c1dbb100d03" : "788e10fb-f137-4a78-b03d-840b14a14b87"; 
+        const assignedEmail = isTestEnv ? "kubilayguzel@evrekagroup.com" : "selcanakoglu@evrekapatent.com";
 
         // 3. RESMİ SON TARİH HESAPLAMA
         let officialDueDate = null;
@@ -77,21 +77,17 @@ serve(async (req) => {
         // Aynı müvekkil için, aynı bültendeki aynı rakip markaya zaten "Yayına İtiraz" işi açılmış mı?
         const hitMarkName = similarMarkName || similarMark.markName || 'Bilinmeyen Marka';
         
-        const duplicateSearchCriteria: any = {
-            bulletin_no: String(bulletinNo),
-            iprecordTitle: hitMarkName
-        };
-        // Eğer müvekkil belli ise, aramayı o müvekkile özel daralt (Farklı müvekkiller aynı rakibe itiraz edebilir)
-        if (clientId) {
-            duplicateSearchCriteria.relatedPartyId = clientId;
-        }
-
-        const { data: existingTasks } = await supabase
+        let dupQuery = supabase
             .from('tasks')
             .select('id')
             .eq('task_type_id', '20')
-            .contains('details', duplicateSearchCriteria)
+            .contains('details', { bulletin_no: String(bulletinNo) })
             .limit(1);
+
+        if (clientId) {
+            dupQuery = dupQuery.eq('task_owner_id', clientId);
+        }
+        const { data: existingTasks } = await dupQuery;
 
         if (existingTasks && existingTasks.length > 0) {
             console.log(`⚠️ Mükerrer Görev Engellendi. Mevcut Task ID: ${existingTasks[0].id}`);
@@ -138,7 +134,7 @@ serve(async (req) => {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
-        const { error: ipError } = await supabase.from('ip_records').insert(portfolioData);
+        const { error: ipError } = await supabase.from('ip_records').upsert(portfolioData, { onConflict: 'id' });
         if (ipError) throw new Error(`Rakip Portföy Kayıt Hatası: ${ipError.message}`);
 
         const detailsData = {
@@ -148,7 +144,7 @@ serve(async (req) => {
             brand_image_url: hitImageUrl,
             has_registration_cert: false
         };
-        const { error: detailsError } = await supabase.from('ip_record_trademark_details').insert(detailsData);
+        const { error: detailsError } = await supabase.from('ip_record_trademark_details').upsert(detailsData, { onConflict: 'ip_record_id' });
         if (detailsError) throw new Error(`Marka Detay Kayıt Hatası: ${detailsError.message}`);
 
         // 6. RAKİBİN ALTINA İŞLEM (TRANSACTION) EKLE
@@ -196,7 +192,7 @@ serve(async (req) => {
             task_owner_id: clientId, 
             transaction_id: transactionId, 
             assigned_to: assignedUid, 
-            created_by: callerEmail || 'system', 
+            created_by: isTestEnv ? null : assignedUid, // 🔥 HARİKA YAKLAŞIM: Test ortamında FK hatasını önlemek için null, Canlı ortamda ise gerçek atanan kişinin ID'si!
             title: `Yayına İtiraz: ${hitMarkName} (Bülten No: ${bulletinNo})`,
             description: `"${ipTitle}" markamız için bültende benzer bulunan "${hitMarkName}" markasına itiraz işi.`,
             delivery_date: officialDueDate, 
@@ -233,7 +229,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ success: true, taskId: taskId, message: "İtiraz işi başarıyla oluşturuldu." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 
     } catch (error: any) {
-        console.error("❌ Edge Function Çöktü:", error.message);
-        return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        console.error("❌ Edge Function Hatası:", error.message);
+        // 🔥 HTTP 200 Dönüyoruz ki arayüz (frontend) hatayı gizlemesin, ekrana açıkça neyin patladığını yazsın!
+        return new Response(JSON.stringify({ success: false, error: error.message }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 });

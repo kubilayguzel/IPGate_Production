@@ -99,13 +99,16 @@ serve(async (req) => {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
-        const { results, bulletinNo } = await req.json();
+        // 🔥 ÇÖZÜM 2: UI'dan gelen isGlobalRequest (Toplu Rapor) parametresini de içeri alıyoruz
+        const { results, bulletinNo, isGlobalRequest } = await req.json();
 
         if (!results || !Array.isArray(results)) throw new Error("Geçersiz veri formatı");
 
         const owners: Record<string, any[]> = {};
         results.forEach((m) => {
-            const ownerName = m.monitoredMark?.ownerName || "Bilinmeyen_Sahip";
+            // 🔥 ÇÖZÜM 2: Eğer "Toplu Rapor" istenmişse, herkesi tek bir dev dosyada birleştir!
+            // Aksi halde ezilme olur ve sadece son müvekkilin raporu iner.
+            const ownerName = isGlobalRequest ? "Toplu_Rapor" : (m.monitoredMark?.ownerName || "Bilinmeyen_Sahip");
             if (!owners[ownerName]) owners[ownerName] = [];
             owners[ownerName].push(m);
         });
@@ -115,10 +118,12 @@ serve(async (req) => {
 
         for (const [ownerNameKey, matches] of Object.entries(owners)) {
             const grouped: Record<string, any> = {};
-            matches.forEach((m) => {
-                const key = m.similarMark?.applicationNo || 'unknown';
-                if (!grouped[key]) grouped[key] = { similarMark: m.similarMark, monitoredMarks: [] };
-                grouped[key].monitoredMarks.push(m.monitoredMark);
+            matches.forEach((m, index) => {
+                // 🔥 ÇÖZÜM 1: Kaybolan Markalar Hatası Giderildi!
+                // Sadece "Rakip Başvuru Numarasına" göre gruplarsak, aynı rakip iki farklı markamıza çarptığında biri silinir.
+                // Her bir eşleşmeyi (match) tamamen BERSERSİZ (unique) bir anahtarla kaydediyoruz ki hiçbiri atlanmasın!
+                const key = `${m.similarMark?.applicationNo || 'unknown'}_${index}`;
+                grouped[key] = { similarMark: m.similarMark, monitoredMarks: [m.monitoredMark] };
             });
 
             const reportContent: any[] = [];

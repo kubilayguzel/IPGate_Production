@@ -1188,41 +1188,41 @@ const groupAndSortResults = async () => {
 };
 
 const handleSimilarityToggle = async (event) => {
-    const btn = event.target;
+    // 🔥 DÜZELTME 1: İkona veya metne tıklanırsa da butonun kendisini garantili bulur
+    const btn = event.currentTarget || event.target.closest('.action-btn');
     const { resultId } = btn.dataset;
     
-    const currentHit = allSimilarResults.find(r => r.objectID === resultId || r.id === resultId);
+    // 🔥 DÜZELTME 2: Tip uyuşmazlığına (Int vs String) karşı tam garanti için String() kullanıyoruz
+    const currentHit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
     if (!currentHit) return;
 
-    // 🔥 DÜZELTME 2: Ağ isteği bitene kadar butonu pasife al (Çift tıklama koruması)
     btn.disabled = true;
     btn.style.opacity = '0.6';
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
+    const oldStatus = currentHit.isSimilar;
+    const newStatus = oldStatus === false ? true : false;
+    
+    // 🚀 ÇÖZÜM (OPTIMISTIC UPDATE): DB'yi beklemeden RAM'i ANINDA güncelliyoruz!
+    currentHit.isSimilar = newStatus;
+
     try {
-        // Eğer false ise true, true/undefined ise false yap
-        const newStatus = currentHit.isSimilar === false ? true : false;
-        
         const { error } = await supabase
             .from('monitoring_trademark_records')
             .update({ is_similar: newStatus })
             .eq('id', resultId);
         
         if (!error) {
-            // Arayüz verisini güncelle
-            currentHit.isSimilar = newStatus;
-            
-            // Butonun görüntüsünü yenile
             btn.textContent = newStatus ? 'Benzer' : 'Benzemez';
             btn.className = `action-btn ${newStatus ? 'similar' : 'not-similar'}`;
         } else {
+            // Hata olursa RAM'i eski haline döndür
+            currentHit.isSimilar = oldStatus;
+            btn.textContent = oldStatus ? 'Benzer' : 'Benzemez';
             console.error("Güncelleme hatası:", error);
             showNotification('Durum güncellenemedi', 'error');
-            // Hata olursa eski haline döndür
-            btn.textContent = currentHit.isSimilar ? 'Benzer' : 'Benzemez';
         }
     } finally {
-        // Butonu tekrar aktifleştir
         btn.disabled = false;
         btn.style.opacity = '1';
     }
@@ -1232,13 +1232,19 @@ const handleBsChange = async (event) => {
     const { resultId } = event.target.dataset;
     const bsVal = event.target.value;
     
-    // 🔥 DÜZELTME 4: DB'yi güncellerken eşzamanlı olarak yerel belleği (RAM dizisini) de güncelle!
+    const hit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
+    let oldBs = '';
+
+    // 🚀 ÇÖZÜM (OPTIMISTIC UPDATE): Kullanıcı seçer seçmez RAM dizisini anında güncelle
+    if (hit) {
+        oldBs = hit.bs;
+        hit.bs = bsVal;
+    }
+    
     const { error } = await supabase.from('monitoring_trademark_records').update({ success_chance: bsVal }).eq('id', resultId);
     
-    if (!error) {
-        const hit = allSimilarResults.find(r => r.objectID === resultId || r.id === resultId);
-        if (hit) hit.bs = bsVal;
-    } else {
+    if (error) {
+        if (hit) hit.bs = oldBs; // Hata varsa RAM'i geri al
         console.error("BS güncellenemedi:", error);
         showNotification('Başarı şansı güncellenemedi', 'error');
     }
@@ -1252,14 +1258,21 @@ const handleNoteCellClick = (cell) => {
     noteInput.value = currentNote;
     
     document.getElementById('saveNoteBtn').onclick = async () => {
-        // 🔥 Eski tablo adı düzeltildi
+        const hit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
+        let oldNote = hit ? hit.note : '';
+
+        // 🚀 ÇÖZÜM (OPTIMISTIC UPDATE): RAM'i ve ekranı anında güncelle, rapor alırken güncel görünsün
+        if (hit) hit.note = noteInput.value;
+        cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${noteInput.value ? 'note-text' : 'note-placeholder'}">${noteInput.value || 'Not ekle'}</span>`;
+        modal.classList.remove('show');
+
         const { error } = await supabase.from('monitoring_trademark_records').update({ note: noteInput.value }).eq('id', resultId);
-        if (!error) {
-            const hit = allSimilarResults.find(r => r.objectID === resultId || r.id === resultId);
-            if (hit) hit.note = noteInput.value;
-            cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${noteInput.value ? 'note-text' : 'note-placeholder'}">${noteInput.value || 'Not ekle'}</span>`;
-            modal.classList.remove('show');
-        } else { alert('Hata oluştu'); }
+        
+        if (error) {
+            if (hit) hit.note = oldNote; // Hata varsa geri al
+            cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${oldNote ? 'note-text' : 'note-placeholder'}">${oldNote || 'Not ekle'}</span>`;
+            alert('Hata oluştu'); 
+        }
     };
     
     modal.classList.add('show');
@@ -1500,8 +1513,14 @@ const handleReportGeneration = async (event, options = {}) => {
         const reportData = await buildReportData(filteredResults);
 
         console.log(`[RAPOR EDGE FUNCTION] Rapor emri gönderiliyor...`);
+        
+        // 🔥 ÇÖZÜM 1: 401 Hatasını engellemek için güncel oturum token'ını ZORLA enjekte ediyoruz!
+        const { data: { session } } = await supabase.auth.getSession();
+        const authHeader = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+
         const { data: response, error } = await supabase.functions.invoke('generate-similarity-report', { 
-            body: { results: reportData, bulletinNo: bulletinNo, isGlobalRequest: isGlobal }
+            body: { results: reportData, bulletinNo: bulletinNo, isGlobalRequest: isGlobal },
+            headers: authHeader
         });
 
         if (error) throw error;

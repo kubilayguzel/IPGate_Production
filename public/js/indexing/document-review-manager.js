@@ -1094,6 +1094,86 @@ export class DocumentReviewManager {
                 let ipTitle = this.matchedRecord.title || this.matchedRecord.mark_name || "-";
                 let ipAppName = relatedPartyData ? relatedPartyData.name : "-";
 
+                // 🔥 KUSURSUZ MANTIK: BÜLTEN VE RAKİP BİLGİSİNİ DB'DEN ÇEK
+                let opposedMarkOwner = null;
+                let bulletinNo = null;
+                let bulletinDate = null;
+                let similarityScore = this.matchedRecord?.similarityScore || this.matchedRecord?.similarity_score || null;
+
+                if (this.matchedRecord) {
+                    const isThirdParty = this.matchedRecord.recordOwnerType === 'third_party' || this.matchedRecord.record_owner_type === 'third_party';
+                    
+                    if (isThirdParty) {
+                        const appNum = this.matchedRecord.applicationNumber || this.matchedRecord.application_number || this.matchedRecord.applicationNo || this.matchedRecord.appNo;
+                        
+                        if (appNum) {
+                            try {
+                                const { data: bullRecord } = await supabase
+                                    .from('trademark_bulletin_records')
+                                    .select('bulletin_id, holders')
+                                    .eq('application_number', String(appNum).trim())
+                                    .limit(1)
+                                    .maybeSingle();
+                                    
+                                if (bullRecord) {
+                                    if (bullRecord.bulletin_id) {
+                                        const bullId = String(bullRecord.bulletin_id).trim();
+                                        bulletinNo = bullId; 
+                                        const { data: bullDateRecord } = await supabase
+                                            .from('trademark_bulletins')
+                                            .select('bulletin_no, bulletin_date')
+                                            .eq('id', bullId)
+                                            .limit(1)
+                                            .maybeSingle();
+
+                                        if (bullDateRecord) {
+                                            bulletinNo = bullDateRecord.bulletin_no || bulletinNo;
+                                            bulletinDate = bullDateRecord.bulletin_date || null;
+                                        }
+                                    }
+                                    
+                                    if (bullRecord.holders) {
+                                        let hArr = bullRecord.holders;
+                                        if (typeof hArr === 'string') { try { hArr = JSON.parse(hArr); } catch(e){} }
+                                        if (Array.isArray(hArr) && hArr.length > 0) {
+                                            opposedMarkOwner = hArr.map(h => typeof h === 'object' ? (h.holderName || h.name) : h).filter(Boolean).join(', ');
+                                        }
+                                    }
+                                }
+                            } catch(e) {}
+                        }
+                        
+                        if (!opposedMarkOwner && parentTx && (parentTx.opposition_owner || parentTx.oppositionOwner)) {
+                            opposedMarkOwner = parentTx.opposition_owner || parentTx.oppositionOwner;
+                        }
+                        if (!opposedMarkOwner && this.matchedRecord.description && this.matchedRecord.description.includes('Bülten Sahibi:')) {
+                            opposedMarkOwner = this.matchedRecord.description.split('Bülten Sahibi:')[1].trim();
+                        }
+                    }
+                }
+
+                // 🔥 YENİ FALLBACK MEKANİZMASI: Bülten tablosunda veri yoksa, Ana İşlemdeki (Parent) Task'in details kolonundan kopyala!
+                if ((!opposedMarkOwner || !bulletinNo) && parentTx) {
+                    const pTaskId = parentTx.task_id || parentTx.taskId;
+                    if (pTaskId) {
+                        try {
+                            const { data: pTaskData } = await supabase
+                                .from('tasks')
+                                .select('details')
+                                .eq('id', String(pTaskId))
+                                .maybeSingle();
+                            
+                            if (pTaskData && pTaskData.details) {
+                                opposedMarkOwner = opposedMarkOwner || pTaskData.details.opposed_mark_owner || null;
+                                bulletinNo = bulletinNo || pTaskData.details.bulletin_no || null;
+                                bulletinDate = bulletinDate || pTaskData.details.bulletin_date || null;
+                                similarityScore = similarityScore || pTaskData.details.similarity_score || null;
+                                console.log("🔄 [FALLBACK] Veriler Ana Görev'in (Parent Task) details kolonundan başarıyla kopyalandı!");
+                            }
+                        } catch(e) { console.error("Fallback Task Hatası:", e); }
+                    }
+                }
+
                 for (const tType of tasksToCreate) {
                     let taskDesc = notes || `İndeksleme işlemi ile otomatik oluşturulan görev.`;
                     let taskStatus = 'awaiting_client_approval';
@@ -1123,13 +1203,16 @@ export class DocumentReviewManager {
                         status: taskStatus,
                         priority: 'medium',
                         details: {
-                            related_party: relatedPartyData,
-                            related_party_name: relatedPartyData?.name || null,
                             assigned_to_email: currentAssignedUser.email,
-                            iprecord_application_no: ipAppNo,
-                            iprecord_title: ipTitle,
-                            iprecord_applicant_name: ipAppName,
-                            triggering_transaction_type: childTypeId,
+                            bulletin_no: bulletinNo ? String(bulletinNo) : null,
+                            bulletin_date: bulletinDate ? String(bulletinDate) : null,
+                            similarity_score: similarityScore,
+                            opposed_mark_owner: opposedMarkOwner,
+                            statusBeforeEpatsUpload: "open",
+                            triggering_transaction_type: String(childTypeId),
+                            target_accrual_id: null,
+                            epatsDocumentNo: null,
+                            epatsDocumentDate: null,
                             history: [{ action: 'İndeksleme işlemi ile otomatik oluşturuldu.', timestamp: new Date().toISOString(), userEmail: this.currentUser.email }]
                         },
                         official_due_date: officialDueDate.toISOString(),
@@ -1137,6 +1220,8 @@ export class DocumentReviewManager {
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString()
                     };
+
+                    if (taskData.details.similarity_score === null) delete taskData.details.similarity_score;
 
                     const taskResult = await taskService.createTask(taskData);
                     

@@ -86,35 +86,50 @@ export class TaskSubmitHandler {
                 }
 
                 // 2. BÜLTEN BİLGİLERİNİ DOĞRUDAN TABLOLARDAN ÇEK
-                // 🔥 HATA BURADAYDI: Servis veriyi applicationNumber olarak döndürüyor!
                 const appNum = selectedIpRecord.applicationNumber || selectedIpRecord.application_number || selectedIpRecord.applicationNo || selectedIpRecord.appNo;
                 
                 if (appNum) {
-                    // ADIM A: trademark_bulletin_records tablosundan bulletin_id'yi al
+                    // ADIM A: trademark_bulletin_records tablosundan bulletin_id ve HOLDERS (Rakip Firma) bilgisini al
                     const { data: bullRecord } = await supabase
                         .from('trademark_bulletin_records')
-                        .select('bulletin_id')
+                        .select('bulletin_id, holders')
                         .eq('application_number', String(appNum).trim())
                         .limit(1)
                         .maybeSingle();
                     
-                    if (bullRecord && bullRecord.bulletin_id) {
-                        const bullId = String(bullRecord.bulletin_id).trim();
-                        bulletinNo = bullId; // En kötü ihtimalle ID'yi cebimize koyalım
-                        
-                        // ADIM B: trademark_bulletins tablosundan bulletin_no ve bulletin_date al
-                        const { data: bullDateRecord } = await supabase
-                            .from('trademark_bulletins')
-                            .select('bulletin_no, bulletin_date')
-                            .eq('id', bullId)
-                            .limit(1)
-                            .maybeSingle();
+                    if (bullRecord) {
+                        if (bullRecord.bulletin_id) {
+                            const bullId = String(bullRecord.bulletin_id).trim();
+                            bulletinNo = bullId; // En kötü ihtimalle ID'yi cebimize koyalım
+                            
+                            // ADIM B: trademark_bulletins tablosundan bulletin_no ve bulletin_date al
+                            const { data: bullDateRecord } = await supabase
+                                .from('trademark_bulletins')
+                                .select('bulletin_no, bulletin_date')
+                                .eq('id', bullId)
+                                .limit(1)
+                                .maybeSingle();
 
-                        if (bullDateRecord) {
-                            bulletinNo = bullDateRecord.bulletin_no || bulletinNo;
-                            bulletinDate = bullDateRecord.bulletin_date || null;
+                            if (bullDateRecord) {
+                                bulletinNo = bullDateRecord.bulletin_no || bulletinNo;
+                                bulletinDate = bullDateRecord.bulletin_date || null;
+                            }
+                        }
+
+                        // 🔥 ÇÖZÜM: SAHİP (HOLDER) BİLGİSİ EĞER İLK AŞAMADA BULUNAMADIYSA BÜLTEN TABLOSUNDAN ÇEK!
+                        if (ipAppName === "-" && bullRecord.holders) {
+                            let hArr = bullRecord.holders;
+                            if (typeof hArr === 'string') { try { hArr = JSON.parse(hArr); } catch(e){} }
+                            if (Array.isArray(hArr) && hArr.length > 0) {
+                                ipAppName = hArr.map(h => typeof h === 'object' ? (h.holderName || h.name) : h).filter(Boolean).join(', ');
+                            }
                         }
                     }
+                }
+                
+                // (İkincil Güvenlik) Bülten tablosunda da yoksa, daha önce oluşturulurken açıklama (description) kısmına yazılan isimden kurtar.
+                if (ipAppName === "-" && selectedIpRecord.description && selectedIpRecord.description.includes('Bülten Sahibi:')) {
+                    ipAppName = selectedIpRecord.description.split('Bülten Sahibi:')[1].trim();
                 }
 
                 similarityScore = selectedIpRecord.similarityScore || selectedIpRecord.similarity_score || null;
@@ -532,8 +547,8 @@ export class TaskSubmitHandler {
             finalOwnerId = String(relatedParties[0].id);
             finalOwnerName = relatedParties[0].name;
             
-            // Eğer görev Yayına İtiraz (20) DEĞİLSE, eski çöp alanları ekle (diğer sistemleri bozmamak için)
-            if (tIdStr !== '20' && RELATED_PARTY_REQUIRED.has(tIdStr)) {
+            // 🔥 ÇÖZÜM: 19 ve 20 nolu tertemiz işlemler DIŞINDAYSA eski çöp alanları ekle
+            if (!['19', '20'].includes(tIdStr) && RELATED_PARTY_REQUIRED.has(tIdStr)) {
                 taskData.details.related_party_id = finalOwnerId;
                 taskData.details.related_party_name = finalOwnerName;
             }
@@ -550,7 +565,7 @@ export class TaskSubmitHandler {
 
         if (finalOwnerId) {
             taskData.task_owner_id = finalOwnerId;
-            if (tIdStr !== '20') {
+            if (!['19', '20'].includes(tIdStr)) {
                 taskData.details.relatedPartyId = finalOwnerId;
                 taskData.details.relatedPartyName = finalOwnerName;
             }
@@ -559,15 +574,20 @@ export class TaskSubmitHandler {
         if (['7', '19', '20'].includes(tIdStr)) {
             const opponent = singleParty || (relatedParties && relatedParties.length > 1 ? relatedParties[1] : null);
             if (opponent) {
-                // Yayına itiraz ise çöp atma, sadece bizim tertemiz 'opposed_mark_owner'ı doldur
-                if (tIdStr === '20') {
-                    taskData.details.opposed_mark_owner = opponent.name;
-                } else {
+                // 🔥 ÇÖZÜM: 19 ve 20 işlemleri için ÇÖP ALANLARI YAZMA.
+                // Ayrıca 'opposed_mark_owner' alanını BURADA EZMİYORUZ. 
+                // Çünkü handleFormSubmit'in en başında (tam da Yayına İtiraz'da olduğu gibi) dosyadan doğru şekilde çekilmişti.
+                if (!['19', '20'].includes(tIdStr)) {
                     taskData.details.opponent_id = opponent.id;
                     taskData.details.opponent_name = opponent.name;
                     taskData.details.competitorOwner = opponent.name;
                 }
             }
+        }
+        
+        // 🔥 EKSTRA TEMİZLİK: similarity_score alanı boşsa sil (json kalabalık yapmasın)
+        if (taskData.details.similarity_score === null || taskData.details.similarity_score === undefined) {
+            delete taskData.details.similarity_score;
         }
     }
 

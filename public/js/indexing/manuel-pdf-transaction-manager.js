@@ -771,6 +771,61 @@ export class ManuelPdfTransactionManager {
                 }
             }
 
+            // 🔥 KUSURSUZ MANTIK: BÜLTEN VE RAKİP BİLGİSİNİ DB'DEN ÇEK
+            let opposedMarkOwner = null;
+            let bulletinNo = null;
+            let bulletinDate = null;
+            let similarityScore = this.selectedRecordManual?.similarityScore || this.selectedRecordManual?.similarity_score || null;
+
+            if (this.selectedRecordManual) {
+                const isThirdParty = this.selectedRecordManual.recordOwnerType === 'third_party' || this.selectedRecordManual.record_owner_type === 'third_party';
+                
+                if (isThirdParty) {
+                    const appNum = this.selectedRecordManual.applicationNumber || this.selectedRecordManual.application_number || this.selectedRecordManual.applicationNo || this.selectedRecordManual.appNo;
+                    
+                    if (appNum) {
+                        try {
+                            const { data: bullRecord } = await supabase
+                                .from('trademark_bulletin_records')
+                                .select('bulletin_id, holders')
+                                .eq('application_number', String(appNum).trim())
+                                .limit(1)
+                                .maybeSingle();
+                                
+                            if (bullRecord) {
+                                if (bullRecord.bulletin_id) {
+                                    const bullId = String(bullRecord.bulletin_id).trim();
+                                    bulletinNo = bullId; 
+                                    const { data: bullDateRecord } = await supabase
+                                        .from('trademark_bulletins')
+                                        .select('bulletin_no, bulletin_date')
+                                        .eq('id', bullId)
+                                        .limit(1)
+                                        .maybeSingle();
+
+                                    if (bullDateRecord) {
+                                        bulletinNo = bullDateRecord.bulletin_no || bulletinNo;
+                                        bulletinDate = bullDateRecord.bulletin_date || null;
+                                    }
+                                }
+                                
+                                if (bullRecord.holders) {
+                                    let hArr = bullRecord.holders;
+                                    if (typeof hArr === 'string') { try { hArr = JSON.parse(hArr); } catch(e){} }
+                                    if (Array.isArray(hArr) && hArr.length > 0) {
+                                        opposedMarkOwner = hArr.map(h => typeof h === 'object' ? (h.holderName || h.name) : h).filter(Boolean).join(', ');
+                                    }
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    
+                    if (!opposedMarkOwner && this.selectedRecordManual.description && this.selectedRecordManual.description.includes('Bülten Sahibi:')) {
+                        opposedMarkOwner = this.selectedRecordManual.description.split('Bülten Sahibi:')[1].trim();
+                    }
+                }
+            }
+
             // GÖREVLERİ VERİTABANINA YAZ
             if (tasksToCreate.length > 0) {
                 if (!taskOwnerId) {
@@ -784,7 +839,7 @@ export class ManuelPdfTransactionManager {
                     for (const tType of tasksToCreate) {
                         console.log(`⏳ [SİSTEM] ${tType} numaralı görev oluşturuluyor...`);
                         
-                        const taskResult = await taskService.createTask({
+                        const taskPayload = {
                             title: `${tType === "66" ? "Uzman Değerlendirmesi" : typeObj.name || 'Manuel İşlem'} Görevi`,
                             description: tType === "66" ? `Müvekkil değerlendirme ayarı açık olduğu için tetiklendi.` : `Manuel evrak yüklemesi sonucunda otomatik oluşturuldu.`,
                             task_type_id: String(tType),
@@ -794,8 +849,25 @@ export class ManuelPdfTransactionManager {
                             created_by: this.currentUser.id,
                             task_owner_id: String(taskOwnerId),
                             transaction_id: finalParentId ? String(finalParentId) : null,
-                            official_due_date: baseDate.toISOString()
-                        });
+                            official_due_date: baseDate.toISOString(),
+                            details: {
+                                assigned_to_email: currentAssignedUser.email,
+                                bulletin_no: bulletinNo ? String(bulletinNo) : null,
+                                bulletin_date: bulletinDate ? String(bulletinDate) : null,
+                                similarity_score: similarityScore,
+                                opposed_mark_owner: opposedMarkOwner,
+                                statusBeforeEpatsUpload: "open",
+                                triggering_transaction_type: String(targetTypeId),
+                                target_accrual_id: null,
+                                epatsDocumentNo: null,
+                                epatsDocumentDate: null,
+                                history: [{ action: 'Manuel evrak yüklemesi ile otomatik oluşturuldu.', timestamp: new Date().toISOString(), userEmail: this.currentUser.email }]
+                            }
+                        };
+                        
+                        if (taskPayload.details.similarity_score === null) delete taskPayload.details.similarity_score;
+
+                        const taskResult = await taskService.createTask(taskPayload);
 
                         if (taskResult.success) {
                             if (tType !== "66") createdTaskId = taskResult.data.id; // Ana görevi transaction'a bağlamak için sakla

@@ -3,6 +3,7 @@ import { MonitoringRenderer } from './MonitoringRenderer.js';
 import Pagination from '../pagination.js';
 import { loadSharedLayout } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
+import { EditCriteriaModalManager } from '../components/EditCriteriaModalManager.js';
 
 class MonitoringController {
     constructor() {
@@ -166,106 +167,43 @@ class MonitoringController {
     }
 
     setupModal() {
-        const editBtn = document.getElementById('editCriteriaBtn');
-        const saveBtn = document.getElementById('saveCriteriaBtn');
-        let currentEditingId = null;
+     const editBtn = document.getElementById('editCriteriaBtn');
 
-        // 🔥 ÇÖZÜM 3: Modal'daki Nice Sınıfı şablonunu (1-45) JavaScript ile yaratıyoruz
-        const generateNiceClassBoxes = () => {
-            const container = document.getElementById('niceClassSelectionContainer');
-            if (container && container.innerHTML.trim() === '') {
-                let html = '';
-                for (let i = 1; i <= 45; i++) {
-                    html += `<div class="nice-class-box" data-class-no="${i}">${i}</div>`;
-                }
-                container.innerHTML = html;
-            }
-        };
+     // Ortak bileşeni çağırıyoruz
+     const criteriaModalManager = new EditCriteriaModalManager();
+     criteriaModalManager.init();
 
-        editBtn.addEventListener('click', async () => {
-            if (this.selectedItems.size !== 1) return;
-            currentEditingId = Array.from(this.selectedItems)[0];
-            
-            const item = this.dataManager.allMonitoringData.find(i => i.id === currentEditingId);
-            if (!item) return;
+     editBtn.addEventListener('click', async () => {
+         if (this.selectedItems.size !== 1) return;
+         const currentEditingId = Array.from(this.selectedItems)[0];
+         const item = this.dataManager.allMonitoringData.find(i => i.id === currentEditingId);
+         if (!item) return;
 
-            generateNiceClassBoxes();
+         // Ortak bileşenin anladığı formata çeviriyoruz
+         const markData = {
+             id: item.id,
+             markName: item.title || item.markName,
+             applicationNumber: item.applicationNumber,
+             ownerName: item.ownerName,
+             brandImageUrl: item.brandImageUrl,
+             searchMarkName: item.searchMarkName,
+             brandTextSearch: item.brandTextSearch,
+             niceClasses: item.niceClasses,
+             niceClassSearch: item.niceClassSearch
+         };
 
-            document.getElementById('modalTrademarkName').textContent = item.title || item.markName || '-';
-            document.getElementById('modalApplicationNo').textContent = item.applicationNumber || '-';
-            document.getElementById('modalOwner').textContent = item.ownerName || '-';
-            
-            const imgEl = document.getElementById('modalTrademarkImage');
-            imgEl.src = item.brandImageUrl || '';
-            imgEl.style.display = item.brandImageUrl ? 'block' : 'none';
-
-            document.getElementById('searchMarkNameInput').value = item.searchMarkName || '';
-
-            const ul = document.getElementById('brandTextSearchList');
-            ul.innerHTML = '';
-            (item.brandTextSearch || []).forEach(term => {
-                ul.insertAdjacentHTML('beforeend', `<li class="list-group-item d-flex justify-content-between align-items-center" style="border-radius: 8px; margin-bottom: 5px;"><span class="list-item-text">${term}</span><button type="button" class="btn btn-sm btn-outline-danger remove-item" style="border-radius: 50%; width: 28px; height: 28px; padding: 0; line-height: 1;">&times;</button></li>`);
-            });
-
-            document.querySelectorAll('.nice-class-box').forEach(box => {
-                box.classList.remove('selected', 'permanent-item');
-                const classNo = parseInt(box.dataset.classNo);
-                if ((item.niceClasses || []).includes(classNo)) {
-                    box.classList.add('permanent-item', 'selected');
-                } else if ((item.niceClassSearch || []).includes(classNo)) {
-                    box.classList.add('selected');
-                }
-            });
-
-            $('#editCriteriaModal').modal('show');
-        });
-
-        document.getElementById('niceClassSelectionContainer').addEventListener('click', (e) => {
-            if (e.target.classList.contains('nice-class-box')) {
-                if (e.target.classList.contains('permanent-item')) {
-                    showNotification('Orijinal sınıflar kaldırılamaz.', 'warning');
-                    return;
-                }
-                e.target.classList.toggle('selected');
-            }
-        });
-
-        document.getElementById('addBrandTextBtn').addEventListener('click', () => {
-            const input = document.getElementById('brandTextSearchInput');
-            if (input.value.trim()) {
-                document.getElementById('brandTextSearchList').insertAdjacentHTML('beforeend', 
-                    `<li class="list-group-item d-flex justify-content-between align-items-center" style="border-radius: 8px; margin-bottom: 5px;"><span class="list-item-text">${input.value.trim()}</span><button type="button" class="btn btn-sm btn-outline-danger remove-item" style="border-radius: 50%; width: 28px; height: 28px; padding: 0; line-height: 1;">&times;</button></li>`);
-                input.value = '';
-            }
-        });
-
-        document.getElementById('brandTextSearchList').addEventListener('click', (e) => {
-            if (e.target.classList.contains('remove-item')) e.target.closest('li').remove();
-        });
-
-        saveBtn.addEventListener('click', async () => {
-            if (!currentEditingId) return;
-            
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Kaydediliyor...';
-
-            const terms = Array.from(document.querySelectorAll('#brandTextSearchList .list-item-text')).map(el => el.textContent);
-            const classes = Array.from(document.querySelectorAll('.nice-class-box.selected')).map(el => parseInt(el.dataset.classNo));
-            const searchName = document.getElementById('searchMarkNameInput').value.trim();
-
-            try {
-                await this.dataManager.updateCriteria(currentEditingId, searchName, terms, classes);
-                showNotification('Kriterler başarıyla güncellendi.', 'success');
-                $('#editCriteriaModal').modal('hide');
-                this.renderPage();
-            } catch (err) {
-                showNotification('Hata: ' + err.message, 'error');
-            } finally {
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = '<i class="fas fa-save mr-1"></i> Kaydet';
-            }
-        });
-    }
+         // Modalı aç ve kaydetme işleminden sonra ekranı güncelle!
+         criteriaModalManager.open(markData, async (updatedData) => {
+             const index = this.dataManager.allMonitoringData.findIndex(i => i.id === updatedData.id);
+             if (index !== -1) {
+                 this.dataManager.allMonitoringData[index].brandTextSearch = updatedData.brandTextSearch;
+                 this.dataManager.allMonitoringData[index].niceClassSearch = updatedData.niceClassSearch;
+                 this.dataManager.allMonitoringData[index].searchMarkName = updatedData.searchMarkName;
+             }
+             this.renderPage();
+         });
+     });
+ }
 }
 
 // Başlat

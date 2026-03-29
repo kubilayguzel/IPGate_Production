@@ -5,6 +5,8 @@ import { runTrademarkSearch } from './trademark-similarity/run-search.js';
 import Pagination from './pagination.js';
 import { loadSharedLayout } from './layout-loader.js';
 import { showNotification } from '../utils.js';
+import { EditCriteriaModalManager } from './components/EditCriteriaModalManager.js';
+const criteriaModalManager = new EditCriteriaModalManager();
 const SimpleLoading = window.SimpleLoadingController;
 
 console.log("### trademark-similarity-search.js yüklendi (100% Supabase) ###");
@@ -1067,6 +1069,7 @@ const performSearch = async () => {
 
         return {
             id: tm.id,
+            applicationNo: tm.applicationNo || tm.applicationNumber || '', // 🔥 YENİ: Log için başvuru no'yu geçici olarak sepete ekledik
             markName: (tm.title || tm.markName || '').trim() || 'BELİRSİZ_MARKA',
             searchMarkName: tm.searchMarkName || '', 
             brandTextSearch: tm.brandTextSearch || [], 
@@ -1075,6 +1078,25 @@ const performSearch = async () => {
             applicationDate: formattedDate 
         };
     });
+
+    // 🔥 KONSOL LOGLAMA MANTIKLARI 🔥
+    // 1. İSTEDİĞİNİZ SPESİFİK MARKAYI BUL: 92/002401
+    const testTargetAppNo = '92/002401';
+    const testPayload = monitoredMarksPayload.find(m => m.applicationNo === testTargetAppNo);
+    
+    if (testPayload) {
+        console.log(`\n======================================================`);
+        console.log(`📦 [TEST PAYLOAD] Backend'e Giden Veri (${testTargetAppNo})`);
+        console.log(`======================================================`);
+        console.log(`📌 Orijinal Marka Adı : "${testPayload.markName}"`);
+        console.log(`🎯 Ana Arama İbaresi  : "${testPayload.searchMarkName}"`);
+        console.log(`🔍 Ekstra Kelimeler   :`, testPayload.brandTextSearch);
+        console.log(`🏷️ İzlenen Sınıflar   :`, testPayload.niceClassSearch);
+        console.log(`📅 Başvuru Tarihi     :`, testPayload.applicationDate);
+        console.log(`======================================================\n`);
+    } else {
+        console.log(`⚠️ Uyarı: Ekranda (Filtrelenmiş listede) '${testTargetAppNo}' numaralı marka bulunamadı, bu yüzden log basılamadı.`);
+    }
 
     try {
         const onProgress = (pd) => {
@@ -1898,150 +1920,6 @@ const setupDragAndDrop = () => {
     document.getElementById('removeManualImgBtn')?.addEventListener('click', () => { manualSelectedFile = null; fileInput.value = ''; previewImg.src = ''; document.getElementById('manualImgPreviewContainer').style.display = 'none'; });
 };
 
-async function openEditCriteriaModal(markData) {
-        document.getElementById('modalTrademarkName').textContent = markData.markName || '-';
-        document.getElementById('modalApplicationNo').textContent = markData.applicationNumber || '-';
-        document.getElementById('modalOwner').textContent = markData.owner || '-';
-        document.getElementById('modalNiceClass').textContent = Array.isArray(markData.niceClasses) ? markData.niceClasses.join(', ') : '-';
-        document.getElementById('modalTrademarkImage').src = _normalizeImageSrc(markData.brandImageUrl || '');
-        document.getElementById('editCriteriaModal').dataset.markId = markData.id;
-
-        // 🔥 DÜZELTME 1: Ana Aranacak İbare alanına doğrudan searchMarkName verisini basıyoruz.
-        const searchInput = document.getElementById('searchMarkNameInput');
-        if (searchInput) {
-            searchInput.value = markData.searchMarkName || markData.markName || '';
-        }
-        
-        let safeBrandTextSearch = markData.brandTextSearch || [];
-        if (markData.searchMarkName && markData.markName) {
-            safeBrandTextSearch = safeBrandTextSearch.filter(t => t.toLowerCase() !== markData.markName.toLowerCase());
-        }
-
-        // 🔥 DÜZELTME 2: Ana ibareyi (permanentSearchTerm) ekstra kelimeler listesine KALICI OLARAK EKLEMİYORUZ!
-        populateList(document.getElementById('brandTextSearchList'), safeBrandTextSearch, []);
-        
-        const niceContainer = document.getElementById('niceClassSelectionContainer'); niceContainer.innerHTML = '';
-        for (let i = 1; i <= 45; i++) { const b = document.createElement('div'); b.className = 'nice-class-box'; b.textContent = i; b.dataset.classNo = i; niceContainer.appendChild(b); }
-        populateNiceClassBoxes(markData.niceClassSearch || [], markData.niceClasses.map(String));
-        $('#editCriteriaModal').modal('show');
-    }
-
-function setupEditCriteriaModal() {
-    const addBtn = document.getElementById('addBrandTextBtn'); const input = document.getElementById('brandTextSearchInput'); const list = document.getElementById('brandTextSearchList');
-    addBtn?.addEventListener('click', () => { if (input.value.trim()) { addListItem(list, input.value.trim()); input.value = ''; } });
-    document.getElementById('niceClassSelectionContainer')?.addEventListener('click', (e) => {
-        if (e.target.classList.contains('nice-class-box')) {
-            if (e.target.classList.contains('permanent-item')) return showNotification('Kaldırılamaz.', 'warning');
-            e.target.classList.toggle('selected');
-            if (e.target.classList.contains('selected')) addListItem(document.getElementById('niceClassSearchList'), e.target.dataset.classNo);
-            else { const items = document.getElementById('niceClassSearchList').querySelectorAll('li'); items.forEach(i => { if(i.querySelector('.list-item-text').textContent === e.target.dataset.classNo) i.remove(); }); }
-        }
-    });
-    document.querySelectorAll('.list-group').forEach(list => {
-        list.addEventListener('click', (e) => {
-            const li = e.target.closest('li');
-            if (li && e.target.classList.contains('remove-item')) {
-                if (li.classList.contains('permanent-item')) return;
-                const txt = li.querySelector('.list-item-text').textContent; li.remove();
-                if (list.id === 'niceClassSearchList') document.querySelector(`.nice-class-box[data-class-no="${txt}"]`)?.classList.remove('selected');
-            }
-        });
-    });
-
-    document.getElementById('saveCriteriaBtn')?.addEventListener('click', async () => {
-            const modal = document.getElementById('editCriteriaModal');
-            const brandTextArray = Array.from(modal.querySelector('#brandTextSearchList').querySelectorAll('.list-item-text')).map(el => el.textContent);
-            // Nice classları da sayıdan string'e (veya sayıya) map'liyoruz
-            const niceClassArray = Array.from(modal.querySelector('#niceClassSearchList').querySelectorAll('.list-item-text')).map(el => el.textContent);
-            const markId = modal.dataset.markId;
-            
-            // 🔥 DÜZELTME 3: Input'tan güncel Ana Aranacak İbare'yi (searchMarkName) okuyoruz
-            const searchMarkNameValue = document.getElementById('searchMarkNameInput')?.value.trim() || '';
-
-            // 1. Veritabanını Güncelle
-            // 🔥 KRİTİK DÜZELTME: brand_text_search ve nice_class_search db'de ARRAY'dir! join(',') kullanmadan, direkt diziyi gönderiyoruz.
-            const { error } = await supabase.from('monitoring_trademarks').update({ 
-                search_mark_name: searchMarkNameValue, // YENİ EKLENDİ
-                brand_text_search: brandTextArray, 
-                nice_class_search: niceClassArray.map(String) 
-            }).eq('id', markId);
-            
-            if (!error) { 
-                showNotification('İzleme kriterleri güncellendi.', 'success'); 
-                $('#editCriteriaModal').modal('hide'); 
-                
-                const tmIndex = monitoringTrademarks.findIndex(t => String(t.id) === String(markId));
-                if (tmIndex !== -1) {
-                    monitoringTrademarks[tmIndex].searchMarkName = searchMarkNameValue; // YENİ EKLENDİ
-                    monitoringTrademarks[tmIndex].brandTextSearch = brandTextArray;
-                    monitoringTrademarks[tmIndex].niceClassSearch = niceClassArray.map(String);
-                    // Arama indeksini anında tazele
-                    monitoringTrademarks[tmIndex]._searchNice = _uniqNice(monitoringTrademarks[tmIndex]).toLowerCase();
-                }
-                
-                // Ekranı yeni verilere göre ışık hızında tekrar çiz
-                applyMonitoringListFilters(); 
-                
-            } else {
-                console.error("Güncelleme hatası:", error);
-                showNotification('Hata oluştu: ' + error.message, 'error');
-            }
-        });
-}
-
-function populateNiceClassBoxes(selectedClasses, permanentClasses = []) {
-    document.querySelectorAll('.nice-class-box').forEach(b => { b.classList.remove('selected', 'permanent-item'); });
-    
-    // 🔥 ÇÖZÜM 1: '09', ' 9 ' gibi tüm farklı formatları standart tekil rakama ('9') çeviriyoruz.
-    const cleanClass = val => String(parseInt(String(val).replace(/\D/g, ''), 10));
-    
-    const validSelected = selectedClasses.map(cleanClass).filter(c => !isNaN(c) && Number(c) >= 1 && Number(c) <= 45);
-    const validPermanent = permanentClasses.map(cleanClass).filter(c => !isNaN(c) && Number(c) >= 1 && Number(c) <= 45);
-    
-    const all = new Set([...validSelected, ...validPermanent]);
-    
-    // Sadece kalıcı olanları listeye ekleyerek başla (populateList zaten listeyi temizler)
-    populateList(document.getElementById('niceClassSearchList'), [], validPermanent);
-    
-    all.forEach(cls => {
-        const box = document.querySelector(`.nice-class-box[data-class-no="${cls}"]`);
-        if (box) { 
-            box.classList.add('selected'); 
-            if (validPermanent.includes(cls)) {
-                box.classList.add('permanent-item'); 
-            } else {
-                // Sadece kalıcı olmayanları extra olarak ekle, çünkü kalıcıları yukarıda ekledik
-                addListItem(document.getElementById('niceClassSearchList'), cls, false);
-            }
-        }
-    });
-}
-
-function addListItem(listElement, text, isPermanent = false) {
-    // 🔥 ÇÖZÜM 2: Eklenen kelimelerin sağındaki solundaki boşlukları temizleyerek mükemmel eşleşme sağlıyoruz
-    const cleanText = String(text).trim();
-    if (!cleanText) return;
-    
-    const existing = Array.from(listElement.querySelectorAll('.list-item-text')).map(el => el.textContent.trim());
-    if (existing.includes(cleanText)) return; // Zaten varsa asla ekleme (Loop'u kıran satır)
-    
-    const li = document.createElement('li'); 
-    li.className = `list-group-item d-flex justify-content-between align-items-center ${isPermanent ? 'permanent-item' : ''}`;
-    li.innerHTML = `<span class="list-item-text">${cleanText}</span><button type="button" class="btn btn-sm btn-danger remove-item">&times;</button>`;
-    listElement.appendChild(li);
-}
-
-function populateList(listElement, items, permanentItems = []) {
-    listElement.innerHTML = '';
-    
-    // 🔥 ÇÖZÜM 3: Gelen tüm dataları trim ile temizleyip Set ile tekilleştiriyoruz
-    const cleanItems = items.map(i => String(i).trim()).filter(Boolean);
-    const cleanPermanent = permanentItems.map(i => String(i).trim()).filter(Boolean);
-    
-    const all = new Set([...cleanItems, ...cleanPermanent]);
-    all.forEach(item => addListItem(listElement, item, cleanPermanent.includes(item)));
-}
-
 window.queryApplicationNumberWithExtension = (applicationNo) => {
     const appNo = (applicationNo || '').toString().trim();
     if (!appNo) return;
@@ -2078,11 +1956,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('resultsTableBody')?.addEventListener('click', (e) => { 
         const editButton = e.target.closest('.edit-criteria-link'); 
-        if (editButton) { e.preventDefault(); const row = editButton.closest('tr.group-header'); if (row?.dataset.markData) openEditCriteriaModal(JSON.parse(row.dataset.markData)); } 
+        if (editButton) { 
+            e.preventDefault(); 
+            const row = editButton.closest('tr.group-header'); 
+            if (row?.dataset.markData) {
+                const markData = JSON.parse(row.dataset.markData);
+                markData.ownerName = markData.owner; // Ufak bir isim eşitlemesi
+
+                // 🔥 SİHİR BURADA: Modal açılır ve bitince bize güncel RAM verisini döner
+                criteriaModalManager.open(markData, (updatedData) => {
+                    const tmIndex = monitoringTrademarks.findIndex(t => String(t.id) === String(updatedData.id));
+                    if (tmIndex !== -1) {
+                        monitoringTrademarks[tmIndex].searchMarkName = updatedData.searchMarkName;
+                        monitoringTrademarks[tmIndex].brandTextSearch = updatedData.brandTextSearch;
+                        monitoringTrademarks[tmIndex].niceClassSearch = updatedData.niceClassSearch;
+                        monitoringTrademarks[tmIndex]._searchNice = _uniqNice(monitoringTrademarks[tmIndex]).toLowerCase();
+                    }
+                    applyMonitoringListFilters(); // Ekranı anında güncelle
+                });
+            } 
+        } 
     });
 
     document.getElementById('similarityFilterSelect')?.addEventListener('change', (e) => { similarityFilter = e.target.value; renderCurrentPageOfResults(); });
     document.getElementById('clearTrademarkFilterBtn')?.addEventListener('click', () => { selectedMonitoredTrademarkId = null; renderCurrentPageOfResults(); });
 
-    setupEditCriteriaModal(); setupManualTargetSearch(); setupDragAndDrop(); setTimeout(addGlobalOptionToBulletinSelect, 1000);
+    criteriaModalManager.init(); setupManualTargetSearch(); setupDragAndDrop(); setTimeout(addGlobalOptionToBulletinSelect, 1000);
 });

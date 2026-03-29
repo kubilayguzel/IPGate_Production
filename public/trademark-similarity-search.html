@@ -306,6 +306,10 @@
                                     <i class="fas fa-search text-primary mr-1"></i> Aranacak İbareler
                                 </div>
                                 <div class="card-body">
+                                    <div class="form-group mb-4">
+                                        <label class="text-muted small font-weight-bold">Ana Aranacak İbare</label>
+                                        <input type="text" id="searchMarkNameInput" class="form-control" style="border-radius: 8px; background: #fff; border: 1px solid #d1d3e2;">
+                                    </div>
                                     <label class="text-muted small font-weight-bold">Ekstra Aranacak Kelimeler</label>
                                     <div class="input-group mb-3">
                                         <input type="text" id="brandTextSearchInput" class="form-control" placeholder="Yeni ibare yazın..." style="border-radius: 8px 0 0 8px;">
@@ -325,10 +329,8 @@
                                 </div>
                                 <div class="card-body">
                                     <p class="text-muted small mb-2"><i class="fas fa-info-circle"></i> Yeşil renkli sınıflar markanın orijinal sınıflarıdır, kaldırılamaz.</p>
-                                    
                                     <div id="niceClassSelectionContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 8px;"></div>
-                                    
-                                    <ul class="list-group" id="niceClassSearchList" style="display: none;"></ul>
+                                    <ul class="list-group mt-3" id="niceClassSearchList" style="display: none;"></ul>
                                 </div>
                             </div>
                         </div>

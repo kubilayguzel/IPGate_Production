@@ -319,6 +319,18 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
+                // 🔥 KONSOL LOGLAMA MANTIKLARI (BACKEND) 🔥
+                console.log(`\n======================================================`);
+                console.log(`[Worker ${workerId}] 🧺 ARAMA SEPETİ KONTROLÜ`);
+                console.log(`======================================================`);
+                preparedMarks.forEach(pm => {
+                    console.log(`📌 Orijinal Marka : "${pm.markName || 'Bilinmiyor'}"`);
+                    console.log(`🎯 Karar Verilen Ana İbare : "${pm.primaryName}"`);
+                    console.log(`🔍 Arama Motoruna Giren Sepet:`, JSON.stringify(pm.searchTerms.map((s:any) => s.term)));
+                    console.log(`------------------------------------------------------`);
+                });
+                console.log(`======================================================\n`);
+
                 let currentLastId = lastId;
                 let actualProcessedCount = 0;
                 const uiResults = [];

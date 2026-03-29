@@ -1509,77 +1509,100 @@ const handleReportGeneration = async (event, options = {}) => {
         }
 
         if (filteredResults.length === 0) {
-            showNotification(`${ownerName} için 'Benzer' (Yeşil) sonuç bulunamadı.`, 'warning'); 
+            showNotification(`${ownerName || 'Seçili liste'} için 'Benzer' (Yeşil) sonuç bulunamadı.`, 'warning'); 
             return;
         }
 
         let createdTaskCount = 0;
         if (createTasks) {
             console.log(`[RAPOR GÖREV] İtiraz görevleri oluşturuluyor...`);
+            // Görevler (Tasks) eskisi gibi tek seferde hızlıca oluşturulur
             createdTaskCount = await createObjectionTasks(filteredResults, bulletinNo);
         }
 
-        console.log(`[RAPOR VERİ] PDF/Word için veriler hazırlanıyor...`);
-        const reportData = await buildReportData(filteredResults);
+        // 🔥 ÇÖZÜM: SONUÇLARI MÜVEKKİLLERE GÖRE GRUPLUYORUZ
+        console.log(`[RAPOR VERİ] Sonuçlar müvekkil bazında gruplanıyor...`);
+        const resultsByClient = {};
 
-        console.log(`[RAPOR EDGE FUNCTION] Rapor emri gönderiliyor...`);
-        
-        // 🔥 ÇÖZÜM 1: 401 Hatasını engellemek için güncel oturum token'ını ZORLA enjekte ediyoruz!
+        for (const r of filteredResults) {
+            const monitoredTm = monitoringTrademarks.find(mt => mt.id === r.monitoredTrademarkId) || {};
+            let cId = monitoredTm.ownerInfo?.id || 'sanal_veya_bilinmeyen';
+
+            // Sistemde kayıtlı olmayan (Excel'den aktarılan 'owner_') hesapları isme göre izole ediyoruz
+            if (String(cId).startsWith('owner_') || !cId) {
+                cId = `sanal_${monitoredTm.ownerName || 'bilinmeyen'}`; 
+            }
+
+            if (!resultsByClient[cId]) {
+                resultsByClient[cId] = {
+                    clientId: cId.startsWith('sanal_') ? null : cId,
+                    ownerName: monitoredTm.ownerName || "Bilinmeyen Müvekkil",
+                    results: []
+                };
+            }
+            
+            resultsByClient[cId].results.push(r);
+        }
+
+        // Oturum bilgisini döngü öncesi bir kez alıyoruz
         const { data: { session } } = await supabase.auth.getSession();
         const authHeader = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
 
-        const { data: response, error } = await supabase.functions.invoke('generate-similarity-report', { 
-            body: { results: reportData, bulletinNo: bulletinNo, isGlobalRequest: isGlobal },
-            headers: authHeader
-        });
+        let reportCount = 0;
 
-        if (error) throw error;
+        // 🔥 ÇÖZÜM: HER BİR MÜVEKKİL İÇİN AYRI AYRI RAPOR ÜRET VE MAİL AT
+        for (const [cId, clientData] of Object.entries(resultsByClient)) {
+            console.log(`⚙️ [RAPOR & MAİL] ${clientData.ownerName} için süreç başlıyor... (${clientData.results.length} marka)`);
+            
+            // Sadece bu müvekkile ait markaları rapora gönderiyoruz
+            const reportData = await buildReportData(clientData.results);
 
-        if (response?.success) {
-            console.log(`[RAPOR BAŞARILI] Rapor indiriliyor!`);
-            showNotification(createTasks ? `Rapor oluşturuldu. Oluşturulan itiraz görevi: ${createdTaskCount} adet.` : 'Rapor oluşturuldu.', 'success');
+            console.log(`   -> [RAPOR EDGE FUNCTION] ${clientData.ownerName} için rapor emri gönderiliyor...`);
+            
+            // 🔥 KRİTİK: isGlobalRequest bilerek FALSE gönderiliyor ki Edge Function markaları birleştirmesin!
+            const { data: response, error } = await supabase.functions.invoke('generate-similarity-report', { 
+                body: { results: reportData, bulletinNo: bulletinNo, isGlobalRequest: false },
+                headers: authHeader
+            });
 
-            // 🔥 ÇÖZÜM 1: ZIP MIME type'ı yerine doğrudan Word (.docx) MIME type'ı ve uzantısı kullanıyoruz
+            if (error || !response?.success) {
+                console.error(`   ❌ ${clientData.ownerName} için rapor üretilemedi:`, error || response?.error);
+                continue; // Hata olursa sistemi çökertme, diğer müvekkile geç
+            }
+
+            console.log(`   ✅ [RAPOR BAŞARILI] ${clientData.ownerName} raporu indiriliyor!`);
+            reportCount++;
+
+            // O Müvekkile Özel Üretilmiş Raporu İndir
             const blob = new Blob([Uint8Array.from(atob(response.file), c => c.charCodeAt(0))], { 
                 type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
             });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            
-            // Eğer Edge Function'dan özel 'fileName' dönüyorsa onu kullan, yoksa kendin .docx olarak üret
-            link.download = response.fileName || (isGlobal ? `Toplu_Rapor.docx` : `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor.docx`);
-            
+            link.download = response.fileName || `${clientData.ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor.docx`;
             document.body.appendChild(link); link.click(); document.body.removeChild(link);
 
-            // 🔥 TO/CC ve Ek Dosya (Attachment) İşlemleriyle Birlikte Mail Taslağı
+            // 🔥 MAİL TASLAĞI OLUŞTURMA (Sadece Görev Varsa ve Sistemde Kayıtlı Müvekkilse)
             if (createTasks && reportData.length > 0) {
                 try {
                     const firstMark = reportData[0].monitoredMark;
-                    const targetMonitoredId = filteredResults[0].monitoredTrademarkId;
+                    const targetMonitoredId = clientData.results[0].monitoredTrademarkId;
                     
-                    // 🔥 ÇÖZÜM 1: Yanlış ID (İzleme ID'si) yerine gerçek IP Record ID'sini buluyoruz
                     const monitoredTmObj = monitoringTrademarks.find(mt => mt.id === targetMonitoredId) || {};
                     const realIpRecordId = monitoredTmObj.ipRecordId || null;
 
-                    let finalClientId = firstMark.clientId; 
-                    
-                    // Sistemde kayıtlı olmayan, sadece ismi bilinen sanal sahipler "owner_" ile başlar. Onları null yapıyoruz.
-                    if (String(finalClientId).startsWith('owner_')) {
-                        finalClientId = null;
-                    }
+                    let finalClientId = clientData.clientId; 
 
-                    // Eğer Client ID bulunamadıysa applicants tablosundan şansımızı gerçek IP Record ID ile deniyoruz
                     if (!finalClientId && realIpRecordId) {
                         const { data: applicantData } = await supabase.from('ip_record_applicants').select('person_id').eq('ip_record_id', realIpRecordId).order('order_index', { ascending: true }).limit(1).maybeSingle();
                         if (applicantData && applicantData.person_id) finalClientId = applicantData.person_id;
                     }
 
-                    // 🔥 Merkezi mailService'e artık DOĞRU ID'leri gönderiyoruz
+                    // Mail alıcılarını çözümle
                     const mailRecipients = await mailService.resolveMailRecipients(realIpRecordId, '20', finalClientId);
                     const finalTo = mailRecipients.to || [];
                     const finalCc = mailRecipients.cc || [];
 
-                    // 2. Şablon Değişkenleri
                     let realBulletinDateStr = null;
                     const { data: bData } = await supabase.from('trademark_bulletins').select('bulletin_date').eq('bulletin_no', bulletinNo).limit(1).maybeSingle();
                     if (bData && bData.bulletin_date) realBulletinDateStr = bData.bulletin_date;
@@ -1603,30 +1626,29 @@ const handleReportGeneration = async (event, options = {}) => {
                         subject = tmplData.subject || subject;
                         body = tmplData.body || body;
 
-                    // Müvekkil adını al, 15 karakterden uzunsa kırp ve sonuna "..." ekle
-                    let kisaIsim = firstMark.ownerName || "Sayın İlgili";
-                    if (kisaIsim.length > 15 && kisaIsim !== "Sayın İlgili") {
-                        kisaIsim = kisaIsim.substring(0, 15).trim() + "...";
-                    }
+                        let kisaIsim = clientData.ownerName || "Sayın İlgili";
+                        if (kisaIsim.length > 15 && kisaIsim !== "Sayın İlgili") {
+                            kisaIsim = kisaIsim.substring(0, 15).trim() + "...";
+                        }
 
-                    const replacements = {
-                        "{{bulletinNo}}": String(bulletinNo),
-                        "{{muvekkil_adi}}": firstMark.ownerName || "Sayın İlgili",
-                        "{{kisa_muvekkil}}": kisaIsim, // Şablonda kullanabileceğiniz YENİ değişken
-                        "{{objection_deadline}}": objectionDeadline
-                    };
+                        const replacements = {
+                            "{{bulletinNo}}": String(bulletinNo),
+                            "{{muvekkil_adi}}": clientData.ownerName || "Sayın İlgili",
+                            "{{kisa_muvekkil}}": kisaIsim, 
+                            "{{objection_deadline}}": objectionDeadline
+                        };
                         for (const [key, val] of Object.entries(replacements)) {
                             subject = subject.split(key).join(val);
                             body = body.split(key).join(val);
                         }
                     }
 
-                    // 3. Veritabanına Kaydet (TO ve CC dahil)
+                    // Sadece bu müvekkile özel Maili Veritabanına Kaydet
                     const { data: insertedMail, error: mailError } = await supabase.from('mail_notifications').insert({
                         id: crypto.randomUUID(), 
-                        related_ip_record_id: realIpRecordId || targetMonitoredId, // 🔥 DÜZELTME: Eski değişken adını yeni doğru referanslarla değiştirdik
+                        related_ip_record_id: realIpRecordId || targetMonitoredId, 
                         client_id: finalClientId,
-                        dynamic_parent_context: JSON.stringify({ bulletin_no: bulletinNo, applicant_name: firstMark.ownerName }),
+                        dynamic_parent_context: JSON.stringify({ bulletin_no: bulletinNo, applicant_name: clientData.ownerName }),
                         subject: subject,
                         body: body,
                         template_id: "tmpl_watchnotice",
@@ -1640,50 +1662,50 @@ const handleReportGeneration = async (event, options = {}) => {
                     }).select('id').single();
 
                     if (mailError) throw mailError;
-                    // 4. 🔥 ATTACHMENT: Word Raporunu Storage'a Yükle ve Mail'e Bağla
+
+                    // O müvekkilin raporunu Storage'a yükle ve ona ait maile ekle
                     if (insertedMail && insertedMail.id) {
                         try {
-                            // 🔥 ÇÖZÜM 2: Dosya uzantısını zip yerine .docx yapıyoruz ve ismini güncelliyoruz
-                            const reportFileName = response.fileName || `${ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor_${bulletinNo}.docx`;
-                            
+                            const reportFileName = response.fileName || `${clientData.ownerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25)}_Rapor_${bulletinNo}.docx`;
                             const storagePath = `watch_reports/${Date.now()}_${reportFileName}`;
                             
                             const { error: uploadError } = await supabase.storage.from('documents').upload(storagePath, blob);
                             
                             if (uploadError) {
-                                console.error("⚠️ Dosya Storage'a yüklenemedi (RLS/Yetki Hatası Olabilir):", uploadError);
+                                console.error("⚠️ Dosya Storage'a yüklenemedi:", uploadError);
                             } else {
                                 const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
                                 
-                                const { error: attachError } = await supabase.from('mail_attachments').insert({
+                                await supabase.from('mail_attachments').insert({
                                     id: crypto.randomUUID(), 
                                     notification_id: insertedMail.id,
                                     url: urlData.publicUrl,
-                                    file_name: reportFileName, // 🔥 YENİ İSİM BURAYA EKLENDİ
+                                    file_name: reportFileName, 
                                     storage_path: storagePath
                                 });
-                                
-                                if (attachError) {
-                                    console.error("⚠️ Attachment tabloya yazılamadı:", attachError);
-                                } else {
-                                    console.log("✅ Ek (Attachment) başarıyla documents/watch_reports altına yüklendi ve mail taslağına bağlandı!");
-                                }
                             }
                         } catch (attErr) {
                             console.error("Ek dosya (Attachment) işleminde beklenmeyen hata:", attErr);
                         }
                     }
-                    
-                    console.log("✅ Taslak Mail, TO/CC ve Ekleriyle Birlikte Başarıyla Oluşturuldu!");
-
-                } catch (e) { console.error("Mail oluşturma hatası:", e); }
-
-                await refreshTriggeredStatus(bulletinNo);
-                await refreshNotificationStatus(bulletinNo);
-                await new Promise(resolve => setTimeout(resolve, 150));
-                await renderMonitoringList();
+                    console.log(`   📧 [MAİL BAŞARILI] ${clientData.ownerName} için mail taslağı oluşturuldu!`);
+                } catch (e) { 
+                    console.error(`   ❌ Mail oluşturma hatası (${clientData.ownerName}):`, e); 
+                }
+            } else if (createTasks && !clientData.clientId) {
+                console.log(`   ⚠️ ${clientData.ownerName} sistemde kayıtlı olmadığı için mail taslağı atlandı.`);
             }
         }
+
+        // Toplu bildirim gösterimi
+        showNotification(createTasks ? `${reportCount} adet Rapor ve İlgili Mail Taslakları başarıyla oluşturuldu.` : `${reportCount} adet Rapor oluşturuldu.`, 'success');
+        
+        if (createTasks) {
+            await refreshTriggeredStatus(bulletinNo);
+            await refreshNotificationStatus(bulletinNo);
+            await renderMonitoringList();
+        }
+
     } catch (err) {
         console.error("[RAPOR HATASI]:", err);
         showNotification('Kritik hata oluştu!', 'error');

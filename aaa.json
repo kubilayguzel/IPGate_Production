@@ -1,0 +1,928 @@
+[
+    {
+        "backupData": {
+            "applicants": [
+                {
+                    "id": "92909f3d-727d-4561-9d52-610047273812",
+                    "email": null
+                }
+            ],
+            "renewalDate": "2033-08-21",
+            "applicationDate": "2023-08-21",
+            "applicationNumber": "2023/109193"
+        },
+        "relatedParty": {
+            "id": "92909f3d-727d-4561-9d52-610047273812",
+            "name": "İsimsiz"
+        },
+        "epatsDocument": {
+            "id": "d04fb9c0-f33b-49ef-87be-0cdc8cbb8c68",
+            "url": "https://firebasestorage.googleapis.com/v0/b/ipgate-31bd2.firebasestorage.app/o/epats_documents%2Fd04fb9c0-f33b-49ef-87be-0cdc8cbb8c68_Basvuru_Formu_Dilekce.pdf?alt=media&token=c2e1aa41-bc69-43a0-baca-9d686fc704de",
+            "name": "Basvuru_Formu_Dilekce.pdf",
+            "size": 129804,
+            "uploadedAt": "2026-01-26T09:43:38.213Z",
+            "storagePath": "epats_documents/d04fb9c0-f33b-49ef-87be-0cdc8cbb8c68_Basvuru_Formu_Dilekce.pdf",
+            "documentDate": "2024-07-16",
+            "turkpatentEvrakNo": "2024-GE-479195"
+        },
+        "iprecordApplicationNo": "2023/109193",
+        "statusBeforeEpatsUpload": "open",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/104878",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/104878",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/104310",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/104310",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/100382",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/093038",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/057466",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/007657",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/085935",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": {
+            "id": "8ad18625-0e0b-4160-b164-c9078b05c8c2",
+            "name": "İsimsiz"
+        },
+        "iprecordApplicationNo": "2024/132379",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/098072",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "epatsDocumentNo": "2025-GE-52003",
+        "epatsDocumentDate": "2025-01-26",
+        "iprecordApplicationNo": "2024/068338",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/092542",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/028817",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/102774",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/156808",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/178466",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": {
+            "id": "98e183b0-3c38-4f44-aced-f69ead784322",
+            "name": "İsimsiz"
+        },
+        "iprecordApplicationNo": "2024/127128",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/173277",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/035610",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/004703",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/011658",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": {
+            "id": "77d18afb-ce15-49bc-b6be-2045b61aa16b",
+            "name": "İsimsiz"
+        },
+        "iprecordApplicationNo": "2024/101289",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/133397",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/149686",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/021922",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "unlinked_ip_record_id": "N3V5AmCVtV7nqZjknz1b",
+        "unlinked_ip_record_title": "rp remedial plus",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/173942",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/184576",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/007151",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/126788",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/181020",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/162317",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/178093",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/100965",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/106711",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/083834",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/083834",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/115522",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/018647",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/112886",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/140138",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/115606",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/137970",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/139810",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/155121",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/157012",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "epatsDocumentNo": "2026-GE-165373",
+        "epatsDocumentDate": "2026-03-11",
+        "iprecordApplicationNo": "2025/009713",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/004358",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/156006",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/019036",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/146097",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/002232",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/170169",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/107184",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/064492",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/093720",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "epatsDocumentNo": "2026-GE-165369",
+        "epatsDocumentDate": "2026-03-11",
+        "iprecordApplicationNo": "2025/010119",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/146097",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/146097",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/047563",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/050424",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/045850",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/041095",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/055133",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/054711",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/040294",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": {
+            "id": "8ad18625-0e0b-4160-b164-c9078b05c8c2",
+            "name": "İsimsiz"
+        },
+        "iprecordApplicationNo": "2024/132373",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/042055",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/004010",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/027328",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/159190",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": {
+            "id": "8ad18625-0e0b-4160-b164-c9078b05c8c2",
+            "name": "İsimsiz"
+        },
+        "iprecordApplicationNo": "2024/132374",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/144185",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "opponent": {
+            "id": "db7cf90a-5ade-4941-ba01-7d3a7d1c4070",
+            "name": "SET KURUMSAL HİZMETLER TİCARET ANONİM ŞİRKETİ",
+            "email": ""
+        },
+        "relatedParties": [
+            {
+                "id": "db7cf90a-5ade-4941-ba01-7d3a7d1c4070",
+                "name": "SET KURUMSAL HİZMETLER TİCARET ANONİM ŞİRKETİ",
+                "email": ""
+            }
+        ],
+        "iprecordApplicationNo": "2024/035258"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/109871",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/040291",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/078027",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/078563",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/136228",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/007212",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/025035",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/011018",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/160304",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "opponent": {
+            "id": "2bba6f91-e18c-43b8-9836-a14e325637a6",
+            "name": "AEP ANADOLU ETAP PENKON GIDA VE TARIM ÜRÜNLERİ SANAYİ VE TİCARET ANONİM ŞİRKETİ",
+            "email": ""
+        },
+        "relatedParties": [
+            {
+                "id": "2bba6f91-e18c-43b8-9836-a14e325637a6",
+                "name": "AEP ANADOLU ETAP PENKON GIDA VE TARIM ÜRÜNLERİ SANAYİ VE TİCARET ANONİM ŞİRKETİ",
+                "email": ""
+            }
+        ],
+        "iprecordApplicationNo": "2024/120952"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/168979",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/158567",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/160311",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/163759",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/183156",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/065486",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/031121",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/062948",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/087492",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/081732",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/030450",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/089455",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/089872",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/089030",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/097206",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/038214",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/091494",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/097427",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/098268",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/113236",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/093738",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/114274",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/119765",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2023/138176",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/115735",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/133189",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/097428",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/130872",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/126641",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/101673",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/081537",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/142611",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/082864",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/132397",
+        "statusBeforeEpatsUpload": "open",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/144066",
+        "statusBeforeEpatsUpload": "open",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/152039",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/139532",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/149726",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "target_accrual_id": null
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/168674",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/172757",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/176835",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/178547",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/183472",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/136988",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/164026",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "epatsDocumentNo": "2026-GE-169444",
+        "epatsDocumentDate": "2026-03-12",
+        "iprecordApplicationNo": "2025/003120",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/023765",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/146097",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/165376",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/018155",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/130686",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/041517",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/048143",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/046273",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/046273",
+        "triggering_transaction_type": "50"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/046273",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/011429",
+        "statusBeforeEpatsUpload": "awaiting_client_approval",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/004931",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/047192",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/032478",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/183343",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/103661",
+        "triggering_transaction_type": "51"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/142259",
+        "statusBeforeEpatsUpload": "open",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/182002",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/001277",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2025/034098",
+        "triggering_transaction_type": "52"
+    },
+    {
+        "relatedParty": null,
+        "iprecordApplicationNo": "2024/093661",
+        "triggering_transaction_type": "51"
+    }
+]

@@ -10,6 +10,7 @@ class NotificationsManager {
         this.activeTab = 'pending';
         this.pagination = null;
         this.realtimeChannel = null;
+        this.searchQuery = ''; // 🔥 YENİ: Arama filtresi tutucu
 
         // DOM Elementlerini Cache'leme
         this.elements = {
@@ -18,6 +19,7 @@ class NotificationsManager {
             tabBtns: document.querySelectorAll('.tab-btn'),
             overlayEl: document.getElementById('progressOverlay'),
             overlayMsg: document.getElementById('progressMessage'),
+            searchInput: document.getElementById('notificationSearchInput'), // 🔥 YENİ: Arama inputu elementimiz
             
             // Edit Modal Elements
             editModal: document.getElementById("notification-modal"),
@@ -63,6 +65,14 @@ class NotificationsManager {
         this.elements.tabBtns.forEach(btn => {
             btn.addEventListener('click', (e) => this.switchTab(e.currentTarget.dataset.tab));
         });
+
+        // 🔥 YENİ: Klavyeden yazıldıkça arama motorunu tetikle
+        if (this.elements.searchInput) {
+            this.elements.searchInput.addEventListener('input', (e) => {
+                this.searchQuery = e.target.value.toLowerCase().trim();
+                this.applyTabFilter(); // Yazıldıkça tabloyu anında filtreler
+            });
+        }
 
         // Modal Kapatma Butonları
         this.elements.closeEditModalBtns.forEach(btn => {
@@ -137,15 +147,17 @@ class NotificationsManager {
         this.toggleLoading(true);
         this.elements.tableBody.innerHTML = "";
 
+        let baseList = []; // 🔥 Filtrelenecek ana listeyi geçici değişkende tutuyoruz
+
         if (this.activeTab === 'pending') {
-            this.notificationsData = this.allNotifications.filter(n => n.status !== 'sent');
+            baseList = this.allNotifications.filter(n => n.status !== 'sent');
         } else {
             const sentList = this.allNotifications.filter(n => n.status === 'sent');
             let filtered = [];
             
             for (const n of sentList) {
                 const tStatus = n.task_status ? n.task_status.trim() : null;
-                // 🔥 Sadece "Onay Bekliyor" değil, müvekkil linke tıklamış olsa bile (opened) hatırlatmada kalır
+                // Sadece "Onay Bekliyor" değil, müvekkil linke tıklamış olsa bile (opened) hatırlatmada kalır
                 const isWaitingForClient = ['awaiting_client_approval', 'client_approval_opened', 'awaiting-approval'].includes(tStatus);
                 
                 // KURAL 1: HATIRLATMALAR SEKMESİ
@@ -157,10 +169,30 @@ class NotificationsManager {
                     filtered.push(n);
                 }
             }
-            this.notificationsData = filtered;
+            baseList = filtered;
         }
 
-        // 🔥 YENİ: Sekmeye göre tablo başlıklarını (TH) gizle veya göster
+        // 🔥 YENİ: Arama Kutusuna Göre İkincil Filtreleme (Global Arama)
+        if (this.searchQuery) {
+            baseList = baseList.filter(n => {
+                const subject = (n.subject || '').toLowerCase();
+                const client = (n.client_name || '').toLowerCase();
+                const appNo = (n.app_no || '').toLowerCase();
+                const brandName = (n.brand_name || n.ip_record_title || '').toLowerCase();
+                const typeText = (n.type_text || '').toLowerCase();
+                
+                return subject.includes(this.searchQuery) || 
+                       client.includes(this.searchQuery) || 
+                       appNo.includes(this.searchQuery) ||
+                       brandName.includes(this.searchQuery) ||
+                       typeText.includes(this.searchQuery);
+            });
+        }
+
+        // Aramadan geçen son listeyi ana değişkene ata
+        this.notificationsData = baseList;
+
+        // Sekmeye göre tablo başlıklarını (TH) gizle veya göster
         const dynamicCols = document.querySelectorAll('.dynamic-col');
         dynamicCols.forEach(col => {
             col.style.display = this.activeTab === 'pending' ? 'none' : '';

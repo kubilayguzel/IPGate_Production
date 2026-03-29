@@ -211,7 +211,14 @@ class NotificationsManager {
             const appNo = notification.app_no || '-';
             const clientName = notification.client_name || '-';
             const typeText = notification.type_text || notification.associated_transaction_id || '-';
-            const dueDate = this.formatDate(notification.objection_deadline) || '-';
+            
+            // 🔥 ÇÖZÜM: Resmi Son Tarih'i sadece Gün.Ay.Yıl olarak formatla (Saati gizle)
+            let dueDate = '-';
+            if (notification.objection_deadline && notification.objection_deadline !== '-') {
+                const d = new Date(notification.objection_deadline);
+                // Eğer geçerli bir tarih objesiyse sadece tarihi (toLocaleDateString) al, değilse veritabanındaki ham metni yaz
+                dueDate = isNaN(d.getTime()) ? notification.objection_deadline : d.toLocaleDateString('tr-TR');
+            }
 
             // 🔥 ÇÖZÜM: View'dan doğrudan gelen marka adını okuyoruz
             let finalSubject = notification.subject || '<span class="missing-field">Konu Eksik</span>';

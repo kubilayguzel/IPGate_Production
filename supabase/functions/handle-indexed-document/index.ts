@@ -15,9 +15,12 @@ function isWeekend(date: Date) { return date.getDay() === 0 || date.getDay() ===
 function isHoliday(date: Date) { return TURKEY_HOLIDAYS.includes(date.toISOString().split('T')[0]); }
 
 function formatTR(date: Date) {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    return `${day}.${month}.${date.getFullYear()}`;
+    // 🔥 Gelen tarihi Türkiye saat dilimine (UTC+3) sabitliyoruz.
+    // Böylece 21:00'da veritabanına yazılmış tarih, doğru güne (00:00'a) tamamlanıyor.
+    const trDate = new Date(date.getTime() + (3 * 60 * 60 * 1000));
+    const day = String(trDate.getUTCDate()).padStart(2, '0');
+    const month = String(trDate.getUTCMonth() + 1).padStart(2, '0');
+    return `${day}.${month}.${trDate.getUTCFullYear()}`;
 }
 
 serve(async (req: Request) => {
@@ -242,21 +245,37 @@ serve(async (req: Request) => {
 
     if (decisionAnalysis.isLawsuitRequired) { decisionAnalysis.boxColor = "#fff2f0"; decisionAnalysis.boxBorder = "#ff4d4f"; }
 
-    // 🔥 ÇÖZÜM 2: DAVA SON TARİHİ HESAPLAMASI (Sadece Dava ise 2 ay)
-    let davaSonTarihi = "-";
-    if (decisionAnalysis.isLawsuitRequired) {
-        let calculatedDavaDate = new Date(tebligDate);
-        calculatedDavaDate.setMonth(calculatedDavaDate.getMonth() + 2);
-        let iterDava = 0;
-        while ((isWeekend(calculatedDavaDate) || isHoliday(calculatedDavaDate)) && iterDava < 30) {
-            calculatedDavaDate.setDate(calculatedDavaDate.getDate() + 1);
-            iterDava++;
+    // 🔥 KUSURSUZ ÇÖZÜM: MAİL TARİHİNİ DOĞRUDAN OLUŞTURULAN İŞTEN (TASK) ALIYORUZ
+    // Görev oluşturulurken hafta sonu/resmi tatil atlaması zaten yapıldığı için mail de birebir o tarihi kullanacak.
+    let kesinSonTarihTR = "-";
+    if (taskOfficialDueDate) {
+        const d = new Date(taskOfficialDueDate);
+        if (!isNaN(d.getTime())) {
+            kesinSonTarihTR = formatTR(d);
+            console.log(`[HANDLE_INDEXED] 📅 Tarih doğrudan TASK'tan alındı (Hafta sonu atlanmış halde): ${kesinSonTarihTR}`);
         }
-        davaSonTarihi = formatTR(calculatedDavaDate);
     }
 
-    // 🔥 ÇÖZÜM 3: GENEL SON CEVAP TARİHİ (Öncelik Task Tarihi, yoksa Due Period, yoksa 2 ay)
-    let genelSonTarih = "-";
+    // 🔥 ÇÖZÜM 2: DAVA SON TARİHİ
+    let davaSonTarihi = "-";
+    if (decisionAnalysis.isLawsuitRequired) {
+        if (kesinSonTarihTR !== "-") {
+            davaSonTarihi = kesinSonTarihTR; // Task'tan gelen kusursuz tarih
+        } else {
+            // Herhangi bir sebeple Task yoksa manuel hesapla (Hafta sonu atlayarak)
+            let calculatedDavaDate = new Date(tebligDate);
+            calculatedDavaDate.setMonth(calculatedDavaDate.getMonth() + 2);
+            let iterDava = 0;
+            while ((isWeekend(calculatedDavaDate) || isHoliday(calculatedDavaDate)) && iterDava < 30) {
+                calculatedDavaDate.setDate(calculatedDavaDate.getDate() + 1);
+                iterDava++;
+            }
+            davaSonTarihi = formatTR(calculatedDavaDate);
+        }
+    }
+
+    // 🔥 ÇÖZÜM 3: GENEL SON CEVAP TARİHİ
+    let genelSonTarih = kesinSonTarihTR;
     if (taskOfficialDueDate) {
         const d = new Date(taskOfficialDueDate);
         if (!isNaN(d.getTime())) {
@@ -327,6 +346,7 @@ serve(async (req: Request) => {
                 "{{basvuru_no}}": appNo,
                 "{{proje_adi}}": brandName,
                 "{{teblig_tarihi}}": formattedTeblig, 
+                "{{transactionDate}}": formattedTeblig,
                 "{{islem_turu_adi}}": txTypeName,
                 "{{epats_evrak_no}}": record.document_number || "-",
                 "{{applicantNames}}": applicantNames,
@@ -342,7 +362,8 @@ serve(async (req: Request) => {
                 "{{itiraz_sahibi}}": oppositionOwner,
                 "{{resmi_son_cevap_tarihi}}": genelSonTarih, 
                 "{{son_odeme_tarihi}}": genelSonTarih,
-                "{{son_itiraz_tarihi}}": genelSonTarih
+                "{{son_itiraz_tarihi}}": genelSonTarih,
+                "{{deadlineDate}}": davaSonTarihi !== "-" ? davaSonTarihi : genelSonTarih // 🔥 YENİ: Taslaktaki Son Tarih
             };
 
             for (const [k, v] of Object.entries(placeholders)) {
@@ -359,6 +380,21 @@ serve(async (req: Request) => {
 
     let finalStatus = finalTo.length === 0 ? "missing_info" : (evalTaskId ? "evaluation_pending" : "pending");
     const mailId = crypto.randomUUID();
+
+    // 🔥 TARİH PARÇALAMA (Veritabanı Hatasını Önlemek İçin ISO'ya Çevirme)
+    const rawDeadline = davaSonTarihi !== "-" ? davaSonTarihi : (genelSonTarih !== "-" ? genelSonTarih : null);
+    let parsedObjectionDeadline = null;
+    if (rawDeadline) {
+        try {
+            const parts = rawDeadline.split(/[.\/]/);
+            if (parts.length === 3 && parts[2].length === 4) {
+                parsedObjectionDeadline = new Date(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}T12:00:00Z`).toISOString();
+            } else {
+                const d = new Date(rawDeadline);
+                if (!isNaN(d.getTime())) parsedObjectionDeadline = d.toISOString();
+            }
+        } catch (e) {}
+    }
     
     const mailPayload = {
         id: mailId, 
@@ -374,7 +410,14 @@ serve(async (req: Request) => {
         body: finalBody, 
         status: finalStatus, 
         mode: "draft", 
-        objection_deadline: (davaSonTarihi !== "-" ? davaSonTarihi : (genelSonTarih !== "-" ? genelSonTarih : null)), 
+        objection_deadline: parsedObjectionDeadline, // 🔥 Güvenli tarih yazıldı
+        // 🔥 LİSTEDE GÖZÜKMESİ İÇİN DİNAMİK CONTEXT EKLENDİ
+        dynamic_parent_context: JSON.stringify({
+            application_no: appNo,
+            mark_name: brandName,
+            doc_type: txTypeName,
+            deadline: rawDeadline || "-" // Arayüzün okuyacağı tarih (DD.MM.YYYY)
+        }),
         notification_type: 'marka', 
         source: 'document_index', 
         is_draft: finalStatus === "missing_info", 

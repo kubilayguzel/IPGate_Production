@@ -1435,10 +1435,20 @@ const createObjectionTasks = async (results, bulletinNo) => {
         try {
             console.log(`⏳ ${r.markName} için itiraz görevi tetikleniyor...`);
             
+            // 🔥 YENİ EKLENEN KISIM: İzlenen markanın sahibini (Müvekkil ID'sini) buluyoruz
+            const monitoredTm = monitoringTrademarks.find(mt => mt.id === r.monitoredTrademarkId) || {};
+            let clientId = monitoredTm.ownerInfo?.id || null;
+            
+            // Eğer sanal bir sahipse (sistemde kayıtlı olmayan, sadece text olarak girilen) null yapıyoruz
+            if (String(clientId).startsWith('owner_')) {
+                clientId = null;
+            }
+
             // 🔥 Rakip portföy, transaction ve task üretme işlemi TAMAMEN backend'e devredildi! 
             // 406 Hatası kökünden engellendi.
             const { data: taskResponse, error: invokeError } = await supabase.functions.invoke('create-objection-task', {
                 body: {
+                    clientId: clientId, // 🔥 YENİ EKLENEN KISIM: Backend'e clientId'yi gönderiyoruz
                     monitoredMarkId: r.monitoredTrademarkId,
                     similarMark: { 
                         applicationNo: r.applicationNo, 

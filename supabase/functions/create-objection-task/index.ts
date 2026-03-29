@@ -15,10 +15,9 @@ serve(async (req) => {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; 
         const supabase = createClient(supabaseUrl, supabaseKey);
-
         const body = await req.json();
-        const { monitoredMarkId, thirdPartyIpRecordId, similarMark, similarMarkName, bulletinNo, callerEmail, bulletinRecordData } = body;
-
+        // 🔥 YENİ: Frontend'den gelen 'clientId' parametresini (bodyClientId olarak) alıyoruz
+        const { monitoredMarkId, thirdPartyIpRecordId, similarMark, similarMarkName, bulletinNo, callerEmail, bulletinRecordData, clientId: bodyClientId } = body;
         if (!monitoredMarkId || !similarMark || !bulletinNo) throw new Error("Eksik parametre.");
 
         const cleanMonitoredId = String(monitoredMarkId).trim();
@@ -73,30 +72,57 @@ serve(async (req) => {
             }
         }
 
-        // 🔥 ÇÖZÜM 2: MÜKERRER İŞ (DUPLICATE) KONTROLÜ
-        // Aynı müvekkil için, aynı bültendeki aynı rakip markaya zaten "Yayına İtiraz" işi açılmış mı?
+        // 🔥 NİHAİ MÜVEKKİL (CLIENT) ID BELİRLEME
+        let finalClientId = bodyClientId || clientId;
+        if (String(finalClientId).startsWith('owner_')) finalClientId = null;
+
         const hitMarkName = similarMarkName || similarMark.markName || 'Bilinmeyen Marka';
-        
-        let dupQuery = supabase
-            .from('tasks')
-            .select('id')
-            .eq('task_type_id', '20')
-            .contains('details', { bulletin_no: String(bulletinNo) })
-            .limit(1);
 
-        if (clientId) {
-            dupQuery = dupQuery.eq('task_owner_id', clientId);
+        // 🔥 ÇÖZÜM 2: BAŞVURU NUMARASI, STATÜ VE MÜVEKKİL İLE KESİN MÜKERRERLİK KONTROLÜ
+        const opponentAppNo = similarMark.applicationNo;
+        let existingIpRecordId = null;
+
+        // a) Önce rakibin "Başvuru Numarasına" sahip bir rakip (third_party) kayıt var mı buluyoruz
+        if (opponentAppNo && opponentAppNo !== "-") {
+            const { data: existingIp } = await supabase
+                .from('ip_records')
+                .select('id')
+                .eq('application_number', opponentAppNo)
+                .eq('record_owner_type', 'third_party')
+                .limit(1)
+                .maybeSingle();
+
+            if (existingIp) existingIpRecordId = existingIp.id;
         }
-        const { data: existingTasks } = await dupQuery;
 
-        if (existingTasks && existingTasks.length > 0) {
-            console.log(`⚠️ Mükerrer Görev Engellendi. Mevcut Task ID: ${existingTasks[0].id}`);
-            return new Response(JSON.stringify({ 
-                success: true, 
-                taskId: existingTasks[0].id, 
-                message: "Bu görev zaten mevcut, tekrar oluşturulmadı.",
-                isDuplicate: true 
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        // b) Eğer bu başvuru numarasıyla kayıt varsa, O KAYDA, BU MÜVEKKİLE ve AKTİF STATÜDE iş açılmış mı bakıyoruz!
+        if (existingIpRecordId) {
+            let dupQuery = supabase
+                .from('tasks')
+                .select('id')
+                .eq('task_type_id', '20')
+                .eq('ip_record_id', existingIpRecordId)
+                .in('status', ['open', 'awaiting_client_approval', 'in_progress']) // 🔥 Statü kontrolü korundu!
+                .limit(1);
+
+            // Müvekkil (Client) Eşleşmesi Kontrolü
+            if (finalClientId) {
+                dupQuery = dupQuery.eq('task_owner_id', finalClientId);
+            } else {
+                dupQuery = dupQuery.is('task_owner_id', null);
+            }
+
+            const { data: existingTasks } = await dupQuery;
+
+            if (existingTasks && existingTasks.length > 0) {
+                console.log(`⚠️ Mükerrer Görev Engellendi. Mevcut Task ID: ${existingTasks[0].id}`);
+                return new Response(JSON.stringify({ 
+                    success: true, 
+                    taskId: existingTasks[0].id, 
+                    message: "Bu görev zaten mevcut, tekrar oluşturulmadı.",
+                    isDuplicate: true 
+                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+            }
         }
         
         // 4. COUNTER MANTIĞI
@@ -113,8 +139,9 @@ serve(async (req) => {
             taskId = String(nextCount);
         } catch (e) { console.error("Sayaç okuma hatası:", e); }
      
-        // 5. ÜÇÜNCÜ TARAF (THIRD PARTY) PORTFÖY KAYDINI OLUŞTUR
-        const thirdPartyPortfolioId = thirdPartyIpRecordId || crypto.randomUUID();
+        // 5. ÜÇÜNCÜ TARAF (THIRD PARTY) PORTFÖY KAYDINI OLUŞTUR VEYA MEVCUDU KULLAN
+        // 🔥 KRİTİK: Aynı başvuru numaralı rakip varsa, yeni UUID üretmek yerine onu kullanıyoruz.
+        const thirdPartyPortfolioId = thirdPartyIpRecordId || existingIpRecordId || crypto.randomUUID();
         let hitImageUrl = bulletinRecordData?.imagePath || similarMark.imagePath || null;
         if (hitImageUrl && !hitImageUrl.startsWith('http')) {
             hitImageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${hitImageUrl}`;
@@ -189,7 +216,7 @@ serve(async (req) => {
             status: 'awaiting_client_approval',
             priority: 'medium',
             ip_record_id: thirdPartyPortfolioId, 
-            task_owner_id: clientId, 
+            task_owner_id: finalClientId, // 🔥 YENİ: Göreve doğru müvekkil ID'si atandı
             transaction_id: transactionId, 
             assigned_to: assignedUid, 
             created_by: isTestEnv ? null : assignedUid, // 🔥 HARİKA YAKLAŞIM: Test ortamında FK hatasını önlemek için null, Canlı ortamda ise gerçek atanan kişinin ID'si!

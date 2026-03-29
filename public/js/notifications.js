@@ -160,6 +160,12 @@ class NotificationsManager {
             this.notificationsData = filtered;
         }
 
+        // 🔥 YENİ: Sekmeye göre tablo başlıklarını (TH) gizle veya göster
+        const dynamicCols = document.querySelectorAll('.dynamic-col');
+        dynamicCols.forEach(col => {
+            col.style.display = this.activeTab === 'pending' ? 'none' : '';
+        });
+
         if (this.pagination) {
             this.pagination.update(this.notificationsData.length);
             this.pagination.goToPage(1);
@@ -230,6 +236,9 @@ class NotificationsManager {
                 finalSubject = `<strong>${brandName}</strong> - ${finalSubject}`;
             }
 
+            // 🔥 YENİ: Aktif sekme pending (bekleyen) ise o kolonları satırlarda da gizle
+            const isPending = this.activeTab === 'pending';
+
             tr.innerHTML = `
                 <td><strong>${globalIndex + 1}</strong></td>
                 <td>
@@ -248,9 +257,9 @@ class NotificationsManager {
                     <span class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></span>
                 </td>
                 <td>${dueDate}</td>
-                <td>${this.formatDate(notification.last_reminder_at)}</td>
+                ${!isPending ? `<td>${this.formatDate(notification.last_reminder_at)}</td>` : ''}
                 <td><span class="badge bg-light text-dark border" title="Tetikleyen"><i class="fas fa-user mr-1"></i> ${notification.triggered_by_name || '-'}</span></td>
-                <td><span class="badge bg-success text-white" title="Gönderen"><i class="fas fa-paper-plane mr-1"></i> ${notification.sent_by_name || '-'}</span></td>
+                ${!isPending ? `<td><span class="badge bg-success text-white" title="Gönderen"><i class="fas fa-paper-plane mr-1"></i> ${notification.sent_by_name || '-'}</span></td>` : ''}
                 <td>${this.formatDate(notification.created_at)}</td>
                 <td>${this.formatDate(notification.sent_at)}</td>
                 <td class="actions-cell d-flex flex-column gap-2" style="gap: 5px;"></td>

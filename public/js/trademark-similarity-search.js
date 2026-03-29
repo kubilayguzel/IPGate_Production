@@ -1079,25 +1079,6 @@ const performSearch = async () => {
         };
     });
 
-    // 🔥 KONSOL LOGLAMA MANTIKLARI 🔥
-    // 1. İSTEDİĞİNİZ SPESİFİK MARKAYI BUL: 92/002401
-    const testTargetAppNo = '92/002401';
-    const testPayload = monitoredMarksPayload.find(m => m.applicationNo === testTargetAppNo);
-    
-    if (testPayload) {
-        console.log(`\n======================================================`);
-        console.log(`📦 [TEST PAYLOAD] Backend'e Giden Veri (${testTargetAppNo})`);
-        console.log(`======================================================`);
-        console.log(`📌 Orijinal Marka Adı : "${testPayload.markName}"`);
-        console.log(`🎯 Ana Arama İbaresi  : "${testPayload.searchMarkName}"`);
-        console.log(`🔍 Ekstra Kelimeler   :`, testPayload.brandTextSearch);
-        console.log(`🏷️ İzlenen Sınıflar   :`, testPayload.niceClassSearch);
-        console.log(`📅 Başvuru Tarihi     :`, testPayload.applicationDate);
-        console.log(`======================================================\n`);
-    } else {
-        console.log(`⚠️ Uyarı: Ekranda (Filtrelenmiş listede) '${testTargetAppNo}' numaralı marka bulunamadı, bu yüzden log basılamadı.`);
-    }
-
     try {
         const onProgress = (pd) => {
             if (pd.status === 'downloading') {

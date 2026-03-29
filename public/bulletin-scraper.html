@@ -5,15 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bülten Scrape Merkezi | IPGate</title>
     
+    <link rel="stylesheet" href="css/shared-styles.css"> 
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 </head>
-<body class="bg-light">
+<body>
+    <div id="layout-placeholder"></div>
 
-<div class="container-fluid mt-4">
+    <div class="page-wrapper">
+        <main class="main-container">
+            
+            <div class="container-fluid mt-4">
     <div class="d-sm-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0 text-gray-800"><i class="fas fa-spider mr-2 text-primary"></i>Bülten Scrape (API Botu)</h1>
         <p class="text-muted">TürkPatent üzerinden e-Devlet şifresi GEREKTİRMEDEN otomatik veri kazıma merkezi.</p>
@@ -56,6 +61,35 @@
                     </div>
                 </div>
             </div>
+            <div class="card shadow-sm mb-4" style="border-radius: 12px; border: 1px solid #e3e6f0;">
+                <div class="card-header bg-white" style="border-bottom: 1px solid #e3e6f0; padding: 1.25rem;">
+                    <h5 class="m-0 font-weight-bold" style="color: #1e3c72;">
+                        <i class="fas fa-keyboard mr-2 text-warning"></i>Manuel Başvuru Ekle
+                    </h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label class="font-weight-bold text-secondary small">Hedef Bülten No</label>
+                            <input type="text" class="form-control" id="manualBulletinNo" placeholder="Örn: 488">
+                        </div>
+                        <div class="col-md-7 mb-3">
+                            <label class="font-weight-bold text-secondary small">Başvuru No</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="manualAppNoInput" placeholder="Örn: 2024/12345">
+                                <div class="input-group-append">
+                                    <button id="addManualAppNoBtn" class="btn btn-success font-weight-bold" type="button">
+                                        <i class="fas fa-plus mr-1"></i>Kuyruğa At
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle"></i> Girdiğiniz numara doğrudan <b>bulletin_fetch_queue</b> tablosuna eklenir. Botu başlattığınızda TPE'den kazınır.
+                    </small>
+                </div>
+            </div>
         </div>
 
         <div class="col-xl-6 col-lg-6">
@@ -87,22 +121,28 @@
                     </div>
 
                     <button id="startBotBtn" class="btn btn-success px-5 py-3 font-weight-bold shadow-sm w-100" style="border-radius: 10px; font-size: 1.1rem;">
-                        <i class="fas fa-play mr-2"></i>3x Hızında Robotu Başlat
+                        <i class="fas fa-play mr-2"></i>5x Hızında Robotu Başlat
                     </button>
                     <button id="stopBotBtn" class="btn btn-danger px-5 py-3 font-weight-bold shadow-sm w-100" style="display: none; border-radius: 10px; font-size: 1.1rem;">
                         <i class="fas fa-stop mr-2"></i>Durdur
                     </button>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
+</div> </main> </div> <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 
 <script type="module">
     import { supabase } from './supabase-config.js';
+    import { loadSharedLayout } from './js/layout-loader.js'; // 🔥 YENİ EKLENDİ
 
     // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'NİZİ YAZIN!
     const EXTENSION_ID = "kdiejfokbbkhblndnfocffijcikdbgmn"; 
+
+    // Sayfa yüklendiğinde menüyü getir!
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadSharedLayout({ activeMenuLink: 'bulletin-scraper.html' });
+        updateQueueStats(); // Zaten altta olan updateQueueStats fonksiyonunu da buraya taşıdık
+    });
 
     function base64ToBlob(base64, contentType='image/jpeg') {
         const byteCharacters = atob(base64);
@@ -255,8 +295,10 @@
 
     // --- BÖLÜM 2: YASAL HACKER - PARALEL MULTITHREAD KONTROL MEKANİZMASI ---
     let botIsRunning = false;
-    let totalQueue = 0;
-    let completedQueue = 0;
+    
+    // 🔥 YENİ: Oturum bazlı hesaplama değişkenleri
+    let sessionTotalTasks = 0; 
+    let sessionCompletedTasks = 0;
     
     // Aynı anda TPE'ye vuracak namlu sayısı (Şu an 5. Güvenli limittir.)
     const CONCURRENCY_LIMIT = 5; 
@@ -265,7 +307,6 @@
 
     async function updateQueueStats() {
         const { count: pendingCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending');
-        const { count: completedCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'completed');
         const { count: errorCount } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'error');
 
         // Güvenli DOM Güncellemesi
@@ -274,18 +315,80 @@
         const elError = document.getElementById('qError');
 
         if(elPending) elPending.innerText = `Bekleyen: ${pendingCount || 0}`;
-        if(elCompleted) elCompleted.innerText = `Biten: ${completedCount || 0}`;
+        if(elCompleted) elCompleted.innerText = `Oturumda Biten: ${sessionCompletedTasks}`; // Sadece bu oturumu gösterir
         if(elError) elError.innerText = `Hatalı: ${errorCount || 0}`;
 
-        totalQueue = (pendingCount || 0) + (completedCount || 0) + (errorCount || 0);
-        if (totalQueue > 0) {
-            let percent = Math.round(((completedCount || 0) / totalQueue) * 100);
-            const elProgress = document.getElementById('queueProgressBar');
-            if(elProgress) {
+        // 🔥 YENİ YÜZDE HESAPLAMA MANTIĞI
+        const elProgress = document.getElementById('queueProgressBar');
+        if (elProgress) {
+            if (sessionTotalTasks > 0) {
+                let percent = Math.round((sessionCompletedTasks / sessionTotalTasks) * 100);
+                if (percent > 100) percent = 100;
+                
                 elProgress.style.width = `${percent}%`;
                 elProgress.innerText = `%${percent}`;
+                
+                if(percent === 100) {
+                    elProgress.classList.remove('bg-primary');
+                    elProgress.classList.add('bg-success');
+                } else {
+                    elProgress.classList.remove('bg-success');
+                    elProgress.classList.add('bg-primary');
+                }
+            } else {
+                elProgress.style.width = `0%`;
+                elProgress.innerText = `%0`;
             }
         }
+    }
+    // 🔥 MANUEL BAŞVURU EKLEME (KUYRUĞA YAZMA) İŞLEMİ BURAYA EKLENDİ 🔥
+    const addManualBtn = document.getElementById('addManualAppNoBtn');
+    if (addManualBtn) {
+        addManualBtn.addEventListener('click', async () => {
+            const bulletinNo = document.getElementById('manualBulletinNo').value.trim();
+            const appNo = document.getElementById('manualAppNoInput').value.trim();
+            
+            if (!bulletinNo || !appNo) {
+                alert('Lütfen hem bülten numarasını hem de başvuru numarasını giriniz!');
+                return;
+            }
+            
+            const originalHtml = addManualBtn.innerHTML;
+            addManualBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Bekleyin...';
+            addManualBtn.disabled = true;
+            
+            try {
+                // 1. Önce bülten tablosunda o bülten var mı diye 'upsert' yapıyoruz
+                const bultenId = bulletinNo.replace('/', '');
+                await supabase.from('trademark_bulletins').upsert({
+                    id: bultenId,
+                    bulletin_no: bulletinNo,
+                    type: 'marka'
+                }, { onConflict: 'id', ignoreDuplicates: true });
+
+                // 2. Başvuruyu Bot Kuyruğuna (bulletin_fetch_queue) atıyoruz
+                const { error: queueError } = await supabase.from('bulletin_fetch_queue').upsert({
+                    application_number: appNo,
+                    bulletin_no: bulletinNo,
+                    status: 'pending' 
+                }, { onConflict: 'application_number, bulletin_no', ignoreDuplicates: true });
+
+                if (queueError) throw queueError;
+                
+                alert(`${appNo} numaralı başvuru ${bulletinNo} bülten kuyruğuna eklendi!`);
+                document.getElementById('manualAppNoInput').value = ''; 
+                
+                // İstatistikleri güncelle
+                updateQueueStats();
+
+            } catch (err) {
+                console.error("Kuyruğa ekleme hatası:", err);
+                alert("Veritabanı hatası oluştu: " + err.message);
+            } finally {
+                addManualBtn.innerHTML = originalHtml;
+                addManualBtn.disabled = false;
+            }
+        });
     }
 
     document.getElementById('startBotBtn').addEventListener('click', async () => {
@@ -293,6 +396,17 @@
             alert("Lütfen koddaki EXTENSION_ID kısmına Chrome Eklentinizin kimliğini yazın!");
             return;
         }
+
+        // 🔥 KRİTİK DEĞİŞİKLİK: Bot başlatılırken, o anki "pending" sayısını hedef olarak belirliyoruz
+        const { count: currentPending } = await supabase.from('bulletin_fetch_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+        
+        if (!currentPending || currentPending === 0) {
+            alert("Kuyrukta bekleyen işlem yok!");
+            return;
+        }
+
+        sessionTotalTasks = currentPending; // O anki bekleyenleri toplam hedefimiz yap
+        sessionCompletedTasks = 0; // Oturum sıfırdan başlıyor
 
         botIsRunning = true;
         document.getElementById('startBotBtn').style.display = 'none';
@@ -459,10 +573,13 @@
                             }
                         }
 
+                        // 🔥 YENİ: Görev bittiğinde oturum sayacını artır (Başarılı veya hatalı olması fark etmez, görev bitti)
+                        sessionCompletedTasks++;
+                        
                         if (activeRequests % 2 === 0) updateQueueStats();
 
                         // 🔥 BOŞALAN NAMLUNUN YERİNE ANINDA YENİSİNİ DOLDUR!
-                        processNextItem(); 
+                        processNextItem();
 
                     } catch (innerError) {
                         processNextItem();
@@ -480,7 +597,6 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', updateQueueStats);
 </script>
 
 </body>

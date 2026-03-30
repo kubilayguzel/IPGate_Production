@@ -1,11 +1,8 @@
-// public/js/client-portal/RenderHelper.js
-
 export class RenderHelper {
     constructor(state) {
-        this.state = state; // main.js'den gelen merkezi veri havuzuna erişim
+        this.state = state; 
     }
 
-    // Ortak Tarih Formatlayıcı
     formatDate(dateStr) {
         if (!dateStr) return '-';
         try {
@@ -15,9 +12,6 @@ export class RenderHelper {
         } catch { return '-'; }
     }
 
-    // ==========================================
-    // DAVA TABLOSU RENDER
-    // ==========================================
     renderDavaTable(dataSlice, startIndex = 0) {
         const tbody = document.getElementById('dava-tbody');
         if (!tbody) return;
@@ -45,9 +39,6 @@ export class RenderHelper {
         });
     }
 
-    // ==========================================
-    // İTİRAZ TABLOSU RENDER (Gelişmiş Akordeonlu)
-    // ==========================================
     renderObjectionTable(dataSlice, startIndex = 0) {
         const tbody = document.getElementById('dava-itiraz-tbody');
         if (!tbody) return;
@@ -62,7 +53,6 @@ export class RenderHelper {
             const parentIndex = startIndex + index + 1;
             const tr = document.createElement('tr');
             
-            // Menşeyi zorla iki gruba ayırmak yerine veritabanındaki ham halini alıyoruz
             const originDisplay = row.origin || 'TÜRKPATENT';
             tr.setAttribute('data-origin', originDisplay);
 
@@ -97,7 +87,6 @@ export class RenderHelper {
             
             tbody.appendChild(tr);
 
-            // Alt (Child) İşlemler varsa akordeon satırını ekle
             if (hasChildren) {
                 const detailRow = document.createElement('tr');
                 detailRow.setAttribute('data-origin', originDisplay);
@@ -129,9 +118,6 @@ export class RenderHelper {
         });
     }
 
-    // ==========================================
-    // ORTAK EVRAK/PDF LİNK OLUŞTURUCU
-    // ==========================================
     renderDocsCell(docs) {
         if (!docs || docs.length === 0) return '<span class="text-muted">-</span>';
         return docs.map(doc => {
@@ -158,9 +144,6 @@ export class RenderHelper {
         }).filter(Boolean).join('') || '<span class="text-muted">-</span>';
     }
 
-    // ==========================================
-    // YARDIMCI: BENZERLİK SKOR FORMATLAYICI
-    // ==========================================
     formatScore(val) {
         if (val === undefined || val === null || val === '') return null;
         let strVal = String(val).replace(/['"%]/g, '').trim();
@@ -170,9 +153,6 @@ export class RenderHelper {
         return `%${Math.round(num)}`;
     }
 
-    // ==========================================
-    // GÖREVLER (TASKS) RENDER VE BÜLTEN SEKMELERİ
-    // ==========================================
     renderTaskSection(tasks, containerId, taskTypeFilter) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -182,7 +162,6 @@ export class RenderHelper {
             return;
         }
 
-        // BÜLTEN İZLEME İSE BÜLTEN NUMARALARINA GÖRE GRUPLA
         if (taskTypeFilter === 'bulletin-watch') {
             const groups = {};
             const expired = [];
@@ -201,12 +180,11 @@ export class RenderHelper {
                 if (isExp) {
                     expired.push({ ...t, status: 'Bülten Kapandı' });
                 } else {
-                    // YENİ: JSON'daki farklı yolları kontrol et ve sadece numarayı al (bulletin_no eklendi)
-                    let rawBNo = t.details?.brandInfo?.opposedMarkBulletinNo || t.details?.brandInfo?.bulletinNo || t.details?.bulletin_no || t.details?.bulletinNo;
+                    let rawBNo = t.details?.bulletinNo || t.details?.brandInfo?.opposedMarkBulletinNo || t.details?.brandInfo?.bulletinNo || t.details?.bulletin_no;
                     let bNo = 'Diğer';
                     
                     if (rawBNo) {
-                        const match = String(rawBNo).match(/\d+/); // "Bülten 480" gibi metinlerden sadece "480" rakamını çeker
+                        const match = String(rawBNo).match(/\d+/); 
                         if (match) bNo = match[0];
                     }
                     
@@ -215,7 +193,6 @@ export class RenderHelper {
                 }
             });
 
-            // YENİ: Akıllı Sıralama (Diğer sekmesini en sona atar, numaraları büyükten küçüğe sıralar)
             const bNumbers = Object.keys(groups).sort((a, b) => {
                 if (a === 'Diğer') return 1;
                 if (b === 'Diğer') return -1;
@@ -227,7 +204,6 @@ export class RenderHelper {
 
             bNumbers.forEach((no, i) => {
                 const active = i === 0 ? 'active' : '';
-                // YENİ: İstenilen sekme adı formatı "480. Bülten (10)" veya "Diğer Bültenler (5)"
                 const tabTitle = no === 'Diğer' ? `Diğer Bültenler (${groups[no].length})` : `${no}. Bülten (${groups[no].length})`;
                 
                 html += `<li class="nav-item"><a class="nav-link ${active}" data-toggle="tab" href="#b-${no}">${tabTitle}</a></li>`;
@@ -241,9 +217,7 @@ export class RenderHelper {
             }
 
             container.innerHTML = html + '</ul>' + content + '</div>';
-        } 
-        // NORMAL LİSTE (TAMAMLANANLAR, ONAY BEKLEYENLER)
-        else {
+        } else {
             container.innerHTML = `<div class="row">${this.generateTaskCardsHtml(tasks.slice(0, 50), taskTypeFilter)}</div>`;
             if (tasks.length > 50) {
                 container.innerHTML += `<div class="text-center text-muted mt-3"><small>Sadece ilk 50 kayıt listelenmiştir.</small></div>`;
@@ -259,8 +233,7 @@ export class RenderHelper {
             const monitoredId = task.details?.monitoredMarkId || task.relatedIpRecordId;
             let bulletinKey = task.details?.bulletinKey || (task.details?.bulletinNo ? `${task.details.bulletinNo}_${task.details.bulletinDate?.replace(/\//g, '')}` : null);
 
-            // 🔥 ÇÖZÜM: targetAppNo'yu bloğun dışına (en üste) taşıdık ki butonlar da görebilsin
-            const targetAppNo = task.details?.targetAppNo || task.details?.brandInfo?.applicationNo || '-';
+            const targetAppNo = task.details?.targetAppNo || '-';
 
             let cardTitle = `#${task.id} - ${task.taskTypeDisplay}`;
             if (!isBulletinWatch) {
@@ -269,44 +242,32 @@ export class RenderHelper {
 
             let comparisonRow = '';
             
-            // EKSİK VERİLERİ (Logo, Başvuru Tarihi, Sahip) JSON İÇİNDEN BULUP GETİRME
             if (isBulletinWatch) {
-                // --- İZLENEN MARKA (KENDİ MARKANIZ) BİLGİLERİ ---
-                const myImgUrl = task.brandImageUrl || 'https://placehold.co/100x100?text=Görsel+Yok';
-                const myClasses = task.details?.niceClasses || task.details?.brandInfo?.niceClasses || '-';
-                
-                let myAppDate = task.details?.applicationDate || task.details?.iprecordApplicationDate;
-                if (!myAppDate && this.state?.portfolios) {
-                    const portfItem = this.state.portfolios.find(p => p.id === task.relatedIpRecordId);
-                    if (portfItem) myAppDate = portfItem.applicationDate;
-                }
-                const formattedMyAppDate = this.formatDate(myAppDate);
-
-                let myOwner = task.details?.applicantName;
-                if (!myOwner && this.state?.portfolios) {
-                    const portfItem = this.state.portfolios.find(p => p.id === task.relatedIpRecordId);
+                // --- İZLENEN MARKA ---
+                // Sizin JSON'dan veya detaylardan İZLENEN MARKA bilgilerini alıyoruz
+                let myOwner = task.details?.brandInfo?.applicantName || task.details?.applicantName || '-';
+                if (myOwner === '-' && this.state?.portfolios) {
+                    const portfItem = this.state.portfolios.find(p => p.id === task.details?.monitoredMarkId);
                     if (portfItem && portfItem.applicants && portfItem.applicants.length > 0) {
                         myOwner = portfItem.applicants.map(a => a.name).join(', ');
                     }
                 }
-                if (!myOwner || myOwner === '-') myOwner = document.getElementById('currentClientName')?.textContent || '-';
+                if (myOwner === '-') myOwner = document.getElementById('currentClientName')?.textContent || '-';
 
-                // --- BENZER MARKA (RAKİP) BİLGİLERİ ---
+                let myAppDate = task.details?.brandInfo?.applicationDate || task.details?.applicationDate || '-';
+                let myClasses = task.details?.brandInfo?.classes || task.details?.niceClasses || '-';
+                let myRecordTitle = task.details?.brandInfo?.brandName || task.recordTitle;
+                let myAppNo = task.details?.brandInfo?.applicationNo || task.appNo;
+                let myImgUrl = task.details?.brandInfo?.imagePath || task.details?.brandInfo?.brandImage || task.brandImageUrl || 'https://placehold.co/100x100?text=Görsel+Yok';
+
+                // --- BENZER MARKA (TaskManager.js'den gelen bülten verileri) ---
                 const cleanCompNo = String(targetAppNo).replace(/[^a-zA-Z0-9/]/g, '');
-                const compName = task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
                 
-                let compClasses = task.details?.competitorClasses || task.details?.brandInfo?.classes || '-';
-                if (Array.isArray(compClasses)) compClasses = compClasses.join(', ');
-                
-                // Görselin saklandığı olası tüm anahtarları kontrol et
-                const compImgUrl = task.details?.brandInfo?.imagePath || task.details?.competitorBrandImage || task.details?.brandInfo?.imageUrl || task.details?.brandInfo?.brandImage || 'https://placehold.co/100x100?text=Görsel+Yok';
-                
-                let compOwner = task.details?.competitorOwner || task.details?.brandInfo?.applicantName || '-';
-                if ((!compOwner || compOwner === '-') && task.details?.brandInfo?.holders && task.details.brandInfo.holders.length > 0) {
-                    compOwner = task.details.brandInfo.holders.map(h => typeof h === 'string' ? h : h.holderName).join(', ');
-                }
-
-                const compAppDate = this.formatDate(task.details?.competitorAppDate || task.details?.brandInfo?.applicationDate || task.details?.targetAppDate);
+                const compImgUrl = task.details?.competitorBrandImage || 'https://placehold.co/100x100?text=Görsel+Yok';
+                const compName = task.details?.objectionTarget || 'İsimsiz Marka';
+                const compOwner = task.details?.competitorOwner || '-';
+                const compAppDate = this.formatDate(task.details?.competitorAppDate);
+                const compClasses = task.details?.competitorClasses || '-';
 
                 const displayScore = this.formatScore(task.details?.similarityScore);
                 const note = task.details?.note;
@@ -320,6 +281,7 @@ export class RenderHelper {
                     </div>`;
                 }
 
+                // 🔥 Orijinal CSS Yapınız (text-white ile Dark Mode'u korur)
                 comparisonRow = `
                 <div class="row mt-3 pt-3 border-top border-secondary">
                     <div class="col-md-6 border-right border-secondary mb-3 mb-md-0">
@@ -327,9 +289,9 @@ export class RenderHelper {
                         <div class="d-flex align-items-start text-left">
                             <div class="mr-4" style="min-width:100px; text-align:center;"><img src="${myImgUrl}" class="task-brand-image" style="height:100px; width:auto; max-width:100%; object-fit:contain;"></div>
                             <div>
-                                <div class="font-weight-bold mb-2 text-white" style="font-size:1.2rem;">${task.recordTitle}</div>
-                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru No:</span> <span class="text-white">${task.appNo}</span></div>
-                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${formattedMyAppDate !== '-' ? formattedMyAppDate : 'Belirtilmedi'}</span></div>
+                                <div class="font-weight-bold mb-2 text-white" style="font-size:1.2rem;">${myRecordTitle}</div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru No:</span> <span class="text-white">${myAppNo}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${this.formatDate(myAppDate)}</span></div>
                                 <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sahip:</span> <span class="text-white">${myOwner}</span></div>
                                 <div style="font-size:0.95rem;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${myClasses}</span></div>
                             </div>
@@ -342,7 +304,7 @@ export class RenderHelper {
                             <div>
                                 <div class="font-weight-bold mb-2 text-white" style="font-size:1.2rem;">${compName}</div>
                                 <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru No:</span> <span class="text-white">${targetAppNo}</span></div>
-                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${compAppDate !== '-' ? compAppDate : 'Belirtilmedi'}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${compAppDate}</span></div>
                                 <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sahip:</span> <span class="text-white">${compOwner}</span></div>
                                 <div style="font-size:0.95rem; margin-bottom:8px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${compClasses}</span></div>
                                 <div class="mt-2">
@@ -372,8 +334,7 @@ export class RenderHelper {
                     <button class="btn btn-danger btn-sm task-action-btn mr-1" data-action="reject" data-id="${task.id}"><i class="fas fa-times"></i> Reddet</button>
                     ${buttons}
                 `;
-                // targetAppNo artık burada rahatça kullanılabilir!
-                if(isBulletinWatch) {
+                if(isBulletinWatch && targetAppNo !== '-') {
                     buttons += `<button class="btn btn-warning btn-sm task-compare-goods mr-1" data-task-id="${task.id}" data-ip-record-id="${monitoredId}" data-bulletin-key="${bulletinKey}" data-target-app-no="${targetAppNo}"><i class="fas fa-balance-scale"></i> Kıyasla</button>`;
                 }
             }
@@ -398,9 +359,6 @@ export class RenderHelper {
         }).join('');
     }
 
-    // ==========================================
-    // MARKA MODALI: AKILLI İŞLEM GEÇMİŞİ RENDER (MERKEZİ MİMARİ)
-    // ==========================================
     renderTransactionHistory(processedParents, containerId) {
         const tbody = document.querySelector(`#${containerId} tbody`);
         if (!tbody) return;
@@ -413,19 +371,16 @@ export class RenderHelper {
         tbody.innerHTML = '';
         let rowIndex = 1;
 
-        // Veri zaten "processAndOrganizeTransactions" tarafından mükemmel sıralandı ve gruplandı!
         processedParents.forEach(parent => {
             const children = parent.childrenData || [];
             const hasChildren = children.length > 0;
             const accordionId = `modal-transaction-${parent.id}`;
 
-            // İşlem Adı
             let transactionAlias = parent.typeName || parent.description || 'İşlem';
             if (String(parent.transaction_type_id) === '20' && parent.opposition_owner) {
                 transactionAlias += ` (${parent.opposition_owner})`;
             }
 
-            // ROZET (BADGE) MANTIĞI - Lehe/Aleyhe Durum Analizi
             let resultBadge = '';
             if (parent.request_result) {
                 const rrObj = this.state.transactionTypes.get(String(parent.request_result));
@@ -435,9 +390,9 @@ export class RenderHelper {
                     const parentType = String(parent.transaction_type_id);
                     
                     let badgeColor = 'info'; 
-                    if (parentType === '20') { // Bize İtiraz Edildi
+                    if (parentType === '20') { 
                         badgeColor = lowerName.includes('kabul') ? 'danger' : 'success';
-                    } else if (parentType === '19') { // Biz İtiraz Ettik
+                    } else if (parentType === '19') { 
                         badgeColor = (lowerName.includes('ret') || lowerName.includes('red')) ? 'danger' : 'success';
                     } else {
                         if (lowerName.includes('ret') || lowerName.includes('red')) badgeColor = 'danger';
@@ -448,7 +403,6 @@ export class RenderHelper {
                 }
             }
 
-            // 🔥 Merkezi filtreden geçmiş evrakları çizdiriyoruz
             const docsHtml = this.renderDocsCell(parent.all_documents);
 
             const parentRow = document.createElement('tr');
@@ -466,7 +420,6 @@ export class RenderHelper {
             `;
             tbody.appendChild(parentRow);
 
-            // Alt (Child) İşlemler
             if (hasChildren) {
                 const detailRow = document.createElement('tr');
                 const childrenHtml = children.map((child, idx) => {
@@ -494,4 +447,3 @@ export class RenderHelper {
         });
     }
 }
-

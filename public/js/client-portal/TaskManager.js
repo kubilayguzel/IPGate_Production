@@ -1,4 +1,3 @@
-// public/js/client-portal/TaskManager.js
 import { supabase } from '../../supabase-config.js';
 
 export class TaskManager {
@@ -8,41 +7,32 @@ export class TaskManager {
         try {
             const allTasks = [];
             
-            // 1. Görev Sahibine (task_owner_id) Göre Çek
-            const { data: tasksByOwner, error: ownerError } = await supabase
-                .from('tasks')
-                .select('*')
-                .in('task_owner_id', clientIds);
-                
+            // 1. Görev Sahibine Göre Çek
+            const { data: tasksByOwner, error: ownerError } = await supabase.from('tasks').select('*').in('task_owner_id', clientIds);
             if (ownerError) throw ownerError;
             if (tasksByOwner) allTasks.push(...tasksByOwner);
             
-            // 2. Marka ID'lerine (ip_record_id) Göre Çek (Parçalı / Chunked - URL Too Long hatasını önler)
+            // 2. Marka ID'lerine Göre Çek
             if (clientIpRecordIds.length > 0) {
                 const chunkSize = 150; 
                 for (let i = 0; i < clientIpRecordIds.length; i += chunkSize) {
                     const chunk = clientIpRecordIds.slice(i, i + chunkSize);
-                    const { data: tasksByIp, error: ipError } = await supabase
-                        .from('tasks')
-                        .select('*')
-                        .in('ip_record_id', chunk);
-                        
+                    const { data: tasksByIp, error: ipError } = await supabase.from('tasks').select('*').in('ip_record_id', chunk);
                     if (ipError) throw ipError;
                     if (tasksByIp) allTasks.push(...tasksByIp);
                 }
             }
             
-            // 3. Tekrar eden (Deduplicate) kayıtları temizle
+            // 3. Tekrar edenleri temizle
             const uniqueTasksMap = new Map();
             allTasks.forEach(t => uniqueTasksMap.set(t.id, t));
             const uniqueTasks = Array.from(uniqueTasksMap.values());
             
             if (uniqueTasks.length === 0) return [];
 
-            // 4. Bağlantılı Tabloları (Foreign Key Olmadan) Manuel Çek ve Eşleştir
             const taskIpIds = [...new Set(uniqueTasks.map(t => t.ip_record_id).filter(Boolean))];
             const taskTypeIds = [...new Set(uniqueTasks.map(t => t.task_type_id).filter(Boolean))];
-            
+
             const promises = [];
             
             if (taskIpIds.length > 0) {
@@ -60,9 +50,17 @@ export class TaskManager {
 
             const [ipRecordsRes, tmDetailsRes, txTypesRes] = await Promise.all(promises);
 
-            // Marka Haritasını Oluştur
             const ipMap = new Map();
-            (ipRecordsRes.data || []).forEach(ip => ipMap.set(ip.id, { appNo: ip.application_number }));
+            const appNosForBulletin = new Set(); 
+
+            // ADIM 1 ve 2: ip_record_id ile ip_records tablosundan application_number'ı bulup topluyoruz
+            (ipRecordsRes.data || []).forEach(ip => {
+                ipMap.set(ip.id, { appNo: ip.application_number });
+                if (ip.application_number) {
+                    appNosForBulletin.add(String(ip.application_number).trim()); 
+                }
+            });
+
             (tmDetailsRes.data || []).forEach(tm => {
                 if (ipMap.has(tm.ip_record_id)) {
                     ipMap.get(tm.ip_record_id).brandName = tm.brand_name;
@@ -70,14 +68,58 @@ export class TaskManager {
                 }
             });
 
-            // İşlem Tipi Haritasını Oluştur
             const txTypesMap = new Map();
             (txTypesRes.data || []).forEach(t => txTypesMap.set(String(t.id), t));
 
-            // 5. Arayüzün (UI) beklediği son formata dönüştür
+            // ADIM 3: Topladığımız başvuru numaralarıyla bülten tablosuna (trademark_bulletin_records) gidiyoruz
+            const bulletinMap = new Map();
+            const appNosArray = Array.from(appNosForBulletin);
+            
+            if (appNosArray.length > 0) {
+                const { data: bulletinData } = await supabase.from('trademark_bulletin_records')
+                    .select('application_number, brand_name, image_url, holders, nice_classes, application_date, bulletin_id')
+                    .in('application_number', appNosArray);
+                
+                (bulletinData || []).forEach(b => {
+                    if (b.application_number) bulletinMap.set(String(b.application_number).trim(), b);
+                });
+            }
+
             return uniqueTasks.map(task => {
                 const ipRecord = ipMap.get(task.ip_record_id) || {};
                 const typeObj = txTypesMap.get(String(task.task_type_id)) || {};
+                
+                let parsedDetails = {};
+                try {
+                    parsedDetails = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {});
+                } catch(e) { parsedDetails = {}; }
+
+                // SONUÇ: ip_record'un application_number'ı ile bültendeki eşleşmeyi bul ve details içine yaz!
+                const targetAppNo = ipRecord.appNo ? String(ipRecord.appNo).trim() : null;
+                const competitorData = targetAppNo ? bulletinMap.get(targetAppNo) : null;
+
+                if (competitorData) {
+                    parsedDetails.targetAppNo = competitorData.application_number;
+                    parsedDetails.competitorBrandImage = competitorData.image_url;
+                    parsedDetails.objectionTarget = competitorData.brand_name;
+                    parsedDetails.competitorAppDate = competitorData.application_date;
+                    parsedDetails.bulletinNo = competitorData.bulletin_id;
+                    
+                    if (competitorData.nice_classes) {
+                        parsedDetails.competitorClasses = Array.isArray(competitorData.nice_classes) ? competitorData.nice_classes.join(', ') : competitorData.nice_classes;
+                    }
+                    
+                    if (competitorData.holders) {
+                        try {
+                            let hArr = typeof competitorData.holders === 'string' ? JSON.parse(competitorData.holders) : competitorData.holders;
+                            if (typeof hArr === 'string') hArr = JSON.parse(hArr); 
+                            if (Array.isArray(hArr) && hArr.length > 0) {
+                                // Sizin DB formatınıza tam uygun: { "name": "FARUK..." }
+                                parsedDetails.competitorOwner = hArr.map(h => h.name || h.holderName).filter(Boolean).join(', ');
+                            }
+                        } catch(e) {}
+                    }
+                }
 
                 return {
                     id: String(task.id),
@@ -93,7 +135,7 @@ export class TaskManager {
                     recordTitle: ipRecord.brandName || '-',
                     brandImageUrl: ipRecord.brandImageUrl || '',
                     clientId: task.task_owner_id,
-                    details: typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {}),
+                    details: parsedDetails, // Bülten verileriyle dopdolu JSON!
                     _relatedClientIds: [task.task_owner_id, ...clientIds].filter(Boolean)
                 };
             }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));

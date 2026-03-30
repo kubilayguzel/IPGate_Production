@@ -3,10 +3,18 @@ import { supabase } from '../../supabase-config.js';
 export class OppositionReport {
     constructor() {
         this.selectedClients = new Map();
-        this.reportData = [];
+        
+        this.reportDataThirdParty = []; 
+        this.reportDataSelf = [];       
+        this.activeTab = 'third_party'; 
+        
         this.targetTaskTypes = [7, 8, 9, 19, 20, 21, 37, 38, 39]; 
         
-        // ORTAK STATÜ ÇEVİRİ HARİTASI
+        this.sortCol = 'taskId'; 
+        this.sortAsc = false;    
+        this._isSortBound = false; 
+
+        // Durum Metinleri
         this.statusMap = { 
             'pending': 'İşlem Bekliyor', 
             'awaiting_client_approval': 'Onay Bekliyor', 
@@ -16,9 +24,19 @@ export class OppositionReport {
             'müvekkil onayı - kapatıldı': 'Müvekkil Onayıyla Kapatıldı',
             'cancelled': 'İptal Edildi'
         };
+
+        // 🔥 YENİ: Göz yormayan (Soft) Statü Renkleri
+        this.statusColors = {
+            'pending': 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;', // Soft Sarı
+            'awaiting_client_approval': 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;', // Soft Mavi
+            'open': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
+            'completed': 'background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc;', // Soft Yeşil
+            'client_approval_closed': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
+            'müvekkil onayı - kapatıldı': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
+            'cancelled': 'background-color: #f8d7da; color: #842029; border: 1px solid #f5c2c7;' // Soft Kırmızı
+        };
     }
 
-    // 1. ARAMA VE FİLTRE EKRANINI ÇİZ
     renderFilters(containerId) {
         const container = document.getElementById(containerId);
         container.innerHTML = `
@@ -115,130 +133,64 @@ export class OppositionReport {
         container.innerHTML = html;
     }
 
-    // 2. VERİLERİ ÇEK VE YENİ TERTEMİZ ŞEMAYA GÖRE HARMANLA
     async fetchData() {
-        console.log("🚀 Rapor Üretimi Başladı...");
+        console.log("🚀 Rapor Üretimi Başladı (View Üzerinden)...");
         const clientIds = Array.from(this.selectedClients.keys());
         
-        console.log("1. Görevler çekiliyor...");
         const { data: tasks, error } = await supabase
-            .from('tasks')
-            .select('id, title, status, created_at, task_type_id, details, ip_record_id, task_owner_id')
+            .from('v_tasks_dashboard')
+            .select('*')
             .in('task_type_id', this.targetTaskTypes)
             .in('task_owner_id', clientIds);
 
-        if (error) {
-            console.error("❌ Görevler çekilirken hata:", error);
-            throw error;
-        }
+        if (error) throw error;
         if (!tasks || tasks.length === 0) { 
-            console.warn("⚠️ Kriterlere uygun görev bulunamadı.");
-            this.reportData = []; 
+            this.reportDataThirdParty = [];
+            this.reportDataSelf = [];
             return; 
         }
-        console.log(`✅ ${tasks.length} adet görev bulundu.`);
 
         const { data: txTypes } = await supabase.from('transaction_types').select('id, name, alias').in('id', this.targetTaskTypes);
         const txTypesMap = new Map();
         if (txTypes) txTypes.forEach(t => txTypesMap.set(String(t.id), t));
 
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        const rawIpRecordIds = [...new Set(tasks.map(t => t.ip_record_id).filter(Boolean))];
-        const ipRecordIds = rawIpRecordIds.filter(id => uuidRegex.test(id)); 
-
-        const ipMap = new Map();
-        let appNosToFetch = [];
-
-        if (ipRecordIds.length > 0) {
-            console.log("3. IP Records çekiliyor...");
-            const { data: ipRecords, error: ipError } = await supabase
-                .from('ip_records')
-                .select('id, application_number, record_owner_type')
-                .in('id', ipRecordIds);
-                
-            if (ipError) console.error("❌ ip_records hatası:", ipError);
-            else if (ipRecords) {
-                ipRecords.forEach(ip => {
-                    ipMap.set(ip.id, ip);
-                    if (ip.application_number) appNosToFetch.push(ip.application_number);
-                });
+        let appNosToFetch = [...new Set(tasks.map(t => t.iprecordApplicationNo).filter(Boolean))];
+        const bulletinMap = new Map();
+        
+        if (appNosToFetch.length > 0) {
+            const { data: bulletinRecords } = await supabase
+                .from('trademark_bulletin_records')
+                .select('application_number, bulletin_id, holders')
+                .in('application_number', appNosToFetch);
+            if (bulletinRecords) {
+                bulletinRecords.forEach(br => bulletinMap.set(br.application_number, br));
             }
         }
+
+        this.reportDataThirdParty = [];
+        this.reportDataSelf = [];
 
         tasks.forEach(t => {
             let details = {};
             if (t.details) {
                 if (typeof t.details === 'string') {
                     try { details = JSON.parse(t.details); } catch(e) {}
-                    if (typeof details === 'string') { try { details = JSON.parse(details); } catch(e) {} }
                 } else if (typeof t.details === 'object') {
                     details = t.details;
                 }
             }
-            t._parsedDetails = details; 
-            const appNo = details.target_app_no || details.iprecordApplicationNo || details.targetAppNo || details.application_number;
-            if (appNo) appNosToFetch.push(appNo);
-        });
-
-        const tmDetailsMap = new Map();
-        if (ipRecordIds.length > 0) {
-            const { data: tmDetails, error: tmError } = await supabase
-                .from('ip_record_trademark_details')
-                .select('ip_record_id, brand_name')
-                .in('ip_record_id', ipRecordIds);
-            if (!tmError && tmDetails) tmDetails.forEach(tm => tmDetailsMap.set(tm.ip_record_id, tm));
-        }
-
-        const rawOwnerIds = [...new Set(tasks.map(t => t.task_owner_id).filter(Boolean))];
-        const ownerIds = rawOwnerIds.filter(id => uuidRegex.test(id));
-        const personsMap = new Map();
-        if (ownerIds.length > 0) {
-            const { data: persons, error: pError } = await supabase.from('persons').select('id, name').in('id', ownerIds);
-            if (!pError && persons) persons.forEach(p => personsMap.set(p.id, p));
-        }
-
-        const bulletinMap = new Map();
-        appNosToFetch = [...new Set(appNosToFetch.filter(Boolean))]; 
-        if (appNosToFetch.length > 0) {
-            const { data: bulletinRecords, error: bError } = await supabase
-                .from('trademark_bulletin_records')
-                .select('application_number, bulletin_id, holders')
-                .in('application_number', appNosToFetch);
-            if (!bError && bulletinRecords) {
-                bulletinRecords.forEach(br => bulletinMap.set(br.application_number, br));
-            }
-        }
-
-        console.log("✅ Tüm veriler çekildi, JSON ve Kurallar harmanlanıyor...");
-
-        // 🔥 YENİ VE TEMİZ ŞEMAYA GÖRE HARMANLAMA 🔥
-        this.reportData = tasks.map(t => {
-            const details = t._parsedDetails || {};
-            const typeObj = txTypesMap.get(String(t.task_type_id)) || {};
-            const ipRecord = ipMap.get(t.ip_record_id) || {};
-            const tmDetail = tmDetailsMap.get(t.ip_record_id) || {};
-            const personObj = personsMap.get(t.task_owner_id) || {};
             
+            const typeObj = txTypesMap.get(String(t.task_type_id)) || {};
             const taskType = typeObj.alias || typeObj.name || `Tip ${t.task_type_id}`;
             
-            // Başvuru Numarası: Öncelik ip_records tablosunda, yoksa detaylarda
-            let appNo = ipRecord.application_number || details.target_app_no || details.iprecordApplicationNo || details.targetAppNo || details.application_number || '-';
-            if (String(appNo).trim().toLowerCase() === 'undefined') appNo = '-';
+            let appNo = t.iprecordApplicationNo || details.target_app_no || '-';
+            let markaAdi = t.iprecordTitle || details.recordTitle || '-';
+            let talepSahibi = t.iprecordApplicantName || '-';
 
             const bulletinRecord = appNo !== '-' ? bulletinMap.get(appNo) : null;
-
-            // Bülten Numarası: Öncelik yeni temizlenen 'bulletin_no' alanında
-            let bultenNo = details.bulletin_no || details.bulletinNo || bulletinRecord?.bulletin_id || details.brandInfo?.opposedMarkBulletinNo || '-';
-            if (String(bultenNo).trim().toLowerCase() === 'undefined') bultenNo = '-';
-
-            // Talep Sahibi (Görev Sahibi)
-            let talepSahibi = personObj.name || '-';
+            let bultenNo = t.bulletinNo || bulletinRecord?.bulletin_id || '-';
+            let markaSahibi = t.opposedMarkOwner || '-';
             
-            // Marka Sahibi (Rakip)
-            // 1. ÖNCELİK: Sizin için özel oluşturduğumuz TPE API onaylı 'opposed_mark_owner'
-            let markaSahibi = details.opposed_mark_owner || '-';
-            
-            // 2. ÖNCELİK (Diğer görev tipleri için eski fallback'ler):
             if (markaSahibi === '-' || !markaSahibi) {
                 if (bulletinRecord && bulletinRecord.holders) {
                     try {
@@ -248,92 +200,222 @@ export class OppositionReport {
                         }
                     } catch(e) {}
                 }
-                
                 if (markaSahibi === '-' || !markaSahibi) {
-                    if (details.iprecordApplicantName) {
-                        markaSahibi = details.iprecordApplicantName;
-                    } else if (ipRecord.record_owner_type === 'third_party') {
-                        markaSahibi = details.relatedPartyName || details.competitorOwner || '-';
-                    } else {
-                        markaSahibi = personObj.name || '-';
-                    }
+                    markaSahibi = details.relatedPartyName || details.competitorOwner || '-';
                 }
             }
 
-            // Marka Adı
-            let markaAdi = tmDetail.brand_name || details.recordTitle || details.iprecordTitle || details.related_ip_record_title || details.objectionTarget || '-';
+            let completedAt = t.epatsDocumentDate || details.epatsDocumentDate || '-';
 
+            if (String(appNo).trim().toLowerCase() === 'undefined') appNo = '-';
             if (String(markaAdi).trim().toLowerCase() === 'undefined') markaAdi = '-';
+            if (String(bultenNo).trim().toLowerCase() === 'undefined') bultenNo = '-';
             if (String(markaSahibi).trim().toLowerCase() === 'undefined') markaSahibi = '-';
+            if (String(completedAt).trim().toLowerCase() === 'undefined' || completedAt === null) completedAt = '-';
 
-            return {
+            const rowData = {
+                taskId: t.id, 
                 taskType, bultenNo, markaAdi, appNo, talepSahibi, markaSahibi,
-                status: t.status, createdAt: t.created_at
+                status: t.status, createdAt: t.created_at, completedAt
             };
-        }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        
-        console.log("🎯 Rapor verisi başarıyla oluşturuldu!");
+
+            if (t.recordOwnerType === 'self') {
+                this.reportDataSelf.push(rowData);
+            } else {
+                this.reportDataThirdParty.push(rowData);
+            }
+        });
+
+        this.applySorting();
     }
 
-    // 3. EKRANA ÇİZ 
+    applySorting() {
+        const sortFn = (a, b) => {
+            let valA = a[this.sortCol];
+            let valB = b[this.sortCol];
+
+            if (this.sortCol === 'createdAt' || this.sortCol === 'completedAt') {
+                valA = valA === '-' ? 0 : new Date(valA).getTime();
+                valB = valB === '-' ? 0 : new Date(valB).getTime();
+                if (valA < valB) return this.sortAsc ? -1 : 1;
+                if (valA > valB) return this.sortAsc ? 1 : -1;
+                return 0;
+            } 
+            // 🔥 YENİ: Sayısal Duyarlı Sıralama (Örn: İş-2, İş-10'dan önce gelir)
+            else if (this.sortCol === 'taskId' || this.sortCol === 'bultenNo') {
+                valA = String(valA || '');
+                valB = String(valB || '');
+                return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * (this.sortAsc ? 1 : -1);
+            } 
+            else {
+                valA = String(valA || '').toLowerCase();
+                valB = String(valB || '').toLowerCase();
+                if (valA < valB) return this.sortAsc ? -1 : 1;
+                if (valA > valB) return this.sortAsc ? 1 : -1;
+                return 0;
+            }
+        };
+
+        this.reportDataThirdParty.sort(sortFn);
+        this.reportDataSelf.sort(sortFn);
+    }
+
     renderTable(containerId, theadId, tbodyId) {
+        const container = document.getElementById(containerId);
         const thead = document.getElementById(theadId);
         const tbody = document.getElementById(tbodyId);
 
-        thead.innerHTML = `<tr>
-            <th>Tarih</th>
-            <th>İşlem Tipi</th>
-            <th>Bülten No</th>
-            <th>Başvuru No</th>
-            <th>Marka Adı</th>
-            <th>Talep Sahibi</th>
-            <th>Marka Sahibi</th>
-            <th>Durum</th>
-        </tr>`;
+        if (!document.getElementById('oppReportTabs')) {
+            const tabsHtml = `
+                <ul class="nav nav-tabs mb-3" id="oppReportTabs" style="border-bottom: 2px solid #dee2e6;">
+                    <li class="nav-item">
+                        <a class="nav-link active font-weight-bold" href="#" data-tab="third_party" style="color: #1e3c72;">
+                            <i class="fas fa-shield-alt mr-1"></i> 3. Taraf Başvurularına İtirazlar <span class="badge badge-primary ml-1" id="countThirdParty">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link font-weight-bold" href="#" data-tab="self" style="color: #6c757d;">
+                            <i class="fas fa-briefcase mr-1"></i> Portföye Gelen İtirazlar <span class="badge badge-secondary ml-1" id="countSelf">0</span>
+                        </a>
+                    </li>
+                </ul>
+            `;
+            container.insertAdjacentHTML('afterbegin', tabsHtml);
+
+            document.getElementById('oppReportTabs').addEventListener('click', (e) => {
+                const tabLink = e.target.closest('a.nav-link');
+                if (!tabLink) return;
+                e.preventDefault();
+
+                document.querySelectorAll('#oppReportTabs a.nav-link').forEach(a => {
+                    a.classList.remove('active');
+                    a.style.color = '#6c757d';
+                    a.querySelector('.badge').classList.replace('badge-primary', 'badge-secondary');
+                });
+
+                tabLink.classList.add('active');
+                tabLink.style.color = '#1e3c72';
+                tabLink.querySelector('.badge').classList.replace('badge-secondary', 'badge-primary');
+
+                this.activeTab = tabLink.dataset.tab;
+                this.updateTableContent(thead, tbody);
+            });
+        }
+
+        if (!this._isSortBound) {
+            thead.addEventListener('click', (e) => {
+                const th = e.target.closest('th.sortable');
+                if (!th) return;
+                
+                const col = th.dataset.sort;
+                if (this.sortCol === col) {
+                    this.sortAsc = !this.sortAsc; 
+                } else {
+                    this.sortCol = col;
+                    this.sortAsc = true; 
+                }
+                
+                this.applySorting();
+                this.updateTableContent(thead, tbody);
+            });
+            this._isSortBound = true;
+        }
+
+        document.getElementById('countThirdParty').textContent = this.reportDataThirdParty.length;
+        document.getElementById('countSelf').textContent = this.reportDataSelf.length;
+
+        this.updateTableContent(thead, tbody);
+    }
+
+    updateTableContent(thead, tbody) {
+        const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
         
-        if (this.reportData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4">Kriterlere uygun itiraz işlemi bulunamadı.</td></tr>';
+        const col1Header = this.activeTab === 'third_party' ? 'İtiraz Sahibi' : 'Başvuru Sahibi';
+        const col2Header = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'İtiraz Sahibi';
+
+        const getSortIcon = (col) => {
+            if (this.sortCol !== col) return '<i class="fas fa-sort text-muted ml-1" style="opacity: 0.3;"></i>';
+            return this.sortAsc ? '<i class="fas fa-sort-up ml-1 text-primary"></i>' : '<i class="fas fa-sort-down ml-1 text-primary"></i>';
+        };
+
+        thead.innerHTML = `<tr>
+            <th class="sortable" data-sort="taskId" style="cursor:pointer; user-select:none;">İş No ${getSortIcon('taskId')}</th>
+            <th class="sortable" data-sort="createdAt" style="cursor:pointer; user-select:none;">Oluşturulma ${getSortIcon('createdAt')}</th>
+            <th class="sortable" data-sort="completedAt" style="cursor:pointer; user-select:none;">Tamamlanma ${getSortIcon('completedAt')}</th>
+            <th class="sortable" data-sort="taskType" style="cursor:pointer; user-select:none;">İşlem Tipi ${getSortIcon('taskType')}</th>
+            <th class="sortable" data-sort="bultenNo" style="cursor:pointer; user-select:none;">Bülten No ${getSortIcon('bultenNo')}</th>
+            <th class="sortable" data-sort="appNo" style="cursor:pointer; user-select:none;">Başvuru No ${getSortIcon('appNo')}</th>
+            <th class="sortable" data-sort="markaAdi" style="cursor:pointer; user-select:none;">Marka Adı ${getSortIcon('markaAdi')}</th>
+            <th class="sortable" data-sort="talepSahibi" style="cursor:pointer; user-select:none;">${col1Header} ${getSortIcon('talepSahibi')}</th>
+            <th class="sortable" data-sort="markaSahibi" style="cursor:pointer; user-select:none;">${col2Header} ${getSortIcon('markaSahibi')}</th>
+            <th class="sortable" data-sort="status" style="cursor:pointer; user-select:none;">Durum ${getSortIcon('status')}</th>
+        </tr>`;
+
+        if (activeData.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted"><i class="fas fa-folder-open mb-3" style="font-size:2rem;"></i><br>Bu sekmede gösterilecek itiraz işlemi bulunamadı.</td></tr>';
             return;
         }
 
-        tbody.innerHTML = this.reportData.map(row => `
+        tbody.innerHTML = activeData.map(row => {
+            let formattedCompleted = '-';
+            if (row.completedAt !== '-') {
+                const cDate = new Date(row.completedAt);
+                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
+                else formattedCompleted = row.completedAt; 
+            }
+
+            const shortId = (row.taskId || '').split('-')[0].toUpperCase();
+            
+            // 🔥 YENİ: Soft Tonlarda Statü Kutusu
+            const statusStyle = this.statusColors[row.status] || 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;';
+
+            return `
             <tr>
+                <td title="${row.taskId}">${shortId}</td>
                 <td style="white-space: nowrap;">${new Date(row.createdAt).toLocaleDateString('tr-TR')}</td>
+                <td style="white-space: nowrap; font-weight:600; color:#2E59D9;">${formattedCompleted}</td>
                 <td><strong class="text-primary">${row.taskType}</strong></td>
-                <td>${row.bultenNo !== '-' ? `<span class="badge badge-light border">${row.bultenNo}</span>` : '-'}</td>
+                <td>${row.bultenNo}</td> 
                 <td><span class="text-muted">${row.appNo}</span></td>
                 <td><span class="font-weight-bold">${row.markaAdi}</span></td>
                 <td>${row.talepSahibi}</td>
                 <td>${row.markaSahibi}</td>
-                <td><span class="badge badge-secondary">${this.statusMap[row.status] || row.status}</span></td>
+                <td><span class="badge" style="padding: 6px 10px; font-weight: 500; letter-spacing: 0.3px; ${statusStyle}">${this.statusMap[row.status] || row.status}</span></td>
             </tr>
-        `).join('');
+        `}).join('');
     }
 
-    // 4. EXCEL VE PDF ÇIKTILARI
     async exportExcel() {
         if (!window.ExcelJS) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
         if (!window.saveAs) await this._loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
         
+        const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
+        const reportTitle = this.activeTab === 'third_party' ? '3. TARAF BAŞVURULARINA İTİRAZLAR' : 'PORTFÖYE GELEN İTİRAZLAR';
+        
+        const colTalep = this.activeTab === 'third_party' ? 'İtiraz Sahibi' : 'Başvuru Sahibi';
+        const colHedef = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'İtiraz Sahibi';
+
         const workbook = new window.ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('İtiraz Raporu', { views: [{ showGridLines: false }] });
         
         worksheet.columns = [
             { header: 'No', key: 'no', width: 6 },
-            { header: 'Tarih', key: 'date', width: 15 },
+            { header: 'İş No', key: 'taskId', width: 12 },
+            { header: 'Oluşturulma Tarihi', key: 'createdDate', width: 17 },
+            { header: 'Tamamlanma Tarihi', key: 'completedDate', width: 17 },
             { header: 'İşlem Tipi', key: 'type', width: 35 },
             { header: 'Bülten No', key: 'bultenNo', width: 12 },
             { header: 'Başvuru No', key: 'appNo', width: 20 },
             { header: 'Marka Adı', key: 'brand', width: 35 },
-            { header: 'Talep Sahibi', key: 'talep', width: 45 },
-            { header: 'Marka Sahibi', key: 'hedef', width: 45 },
+            { header: colTalep, key: 'talep', width: 45 },
+            { header: colHedef, key: 'hedef', width: 45 },
             { header: 'Durum', key: 'status', width: 20 }
         ];
 
         worksheet.spliceRows(1, 0, [], [], [], []);
-        worksheet.mergeCells('A1:I2');
+        worksheet.mergeCells('A1:K2'); 
         const titleCell = worksheet.getCell('A1');
-        titleCell.value = 'MÜVEKKİL İTİRAZ SÜREÇLERİ RAPORU';
+        titleCell.value = `MÜVEKKİL İTİRAZ RAPORU (${reportTitle})`;
         titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF1E3C72' } };
         titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
@@ -345,10 +427,19 @@ export class OppositionReport {
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
 
-        this.reportData.forEach((row, i) => {
+        activeData.forEach((row, i) => {
+            let formattedCompleted = '-';
+            if (row.completedAt !== '-') {
+                const cDate = new Date(row.completedAt);
+                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
+                else formattedCompleted = row.completedAt; 
+            }
+
             const dataRow = worksheet.addRow({ 
                 no: i + 1,
-                date: new Date(row.createdAt).toLocaleDateString('tr-TR'), 
+                taskId: (row.taskId || '').split('-')[0].toUpperCase(), 
+                createdDate: new Date(row.createdAt).toLocaleDateString('tr-TR'), 
+                completedDate: formattedCompleted,
                 type: row.taskType, 
                 bultenNo: row.bultenNo !== '-' ? row.bultenNo : '',
                 appNo: row.appNo, 
@@ -364,15 +455,20 @@ export class OppositionReport {
         });
 
         const buffer = await workbook.xlsx.writeBuffer();
-        window.saveAs(new Blob([buffer]), `Itiraz_Raporu_${new Date().toISOString().slice(0,10)}.xlsx`);
+        window.saveAs(new Blob([buffer]), `Itiraz_Raporu_${this.activeTab}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     async exportPDF() {
         if (!window.jspdf) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
         if (!window.jspdf.jsPDF.API.autoTable) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js');
 
-        const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
+        const reportTitle = this.activeTab === 'third_party' ? '3. TARAF BASVURULARINA ITIRAZLAR' : 'PORTFOYE GELEN ITIRAZLAR';
         
+        const colTalep = this.activeTab === 'third_party' ? 'Itiraz Sahibi' : 'Basvuru Sahibi';
+        const colHedef = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'Itiraz Sahibi';
+
+        const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
         const tr = (text) => String(text || '-').replace(/Ğ/g,'G').replace(/ğ/g,'g').replace(/Ü/g,'U').replace(/ü/g,'u').replace(/Ş/g,'S').replace(/ş/g,'s').replace(/İ/g,'I').replace(/ı/g,'i').replace(/Ö/g,'O').replace(/ö/g,'o').replace(/Ç/g,'C').replace(/ç/g,'c');
 
         doc.setFillColor(30, 60, 114);
@@ -380,40 +476,54 @@ export class OppositionReport {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(16);
         doc.setTextColor(255, 255, 255);
-        doc.text('MUVEKKIL ITIRAZ SURECLERI RAPORU', 14, 12.5);
+        doc.text(`MUVEKKIL ITIRAZ RAPORU (${reportTitle})`, 14, 12.5);
 
-        const rows = this.reportData.map((row, i) => [
-            i + 1,
-            new Date(row.createdAt).toLocaleDateString('tr-TR'), 
-            tr(row.taskType),
-            tr(row.bultenNo !== '-' ? row.bultenNo : ''),
-            tr(row.appNo),
-            tr(row.markaAdi), 
-            tr(row.talepSahibi), 
-            tr(row.markaSahibi), 
-            tr(this.statusMap[row.status] || row.status)
-        ]);
+        const rows = activeData.map((row, i) => {
+            let formattedCompleted = '-';
+            if (row.completedAt !== '-') {
+                const cDate = new Date(row.completedAt);
+                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
+                else formattedCompleted = row.completedAt; 
+            }
+
+            return [
+                i + 1,
+                (row.taskId || '').split('-')[0].toUpperCase(),
+                new Date(row.createdAt).toLocaleDateString('tr-TR'), 
+                formattedCompleted,
+                tr(row.taskType),
+                tr(row.bultenNo !== '-' ? row.bultenNo : ''),
+                tr(row.appNo),
+                tr(row.markaAdi), 
+                tr(row.talepSahibi), 
+                tr(row.markaSahibi), 
+                tr(this.statusMap[row.status] || row.status)
+            ];
+        });
 
         doc.autoTable({ 
             startY: 25, 
-            head: [['No', 'Tarih', 'Islem Tipi', 'Bulten', 'Basvuru No', 'Marka Adi', 'Talep Sahibi', 'Marka Sahibi', 'Durum']], 
+            head: [['No', 'Is No', 'Olusturulma\nTarihi', 'Tamamlanma\nTarihi', 'Islem Tipi', 'Bulten', 'Basvuru No', 'Marka Adi', colTalep, colHedef, 'Durum']], 
             body: rows,
             theme: 'grid',
             styles: { font: 'helvetica', fontSize: 7, textColor: [55, 55, 55], valign: 'middle' },
             headStyles: { fillColor: [30, 60, 114], textColor: 255, fontStyle: 'bold', halign: 'center' },
             columnStyles: {
                 0: { cellWidth: 8, halign: 'center' },
-                1: { cellWidth: 16, halign: 'center' },
-                2: { cellWidth: 32 },
-                3: { cellWidth: 12, halign: 'center' },
-                4: { cellWidth: 20 },
-                5: { cellWidth: 35 },
-                6: { cellWidth: 55 },
-                7: { cellWidth: 55 },
-                8: { cellWidth: 22 }
+                1: { cellWidth: 18, halign: 'center' },
+                2: { cellWidth: 16, halign: 'center' },
+                3: { cellWidth: 16, halign: 'center' },
+                4: { cellWidth: 26 },
+                5: { cellWidth: 12, halign: 'center' },
+                6: { cellWidth: 18 },
+                7: { cellWidth: 32 },
+                8: { cellWidth: 40 },
+                9: { cellWidth: 40 },
+                10: { cellWidth: 18 }
             }
         });
-        doc.save(`Itiraz_Raporu_${new Date().toISOString().slice(0,10)}.pdf`);
+        
+        doc.save(`Itiraz_Raporu_${this.activeTab}_${new Date().toISOString().slice(0,10)}.pdf`);
     }
 
     _loadScript(src) {

@@ -3,18 +3,15 @@ import { supabase } from '../../supabase-config.js';
 export class OppositionReport {
     constructor() {
         this.selectedClients = new Map();
-        
         this.reportDataThirdParty = []; 
         this.reportDataSelf = [];       
         this.activeTab = 'third_party'; 
         
         this.targetTaskTypes = [7, 8, 9, 19, 20, 21, 37, 38, 39]; 
-        
         this.sortCol = 'taskId'; 
         this.sortAsc = false;    
         this._isSortBound = false; 
 
-        // Durum Metinleri
         this.statusMap = { 
             'pending': 'İşlem Bekliyor', 
             'awaiting_client_approval': 'Onay Bekliyor', 
@@ -25,15 +22,12 @@ export class OppositionReport {
             'cancelled': 'İptal Edildi'
         };
 
-        // 🔥 YENİ: Göz yormayan (Soft) Statü Renkleri
         this.statusColors = {
-            'pending': 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;', // Soft Sarı
-            'awaiting_client_approval': 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;', // Soft Mavi
-            'open': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
-            'completed': 'background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc;', // Soft Yeşil
-            'client_approval_closed': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
-            'müvekkil onayı - kapatıldı': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;', // Soft Gri
-            'cancelled': 'background-color: #f8d7da; color: #842029; border: 1px solid #f5c2c7;' // Soft Kırmızı
+            'pending': 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;',
+            'awaiting_client_approval': 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;',
+            'open': 'background-color: #e2e3e5; color: #41464b; border: 1px solid #d3d6d8;',
+            'completed': 'background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc;',
+            'cancelled': 'background-color: #f8d7da; color: #842029; border: 1px solid #f5c2c7;'
         };
     }
 
@@ -72,13 +66,8 @@ export class OppositionReport {
             clearTimeout(timeout);
             const val = e.target.value.trim();
             if (val.length < 3) { resultsDiv.style.display = 'none'; return; }
-            
             timeout = setTimeout(async () => {
-                const { data } = await supabase.from('persons')
-                    .select('id, name')
-                    .ilike('name', `%${val}%`)
-                    .limit(10);
-                
+                const { data } = await supabase.from('persons').select('id, name').ilike('name', `%${val}%`).limit(10);
                 if (data && data.length > 0) {
                     resultsDiv.innerHTML = data.map(c => `<div class="search-result-item p-2 border-bottom client-result-item" data-id="${c.id}" data-name="${c.name}" style="cursor:pointer;">${c.name}</div>`).join('');
                     resultsDiv.style.display = 'block';
@@ -119,7 +108,6 @@ export class OppositionReport {
             container.innerHTML = '<div class="empty-state text-center py-3"><small class="text-muted m-0">Henüz müvekkil seçilmedi.</small></div>';
             return;
         }
-
         let html = '';
         this.selectedClients.forEach((name, id) => {
             html += `
@@ -134,14 +122,8 @@ export class OppositionReport {
     }
 
     async fetchData() {
-        console.log("🚀 Rapor Üretimi Başladı (View Üzerinden)...");
         const clientIds = Array.from(this.selectedClients.keys());
-        
-        const { data: tasks, error } = await supabase
-            .from('v_tasks_dashboard')
-            .select('*')
-            .in('task_type_id', this.targetTaskTypes)
-            .in('task_owner_id', clientIds);
+        const { data: tasks, error } = await supabase.from('v_tasks_dashboard').select('*').in('task_type_id', this.targetTaskTypes).in('task_owner_id', clientIds);
 
         if (error) throw error;
         if (!tasks || tasks.length === 0) { 
@@ -173,57 +155,53 @@ export class OppositionReport {
         tasks.forEach(t => {
             let details = {};
             if (t.details) {
-                if (typeof t.details === 'string') {
-                    try { details = JSON.parse(t.details); } catch(e) {}
-                } else if (typeof t.details === 'object') {
-                    details = t.details;
-                }
+                try { details = typeof t.details === 'string' ? JSON.parse(t.details) : t.details; } catch(e) {}
             }
             
             const typeObj = txTypesMap.get(String(t.task_type_id)) || {};
             const taskType = typeObj.alias || typeObj.name || `Tip ${t.task_type_id}`;
-            
-            let appNo = t.iprecordApplicationNo || details.target_app_no || '-';
-            let markaAdi = t.iprecordTitle || details.recordTitle || '-';
-            let talepSahibi = t.iprecordApplicantName || '-';
+            const appNo = t.iprecordApplicationNo || '-';
+            const markaAdi = t.iprecordTitle || '-';
+            const talepSahibi = t.iprecordApplicantName || '-';
+            const bultenNo = t.bulletinNo || '-';
+            const completedAt = t.epatsDocumentDate || '-';
 
-            const bulletinRecord = appNo !== '-' ? bulletinMap.get(appNo) : null;
-            let bultenNo = t.bulletinNo || bulletinRecord?.bulletin_id || '-';
-            let markaSahibi = t.opposedMarkOwner || '-';
+            // 🔥 ÇÖZÜM: Genişletilmiş İtiraz Sahibi (Fallback) Taraması
+            let markaSahibiDisplay = '-';
             
-            if (markaSahibi === '-' || !markaSahibi) {
-                if (bulletinRecord && bulletinRecord.holders) {
-                    try {
-                        const holdersArr = typeof bulletinRecord.holders === 'string' ? JSON.parse(bulletinRecord.holders) : bulletinRecord.holders;
-                        if (Array.isArray(holdersArr) && holdersArr.length > 0) {
-                            markaSahibi = holdersArr.map(h => h.holderName).filter(Boolean).join(', ');
-                        }
-                    } catch(e) {}
-                }
-                if (markaSahibi === '-' || !markaSahibi) {
-                    markaSahibi = details.relatedPartyName || details.competitorOwner || '-';
+            if (t.recordOwnerType === 'self') {
+                // Portföye gelen itiraz: itiraz eden kişiyi (oppositionOwner) göster
+                markaSahibiDisplay = t.oppositionOwner || details.opposition_owner || details.oppositionOwner || details.relatedPartyName || details.competitorOwner || '-';
+            } else {
+                // Rakip markaya itiraz: markanın sahibini (opposedMarkOwner) göster
+                markaSahibiDisplay = t.opposedMarkOwner || details.opposed_mark_owner || details.opposedMarkOwner || '-';
+                
+                // TPE Bülten Yedeklemesi
+                if (markaSahibiDisplay === '-' || !markaSahibiDisplay) {
+                    const bulletinRecord = appNo !== '-' ? bulletinMap.get(appNo) : null;
+                    if (bulletinRecord && bulletinRecord.holders) {
+                        try {
+                            const holdersArr = typeof bulletinRecord.holders === 'string' ? JSON.parse(bulletinRecord.holders) : bulletinRecord.holders;
+                            if (Array.isArray(holdersArr) && holdersArr.length > 0) {
+                                markaSahibiDisplay = holdersArr.map(h => h.holderName).filter(Boolean).join(', ');
+                            }
+                        } catch(e) {}
+                    }
+                    if (markaSahibiDisplay === '-' || !markaSahibiDisplay) {
+                        markaSahibiDisplay = details.relatedPartyName || details.competitorOwner || '-';
+                    }
                 }
             }
-
-            let completedAt = t.epatsDocumentDate || details.epatsDocumentDate || '-';
-
-            if (String(appNo).trim().toLowerCase() === 'undefined') appNo = '-';
-            if (String(markaAdi).trim().toLowerCase() === 'undefined') markaAdi = '-';
-            if (String(bultenNo).trim().toLowerCase() === 'undefined') bultenNo = '-';
-            if (String(markaSahibi).trim().toLowerCase() === 'undefined') markaSahibi = '-';
-            if (String(completedAt).trim().toLowerCase() === 'undefined' || completedAt === null) completedAt = '-';
 
             const rowData = {
                 taskId: t.id, 
-                taskType, bultenNo, markaAdi, appNo, talepSahibi, markaSahibi,
+                taskType, bultenNo, markaAdi, appNo, talepSahibi, 
+                markaSahibi: markaSahibiDisplay,
                 status: t.status, createdAt: t.created_at, completedAt
             };
 
-            if (t.recordOwnerType === 'self') {
-                this.reportDataSelf.push(rowData);
-            } else {
-                this.reportDataThirdParty.push(rowData);
-            }
+            if (t.recordOwnerType === 'self') this.reportDataSelf.push(rowData);
+            else this.reportDataThirdParty.push(rowData);
         });
 
         this.applySorting();
@@ -237,23 +215,9 @@ export class OppositionReport {
             if (this.sortCol === 'createdAt' || this.sortCol === 'completedAt') {
                 valA = valA === '-' ? 0 : new Date(valA).getTime();
                 valB = valB === '-' ? 0 : new Date(valB).getTime();
-                if (valA < valB) return this.sortAsc ? -1 : 1;
-                if (valA > valB) return this.sortAsc ? 1 : -1;
-                return 0;
+                return (valA - valB) * (this.sortAsc ? 1 : -1);
             } 
-            // 🔥 YENİ: Sayısal Duyarlı Sıralama (Örn: İş-2, İş-10'dan önce gelir)
-            else if (this.sortCol === 'taskId' || this.sortCol === 'bultenNo') {
-                valA = String(valA || '');
-                valB = String(valB || '');
-                return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * (this.sortAsc ? 1 : -1);
-            } 
-            else {
-                valA = String(valA || '').toLowerCase();
-                valB = String(valB || '').toLowerCase();
-                if (valA < valB) return this.sortAsc ? -1 : 1;
-                if (valA > valB) return this.sortAsc ? 1 : -1;
-                return 0;
-            }
+            return String(valA || '').localeCompare(String(valB || ''), undefined, { numeric: true, sensitivity: 'base' }) * (this.sortAsc ? 1 : -1);
         };
 
         this.reportDataThirdParty.sort(sortFn);
@@ -286,17 +250,14 @@ export class OppositionReport {
                 const tabLink = e.target.closest('a.nav-link');
                 if (!tabLink) return;
                 e.preventDefault();
-
                 document.querySelectorAll('#oppReportTabs a.nav-link').forEach(a => {
                     a.classList.remove('active');
                     a.style.color = '#6c757d';
                     a.querySelector('.badge').classList.replace('badge-primary', 'badge-secondary');
                 });
-
                 tabLink.classList.add('active');
                 tabLink.style.color = '#1e3c72';
                 tabLink.querySelector('.badge').classList.replace('badge-secondary', 'badge-primary');
-
                 this.activeTab = tabLink.dataset.tab;
                 this.updateTableContent(thead, tbody);
             });
@@ -306,15 +267,9 @@ export class OppositionReport {
             thead.addEventListener('click', (e) => {
                 const th = e.target.closest('th.sortable');
                 if (!th) return;
-                
                 const col = th.dataset.sort;
-                if (this.sortCol === col) {
-                    this.sortAsc = !this.sortAsc; 
-                } else {
-                    this.sortCol = col;
-                    this.sortAsc = true; 
-                }
-                
+                if (this.sortCol === col) this.sortAsc = !this.sortAsc; 
+                else { this.sortCol = col; this.sortAsc = true; }
                 this.applySorting();
                 this.updateTableContent(thead, tbody);
             });
@@ -323,13 +278,11 @@ export class OppositionReport {
 
         document.getElementById('countThirdParty').textContent = this.reportDataThirdParty.length;
         document.getElementById('countSelf').textContent = this.reportDataSelf.length;
-
         this.updateTableContent(thead, tbody);
     }
 
     updateTableContent(thead, tbody) {
         const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
-        
         const col1Header = this.activeTab === 'third_party' ? 'İtiraz Sahibi' : 'Başvuru Sahibi';
         const col2Header = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'İtiraz Sahibi';
 
@@ -339,20 +292,20 @@ export class OppositionReport {
         };
 
         thead.innerHTML = `<tr>
-            <th class="sortable" data-sort="taskId" style="cursor:pointer; user-select:none;">İş No ${getSortIcon('taskId')}</th>
-            <th class="sortable" data-sort="createdAt" style="cursor:pointer; user-select:none;">Oluşturulma ${getSortIcon('createdAt')}</th>
-            <th class="sortable" data-sort="completedAt" style="cursor:pointer; user-select:none;">Tamamlanma ${getSortIcon('completedAt')}</th>
-            <th class="sortable" data-sort="taskType" style="cursor:pointer; user-select:none;">İşlem Tipi ${getSortIcon('taskType')}</th>
-            <th class="sortable" data-sort="bultenNo" style="cursor:pointer; user-select:none;">Bülten No ${getSortIcon('bultenNo')}</th>
-            <th class="sortable" data-sort="appNo" style="cursor:pointer; user-select:none;">Başvuru No ${getSortIcon('appNo')}</th>
-            <th class="sortable" data-sort="markaAdi" style="cursor:pointer; user-select:none;">Marka Adı ${getSortIcon('markaAdi')}</th>
-            <th class="sortable" data-sort="talepSahibi" style="cursor:pointer; user-select:none;">${col1Header} ${getSortIcon('talepSahibi')}</th>
-            <th class="sortable" data-sort="markaSahibi" style="cursor:pointer; user-select:none;">${col2Header} ${getSortIcon('markaSahibi')}</th>
-            <th class="sortable" data-sort="status" style="cursor:pointer; user-select:none;">Durum ${getSortIcon('status')}</th>
+            <th class="sortable" data-sort="taskId" style="cursor:pointer;">İş No ${getSortIcon('taskId')}</th>
+            <th class="sortable" data-sort="createdAt" style="cursor:pointer;">Oluşturulma ${getSortIcon('createdAt')}</th>
+            <th class="sortable" data-sort="completedAt" style="cursor:pointer;">Tamamlanma ${getSortIcon('completedAt')}</th>
+            <th class="sortable" data-sort="taskType" style="cursor:pointer;">İşlem Tipi ${getSortIcon('taskType')}</th>
+            <th class="sortable" data-sort="bultenNo" style="cursor:pointer;">Bülten No ${getSortIcon('bultenNo')}</th>
+            <th class="sortable" data-sort="appNo" style="cursor:pointer;">Başvuru No ${getSortIcon('appNo')}</th>
+            <th class="sortable" data-sort="markaAdi" style="cursor:pointer;">Marka Adı ${getSortIcon('markaAdi')}</th>
+            <th class="sortable" data-sort="talepSahibi" style="cursor:pointer;">${col1Header} ${getSortIcon('talepSahibi')}</th>
+            <th class="sortable" data-sort="markaSahibi" style="cursor:pointer;">${col2Header} ${getSortIcon('markaSahibi')}</th>
+            <th class="sortable" data-sort="status" style="cursor:pointer;">Durum ${getSortIcon('status')}</th>
         </tr>`;
 
         if (activeData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted"><i class="fas fa-folder-open mb-3" style="font-size:2rem;"></i><br>Bu sekmede gösterilecek itiraz işlemi bulunamadı.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">Kayıt bulunamadı.</td></tr>';
             return;
         }
 
@@ -360,18 +313,14 @@ export class OppositionReport {
             let formattedCompleted = '-';
             if (row.completedAt !== '-') {
                 const cDate = new Date(row.completedAt);
-                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
-                else formattedCompleted = row.completedAt; 
+                formattedCompleted = isNaN(cDate) ? row.completedAt : cDate.toLocaleDateString('tr-TR');
             }
-
             const shortId = (row.taskId || '').split('-')[0].toUpperCase();
-            
-            // 🔥 YENİ: Soft Tonlarda Statü Kutusu
             const statusStyle = this.statusColors[row.status] || 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;';
 
             return `
             <tr>
-                <td title="${row.taskId}">${shortId}</td>
+                <td title="${row.taskId}" style="font-family: inherit;">${shortId}</td>
                 <td style="white-space: nowrap;">${new Date(row.createdAt).toLocaleDateString('tr-TR')}</td>
                 <td style="white-space: nowrap; font-weight:600; color:#2E59D9;">${formattedCompleted}</td>
                 <td><strong class="text-primary">${row.taskType}</strong></td>
@@ -380,150 +329,122 @@ export class OppositionReport {
                 <td><span class="font-weight-bold">${row.markaAdi}</span></td>
                 <td>${row.talepSahibi}</td>
                 <td>${row.markaSahibi}</td>
-                <td><span class="badge" style="padding: 6px 10px; font-weight: 500; letter-spacing: 0.3px; ${statusStyle}">${this.statusMap[row.status] || row.status}</span></td>
+                <td><span class="badge" style="padding: 6px 10px; font-weight: 500; ${statusStyle}">${this.statusMap[row.status] || row.status}</span></td>
             </tr>
         `}).join('');
     }
 
+    // 🔥 YENİ: Excel'de 2 Sekme Aynı Dosyaya Yazdırılıyor
     async exportExcel() {
         if (!window.ExcelJS) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
         if (!window.saveAs) await this._loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
         
-        const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
-        const reportTitle = this.activeTab === 'third_party' ? '3. TARAF BAŞVURULARINA İTİRAZLAR' : 'PORTFÖYE GELEN İTİRAZLAR';
-        
-        const colTalep = this.activeTab === 'third_party' ? 'İtiraz Sahibi' : 'Başvuru Sahibi';
-        const colHedef = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'İtiraz Sahibi';
-
         const workbook = new window.ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('İtiraz Raporu', { views: [{ showGridLines: false }] });
-        
-        worksheet.columns = [
-            { header: 'No', key: 'no', width: 6 },
-            { header: 'İş No', key: 'taskId', width: 12 },
-            { header: 'Oluşturulma Tarihi', key: 'createdDate', width: 17 },
-            { header: 'Tamamlanma Tarihi', key: 'completedDate', width: 17 },
-            { header: 'İşlem Tipi', key: 'type', width: 35 },
-            { header: 'Bülten No', key: 'bultenNo', width: 12 },
-            { header: 'Başvuru No', key: 'appNo', width: 20 },
-            { header: 'Marka Adı', key: 'brand', width: 35 },
-            { header: colTalep, key: 'talep', width: 45 },
-            { header: colHedef, key: 'hedef', width: 45 },
-            { header: 'Durum', key: 'status', width: 20 }
-        ];
 
-        worksheet.spliceRows(1, 0, [], [], [], []);
-        worksheet.mergeCells('A1:K2'); 
-        const titleCell = worksheet.getCell('A1');
-        titleCell.value = `MÜVEKKİL İTİRAZ RAPORU (${reportTitle})`;
-        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF1E3C72' } };
-        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        // Her bir sekme için ayrı sayfa oluşturacak yardımcı fonksiyon
+        const createSheet = (sheetName, data, isThirdParty) => {
+            const worksheet = workbook.addWorksheet(sheetName, { views: [{ showGridLines: false }] });
+            
+            const colTalep = isThirdParty ? 'İtiraz Sahibi' : 'Başvuru Sahibi';
+            const colHedef = isThirdParty ? 'Marka Sahibi' : 'İtiraz Sahibi';
+            const reportTitle = isThirdParty ? '3. TARAF BAŞVURULARINA İTİRAZLAR' : 'PORTFÖYE GELEN İTİRAZLAR';
 
-        const headerRow = worksheet.getRow(5);
-        headerRow.height = 30;
-        headerRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        });
+            worksheet.columns = [
+                { header: 'No', key: 'no', width: 6 },
+                { header: 'İş No', key: 'taskId', width: 12 },
+                { header: 'Oluşturulma', key: 'createdDate', width: 15 },
+                { header: 'Tamamlanma', key: 'completedDate', width: 15 },
+                { header: 'İşlem Tipi', key: 'type', width: 30 },
+                { header: 'Bülten No', key: 'bultenNo', width: 12 },
+                { header: 'Başvuru No', key: 'appNo', width: 18 },
+                { header: 'Marka Adı', key: 'brand', width: 30 },
+                { header: colTalep, key: 'talep', width: 35 },
+                { header: colHedef, key: 'hedef', width: 35 },
+                { header: 'Durum', key: 'status', width: 20 }
+            ];
 
-        activeData.forEach((row, i) => {
-            let formattedCompleted = '-';
-            if (row.completedAt !== '-') {
-                const cDate = new Date(row.completedAt);
-                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
-                else formattedCompleted = row.completedAt; 
-            }
+            worksheet.spliceRows(1, 0, [], [], [], []);
+            worksheet.mergeCells('A1:K2'); 
+            const titleCell = worksheet.getCell('A1');
+            titleCell.value = `MÜVEKKİL İTİRAZ RAPORU (${reportTitle})`;
+            titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF1E3C72' } };
+            titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-            const dataRow = worksheet.addRow({ 
-                no: i + 1,
-                taskId: (row.taskId || '').split('-')[0].toUpperCase(), 
-                createdDate: new Date(row.createdAt).toLocaleDateString('tr-TR'), 
-                completedDate: formattedCompleted,
-                type: row.taskType, 
-                bultenNo: row.bultenNo !== '-' ? row.bultenNo : '',
-                appNo: row.appNo, 
-                brand: row.markaAdi, 
-                talep: row.talepSahibi, 
-                hedef: row.markaSahibi, 
-                status: this.statusMap[row.status] || row.status 
+            const headerRow = worksheet.getRow(5);
+            headerRow.height = 30;
+            headerRow.eachCell({ includeEmpty: true }, (cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
             });
-            dataRow.eachCell(cell => {
-                cell.border = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } };
-                cell.alignment = { vertical: 'middle', wrapText: true };
+
+            data.forEach((row, i) => {
+                let fComp = '-';
+                if (row.completedAt !== '-') {
+                    const d = new Date(row.completedAt);
+                    fComp = isNaN(d) ? row.completedAt : d.toLocaleDateString('tr-TR');
+                }
+                
+                const dataRow = worksheet.addRow({ 
+                    no: i + 1, 
+                    taskId: (row.taskId || '').split('-')[0].toUpperCase(), 
+                    createdDate: new Date(row.createdAt).toLocaleDateString('tr-TR'), 
+                    completedDate: fComp, 
+                    type: row.taskType, 
+                    bultenNo: row.bultenNo !== '-' ? row.bultenNo : '',
+                    appNo: row.appNo, 
+                    brand: row.markaAdi, 
+                    talep: row.talepSahibi, 
+                    hedef: row.markaSahibi, 
+                    status: this.statusMap[row.status] || row.status 
+                });
+                
+                dataRow.eachCell(cell => {
+                    cell.border = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } };
+                    cell.alignment = { vertical: 'middle', wrapText: true };
+                });
             });
-        });
+        };
+
+        // İki sekmeyi de aynı Excel dosyasına sayfa sayfa (Sheet) yazdırıyoruz
+        createSheet('3. Taraf İtirazlar', this.reportDataThirdParty, true);
+        createSheet('Portföye Gelen İtirazlar', this.reportDataSelf, false);
 
         const buffer = await workbook.xlsx.writeBuffer();
-        window.saveAs(new Blob([buffer]), `Itiraz_Raporu_${this.activeTab}_${new Date().toISOString().slice(0,10)}.xlsx`);
+        window.saveAs(new Blob([buffer]), `Tum_Itiraz_Raporlari_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     async exportPDF() {
         if (!window.jspdf) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
         if (!window.jspdf.jsPDF.API.autoTable) await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js');
-
         const activeData = this.activeTab === 'third_party' ? this.reportDataThirdParty : this.reportDataSelf;
         const reportTitle = this.activeTab === 'third_party' ? '3. TARAF BASVURULARINA ITIRAZLAR' : 'PORTFOYE GELEN ITIRAZLAR';
-        
         const colTalep = this.activeTab === 'third_party' ? 'Itiraz Sahibi' : 'Basvuru Sahibi';
         const colHedef = this.activeTab === 'third_party' ? 'Marka Sahibi' : 'Itiraz Sahibi';
 
-        const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-        const tr = (text) => String(text || '-').replace(/Ğ/g,'G').replace(/ğ/g,'g').replace(/Ü/g,'U').replace(/ü/g,'u').replace(/Ş/g,'S').replace(/ş/g,'s').replace(/İ/g,'I').replace(/ı/g,'i').replace(/Ö/g,'O').replace(/ö/g,'o').replace(/Ç/g,'C').replace(/ç/g,'c');
-
-        doc.setFillColor(30, 60, 114);
-        doc.rect(0, 0, 297, 18, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(16);
-        doc.setTextColor(255, 255, 255);
-        doc.text(`MUVEKKIL ITIRAZ RAPORU (${reportTitle})`, 14, 12.5);
+        const doc = new window.jspdf.jsPDF({ orientation: 'landscape', format: 'a4' });
+        const tr = (t) => String(t || '-').replace(/Ğ/g,'G').replace(/ğ/g,'g').replace(/Ü/g,'U').replace(/ü/g,'u').replace(/Ş/g,'S').replace(/ş/g,'s').replace(/İ/g,'I').replace(/ı/g,'i').replace(/Ö/g,'O').replace(/ö/g,'o').replace(/Ç/g,'C').replace(/ç/g,'c');
 
         const rows = activeData.map((row, i) => {
-            let formattedCompleted = '-';
+            let fComp = '-';
             if (row.completedAt !== '-') {
-                const cDate = new Date(row.completedAt);
-                if (!isNaN(cDate)) formattedCompleted = cDate.toLocaleDateString('tr-TR');
-                else formattedCompleted = row.completedAt; 
+                const d = new Date(row.completedAt);
+                fComp = isNaN(d) ? row.completedAt : d.toLocaleDateString('tr-TR');
             }
-
             return [
-                i + 1,
-                (row.taskId || '').split('-')[0].toUpperCase(),
-                new Date(row.createdAt).toLocaleDateString('tr-TR'), 
-                formattedCompleted,
-                tr(row.taskType),
-                tr(row.bultenNo !== '-' ? row.bultenNo : ''),
-                tr(row.appNo),
-                tr(row.markaAdi), 
-                tr(row.talepSahibi), 
-                tr(row.markaSahibi), 
-                tr(this.statusMap[row.status] || row.status)
+                i + 1, (row.taskId || '').split('-')[0].toUpperCase(),
+                new Date(row.createdAt).toLocaleDateString('tr-TR'), fComp,
+                tr(row.taskType), tr(row.bultenNo), tr(row.appNo), tr(row.markaAdi), 
+                tr(row.talepSahibi), tr(row.markaSahibi), tr(this.statusMap[row.status] || row.status)
             ];
         });
 
         doc.autoTable({ 
-            startY: 25, 
-            head: [['No', 'Is No', 'Olusturulma\nTarihi', 'Tamamlanma\nTarihi', 'Islem Tipi', 'Bulten', 'Basvuru No', 'Marka Adi', colTalep, colHedef, 'Durum']], 
+            head: [['No', 'Is No', 'Olusturma', 'Tamamlama', 'Islem Tipi', 'Bulten', 'Basvuru No', 'Marka Adi', colTalep, colHedef, 'Durum']], 
             body: rows,
-            theme: 'grid',
-            styles: { font: 'helvetica', fontSize: 7, textColor: [55, 55, 55], valign: 'middle' },
-            headStyles: { fillColor: [30, 60, 114], textColor: 255, fontStyle: 'bold', halign: 'center' },
-            columnStyles: {
-                0: { cellWidth: 8, halign: 'center' },
-                1: { cellWidth: 18, halign: 'center' },
-                2: { cellWidth: 16, halign: 'center' },
-                3: { cellWidth: 16, halign: 'center' },
-                4: { cellWidth: 26 },
-                5: { cellWidth: 12, halign: 'center' },
-                6: { cellWidth: 18 },
-                7: { cellWidth: 32 },
-                8: { cellWidth: 40 },
-                9: { cellWidth: 40 },
-                10: { cellWidth: 18 }
-            }
+            styles: { fontSize: 7 }
         });
-        
-        doc.save(`Itiraz_Raporu_${this.activeTab}_${new Date().toISOString().slice(0,10)}.pdf`);
+        doc.save(`Itiraz_Raporu_${this.activeTab}.pdf`);
     }
 
     _loadScript(src) {

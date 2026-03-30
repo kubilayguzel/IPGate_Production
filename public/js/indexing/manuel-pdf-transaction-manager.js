@@ -830,6 +830,12 @@ export class ManuelPdfTransactionManager {
             const isOwnerInvalid = !opposedMarkOwner || opposedMarkOwner === '-' || opposedMarkOwner === 'Bilinmeyen Sahip';
             const isBulletinInvalid = !bulletinNo || !bulletinDate;
 
+            // 🔥 ÇÖZÜM: parentTx değişkenini burada tanımlayıp mevcut ana işlemi buluyoruz
+            let parentTx = null;
+            if (finalParentId) {
+                parentTx = this.currentRecordTransactions.find(t => String(t.id) === String(finalParentId));
+            }
+
             console.log("🔍 [FALLBACK KONTROLÜ] Rakip Geçerli Mi:", !isOwnerInvalid, "Mevcut Değer:", opposedMarkOwner);
             console.log("🔍 [FALLBACK KONTROLÜ] Bülten Geçerli Mi:", !isBulletinInvalid, "Mevcut Değer:", bulletinNo);
 
@@ -907,7 +913,8 @@ export class ManuelPdfTransactionManager {
                             transaction_id: finalParentId ? String(finalParentId) : null,
                             official_due_date: baseDate.toISOString(),
                             details: {
-                                assigned_to_email: currentAssignedUser.email,
+                                // 🔥 ÇÖZÜM: currentAssignedUser hatasını önlemek için mevcut oturumu aldık
+                                assigned_to_email: this.currentUser?.email || 'sistem@evrekagroup.com',
                                 bulletin_no: bulletinNo ? String(bulletinNo) : null,
                                 bulletin_date: bulletinDate ? String(bulletinDate) : null,
                                 similarity_score: similarityScore,

@@ -147,23 +147,21 @@ class ClientPortalController {
     updateDashboardCounts() {
         document.getElementById('dashPortfolio').textContent = this.state.portfolios.length;
         
-        // 1. LOG: Hangi görevler geldiğini konsola yazdıralım
-        console.log("Tüm Görevler (this.state.tasks):", this.state.tasks);
-
-        let pendingApprovals = 0; // Sadece genel onay bekleyenler
-        let renewalApprovals = 0; // Yenileme onayları (Tip 22)
-        let bulletinWatch = 0;    // Bülten izlemeler (Tip 20)
-        let completedTasks = 0;   // Tamamlanan işler
+        let pendingApprovals = 0; 
+        let renewalApprovals = 0; 
+        let bulletinWatch = 0;    
+        let completedTasks = 0;   
         
-        let davaPending = 0;      // Dava bekleyen
-        let davaCompleted = 0;    // Dava tamamlanan
+        let davaPending = 0;      
+        let davaCompleted = 0;    
         
         let unpaidInvoices = 0;
         this.state.invoices.forEach(i => { if (i.status === 'unpaid') unpaidInvoices++; });
 
-        // Görevleri listeleme mantığıyla (filterTasks ile) aynı şekilde gruplayalım
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         this.state.tasks.forEach(t => {
-            // YENİ EKLENEN: 53 (Tahakkuk) ve 66 (Değerlendirme) işlerini hesaplamaya hiç dahil etme (Döngüyü atla)
             if (String(t.taskType) === '53' || String(t.taskType) === '66') return;
 
             const isPending = (t.status === 'awaiting_client_approval' || t.status === 'pending');
@@ -173,34 +171,33 @@ class ClientPortalController {
                 isPending ? davaPending++ : davaCompleted++;
             } else {
                 if (String(t.taskType) === '20') {
-                    bulletinWatch++; // Bülten İzleme her halükarda kendi kartına gidiyor
+                    // 🔥 ÇÖZÜM 2: Süresi geçmiş bültenleri sayaca dahil etmiyoruz
+                    let isExp = false;
+                    const due = t.dueDate || t.officialDueDate;
+                    if (due) {
+                        const d = new Date(due);
+                        d.setHours(0, 0, 0, 0);
+                        if (d < today) isExp = true;
+                    }
+                    if (isPending && !isExp) {
+                        bulletinWatch++;
+                    }
                 } else if (String(t.taskType) === '22') {
-                    isPending ? renewalApprovals++ : completedTasks++; // Yenileme Onayları
+                    isPending ? renewalApprovals++ : completedTasks++; 
                 } else {
-                    isPending ? pendingApprovals++ : completedTasks++; // Geri Kalan Onay Bekleyenler (Listede 7 görünenler)
+                    isPending ? pendingApprovals++ : completedTasks++; 
                 }
             }
         });
 
-        // 2. LOG: Dağılımı net olarak görelim
-        console.log(`--- GÖREV SAYAÇ DAĞILIMI ---
-        - Genel Onay Bekleyenler (Listede Çıkan): ${pendingApprovals}
-        - Yenileme Onayları Bekleyenler: ${renewalApprovals}
-        - Bülten İzleme Bildirimleri: ${bulletinWatch}
-        - Dava Onay Bekleyenler: ${davaPending}
-        - TOPLAM ONAY BEKLEYEN (Eski 71 Sayısı): ${pendingApprovals + renewalApprovals + davaPending + (this.state.tasks.filter(t=>String(t.taskType)==='20' && (t.status === 'awaiting_client_approval' || t.status === 'pending')).length)}
-        ----------------------------`);
-
-        // DASHBOARD KARTLARI (Kullanıcı girince toplam bekleyen sayısını görsün)
-        const totalPendingForAll = pendingApprovals + renewalApprovals + davaPending;
+        // 🔥 ÇÖZÜM 1: Bülten İzleme sayısını Dashboard'daki Genel Onay Bekleyenler toplamına dahil ediyoruz
+        const totalPendingForAll = pendingApprovals + renewalApprovals + davaPending + bulletinWatch;
         document.getElementById('dashPendingApprovals').textContent = totalPendingForAll;
         document.getElementById('dashUnpaidInvoices').textContent = unpaidInvoices;
         
-        // İŞLERİM SAYFASI - ANA KARTLAR
         document.getElementById('taskCount-marka-total').textContent = pendingApprovals + renewalApprovals + bulletinWatch;
         document.getElementById('taskCount-dava-total').textContent = davaPending;
         
-        // İŞLERİM SAYFASI - ALT KARTLAR (Listelerle Birebir Eşitlenen Alan)
         document.getElementById('taskCount-pending-approval').textContent = pendingApprovals;
         document.getElementById('taskCount-renewal-approval').textContent = renewalApprovals;
         document.getElementById('taskCount-bulletin-watch').textContent = bulletinWatch;

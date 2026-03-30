@@ -259,28 +259,57 @@ export class RenderHelper {
             const monitoredId = task.details?.monitoredMarkId || task.relatedIpRecordId;
             let bulletinKey = task.details?.bulletinKey || (task.details?.bulletinNo ? `${task.details.bulletinNo}_${task.details.bulletinDate?.replace(/\//g, '')}` : null);
 
+            // 🔥 ÇÖZÜM: targetAppNo'yu bloğun dışına (en üste) taşıdık ki butonlar da görebilsin
+            const targetAppNo = task.details?.targetAppNo || task.details?.brandInfo?.applicationNo || '-';
+
             let cardTitle = `#${task.id} - ${task.taskTypeDisplay}`;
             if (!isBulletinWatch) {
                 cardTitle += ` - ${task.appNo} - ${task.recordTitle}`;
             }
 
             let comparisonRow = '';
-                // DÜZELTME: Scope (kapsam) hatasını önlemek için targetAppNo'yu dışarı aldık
-                const targetAppNo = task.details?.targetAppNo || '-';
+            
+            // EKSİK VERİLERİ (Logo, Başvuru Tarihi, Sahip) JSON İÇİNDEN BULUP GETİRME
+            if (isBulletinWatch) {
+                // --- İZLENEN MARKA (KENDİ MARKANIZ) BİLGİLERİ ---
+                const myImgUrl = task.brandImageUrl || 'https://placehold.co/100x100?text=Görsel+Yok';
+                const myClasses = task.details?.niceClasses || task.details?.brandInfo?.niceClasses || '-';
                 
-                // 🔥 MUHTEŞEM İKİYE BÖLÜNMÜŞ KIYASLAMA EKRANI
-                if (isBulletinWatch) {
-                    const myImgUrl = task.brandImageUrl || 'https://placehold.co/100x100?text=Yok';
-                    const myClasses = task.details?.niceClasses || '-';
-                const compName = task.details?.objectionTarget || 'Benzer Marka';
-                let compClasses = task.details?.competitorClasses || '-';
+                let myAppDate = task.details?.applicationDate || task.details?.iprecordApplicationDate;
+                if (!myAppDate && this.state?.portfolios) {
+                    const portfItem = this.state.portfolios.find(p => p.id === task.relatedIpRecordId);
+                    if (portfItem) myAppDate = portfItem.applicationDate;
+                }
+                const formattedMyAppDate = this.formatDate(myAppDate);
+
+                let myOwner = task.details?.applicantName;
+                if (!myOwner && this.state?.portfolios) {
+                    const portfItem = this.state.portfolios.find(p => p.id === task.relatedIpRecordId);
+                    if (portfItem && portfItem.applicants && portfItem.applicants.length > 0) {
+                        myOwner = portfItem.applicants.map(a => a.name).join(', ');
+                    }
+                }
+                if (!myOwner || myOwner === '-') myOwner = document.getElementById('currentClientName')?.textContent || '-';
+
+                // --- BENZER MARKA (RAKİP) BİLGİLERİ ---
+                const cleanCompNo = String(targetAppNo).replace(/[^a-zA-Z0-9/]/g, '');
+                const compName = task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
+                
+                let compClasses = task.details?.competitorClasses || task.details?.brandInfo?.classes || '-';
                 if (Array.isArray(compClasses)) compClasses = compClasses.join(', ');
-                const compImgUrl = task.details?.competitorBrandImage || 'https://placehold.co/100x100?text=Yok';
-                const compOwner = task.details?.competitorOwner || '-';
+                
+                // Görselin saklandığı olası tüm anahtarları kontrol et
+                const compImgUrl = task.details?.brandInfo?.imagePath || task.details?.competitorBrandImage || task.details?.brandInfo?.imageUrl || task.details?.brandInfo?.brandImage || 'https://placehold.co/100x100?text=Görsel+Yok';
+                
+                let compOwner = task.details?.competitorOwner || task.details?.brandInfo?.applicantName || '-';
+                if ((!compOwner || compOwner === '-') && task.details?.brandInfo?.holders && task.details.brandInfo.holders.length > 0) {
+                    compOwner = task.details.brandInfo.holders.map(h => typeof h === 'string' ? h : h.holderName).join(', ');
+                }
+
+                const compAppDate = this.formatDate(task.details?.competitorAppDate || task.details?.brandInfo?.applicationDate || task.details?.targetAppDate);
 
                 const displayScore = this.formatScore(task.details?.similarityScore);
                 const note = task.details?.note;
-                const cleanCompNo = String(targetAppNo).replace(/[^a-zA-Z0-9/]/g, '');
 
                 let extraInfoHtml = '';
                 if (displayScore || note) {
@@ -299,8 +328,10 @@ export class RenderHelper {
                             <div class="mr-4" style="min-width:100px; text-align:center;"><img src="${myImgUrl}" class="task-brand-image" style="height:100px; width:auto; max-width:100%; object-fit:contain;"></div>
                             <div>
                                 <div class="font-weight-bold mb-2 text-white" style="font-size:1.2rem;">${task.recordTitle}</div>
-                                <div style="font-size:1rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">No:</span> <span class="text-white">${task.appNo}</span></div>
-                                <div style="font-size:1rem;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${myClasses}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru No:</span> <span class="text-white">${task.appNo}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${formattedMyAppDate !== '-' ? formattedMyAppDate : 'Belirtilmedi'}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sahip:</span> <span class="text-white">${myOwner}</span></div>
+                                <div style="font-size:0.95rem;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${myClasses}</span></div>
                             </div>
                         </div>
                     </div>
@@ -310,9 +341,10 @@ export class RenderHelper {
                             <div class="mr-4" style="min-width:100px; text-align:center;"><img src="${compImgUrl}" class="task-brand-image" style="height:100px; width:auto; max-width:100%; object-fit:contain;"></div>
                             <div>
                                 <div class="font-weight-bold mb-2 text-white" style="font-size:1.2rem;">${compName}</div>
-                                <div style="font-size:1rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">No:</span> <span class="text-white">${targetAppNo}</span></div>
-                                <div style="font-size:1rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sahip:</span> <span class="text-white">${compOwner}</span></div>
-                                <div style="font-size:1rem;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${compClasses}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru No:</span> <span class="text-white">${targetAppNo}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Başvuru Tarihi:</span> <span class="text-white">${compAppDate !== '-' ? compAppDate : 'Belirtilmedi'}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:4px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sahip:</span> <span class="text-white">${compOwner}</span></div>
+                                <div style="font-size:0.95rem; margin-bottom:8px;"><span style="color:rgba(255,255,255,0.7); font-weight:600;">Sınıf:</span> <span class="text-white">${compClasses}</span></div>
                                 <div class="mt-2">
                                     <button onclick="window.triggerTpQuery('${cleanCompNo}')" class="btn btn-sm btn-outline-light py-0 px-2" style="font-size: 0.85rem; border-color: rgba(255,255,255,0.3);">
                                         <i class="fas fa-search mr-1"></i> TÜRKPATENT'ten Sorgula
@@ -340,6 +372,7 @@ export class RenderHelper {
                     <button class="btn btn-danger btn-sm task-action-btn mr-1" data-action="reject" data-id="${task.id}"><i class="fas fa-times"></i> Reddet</button>
                     ${buttons}
                 `;
+                // targetAppNo artık burada rahatça kullanılabilir!
                 if(isBulletinWatch) {
                     buttons += `<button class="btn btn-warning btn-sm task-compare-goods mr-1" data-task-id="${task.id}" data-ip-record-id="${monitoredId}" data-bulletin-key="${bulletinKey}" data-target-app-no="${targetAppNo}"><i class="fas fa-balance-scale"></i> Kıyasla</button>`;
                 }

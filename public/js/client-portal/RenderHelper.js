@@ -217,7 +217,38 @@ export class RenderHelper {
             }
 
             container.innerHTML = html + '</ul>' + content + '</div>';
+        } else if (taskTypeFilter === 'completed-tasks') {
+            // 🔥 GÜNCELLEME: Onaylanan ve Kapatılan İşleri iki ayrı sekmeye (Tab) bölüyoruz
+            const approved = [];
+            const closed = [];
+            
+            // Kapanmış kabul edilecek statüler listesi
+            const closedStatuses = ['completed', 'closed', 'client_approval_closed', 'client_no_response_closed', 'cancelled'];
+
+            tasks.forEach(t => {
+                const st = String(t.status).toLowerCase();
+                if (closedStatuses.includes(st) || st.includes('kapatıldı') || st.includes('iptal')) {
+                    closed.push(t);
+                } else {
+                    approved.push(t); // open, in_progress vs. buraya düşecek
+                }
+            });
+
+            let html = '<ul class="nav nav-tabs mb-3">';
+            let content = '<div class="tab-content">';
+
+            // Tab 1: Onaylanan İşler
+            html += `<li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#t-approved">Onaylanan İşler (${approved.length})</a></li>`;
+            content += `<div class="tab-pane fade show active" id="t-approved"><div class="row">${this.generateTaskCardsHtml(approved, taskTypeFilter)}</div></div>`;
+
+            // Tab 2: Tamamlanan / Kapatılan İşler
+            html += `<li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t-closed">Tamamlanan/Kapatılan İşler (${closed.length})</a></li>`;
+            content += `<div class="tab-pane fade" id="t-closed"><div class="row">${this.generateTaskCardsHtml(closed, taskTypeFilter)}</div></div>`;
+
+            container.innerHTML = html + '</ul>' + content + '</div>';
+            
         } else {
+            // Standart liste (Onay Bekleyenler vs. için)
             container.innerHTML = `<div class="row">${this.generateTaskCardsHtml(tasks.slice(0, 50), taskTypeFilter)}</div>`;
             if (tasks.length > 50) {
                 container.innerHTML += `<div class="text-center text-muted mt-3"><small>Sadece ilk 50 kayıt listelenmiştir.</small></div>`;
@@ -261,14 +292,21 @@ export class RenderHelper {
                 const compAppDate = task.details?.competitorAppDate ? this.formatDate(task.details.competitorAppDate) : 'Belirtilmedi';
                 const compClasses = task.details?.competitorClasses || '-';
 
-                const displayScore = this.formatScore(task.details?.similarityScore);
+                // 🔥 GÜNCELLEME: similarityScore yerine doğrudan veritabanındaki success_chance ve note alanlarını çekiyoruz.
+                const successChance = task.details?.success_chance || task.details?.successChance;
                 const note = task.details?.note;
 
                 let extraInfoHtml = '';
-                if (displayScore || note) {
+                if (successChance || note) {
+                    // Başarı şansına göre dinamik renk ataması (Müvekkil için görsel kolaylık)
+                    let badgeColor = 'warning'; // Varsayılan: Orta / Sarı
+                    const chanceLower = String(successChance || '').toLowerCase();
+                    if (chanceLower.includes('yüksek')) badgeColor = 'success';
+                    else if (chanceLower.includes('düşük')) badgeColor = 'danger';
+
                     extraInfoHtml = `
                     <div class="mt-3 pt-2 border-top" style="font-size: 0.9rem;">
-                        ${displayScore ? `<span class="mr-3 d-block d-sm-inline mb-1"><strong class="text-muted font-weight-bold">Başarı Şansı:</strong> <span class="badge badge-warning" style="font-size:0.9rem;">${displayScore}</span></span>` : ''}
+                        ${successChance ? `<span class="mr-3 d-block d-sm-inline mb-1"><strong class="text-muted font-weight-bold">İtiraz Başarı Şansı:</strong> <span class="badge badge-${badgeColor}" style="font-size:0.9rem; padding:5px 8px;">${successChance}</span></span>` : ''}
                         ${note ? `<span class="d-block d-sm-inline"><strong class="text-muted font-weight-bold">Değerlendirme:</strong> <span class="font-italic opacity-75">${note}</span></span>` : ''}
                     </div>`;
                 }
@@ -315,14 +353,32 @@ export class RenderHelper {
                 </div>`;
             }
 
+            // 🔥 GÜNCELLEME: Görev statülerinin renkleri ve ekrana basılacak gerçek Türkçe karşılıkları
             let badgeClass = 'secondary';
             let statusText = task.status;
-            if (task.status === 'awaiting_client_approval') { badgeClass = 'warning'; statusText = 'Onay Bekliyor'; }
-            else if (task.status === 'completed' || task.status === 'open') { badgeClass = 'success'; statusText = 'Talimat İletildi'; }
-            else if (task.status.includes('kapatıldı')) { badgeClass = 'danger'; statusText = 'Reddedildi/Kapandı'; }
-            else if (task.status === 'Bülten Kapandı') { badgeClass = 'secondary'; statusText = 'Süresi Doldu'; }
+            
+            if (task.status === 'awaiting_client_approval') { 
+                badgeClass = 'warning'; statusText = 'Onay Bekliyor'; 
+            } else if (task.status === 'open' || task.status === 'in_progress') { 
+                badgeClass = 'info'; statusText = 'Açık'; 
+            } else if (task.status === 'completed') { 
+                badgeClass = 'success'; statusText = 'Tamamlandı'; 
+            } else if (task.status === 'client_approval_closed') { 
+                // 🔥 ÇÖZÜM 5: Statü metni güncellendi
+                badgeClass = 'danger'; statusText = 'Müvekkil Onayıyla Kapatıldı'; 
+            } else if (task.status === 'client_no_response_closed') {
+                badgeClass = 'danger'; statusText = 'Müvekkil Cevaplamadı - Kapatıldı)'; 
+            } else if (String(task.status).toLowerCase().includes('kapatıldı') || String(task.status).toLowerCase().includes('closed')) { 
+                badgeClass = 'danger'; statusText = 'Kapatıldı'; 
+            } else if (task.status === 'Bülten Kapandı') { 
+                badgeClass = 'secondary'; statusText = 'Süresi Doldu'; 
+            } else {
+                statusText = task.status || 'Bilinmiyor';
+            }
 
-            let buttons = `<button class="btn btn-info btn-sm task-detail-btn mr-1" data-id="${task.id}"><i class="fas fa-eye"></i> İncele</button>`;
+            // 🔥 GÜNCELLEME: İncele butonunu doğrudan Portföy Detay Modalına (portfolio-detail-link) bağlıyoruz.
+            // data-id (Görev ID) yerine data-item-id (Marka ID) veriyoruz ki modal doğru markayı açsın.
+            let buttons = `<button class="btn btn-info btn-sm portfolio-detail-link mr-1" data-item-id="${task.relatedIpRecordId}"><i class="fas fa-eye"></i> İncele</button>`;
             
             if (!isCompletedView && task.status === 'awaiting_client_approval') {
                 buttons = `

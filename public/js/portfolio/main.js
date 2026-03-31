@@ -212,10 +212,13 @@ class PortfolioController {
         this.pagination = new Pagination({
             containerId: 'paginationContainer',
             itemsPerPage: this.ITEMS_PER_PAGE,
-            // 🔥 GÜNCELLEME 3: Pagination açılır menüsüne 500 ve 1000 alternatifleri eklendi
-            itemsPerPageOptions: [10, 20, 50, 100, 500, 1000], 
-            onPageChange: (page) => {
+            itemsPerPageOptions: [10, 20, 50, 100, 500, 1000],
+            // 🔥 ÇÖZÜM 2: Parametreye newItemsPerPage eklendi ve class değişkenine eşitlendi
+            onPageChange: (page, newItemsPerPage) => {
                 this.state.currentPage = page;
+                if (newItemsPerPage) {
+                    this.ITEMS_PER_PAGE = newItemsPerPage;
+                }
                 this.render(); 
                 this.updateSelectAllCheckbox();
                 document.querySelector('.portfolio-table-container')?.scrollIntoView({ behavior: 'smooth' });
@@ -331,6 +334,10 @@ class PortfolioController {
                     this.state.subTab = clickedBtn.dataset.sub;
                     this.state.currentPage = 1;
                     this.state.selectedRecords.clear();
+
+                    // 🔥 ÇÖZÜM 1: Alt sekmeye tıklandığında başlıkların da güncellenmesini sağlıyoruz
+                    const columns = this.getColumns(this.state.activeTab);
+                    this.renderer.renderHeaders(columns, this.state.columnFilters);
 
                     this.render();
                 });
@@ -1012,7 +1019,27 @@ class PortfolioController {
                 includeImages = confirm(`${sortedData.length} adet kayıt dışa aktarılıyor.\n\nExcel dosyasına MARKA GÖRSELLERİ de eklensin mi?\n\n(İPTAL derseniz görselsiz olarak anında indirilir. TAMAM derseniz işlem birkaç dakika sürebilir ve dosya boyutu büyük olur.)`);
             }
 
+            // 🔥 GÜNCELLEME: İlerleme (Progress) göstergesinin ekrana yansıması için zorunlu Repaint molası
+            const delay = ms => new Promise(res => setTimeout(res, ms));
+            let processedImageCount = 0; 
+            
             for (let i = 0; i < sortedData.length; i++) {
+                
+                // 🔥 1. ÇÖZÜM: Her 5 kayıtta bir metni güncelleyip tarayıcıya ekranı çizmesi için zaman tanıyoruz
+                if (i % 5 === 0) {
+                    const msg = `Excel oluşturuluyor... ${i} / ${sortedData.length} kayıt işlendi. Lütfen bekleyiniz.`;
+                    const progressIndicator = document.querySelector('.simple-loading-subtext') || document.querySelector('.sl-subtext');
+                    
+                    if (progressIndicator) {
+                        progressIndicator.textContent = msg;
+                    } else if (window.SimpleLoadingController) {
+                        window.SimpleLoadingController.show('Rapor Hazırlanıyor', msg);
+                    }
+                    
+                    // Tarayıcının donmasını engelleyip metni ekrana basması (DOM Repaint) için 15ms mola!
+                    await delay(15); 
+                }
+
                 const record = sortedData[i];
                 const rowData = {};
 
@@ -1020,7 +1047,6 @@ class PortfolioController {
                     if (col.key === 'brandImage') {
                         rowData[col.key] = ''; 
                     } else if (col.key === 'renewalDate') {
-                        // 🔥 YENİ: Yenileme Tarihi Formatlama (GG.AA.YYYY)
                         let val = record.renewalDate;
                         if (val && val !== '-') {
                             try {
@@ -1063,25 +1089,82 @@ class PortfolioController {
                 });
 
                 if (includeImages && imageColumnIndex !== -1 && record.brandImageUrl) {
-                    try {
-                        const response = await fetch(record.brandImageUrl, { cache: 'force-cache' });
-                        if (response.ok) {
-                            const buffer = await response.arrayBuffer();
-                            let ext = 'png';
-                            if (record.brandImageUrl.toLowerCase().includes('.jpg') || record.brandImageUrl.toLowerCase().includes('.jpeg')) ext = 'jpeg';
+                    
+                    if (processedImageCount > 0 && processedImageCount % 40 === 0) {
+                        const pauseMsg = `Sunucu limitleri korunuyor... ${i} / ${sortedData.length} kayıt işlendi. Kısa bir mola verildi.`;
+                        const progressIndicator = document.querySelector('.simple-loading-subtext') || document.querySelector('.sl-subtext');
+                        
+                        if (progressIndicator) {
+                            progressIndicator.textContent = pauseMsg;
+                        } else if (window.SimpleLoadingController) {
+                            window.SimpleLoadingController.show('Rapor Hazırlanıyor', pauseMsg);
+                        }
+                        
+                        await delay(4000); // 4 saniye mola
+                    }
+                    
+                    processedImageCount++;
+                    let success = false;
+                    let retries = 1; 
+                    
+                    while (retries > 0 && !success) {
+                        try {
+                            const url = record.brandImageUrl.trim();
+                            const response = await fetch(url, { cache: 'force-cache' });
+                            
+                            if (response.ok) {
+                                const buffer = await response.arrayBuffer();
+                                let ext = 'png';
+                                if (url.toLowerCase().includes('.jpg') || url.toLowerCase().includes('.jpeg')) ext = 'jpeg';
 
-                            const imageId = workbook.addImage({ buffer: buffer, extension: ext });
-                            worksheet.addImage(imageId, {
-                                tl: { col: imageColumnIndex, row: i + 1 }, 
-                                br: { col: imageColumnIndex + 1, row: i + 2 },
-                                editAs: 'oneCell'
-                            });
-                            row.height = 50; 
-                        } else { row.height = 30; }
-                    } catch (err) { row.height = 30; }
-                } else { row.height = 30; }
+                                const imageId = workbook.addImage({ buffer: buffer, extension: ext });
+                                worksheet.addImage(imageId, {
+                                    tl: { col: imageColumnIndex, row: i + 1 }, 
+                                    br: { col: imageColumnIndex + 1, row: i + 2 },
+                                    editAs: 'oneCell'
+                                });
+                                row.height = 50; 
+                                success = true;
+                            } else {
+                                if (response.status === 429) {
+                                    await delay(1500); 
+                                    retries--;
+                                } else {
+                                    break; 
+                                }
+                            }
+                        } catch (err) { 
+                            await delay(500); 
+                            retries--;
+                        }
+                    }
+                    
+                    if (!success) {
+                        row.height = 30; 
+                        const imgColName = excelColumns.find(c => c.key === 'brandImage')?.key || 'brandImage';
+                        const imgCell = row.getCell(imgColName);
+                        if (imgCell) {
+                            imgCell.value = 'Görsel Yok'; 
+                            imgCell.font = { color: { argb: 'FF999999' }, italic: true }; 
+                            imgCell.alignment = { vertical: 'middle', horizontal: 'center' };
+                        }
+                    }
+                } else { 
+                    row.height = 30; 
+                }
             }
+            
+            // 🔥 2. ÇÖZÜM: Bitiş metnini yazdır ve hemen inmesini bekle
+            const endMsg = `Tüm kayıtlar işlendi. Excel dosyası indiriliyor...`;
+            const finalIndicator = document.querySelector('.simple-loading-subtext') || document.querySelector('.sl-subtext');
+            if (finalIndicator) {
+                finalIndicator.textContent = endMsg;
+            } else if (window.SimpleLoadingController) {
+                window.SimpleLoadingController.show('Rapor Hazırlanıyor', endMsg);
+            }
+            await delay(100);
 
+            // (Döngü bittikten sonraki kısım)
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             
@@ -1104,7 +1187,27 @@ class PortfolioController {
             console.error('Excel hatası:', error);
             if(typeof showNotification === 'function') showNotification('Excel oluşturulurken bir hata oluştu.', 'error');
         } finally {
-            this.renderer.showLoading(false);
+            // 🔥 GÜNCELLEME: Yükleme ekranını GÜVENLİ ve KESİN olarak kapatıp metni sıfırlıyoruz
+            
+            // 1. Ekrandaki metni varsayılan haline döndür
+            const finalIndicator = document.querySelector('.simple-loading-subtext') || document.querySelector('.sl-subtext');
+            if (finalIndicator) {
+                finalIndicator.textContent = 'Lütfen bekleyiniz, kayıtlar taranıyor...';
+            }
+            
+            // 2. Portföy sayfası yükleyicisini kapat
+            if (this.renderer && typeof this.renderer.showLoading === 'function') {
+                this.renderer.showLoading(false);
+            }
+            
+            // 3. (Eğer varsa) Client Portal yükleyicisini kapat
+            if (window.SimpleLoadingController) {
+                window.SimpleLoadingController.hide();
+            }
+            
+            // 4. Standart Bootstrap Spinner'ı zorla gizle
+            const defaultSpinner = document.getElementById('loadingIndicator');
+            if (defaultSpinner) defaultSpinner.style.display = 'none';
         }
     }
 }

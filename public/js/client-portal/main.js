@@ -170,8 +170,7 @@ class ClientPortalController {
             if (isDava) {
                 isPending ? davaPending++ : davaCompleted++;
             } else {
-                if (String(t.taskType) === '20') {
-                    // 🔥 ÇÖZÜM 2: Süresi geçmiş bültenleri sayaca dahil etmiyoruz
+                    if (String(t.taskType) === '20') {
                     let isExp = false;
                     const due = t.dueDate || t.officialDueDate;
                     if (due) {
@@ -181,6 +180,9 @@ class ClientPortalController {
                     }
                     if (isPending && !isExp) {
                         bulletinWatch++;
+                    } else if (!isPending) {
+                        // 🔥 ÇÖZÜM 1: Onaylanan veya Kapatılan bültenler artık Onaylanan/Kapatılan sayacına dahil edilecek
+                        completedTasks++;
                     }
                 } else if (String(t.taskType) === '22') {
                     isPending ? renewalApprovals++ : completedTasks++; 
@@ -201,7 +203,8 @@ class ClientPortalController {
         document.getElementById('taskCount-pending-approval').textContent = pendingApprovals;
         document.getElementById('taskCount-renewal-approval').textContent = renewalApprovals;
         document.getElementById('taskCount-bulletin-watch').textContent = bulletinWatch;
-        
+        const elCompleted = document.getElementById('taskCount-completed-tasks');
+        if (elCompleted) elCompleted.textContent = completedTasks;        
         document.getElementById('taskCount-dava-pending').textContent = davaPending;
         document.getElementById('taskCount-dava-completed').textContent = davaCompleted;
     }
@@ -642,13 +645,14 @@ class ClientPortalController {
                 const isDava = String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava');
                 // DÜZELTME: Sayaçla aynı mantığı kurduk, hem pending hem awaiting dahil
                 const isPending = (t.status === 'awaiting_client_approval' || t.status === 'pending');
-
+                
                 if (taskTypeFilter === 'pending-approval') return !isDava && isPending && String(t.taskType) !== '20' && String(t.taskType) !== '22';
                 
-                // DÜZELTME: Tamamlananlarda bültenleri dışarıda bırak (Kendi sekmeleri var)
-                if (taskTypeFilter === 'completed-tasks') return !isDava && !isPending && String(t.taskType) !== '20'; 
+                // 🔥 ÇÖZÜM 2: Artık "Onaylanan/Kapatılan İşler" sekmesi bültenler dahil tüüüm onaylı/kapalı işleri kapsıyor
+                if (taskTypeFilter === 'completed-tasks') return !isDava && !isPending; 
                 
-                if (taskTypeFilter === 'bulletin-watch') return String(t.taskType) === '20';
+                // 🔥 ÇÖZÜM 3: Bülten İzleme sekmesi SADECE henüz onay bekleyen (Pending) bültenleri gösterecek
+                if (taskTypeFilter === 'bulletin-watch') return String(t.taskType) === '20' && isPending;
                 
                 // DÜZELTME: Yenileme Onaylarında SADECE onay bekleyenleri listele, bitenleri Tamamlananlar'a at
                 if (taskTypeFilter === 'renewal-approval') return String(t.taskType) === '22' && isPending; 
@@ -724,15 +728,94 @@ class ClientPortalController {
         });
 
         $(document).on('click', '.task-action-btn', async (e) => {
-            const btn = e.currentTarget; const taskId = btn.dataset.id; const action = btn.dataset.action;
+            const btn = e.currentTarget; 
+            const taskId = btn.dataset.id; 
+            const action = btn.dataset.action;
+            
             if (action === 'approve' && confirm('Bu işi onaylamak istiyor musunuz?')) {
-                await supabase.from('tasks').update({ status: 'open' }).eq('id', taskId);
-                alert('İş onaylandı.'); await this.loadAllData();
-            } else if (action === 'reject') {
-                const reason = prompt('Lütfen ret sebebini yazınız:');
-                if (reason) {
-                    await supabase.from('tasks').update({ status: 'müvekkil onayı - kapatıldı', rejection_reason: reason }).eq('id', taskId);
-                    alert('İş reddedildi.'); await this.loadAllData();
+                try {
+                    // 1. Görevi çekip görev tipini (task_type_id) ve detaylarını öğrenelim
+                    const { data: taskData, error: taskError } = await supabase
+                        .from('tasks')
+                        .select('task_type_id, details')
+                        .eq('id', taskId)
+                        .single();
+                        
+                    if (taskError) throw taskError;
+
+                    // 2. Task Assignment kurallarından atanacak kişiyi bulalım
+                    let assignedToUser = null;
+                    if (taskData && taskData.task_type_id) {
+                        const { data: assignmentData } = await supabase
+                            .from('task_assignments')
+                            .select('assignee_ids')
+                            .eq('id', String(taskData.task_type_id))
+                            .maybeSingle();
+
+                        // Eğer kural varsa ve içinde atanacak kişiler tanımlanmışsa ilk kişiyi seç
+                        if (assignmentData && assignmentData.assignee_ids && assignmentData.assignee_ids.length > 0) {
+                            assignedToUser = assignmentData.assignee_ids[0]; 
+                        }
+                    }
+
+                    // 3. Görevi "Açık" (open) statüsüne getir ve detayları hazırla
+                    const updatePayload = { status: 'open', updated_at: new Date().toISOString() };
+                    
+                    let currentDetails = taskData.details || {};
+                    if (typeof currentDetails === 'string') {
+                        try { currentDetails = JSON.parse(currentDetails); } catch(err) { currentDetails = {}; }
+                    }
+                    
+                    // Kural varsa kişiyi ata
+                    if (assignedToUser) {
+                        updatePayload.assigned_to = assignedToUser;
+                    }
+                    
+                    // Onay tarihini JSON'a (details) gömüyoruz
+                    currentDetails.clientApprovedAt = new Date().toISOString();
+                    updatePayload.details = currentDetails;
+
+                    // Veritabanını güncelle
+                    const { error: updateError } = await supabase.from('tasks').update(updatePayload).eq('id', taskId);
+                    if (updateError) throw updateError;
+                    
+                    alert('İş başarıyla onaylandı ve ilgili uzmana iletildi.');
+                    await this.loadAllData();
+                } catch (err) {
+                    console.error('Onaylama hatası:', err);
+                    alert('İş onaylanırken bir hata oluştu.');
+                }
+                
+                } else if (action === 'reject') {
+                // 🔥 ÇÖZÜM 4: Prompt kaldırıldı, yerine onay sorusu getirildi
+                if (confirm('Bu işi reddetmek ve kapatmak istediğinize emin misiniz?')) { 
+                    try {
+                        const { data: taskData } = await supabase.from('tasks').select('details').eq('id', taskId).single();
+                        
+                        let currentDetails = taskData?.details || {};
+                        if (typeof currentDetails === 'string') {
+                            try { currentDetails = JSON.parse(currentDetails); } catch(err) { currentDetails = {}; }
+                        }
+                        
+                        currentDetails.clientRejectedAt = new Date().toISOString();
+
+                        // 🔥 ÇÖZÜM: Trigger'ın çalışıp fatura/işlemleri iptal etmesi için statüyü 'client_approval_closed' yapıyoruz
+                        const { error } = await supabase.from('tasks')
+                            .update({ 
+                                status: 'client_approval_closed', 
+                                details: currentDetails,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', taskId);
+
+                        if (error) throw error;
+                        
+                        alert('İş reddedildi ve iptal işlemleri başlatıldı.');
+                        await this.loadAllData();
+                    } catch (err) {
+                        console.error('Ret hatası:', err);
+                        alert('İş reddedilirken bir hata oluştu.');
+                    }
                 }
             }
         });
@@ -1804,7 +1887,37 @@ PDF raporuna marka görselleri de eklensin mi?
         };
         window.initReports = () => this.renderReports();
         window.exportActiveTable = (type) => this.exportActiveTable(type);
-        window.triggerTpQuery = (appNo) => window.open(`https://portal.turkpatent.gov.tr/anonim/arastirma/marka/sonuc?dosyaNo=${encodeURIComponent(String(appNo).replace(/[^a-zA-Z0-9/]/g, ''))}`, '_blank');
+
+        window.triggerTpQuery = (appNo) => {
+            const cleanNo = String(appNo).replace(/[^a-zA-Z0-9/]/g, '');
+            const targetUrl = `https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(cleanNo)}`;
+            
+            // 1. TÜRKPATENT sayfasını HER DURUMDA yeni sekmede açıyoruz. 
+            // (Eğer eklenti kuruluysa, bu adresi görünce zaten otomatik aramasını yapacak.)
+            window.open(targetUrl, '_blank');
+
+            // 2. Eklentinin kurulu olup olmadığını (ping atarak) anlamaya çalışıyoruz.
+            const EXTENSION_ID = 'bbcpnpgglakoagjakgigmgjpdpiigpah'; 
+
+            if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
+                chrome.runtime.sendMessage(EXTENSION_ID, { type: 'PING' }, (response) => {
+                    // Eğer eklenti yoksa veya web sitesiyle iletişim izni (externally_connectable) yoksa:
+                    if (chrome.runtime.lastError || !response) {
+                        console.warn("Eklenti iletişimi kurulamadı veya eklenti yok.");
+                        // Sayfayı engellemek yerine, sadece bilgilendirme yapıyoruz:
+                        if (typeof showNotification === 'function') {
+                            showNotification('TÜRKPATENT açıldı. Aramayı otomatikleştirmek için Evreka IP Eklentisi kurabilirsiniz.', 'info');
+                        }
+                    }
+                });
+            } else {
+                // Chrome harici bir tarayıcı (Safari, Firefox vb.) kullanılıyorsa
+                if (typeof showNotification === 'function') {
+                    showNotification('TÜRKPATENT açıldı. (Otomatik arama özelliği yalnızca Chrome Eklentisi ile çalışır).', 'info');
+                }
+            }
+        };
+
         window.filterDropdownList = (input) => { const txt = input.value.toLowerCase(); $(input).next('.filter-options-container').find('label').each(function() { $(this).text().toLowerCase().includes(txt) ? $(this).show() : $(this).hide(); }); };
     }
 }

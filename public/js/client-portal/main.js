@@ -217,12 +217,17 @@ class ClientPortalController {
         const statusVal = document.getElementById('portfolioDurumFilter')?.value || 'TÜMÜ';
         const menseVal = document.getElementById('menseFilter')?.value || 'HEPSI';
 
+        const STATUS_TR = {
+            'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+        };
+
         let filtered = this.state.portfolios.filter(item => {
-            // 🔥 ÇÖZÜM: Eğer bir parentId'si varsa bu bir yurtdışı/alt kayıttır, ana listede (ve sayfalama sayısında) tek başına sayma!
             if (item.parentId) return false;
 
             const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
-            // 🔥 DÜZELTME: TÜRK ve TURK kelimelerinin ikisi de kontrol ediliyor
             const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
             
             if (menseVal === 'TÜRKPATENT' && !isTurk) return false;
@@ -233,14 +238,10 @@ class ClientPortalController {
                 if (!searchable.includes(searchVal)) return false;
             }
 
-            if (statusVal !== 'TÜMÜ' && !(item.status || '').toLowerCase().includes(statusVal.toLowerCase())) return false;
-
-            const statusTranslations = {
-                'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
-                'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
-                'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
-            };
+            if (statusVal !== 'TÜMÜ') {
+                const itemStatusTr = STATUS_TR[(item.status || '').toLowerCase()] || item.status || '';
+                if (!itemStatusTr.toLowerCase().includes(statusVal.toLowerCase())) return false;
+            }
 
             for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
                 if (!key.startsWith('marka-list-')) continue;
@@ -249,9 +250,11 @@ class ClientPortalController {
                 if (colIdx == '1') cellValue = isTurk ? 'TÜRKPATENT' : (item.country || 'Yurtdışı');
                 else if (colIdx == '3') cellValue = item.title || item.brandText || '';
                 else if (colIdx == '7') {
-                    // 🔥 ÇÖZÜM: Filtre uygulanırken İngilizce veritabanı kaydı Türkçe'ye çevrilip "Tescilli" gibi eşleştirilecek
                     const st = (item.status || '').toLowerCase();
-                    cellValue = statusTranslations[st] || item.status || 'Bilinmiyor';
+                    cellValue = STATUS_TR[st] || item.status || 'Bilinmiyor';
+                }
+                else if (colIdx == '10') {
+                    cellValue = item.classes || '-';
                 }
 
                 if (!selectedValues.includes(cellValue.trim())) return false;
@@ -259,7 +262,7 @@ class ClientPortalController {
             return true;
         });
 
-        const markaList = filtered.filter(p => !p.type || p.type.toLowerCase().includes('marka') || p.type.toLowerCase().includes('trademark'));
+        let markaList = filtered.filter(p => !p.type || p.type.toLowerCase().includes('marka') || p.type.toLowerCase().includes('trademark'));
         const patentList = filtered.filter(p => p.type && p.type.toLowerCase().includes('patent'));
         const tasarimList = filtered.filter(p => p.type && (p.type.toLowerCase().includes('design') || p.type.toLowerCase().includes('tasarim')));
 
@@ -268,6 +271,7 @@ class ClientPortalController {
             const index = $(activeTh).index();
             const type = activeTh.dataset.sort || 'text';
             const isAsc = activeTh.classList.contains('sort-asc');
+            
             const getValueFn = (item) => {
                 if (index === 2) return (item.origin || item.country || '').toLowerCase();
                 if (index === 4) return (item.title || item.brandText || '').toLowerCase();
@@ -275,19 +279,17 @@ class ClientPortalController {
                 if (index === 6) return (item.registrationNumber || '').toLowerCase();
                 if (index === 7) return item.applicationDate; 
                 if (index === 8) return item.renewalDate;     
-                if (index === 9) {
-                    const st = (item.status || '').toLowerCase();
-                    return (statusTranslations[st] || item.status || 'Bilinmiyor').toLowerCase();
-                }
+                if (index === 9) return (STATUS_TR[(item.status || '').toLowerCase()] || item.status || '').toLowerCase();
                 if (index === 10) return (item.classes || '').toLowerCase();
                 return item.id || '';
             };
-
+            
             const normalize = (val) => {
                 if (val === null || val === undefined) return (type === 'amount' || type === 'number') ? 0 : '';
                 if (type === 'date') { const parsed = Date.parse(val); return isNaN(parsed) ? 0 : parsed; }
                 return val;
             };
+            
             markaList.sort((a, b) => {
                 let valA = normalize(getValueFn(a));
                 let valB = normalize(getValueFn(b));
@@ -337,7 +339,7 @@ class ClientPortalController {
             
             const originDisplay = item.origin || 'TÜRKPATENT';
             
-            // 🔥 ÇÖZÜM 2: Akordeon içindeki alt (child) kayıtları ülke ismine göre alfabetik sıraya diz
+            // 🔥 Alt (child) kayıtların kusursuz sıralanması
             const childRecords = this.state.portfolios
                 .filter(p => p.parentId === item.id)
                 .sort((a, b) => {
@@ -357,7 +359,7 @@ class ClientPortalController {
             else if (st.includes('itiraz') || st.includes('opposition')) badgeClass = 'warning';
 
             const displayStatus = statusTranslations[st] || item.status || 'Bilinmiyor';
-            const isChecked = this.state.selectedRecords.has(String(item.id)) ? 'checked' : ''; // 🔥 Seçim Kontrolü
+            const isChecked = this.state.selectedRecords.has(String(item.id)) ? 'checked' : '';
 
             row.innerHTML = `
                 <td>
@@ -1064,20 +1066,19 @@ class ClientPortalController {
         if (existing.length) { existing.remove(); return; }
         $('.column-filter-dropdown').remove();
 
-        let sourceData = [];
-        if (tableId === 'marka-list') sourceData = this.state.portfolios;
-        else if (tableId === 'dava-itiraz-list') sourceData = this.state.filteredObjections || []; 
-        else if (tableId === 'dava-list') sourceData = this.state.suits;
-
-        const uniqueValues = new Set();
-        // İngilizce veritabanı statülerini Türkçe arayüze çeviren sözlük
-        const statusTranslations = {
+        const STATUS_TR = {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
             'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
             'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
 
+        let sourceData = [];
+        if (tableId === 'marka-list') sourceData = this.state.portfolios;
+        else if (tableId === 'dava-itiraz-list') sourceData = this.state.filteredObjections || []; 
+        else if (tableId === 'dava-list') sourceData = this.state.suits;
+
+        const uniqueValues = new Set();
         sourceData.forEach(item => {
             if (item.transactionHierarchy === 'child' || item.isChild) return;
             let val = '';
@@ -1089,10 +1090,10 @@ class ClientPortalController {
                 }
                 else if (colIdx == 3) val = item.title || item.brandText || '';
                 else if (colIdx == 7) {
-                    // 🔥 ÇÖZÜM: Durum filtreleri (Huni ikonu içi) artık sözlükten Türkçe kelimeleri çekecek
                     const st = (item.status || '').toLowerCase();
-                    val = statusTranslations[st] || item.status || 'Bilinmiyor';
+                    val = STATUS_TR[st] || item.status || 'Bilinmiyor';
                 }
+                else if (colIdx == 10) val = item.classes || '-';
             } else if (tableId === 'dava-itiraz-list') {
                 if (colIdx == 3) val = item.title || '';
                 else if (colIdx == 4) val = item.transactionTypeName || '';
@@ -1105,7 +1106,7 @@ class ClientPortalController {
                 else if (colIdx == 5) val = item.opposingParty || '';
                 else if (colIdx == 7) val = item.suitStatus || '';
             }
-            if (val) uniqueValues.add(val.trim());
+            if (val) uniqueValues.add(String(val).trim());
         });
 
         const sorted = Array.from(uniqueValues).sort((a, b) => a.localeCompare(b, 'tr'));
@@ -1113,22 +1114,53 @@ class ClientPortalController {
         
         const optionsHtml = sorted.map(val => {
             const isChecked = (this.state.activeColumnFilters[filterKey] || []).includes(val) ? 'checked' : '';
-            return `<label class="filter-option" style="display:block; cursor:pointer;"><input type="checkbox" value="${val}" ${isChecked}> ${val}</label>`;
+            const safeVal = val.replace(/"/g, '&quot;');
+            return `<label class="filter-option" style="display:block; cursor:pointer;"><input type="checkbox" value="${safeVal}" ${isChecked}> ${val}</label>`;
         }).join('');
 
+        // 🔥 ÇÖZÜM: 'apply-col-filter' sınıfı 'apply-col-filter-btn' olarak değiştirildi
+        // ve global tıklama dinleyicisinden kurtulup doğrudan olay ataması yapıldı.
         const html = `
             <div class="column-filter-dropdown" onclick="event.stopPropagation()" style="min-width:220px;">
                 <input type="text" class="filter-search-input" placeholder="Ara..." onkeyup="window.filterDropdownList(this)">
                 <div class="filter-options-container">${optionsHtml}</div>
                 <div class="filter-actions">
-                    <button class="btn btn-xs btn-light clear-col-filter" data-table="${tableId}" data-col="${colIdx}">Temizle</button>
-                    <button class="btn btn-xs btn-primary apply-col-filter" data-table="${tableId}" data-col="${colIdx}">Uygula</button>
+                    <button class="btn btn-xs btn-light clear-col-filter-btn">Temizle</button>
+                    <button class="btn btn-xs btn-primary apply-col-filter-btn">Uygula</button>
                 </div>
             </div>`;
 
         $(icon).parent().append(html);
-        $(icon).next('.column-filter-dropdown').fadeIn(200);
-        setTimeout(() => $(icon).next().find('input[type="text"]').focus(), 100);
+        const dropdown = $(icon).next('.column-filter-dropdown');
+
+        // UYGULA Butonu Tıklaması
+        dropdown.find('.apply-col-filter-btn').on('click', (e) => {
+            e.stopPropagation(); // Tıklamanın tabloyu sıralamasını engelle
+            const selected = [];
+            dropdown.find('input:checked').each(function() { selected.push($(this).val()); });
+            
+            if (selected.length > 0) {
+                this.state.activeColumnFilters[filterKey] = selected;
+                $(`#${tableId} th[data-col-idx="${colIdx}"] .filter-icon`).addClass('active').css('color', '#007bff');
+            } else {
+                delete this.state.activeColumnFilters[filterKey];
+                $(`#${tableId} th[data-col-idx="${colIdx}"] .filter-icon`).removeClass('active').css('color', '');
+            }
+            dropdown.remove();
+            this.applyAllFilters();
+        });
+
+        // TEMİZLE Butonu Tıklaması
+        dropdown.find('.clear-col-filter-btn').on('click', (e) => {
+            e.stopPropagation();
+            delete this.state.activeColumnFilters[filterKey];
+            $(`#${tableId} th[data-col-idx="${colIdx}"] .filter-icon`).removeClass('active').css('color', '');
+            dropdown.remove();
+            this.applyAllFilters();
+        });
+
+        dropdown.fadeIn(200);
+        setTimeout(() => dropdown.find('input[type="text"]').focus(), 100);
     }
 
     // ==========================================
@@ -1137,29 +1169,25 @@ class ClientPortalController {
     sortTable(listId, columnIndex, dataType, thElement) {
         let dataObj = null; let renderFn = null; let getValueFn = null;
 
+        const STATUS_TR = {
+            'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+        };
+
         if (listId === 'marka-list') {
-            const statusTranslations = {
-                'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
-                'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
-                'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
-            };
             dataObj = this.state.filteredPortfolios;
             renderFn = (slice, start) => this.renderPortfolioTable(slice, start);
-            
             getValueFn = (item) => {
-                if (columnIndex === 2) return (item.origin || item.country || '').toLowerCase(); // Menşe
-                if (columnIndex === 4) return (item.title || item.brandText || '').toLowerCase(); // Marka Adı
-                if (columnIndex === 5) return (item.applicationNumber || '').toLowerCase(); // Başvuru No
-                if (columnIndex === 6) return (item.registrationNumber || '').toLowerCase(); // Tescil No
-                if (columnIndex === 7) return item.applicationDate; // Başvuru Tarihi
-                if (columnIndex === 8) return item.renewalDate; // Yenileme Tarihi
-                if (columnIndex === 9) {
-                    // 🔥 ÇÖZÜM: "Durum" kolonuna tıklandığında "registered" ve "application" (ingilizce A-Z) kelimelerine göre değil; "Tescilli", "Başvuru" (türkçe A-Z) kelimelerine göre dizecek.
-                    const st = (item.status || '').toLowerCase();
-                    return (statusTranslations[st] || item.status || 'Bilinmiyor').toLowerCase();
-                }
-                if (columnIndex === 10) return (item.classes || '').toLowerCase(); // Sınıflar
+                if (columnIndex === 2) return (item.origin || item.country || '').toLowerCase(); 
+                if (columnIndex === 4) return (item.title || item.brandText || '').toLowerCase(); 
+                if (columnIndex === 5) return (item.applicationNumber || '').toLowerCase(); 
+                if (columnIndex === 6) return (item.registrationNumber || '').toLowerCase(); 
+                if (columnIndex === 7) return item.applicationDate; 
+                if (columnIndex === 8) return item.renewalDate;     
+                if (columnIndex === 9) return (STATUS_TR[(item.status || '').toLowerCase()] || item.status || '').toLowerCase();
+                if (columnIndex === 10) return (item.classes || '').toLowerCase(); 
                 return item.id || '';
             };
         } else if (listId === 'dava-itiraz-list') {

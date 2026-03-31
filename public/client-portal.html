@@ -124,21 +124,6 @@
     
     /* Kolon Genişlikleri */
 
-    /* 🔥 GÜNCELLEME: Marka Listesi Kolon Genişlikleri ve Tablo Sabitlemesi */
-    #marka-list > table { table-layout: fixed; width: 100%; }
-    #marka-list > table > thead > tr > th:nth-child(1) { width: 2.5%; } /* Checkbox */
-    #marka-list > table > thead > tr > th:nth-child(2) { width: 2.5%; } /* # Sıra No */
-    #marka-list > table > thead > tr > th:nth-child(3) { width: 8%; }  /* Menşe */
-    #marka-list > table > thead > tr > th:nth-child(4) { width: 8%; }  /* Görsel */
-    #marka-list > table > thead > tr > th:nth-child(5) { width: 19%; } /* Marka Adı (Genişletildi) */
-    #marka-list > table > thead > tr > th:nth-child(6) { width: 10%; } /* Başvuru No */
-    #marka-list > table > thead > tr > th:nth-child(7) { width: 10%; } /* Tescil No */
-    #marka-list > table > thead > tr > th:nth-child(8) { width: 9%; }  /* Başvuru T. */
-    #marka-list > table > thead > tr > th:nth-child(9) { width: 9%; }  /* Yenileme T. */
-    #marka-list > table > thead > tr > th:nth-child(10) { width: 10%; } /* Durum */
-    #marka-list > table > thead > tr > th:nth-child(11) { width: 12%; } /* Sınıflar (Genişletildi) */
-    #marka-list > table > tbody > tr > td { word-wrap: break-word; white-space: normal; vertical-align: middle; }
-
     #dava-itiraz-list table { table-layout: fixed; width: 100%; }
     #dava-itiraz-list th:nth-child(1), #dava-itiraz-list td:nth-child(1) { width: 3%; }
     #dava-itiraz-list th:nth-child(2), #dava-itiraz-list td:nth-child(2) { width: 6%; }
@@ -279,25 +264,25 @@
             </div>
             <div class="tab-content table-responsive mt-3">
                 <div class="tab-pane fade show active" id="marka-list">
-                    <table class="table table-hover">
+                    <table class="table table-hover" style="table-layout: fixed; width: 100%; word-wrap: break-word;">
                         <thead>
                             <tr>
-                                <th style="width: 40px;">
+                                <th style="width: 3%;">
                                     <div class="custom-control custom-checkbox">
                                         <input type="checkbox" class="custom-control-input" id="selectAllCheckbox">
                                         <label class="custom-control-label" for="selectAllCheckbox"></label>
                                     </div>
                                 </th>
-                                <th class="sortable" data-sort="index"># <i class="fas fa-sort"></i></th>
-                                <th class="col-origin sortable filterable" data-sort="text" data-col-idx="1">Menşe <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="1"></i></th>
-                                <th class="col-sample text-center">Marka Örneği</th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="3">Marka <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="3"></i></th>
-                                <th class="sortable" data-sort="text">Başvuru No <i class="fas fa-sort"></i></th>
-                                <th class="col-regno sortable" data-sort="text">Tescil No <i class="fas fa-sort"></i></th>
-                                <th class="col-appdate sortable" data-sort="date">Başvuru Tarihi <i class="fas fa-sort"></i></th>
-                                <th class="sortable" data-sort="date">Yenileme Tarihi <i class="fas fa-sort"></i></th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="7">Durum <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="7"></i></th>
-                                <th class="col-classes sortable" data-sort="text">Sınıflar <i class="fas fa-sort"></i></th>
+                                <th class="sortable" data-sort="index" style="width: 3%;"># <i class="fas fa-sort"></i></th>
+                                <th class="col-origin sortable filterable" data-sort="text" data-col-idx="1" style="width: 8%;">Menşe <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="1"></i></th>
+                                <th class="col-sample text-center" style="width: 8%;">Marka Örneği</th>
+                                <th class="sortable filterable" data-sort="text" data-col-idx="3" style="width: 19%;">Marka <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="3"></i></th>
+                                <th class="sortable" data-sort="text" style="width: 10%;">Başvuru No <i class="fas fa-sort"></i></th>
+                                <th class="col-regno sortable" data-sort="text" style="width: 10%;">Tescil No <i class="fas fa-sort"></i></th>
+                                <th class="col-appdate sortable" data-sort="date" style="width: 9%;">Başvuru Tarihi <i class="fas fa-sort"></i></th>
+                                <th class="sortable" data-sort="date" style="width: 9%;">Yenileme Tarihi <i class="fas fa-sort"></i></th>
+                                <th class="sortable filterable" data-sort="text" data-col-idx="7" style="width: 9%;">Durum <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="7"></i></th>
+                                <th class="col-classes sortable filterable" data-sort="text" data-col-idx="10" style="width: 12%;">Sınıflar <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="marka-list" data-col="10"></i></th>
                             </tr>
                         </thead>
                         <tbody></tbody>

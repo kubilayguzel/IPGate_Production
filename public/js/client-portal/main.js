@@ -1890,31 +1890,23 @@ PDF raporuna marka görselleri de eklensin mi?
 
         window.triggerTpQuery = (appNo) => {
             const cleanNo = String(appNo).replace(/[^a-zA-Z0-9/]/g, '');
-            const targetUrl = `https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(cleanNo)}`;
-            
-            // 1. TÜRKPATENT sayfasını HER DURUMDA yeni sekmede açıyoruz. 
-            // (Eğer eklenti kuruluysa, bu adresi görünce zaten otomatik aramasını yapacak.)
-            window.open(targetUrl, '_blank');
-
-            // 2. Eklentinin kurulu olup olmadığını (ping atarak) anlamaya çalışıyoruz.
-            const EXTENSION_ID = 'bbcpnpgglakoagjakgigmgjpdpiigpah'; 
+            const EXTENSION_ID = 'bbcpnpgglakoagjakgigmgjpdpiigpah'; // Eklentinin ID'si
 
             if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
+                // Eklentiye "Orada mısın?" (PING) diye soruyoruz
                 chrome.runtime.sendMessage(EXTENSION_ID, { type: 'PING' }, (response) => {
-                    // Eğer eklenti yoksa veya web sitesiyle iletişim izni (externally_connectable) yoksa:
+                    
                     if (chrome.runtime.lastError || !response) {
-                        console.warn("Eklenti iletişimi kurulamadı veya eklenti yok.");
-                        // Sayfayı engellemek yerine, sadece bilgilendirme yapıyoruz:
-                        if (typeof showNotification === 'function') {
-                            showNotification('TÜRKPATENT açıldı. Aramayı otomatikleştirmek için Evreka IP Eklentisi kurabilirsiniz.', 'info');
-                        }
+                        // CEVAP YOK (Eklenti kurulu değil veya izin verilmemiş) -> Kuruluma At
+                        window.open('eklenti-kurulum.html', '_blank');
+                    } else {
+                        // CEVAP GELDİ (Eklenti kurulu ve aktif) -> TÜRKPATENT'i Aç
+                        window.open(`https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(cleanNo)}`, '_blank');
                     }
                 });
             } else {
-                // Chrome harici bir tarayıcı (Safari, Firefox vb.) kullanılıyorsa
-                if (typeof showNotification === 'function') {
-                    showNotification('TÜRKPATENT açıldı. (Otomatik arama özelliği yalnızca Chrome Eklentisi ile çalışır).', 'info');
-                }
+                // Tarayıcı Chrome değilse -> Kuruluma At
+                window.open('eklenti-kurulum.html', '_blank');
             }
         };
 

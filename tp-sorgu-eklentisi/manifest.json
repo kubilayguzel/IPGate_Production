@@ -31,8 +31,7 @@
     "https://ip-manager-production-aab4b.web.app/*",
     "https://ip-manager-production-aab4b.firebaseapp.com/*",
     "https://ipgate-31bd2.web.app/*",
-    "https://ipgate-31bd2.firebaseapp.com/*",
-    "https://ipgate-supa-test.web.app/"
+    "https://ipgate-31bd2.firebaseapp.com/*"
     ]
   }
 }

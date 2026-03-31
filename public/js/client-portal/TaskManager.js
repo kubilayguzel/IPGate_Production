@@ -121,13 +121,15 @@ export class TaskManager {
                         }
                     } catch(e) {}
 
-                    // SQL'den gelen Başarı Şansı ve Notları yerleştir
                     parsedDetails.success_chance = bulletinData.success_chance;
                     parsedDetails.note = bulletinData.note;
 
+                    // 🔥 ÇÖZÜM: Sadece 20 (Bülten) için görev başlığını View'daki rakip numarası ve adıyla oluştur
+                    let finalBulletinTitle = `${bulletinData.competitor_app_no || ''} - ${bulletinData.competitor_brand_name || ''}`.replace(/^- | -$/g, '').trim();
+
                     return {
                         id: String(task.id),
-                        title: task.title || '-',
+                        title: finalBulletinTitle || task.title || '-',
                         taskType: String(task.task_type_id),
                         taskTypeDisplay: typeObj.alias || typeObj.name || 'İşlem',
                         status: task.status,

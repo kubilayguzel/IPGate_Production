@@ -216,10 +216,14 @@ class ClientPortalController {
         const searchVal = (document.getElementById('portfolioSearchText')?.value || '').toLowerCase().trim();
         const statusVal = document.getElementById('portfolioDurumFilter')?.value || 'TÜMÜ';
         const menseVal = document.getElementById('menseFilter')?.value || 'HEPSI';
+        
+        // 🔥 YENİ: Anlık Arama Kutu Değerlerini Çekiyoruz
+        const inlineBrandVal = (document.getElementById('inlineBrandFilter')?.value || '').toLowerCase().trim();
+        const inlineClassVal = (document.getElementById('inlineClassFilter')?.value || '').toLowerCase().trim();
 
         const STATUS_TR = {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
             'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
@@ -243,18 +247,26 @@ class ClientPortalController {
                 if (!itemStatusTr.toLowerCase().includes(statusVal.toLowerCase())) return false;
             }
 
+            // 🔥 YENİ: Marka Adı İçin Anlık (Klavye ile) Süzme
+            if (inlineBrandVal) {
+                const brandName = (item.title || item.brandText || '').toLowerCase();
+                if (!brandName.includes(inlineBrandVal)) return false;
+            }
+
+            // 🔥 YENİ: Sınıflar İçin Anlık (Klavye ile) Süzme
+            if (inlineClassVal) {
+                const itemClasses = (item.classes || '').toLowerCase();
+                if (!itemClasses.includes(inlineClassVal)) return false;
+            }
+
             for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
                 if (!key.startsWith('marka-list-')) continue;
                 const colIdx = key.split('-').pop();
                 let cellValue = '';
                 if (colIdx == '1') cellValue = isTurk ? 'TÜRKPATENT' : (item.country || 'Yurtdışı');
-                else if (colIdx == '3') cellValue = item.title || item.brandText || '';
                 else if (colIdx == '7') {
                     const st = (item.status || '').toLowerCase();
                     cellValue = STATUS_TR[st] || item.status || 'Bilinmiyor';
-                }
-                else if (colIdx == '10') {
-                    cellValue = item.classes || '-';
                 }
 
                 if (!selectedValues.includes(cellValue.trim())) return false;
@@ -328,7 +340,7 @@ class ClientPortalController {
 
         const statusTranslations = {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
             'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
@@ -760,7 +772,8 @@ class ClientPortalController {
         });
 
         $('#menseFilter, #portfolioDurumFilter').on('change', () => this.filterPortfolios());
-        $('#portfolioSearchText').on('keyup', () => this.filterPortfolios());
+        // 🔥 ÇÖZÜM: Yeni eklediğimiz anlık filtre inputlarını da sisteme bağlıyoruz
+        $('#portfolioSearchText, #inlineBrandFilter, #inlineClassFilter').on('keyup', () => this.filterPortfolios());
         $('#invoiceDurumFilter').on('change', () => this.filterInvoices());
         $('#invoiceSearchText').on('keyup', () => this.filterInvoices());
         $('#contractsSearchText').on('keyup', () => this.filterContracts());
@@ -885,7 +898,7 @@ class ClientPortalController {
             const typeTranslations = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım' };
             const statusTranslations = {
                 'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+                'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
                 'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
                 'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
             };
@@ -1068,7 +1081,7 @@ class ClientPortalController {
 
         const STATUS_TR = {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
             'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
@@ -1171,7 +1184,7 @@ class ClientPortalController {
 
         const STATUS_TR = {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-            'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+            'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
             'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
         };
@@ -1421,7 +1434,7 @@ class ClientPortalController {
             // 🔥 3. ADIM: İngilizce Durumları Türkçe'ye Çeviren Sözlük
             const statusTranslations = {
                 'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
-                'rejected': 'Reddedildi', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
+                'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
                 'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
                 'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
             };
@@ -1659,7 +1672,7 @@ class ClientPortalController {
             application: 'Basvuru',
             filed: 'Basvuru',
             published: 'Yayinlandi',
-            rejected: 'Reddedildi',
+            rejected: 'Geçersiz',
             partially_rejected: 'Kismen Reddedildi',
             'partially rejected': 'Kismen Reddedildi',
             withdrawn: 'Geri Cekildi',

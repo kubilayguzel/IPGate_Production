@@ -14,9 +14,12 @@ export default class Pagination {
             noResults: 'Gösterilecek kayıt bulunamadı'
         };
 
+        // 🔥 ÇÖZÜM 3: 1000 seçeneğini her koşulda zorunlu kılarak listeye sabitliyoruz.
+        const providedOptions = options.itemsPerPageOptions || [10, 20, 50, 100];
+        const mergedOptions = Array.from(new Set([...providedOptions, 1000])).sort((a, b) => a - b);
+
         // 2. Ayarları oluştur
         this.options = {
-            // Varsayılan genel ayarlar
             itemsPerPage: 20,
             maxVisiblePages: 5,
             containerId: 'paginationContainer',
@@ -25,20 +28,14 @@ export default class Pagination {
             showPrevNext: true,
             showPageInfo: true,
             showItemsPerPageSelector: true,
-            itemsPerPageOptions: [10, 20, 50, 100,1000],
-            
-            // Kullanıcıdan gelen ana ayarları (örn: itemsPerPage) varsayılanların üzerine yaz
             ...options,
-
-            // 3. 'strings' objesini özel olarak birleştir (Deep Merge)
-            // Kullanıcıdan gelen options.strings varsa, varsayılanların üzerine ekle.
-            // Böylece kullanıcının göndermediği metinler varsayılan olarak kalır.
+            itemsPerPageOptions: mergedOptions, // Dışarıdan ne gelirse gelsin 1000 listeye eklendi
             strings: {
                 ...defaultStrings,
                 ...(options.strings || {})
             }
         };
-
+        
         this.currentPage = 1;
         this.totalItems = 0;
         this.totalPages = 0;

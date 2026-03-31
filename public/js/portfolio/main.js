@@ -843,7 +843,15 @@ class PortfolioController {
 
         columns.push(
             { key: 'applicationNumber', label: 'Başvuru No', sortable: true, filterable: true, width: '140px' },
-            { key: 'formattedApplicationDate', label: 'Başvuru Tar.', sortable: true, width: '140px', filterable: true, inputType: 'date' },
+            { key: 'formattedApplicationDate', label: 'Başvuru Tar.', sortable: true, width: '140px', filterable: true, inputType: 'date' }
+        );
+
+        // 🔥 ÇÖZÜM 1 & 2: Yurtdışı sekmesi ise eksik olan Yenileme Tarihi başlığını ekliyoruz. Bu kolon kaymasını tamamen çözer!
+        if (tab === 'trademark' && this.state.subTab !== 'turkpatent') {
+            columns.push({ key: 'renewalDate', label: 'Yenileme Tar.', sortable: true, width: '140px', filterable: true, inputType: 'date' });
+        }
+
+        columns.push(
             { key: 'statusText', label: 'Başvuru Durumu', sortable: true, width: '130px', filterable: true },
             { key: 'formattedApplicantName', label: 'Başvuru Sahibi', sortable: true, filterable: true, width: '200px' }, 
             { key: 'formattedNiceClasses', label: 'Nice', sortable: true, width: '140px', filterable: true },

@@ -212,6 +212,8 @@ class PortfolioController {
         this.pagination = new Pagination({
             containerId: 'paginationContainer',
             itemsPerPage: this.ITEMS_PER_PAGE,
+            // 🔥 GÜNCELLEME 3: Pagination açılır menüsüne 500 ve 1000 alternatifleri eklendi
+            itemsPerPageOptions: [10, 20, 50, 100, 500, 1000], 
             onPageChange: (page) => {
                 this.state.currentPage = page;
                 this.render(); 

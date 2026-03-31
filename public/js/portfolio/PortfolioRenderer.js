@@ -175,6 +175,14 @@ export class PortfolioRenderer {
         }
         
         html += `<td>${record.formattedApplicationDate || '-'}</td>`;
+
+        // 🔥 GÜNCELLEME 1 & 2: Yurtdışı sekmesi ise eksik olan Yenileme Tarihi kolonunu buraya ekliyoruz.
+        // Bu sayede hem veri görünür olacak hem de tablodaki sütun kayması (Ülke, Durum vb. uyuşmazlığı) düzelecektir.
+        if (isTrademarkTab && subTab !== 'turkpatent') {
+            const renDate = record.renewalDate ? this.formatDate(record.renewalDate) : '-';
+            html += `<td>${renDate}</td>`;
+        }
+        
         html += `<td>${isChild ? '' : this.getStatusBadge(record)}</td>`;
         html += `<td><small title="${applicantText}">${applicantText}</small></td>`;
         

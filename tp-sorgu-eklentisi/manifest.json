@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Evreka IP Sorgu Yardımcısı (Debug Wide Match)",
-  "version": "1.1.5",
+  "name": "Evreka IP Başvuru Sorgulama",
+  "version": "1.1.6",
   "description": "Evreka IP uygulamasından TÜRKPATENT üzerinde otomatik sorgulama yapar. (Geniş eşleşme + detaylı log)",
   "permissions": [],
   "host_permissions": [

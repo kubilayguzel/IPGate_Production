@@ -141,4 +141,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// Web sitesinden gelen PING mesajına PONG yanıtı vererek "Buradayım" diyoruz
+chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+    if (request.type === 'PING') {
+        sendResponse({ status: 'PONG' });
+    }
+});
+
 console.log(TAG, '✅ Ready');

@@ -266,7 +266,14 @@ export class RenderHelper {
 
             let cardTitle = `#${task.id} - ${task.taskTypeDisplay}`;
             if (!isBulletinWatch) {
-                cardTitle += ` - ${task.appNo} - ${task.recordTitle}`;
+                // 🔥 KESİN ÇÖZÜM: İşlem tipi 20 (Bülten) ise kart başlığına müvekkili değil, doğrudan rakip markanın (competitor) verilerini bas!
+                if (String(task.taskType) === '20') {
+                    const compName = task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
+                    cardTitle += ` - ${targetAppNo} - ${compName}`;
+                } else {
+                    // Diğer işlerde müvekkilin kendi markasını göster
+                    cardTitle += ` - ${task.appNo} - ${task.recordTitle}`;
+                }
             }
 
             let comparisonRow = '';

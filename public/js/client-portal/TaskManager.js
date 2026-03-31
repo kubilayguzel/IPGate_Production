@@ -124,12 +124,25 @@ export class TaskManager {
                     parsedDetails.success_chance = bulletinData.success_chance;
                     parsedDetails.note = bulletinData.note;
 
-                    // 🔥 ÇÖZÜM: Sadece 20 (Bülten) için görev başlığını View'daki rakip numarası ve adıyla oluştur
-                    let finalBulletinTitle = `${bulletinData.competitor_app_no || ''} - ${bulletinData.competitor_brand_name || ''}`.replace(/^- | -$/g, '').trim();
+                    // 🔥 ÇÖZÜM: Görev başlığında (task.title) yer alan kendi numaramızı ve markamızı, View'dan gelen rakip verilerle değiştiriyoruz.
+                    // Böylece "Yayına İtiraz" gibi görev başlığı ön ekleri silinmeden korunmuş oluyor.
+                    let finalBulletinTitle = task.title || '';
+                    
+                    if (bulletinData.my_app_no && finalBulletinTitle.includes(bulletinData.my_app_no)) {
+                        finalBulletinTitle = finalBulletinTitle.replace(bulletinData.my_app_no, bulletinData.competitor_app_no || '');
+                    }
+                    if (bulletinData.my_brand_name && finalBulletinTitle.includes(bulletinData.my_brand_name)) {
+                        finalBulletinTitle = finalBulletinTitle.replace(bulletinData.my_brand_name, bulletinData.competitor_brand_name || '');
+                    }
+                    
+                    // Eğer yukarıdaki değiştirme bir sebeple işlemezse (başlık formatı farklıysa), doğrudan rakip bilgilerini göster
+                    if (finalBulletinTitle === task.title && bulletinData.competitor_app_no) {
+                        finalBulletinTitle = `${bulletinData.competitor_app_no} - ${bulletinData.competitor_brand_name || ''}`;
+                    }
 
                     return {
                         id: String(task.id),
-                        title: finalBulletinTitle || task.title || '-',
+                        title: finalBulletinTitle.replace(/^- | -$/g, '').trim() || '-',
                         taskType: String(task.task_type_id),
                         taskTypeDisplay: typeObj.alias || typeObj.name || 'İşlem',
                         status: task.status,

@@ -238,11 +238,11 @@ export class RenderHelper {
             let content = '<div class="tab-content">';
 
             // Tab 1: Onaylanan İşler
-            html += `<li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#t-approved">Onaylanan İşler (${approved.length})</a></li>`;
+            html += `<li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#t-approved">Onaylanan/Devam Eden İşler (${approved.length})</a></li>`;
             content += `<div class="tab-pane fade show active" id="t-approved"><div class="row">${this.generateTaskCardsHtml(approved, taskTypeFilter)}</div></div>`;
 
             // Tab 2: Tamamlanan / Kapatılan İşler
-            html += `<li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t-closed">Tamamlanan/Kapatılan İşler (${closed.length})</a></li>`;
+            html += `<li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t-closed">Kapatılan/Tamamlanan İşler (${closed.length})</a></li>`;
             content += `<div class="tab-pane fade" id="t-closed"><div class="row">${this.generateTaskCardsHtml(closed, taskTypeFilter)}</div></div>`;
 
             container.innerHTML = html + '</ul>' + content + '</div>';

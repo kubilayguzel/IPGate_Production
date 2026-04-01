@@ -57,8 +57,10 @@ async function sendPdfUrlToMainTab(url) {
 chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
   if (request.action === "START_QUEUE") {
 
+    // 🔥 ÇÖZÜM: Artık Firebase değil, Supabase Edge Function adresimize gönderiyoruz.
+    // DİKKAT: [PROJE_REFERANS_KODUNUZ] yazan yeri kendi Supabase proje URL'nizle (örn: kadxvkejzctwymzeyrrl) değiştirmeyi unutmayın!
     const fallbackUrl =
-      "https://europe-west1-ip-manager-production-aab4b.cloudfunctions.net/saveEpatsDocument";
+      "https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/save-epats-document";
 
     chrome.storage.local.set(
       {

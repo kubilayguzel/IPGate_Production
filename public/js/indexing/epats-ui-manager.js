@@ -17,8 +17,8 @@ export class EpatsUiManager {
         
         // Desteklenen Eklenti ID'leri (Hangi eklenti yüklüyse o çalışır)
         this.extensionIds = [
-            "hffjgcfcelfemkmgocpjjphfmjlhpdnb", // 1. ID (Mevcut)
-            "poikphboglooldcjgmgakjnmibghbdbf"  // 2. ID (Yeni)
+            "eofiokhjckpokhljndldiicngcmpcpda", // 1. ID (Mevcut)
+            "hffjgcfcelfemkmgocpjjphfmjlhpdnb"  // 2. ID (Yeni)
         ];
 
         this.init();
@@ -72,24 +72,57 @@ export class EpatsUiManager {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Taranıyor...';
 
+        console.log(`\n--- [EPATS TARAMA BAŞLADI] ---`);
+        console.log(`🔎 Kriterler -> Müvekkil: ${clientId} | Varlık: ${ipType} | Evrak: ${docType}`);
+
         try {
             await this.portfolioData.loadInitialData();
+            let allRecs = this.portfolioData.allRecords;
             
-            // 🔥 ŞEMA UYUMLU FİLTRELEME
-            const candidates = this.portfolioData.allRecords.filter(r => {
-                // applicants objesi veya person_id kontrolü
-                const isClientMatch = r.applicants && r.applicants.some(app => app.id === clientId || app.person_id === clientId);
+            if (!allRecs || allRecs.length === 0) {
+                const { data: viewData, error: viewErr } = await supabase.from('portfolio_list_view').select('*');
+                if (!viewErr && viewData) {
+                    allRecs = viewData;
+                }
+            }
+
+            // Aday Kayıtları Süzme İşlemi
+            const candidates = allRecs.filter(r => {
+                let isClientMatch = false;
                 
-                const rType = r.ip_type || r.type;
-                const isTypeMatch = rType === ipType;
+                // 🔥 ÇÖZÜM: View'daki GERÇEK sütun adı "applicants_json" kullanıldı.
+                let apps = r.applicants_json || r.applicants;
                 
-                const rStatus = r.portfolio_status || r.status;
-                const isRegistered = rStatus && ['registered', 'tescilli'].includes(rStatus.toLowerCase());
+                if (typeof apps === 'string') {
+                    try { apps = JSON.parse(apps); } catch(e) { apps = []; }
+                }
                 
+                if (apps && Array.isArray(apps)) {
+                    isClientMatch = apps.some(app => String(app.id) === String(clientId) || String(app.person_id) === String(clientId));
+                } else if (r.ip_record_applicants && Array.isArray(r.ip_record_applicants)) {
+                    isClientMatch = r.ip_record_applicants.some(app => String(app.person_id) === String(clientId));
+                }
+                
+                if (!isClientMatch && String(r.client_id) === String(clientId)) {
+                    isClientMatch = true;
+                }
+                
+                // 2. Tip Eşleştirme (trademark, patent, vs.)
+                const rType = String(r.ip_type || r.type || '').toLowerCase().trim();
+                const expectedType = String(ipType).toLowerCase().trim();
+                const isTypeMatch = (rType === expectedType) || 
+                                    (expectedType === 'trademark' && rType === 'marka') || 
+                                    (expectedType === 'patent' && rType === 'patent') ||
+                                    (expectedType === 'design' && (rType === 'tasarım' || rType === 'tasarim'));
+                
+                // 3. Statü Eşleştirme (registered, tescilli vb.)
+                const rStatus = String(r.status || r.portfolio_status || '').toLowerCase().trim();
+                const isRegistered = ['registered', 'tescilli'].includes(rStatus);
+
                 return isClientMatch && isTypeMatch && isRegistered;
             });
 
-            console.log(`${candidates.length} adet aday kayıt bulundu. Detaylı tarama yapılıyor...`);
+            console.log(`✅ [EPATS] Kriterleri sağlayan aday kayıt sayısı: ${candidates.length}`);
 
             const missingDocs = [];
             const chunkSize = 10;
@@ -97,16 +130,28 @@ export class EpatsUiManager {
             for (let i = 0; i < candidates.length; i += chunkSize) {
                 const chunk = candidates.slice(i, i + chunkSize);
                 const results = await Promise.all(chunk.map(async (record) => {
-                    const txResult = await ipRecordsService.getTransactionsForRecord(record.id);
-                    if (txResult.success) {
-                        const hasDocument = txResult.transactions.some(t => {
-                            // 🔥 ŞEMA UYUMLU: transaction_type_id
+                    
+                    let txResult;
+                    if (typeof ipRecordsService.getRecordTransactions === 'function') {
+                        txResult = await ipRecordsService.getRecordTransactions(record.id);
+                    } else if (typeof ipRecordsService.getTransactionsForRecord === 'function') {
+                        txResult = await ipRecordsService.getTransactionsForRecord(record.id);
+                    } else {
+                        const { data, error } = await supabase.from('transactions').select('*').eq('ip_record_id', record.id);
+                        txResult = { success: !error, data: data };
+                    }
+
+                    if (txResult && txResult.success) {
+                        const txData = txResult.data || txResult.transactions || [];
+                        const hasDocument = txData.some(t => {
                             const txTypeId = t.transaction_type_id || t.type;
-                            return String(txTypeId) === String(docType) || 
-                                   (t.description && t.description.toLowerCase().includes('tescil belgesi'));
+                            return String(txTypeId) === String(docType) || (t.description && t.description.toLowerCase().includes('tescil belgesi'));
                         });
 
-                        if (!hasDocument) return record; 
+                        // Eğer evrak YOKSA (Eksikse) listeye al
+                        if (!hasDocument) {
+                            return record; 
+                        }
                     }
                     return null;
                 }));
@@ -121,11 +166,12 @@ export class EpatsUiManager {
                 showNotification('Eksik belgesi olan kayıt bulunamadı.', 'success');
             } else {
                 showNotification(`${missingDocs.length} adet eksik belgeli kayıt bulundu.`, 'info');
-                document.getElementById('epatsResultsSection').style.display = 'block';
+                const resultSection = document.getElementById('epatsResultsSection');
+                if (resultSection) resultSection.style.display = 'block';
             }
 
         } catch (error) {
-            console.error('Tarama hatası:', error);
+            console.error('❌ [EPATS TARAMA HATASI]:', error);
             showNotification('Tarama sırasında hata oluştu: ' + error.message, 'error');
         } finally {
             btn.disabled = false;

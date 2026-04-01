@@ -51,7 +51,7 @@
   
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const DEFAULT_UPLOAD_ENDPOINT =
-    "https://europe-west1-ip-manager-production-aab4b.cloudfunctions.net/saveEpatsDocument";
+    "https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/save-epats-document";
 
   // storage'dan endpoint oku (UI/background set eder: tp_upload_url)
   async function getUploadEndpoint() {
@@ -151,15 +151,18 @@
       const base64data = await blobToBase64(blob);
       if (!base64data || base64data.length < 1000) throw new Error("Base64 geçersiz");
 
-      const storage = await chrome.storage.local.get(["tp_current_job_id", "tp_current_doc_type", "tp_token"]);      const payload = {
+      // tp_app_no verisini de storage'dan çekiyoruz
+      const storage = await chrome.storage.local.get(["tp_current_job_id", "tp_current_doc_type", "tp_token", "tp_app_no"]);
+      const payload = {
         ipRecordId: storage.tp_current_job_id,
         fileBase64: base64data,
-        fileName: "Tescil_Belgesi.pdf",
+        fileName: `tescil_belgesi_${storage.tp_app_no || 'evrak'}.pdf`.replace(/[^a-zA-Z0-9.\-_]/g, '_'),
         mimeType: "application/pdf",
-        docType: storage.tp_current_doc_type || "tescil_belgesi",
+        docType: storage.tp_current_doc_type || "45",
+        appNo: storage.tp_app_no // 🔥 Supabase fonksiyonunun beklediği başvuru numarası
       };
 
-      console.log(TAG, "📤 Upload:", payload.ipRecordId);
+      console.log(TAG, "📤 Upload Başlıyor:", payload.ipRecordId);
       const endpoint = await getUploadEndpoint();
       console.log(TAG, "🌍 Upload endpoint:", endpoint);
 
@@ -167,9 +170,10 @@
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${storage.tp_token}` // 🔥 EKLENEN SATIR: Güvenlik Token'ı
+          "Authorization": `Bearer ${storage.tp_token}` 
         },
-        body: JSON.stringify({ data: payload }),
+        // 🔥 ÇÖZÜM 2: Firebase zarfını kaldırdık, Supabase'in anlayacağı standart formata çevirdik
+        body: JSON.stringify(payload), 
       });
 
 

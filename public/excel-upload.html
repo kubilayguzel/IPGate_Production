@@ -395,46 +395,75 @@
                 return null;
             }
         }
+    
+    // Güvenli ve modern UUID üreten fonksiyon (Supabase standartlarına tam uyumlu)
+        function generateId() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
 
-        // 🔥 YENİ ŞEMA: 5 Ayrı Tabloya İlişkisel (Relational) Kayıt Atan Ana Fonksiyon 🔥
+        // 🔥 YENİ ŞEMA: Excel Verilerini Eksiksiz Olarak Tablolara Dağıtan Ana Fonksiyon 🔥
         async function insertFullRecord(recordData, currentUserId, currentUserEmail, currentUserName, now) {
-            
-            // 1. ip_records Tablosu (Ana Veriler)
-            const { data: ipData, error: ipError } = await supabase.from('ip_records').insert({
+            const recordId = generateId();
+
+            // 🌟 1. YARDIMCI: Excel'den gelen "29.05.2018" gibi tarihleri SQL formatına (2018-05-29) çevirir
+            const formatDate = (dateStr) => {
+                if (!dateStr) return null;
+                if (dateStr instanceof Date) return dateStr.toISOString().split('T')[0];
+                if (typeof dateStr === 'string' && dateStr.includes('.')) {
+                    const parts = dateStr.split('.'); // [29, 05, 2018]
+                    if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+                return dateStr; // Format zaten uygunsa direkt döndür
+            };
+
+            // 1. ip_records Tablosu (Ana Veriler ve Jurisdictions/Registry eşleştirmesi)
+            const { error: ipError } = await supabase.from('ip_records').insert({
+                id: recordId,
                 ip_type: 'trademark',
-                origin: recordData.origin,
+                origin: recordData.Registry || recordData.origin || 'TÜRKPATENT',
                 portfolio_status: 'active',
-                status: recordData.status,
+                status: recordData.Status || recordData.status,
                 record_owner_type: 'self',
-                application_number: recordData.applicationNumber,
-                application_date: recordData.applicationDate,
-                registration_number: recordData.registrationNumber,
-                registration_date: recordData.registrationDate,
-                renewal_date: recordData.renewalDate,
-                country_code: recordData.countryCode,
-                created_from: 'excel_upload',
+                application_number: recordData['App. no.'] || recordData.applicationNumber,
+                application_date: formatDate(recordData['App. date'] || recordData.applicationDate),
+                registration_number: recordData['Reg. no'] || recordData.registrationNumber,
+                registration_date: formatDate(recordData['Reg. date'] || recordData.registrationDate),
+                renewal_date: formatDate(recordData['Exp. date'] || recordData.renewalDate),
+                country_code: recordData.Jurisdictions || recordData.countryCode,
                 parent_id: recordData.parentId || null,
                 transaction_hierarchy: recordData.transactionHierarchy || 'parent',
-                wipo_ir: recordData.wipoIR || null,
                 created_at: now,
                 updated_at: now
-            }).select('id').single();
+            });
 
             if (ipError) throw new Error("Ana Kayıt Hatası: " + ipError.message);
-            const recordId = ipData.id;
 
-            // 2. ip_record_trademark_details Tablosu (İsim ve Görsel)
+            // 🌟 2. YARDIMCI: Excel'deki Temsilci (Representatives) bilgisini kaybetmemek için açıklamaya ekliyoruz
+            let customDescription = recordData.description || "";
+            if (recordData.Representatives) {
+                customDescription = `Vekil/Temsilci: ${recordData.Representatives} \n${customDescription}`.trim();
+            }
+
+            // 2. ip_record_trademark_details Tablosu (İsim, Görsel ve Açıklamalar)
             const { error: tmError } = await supabase.from('ip_record_trademark_details').insert({
                 ip_record_id: recordId,
-                brand_name: recordData.brandText,
+                brand_name: recordData.Name || recordData.brandText,
                 brand_category: "Ticaret/Hizmet Markası",
-                brand_image_url: recordData.brandImageUrl || null
+                brand_image_url: recordData.Logo || recordData.brandImageUrl || null,
+                description: customDescription || null
             });
             if (tmError) throw new Error("Marka Detay Hatası: " + tmError.message);
 
-            // 3. ip_record_applicants Tablosu (Müşteri İlişkisi)
-            if (SELECTED_CLIENTS.length > 0) {
+            // 3. ip_record_applicants Tablosu (Seçili Müşteri ile Bağlantı Kurma)
+            if (typeof SELECTED_CLIENTS !== 'undefined' && SELECTED_CLIENTS.length > 0) {
                 const applicantsToInsert = SELECTED_CLIENTS.map((client, index) => ({
+                    id: generateId(),
                     ip_record_id: recordId,
                     person_id: client.id,
                     order_index: index,
@@ -444,23 +473,43 @@
                 if (appError) throw new Error("Müşteri Bağlama Hatası: " + appError.message);
             }
 
-            // 4. ip_record_classes Tablosu (Emtia ve Sınıflar)
+            // 4. ip_record_classes Tablosu (Excel'deki "Classes" ve "Goods and services" alanları)
+            const excelClasses = recordData.Classes || recordData.classes;
+            const excelGoods = recordData['Goods and services (English, unofficial)'] || recordData.goodsAndServices || "";
+
             if (recordData.goodsAndServicesByClass && recordData.goodsAndServicesByClass.length > 0) {
+                // Eğer kodunuzda halihazırda parçalayan bir mantık varsa onu kullan
                 const classesToInsert = recordData.goodsAndServicesByClass.map(cls => ({
+                    id: generateId(),
                     ip_record_id: recordId,
                     class_no: parseInt(cls.classNo) || 0,
-                    items: cls.items || []
+                    items: Array.isArray(cls.items) ? cls.items : [cls.items]
                 }));
                 const { error: clsError } = await supabase.from('ip_record_classes').insert(classesToInsert);
                 if (clsError) throw new Error("Emtia Sınıfı Hatası: " + clsError.message);
+
+            } else if (excelClasses) {
+                // Eğer Excel'den direkt ham "29, 30" gibi bir veri geldiyse bunu diziye çevirip kaydet
+                const classArray = String(excelClasses).split(',').map(c => parseInt(c.trim())).filter(c => !isNaN(c));
+                if (classArray.length > 0) {
+                    const classesToInsert = classArray.map(classNo => ({
+                        id: generateId(),
+                        ip_record_id: recordId,
+                        class_no: classNo,
+                        items: excelGoods ? [excelGoods] : []
+                    }));
+                    const { error: clsError } = await supabase.from('ip_record_classes').insert(classesToInsert);
+                    if (clsError) throw new Error("Emtia Sınıfı Hatası (Ham Excel): " + clsError.message);
+                }
             }
 
             // 5. transactions Tablosu (İlk Başvuru İşlemi)
             const { error: txError } = await supabase.from('transactions').insert({
+                id: generateId(),
                 ip_record_id: recordId,
-                transaction_type_id: "2", // Başvuru Tipi ID'si
+                transaction_type_id: "2", // Başvuru
                 transaction_hierarchy: recordData.transactionHierarchy || 'parent',
-                description: recordData.transactionHierarchy === 'child' ? "Ülke başvurusu işlemi." : "Excel'den toplu başvuru işlemi.",
+                description: "Excel dosyasından aktarım ile oluşturuldu.",
                 transaction_date: now,
                 user_id: currentUserId,
                 user_email: currentUserEmail,
@@ -472,7 +521,7 @@
             return recordId;
         }
 
-        function extractImagesFromSheet(workbook, sheet) {
+    function extractImagesFromSheet(workbook, sheet) {
             const imageMap = {};
             if (!sheet || typeof sheet.getImages !== 'function') return imageMap;
 
@@ -491,7 +540,7 @@
             return imageMap;
         }
 
-        async function handleFile(file) {
+    async function handleFile(file) {
             if (SELECTED_CLIENTS.length === 0) { alert("Lütfen en az bir müşteri seçin!"); elements.fileInput.value = ''; return; }
 
             // Supabase Oturum Kontrolü

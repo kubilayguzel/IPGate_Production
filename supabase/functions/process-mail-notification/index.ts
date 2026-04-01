@@ -36,13 +36,25 @@ serve(async (req: Request) => {
       .eq('notification_id', notificationId);
 
     // Arayüzden gelen ekler (varsa) ile veritabanındaki ekleri birleştiriyoruz
-    let allAttachments = attachments || [];
+    // Arayüzden gelen ekler (varsa) ile veritabanındaki ekleri birleştiriyoruz
+    let rawAttachments = attachments || [];
     if (dbAttachments && dbAttachments.length > 0) {
         const mappedDbAttachments = dbAttachments.map(dbAtt => ({
             name: dbAtt.file_name,
             url: dbAtt.url
         }));
-        allAttachments = [...allAttachments, ...mappedDbAttachments];
+        rawAttachments = [...rawAttachments, ...mappedDbAttachments];
+    }
+
+    // 🔥 ÇÖZÜM: Mükerrer ek sorununu önlemek için URL bazlı tekilleştirme (Deduplication) yapıyoruz
+    const allAttachments: any[] = [];
+    const seenUrls = new Set();
+
+    for (const att of rawAttachments) {
+        if (att.url && !seenUrls.has(att.url)) {
+            seenUrls.add(att.url);
+            allAttachments.push(att);
+        }
     }
 
     const toList = Array.isArray(notification.to_list) ? notification.to_list : [];

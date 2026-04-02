@@ -119,7 +119,12 @@ export class EpatsUiManager {
                 const rStatus = String(r.status || r.portfolio_status || '').toLowerCase().trim();
                 const isRegistered = ['registered', 'tescilli'].includes(rStatus);
 
-                return isClientMatch && isTypeMatch && isRegistered;
+                // 🔥 ÇÖZÜM: Menşe (Origin) Eşleştirme - Sadece TÜRKPATENT olanları filtrele
+                const rOrigin = String(r.origin || '').toUpperCase().trim();
+                // Veritabanında boşluklu veya Türkçe karaktersiz yazılma ihtimaline karşı esnek kontrol:
+                const isOriginMatch = rOrigin.includes('TÜRKPATENT') || rOrigin.includes('TURKPATENT') || rOrigin.includes('TÜRK PATENT');
+
+                return isClientMatch && isTypeMatch && isRegistered && isOriginMatch;
             });
 
             console.log(`✅ [EPATS] Kriterleri sağlayan aday kayıt sayısı: ${candidates.length}`);

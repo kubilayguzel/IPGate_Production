@@ -67,8 +67,12 @@ serve(async (req: Request) => {
         finalSubject = `HATIRLATMA: ${finalSubject}`;
     }
 
-    // Ekleri (PDF vb.) URL'den indirip hazırlama (Artık birleştirilmiş allAttachments dizisini kullanıyor)
+    // 🔥 ÇÖZÜM: Ekleri indirip hazırlama ve AKILLI BOYUT KONTROLÜ
     const finalAttachments: any[] = [];
+    let totalAttachmentSize = 0;
+    const MAX_SAFE_SIZE = 15 * 1024 * 1024; // 15 MB (Base64 çevrimi için bırakılan güvenli sınır)
+    let extraLinksHtml = "";
+
     if (allAttachments && Array.isArray(allAttachments) && allAttachments.length > 0) {
         console.log(`📎 Toplam ${allAttachments.length} adet evrak indiriliyor...`);
         for (const file of allAttachments) {
@@ -78,30 +82,47 @@ serve(async (req: Request) => {
                 if (!fileResponse.ok) throw new Error(`Dosya indirilemedi. HTTP Status: ${fileResponse.status}`);
                 
                 const arrayBuffer = await fileResponse.arrayBuffer();
-                const buffer = new Uint8Array(arrayBuffer);
+                const fileSize = arrayBuffer.byteLength;
 
-                finalAttachments.push({
-                    filename: file.name || 'Evrak.pdf',
-                    content: buffer 
-                });
+                // Eğer toplam boyut 15MB'ı aşarsa, dosyayı ek yapmak yerine link olarak ayır
+                if (totalAttachmentSize + fileSize > MAX_SAFE_SIZE) {
+                    console.log(`⚠️ ${file.name} limiti aşıyor, e-postaya link olarak eklenecek.`);
+                    const sizeInMb = (fileSize / (1024 * 1024)).toFixed(2);
+                    extraLinksHtml += `<li style="margin-bottom: 8px;"><a href="${file.url}" style="color: #0056b3; font-weight: bold; text-decoration: none;">📄 ${file.name || 'Evrak.pdf'}</a> <span style="color: #6c757d; font-size: 12px;">(${sizeInMb} MB)</span></li>`;
+                } else {
+                    totalAttachmentSize += fileSize;
+                    const buffer = new Uint8Array(arrayBuffer);
+                    finalAttachments.push({
+                        filename: file.name || 'Evrak.pdf',
+                        content: buffer 
+                    });
+                }
             } catch (err) {
                 console.error(`❌ Evrak yükleme hatası (${file.name}):`, err);
             }
         }
     }
 
+    // Eğer boyutu aştığı için linke dönüşen dosyalar varsa, HTML gövdesinin en altına şık bir kutuyla ekle
+    let finalBodyHtml = notification.body;
+    if (extraLinksHtml !== "") {
+        finalBodyHtml += `
+            <br><hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #e9ecef;">
+                <h4 style="margin-top: 0; color: #495057; font-family: Arial, sans-serif;">📎 E-Posta Boyut Sınırını Aşan Ekler</h4>
+                <p style="font-size: 13px; color: #6c757d; font-family: Arial, sans-serif;">Aşağıdaki dosyalar e-posta güvenlik sınırlarını aştığı için güvenli bağlantı (link) olarak sunulmuştur. Tıklayarak indirebilirsiniz:</p>
+                <ul style="list-style-type: none; padding-left: 0; font-family: Arial, sans-serif;">
+                    ${extraLinksHtml}
+                </ul>
+            </div>
+        `;
+    }
+
     // 🔥 DİNAMİK GÖNDERİCİ VE YANITLAMA (REPLY-TO) AYARLARI
-
-    // 1. SMTP'ye giriş yapacak ve maili fiziksel olarak çıkaracak adres (Spam koruması için tek hesap yeterli)
     const systemEmail = "info@evrekagroup.com"; 
-    
-    // 2. Müşteri "Yanıtla" dediğinde cevapların HER ZAMAN düşeceği adres
     const replyToAddress = "selcanakoglu@evrekagroup.com"; 
-
-    // 3. Müşterinin göreceği İsim (Varsayılan)
     let senderName = "IPGATE - EVREKA GROUP";
 
-    // Eğer butona basan kişinin e-postası (senderEmail) arayüzden geldiyse, veritabanından adını bulalım
     if (senderEmail) {
         const { data: userData } = await supabaseClient
             .from('users')
@@ -110,23 +131,17 @@ serve(async (req: Request) => {
             .maybeSingle();
 
         if (userData && userData.display_name) {
-            // Örn: "Kubilay Güzel | IPGATE - EVREKA GROUP"
             senderName = `${userData.display_name} | IPGATE - EVREKA GROUP`;
         } else {
-            // İsmi veritabanında yoksa mailden isim üretir
             const namePart = senderEmail.split('@')[0];
             const capitalized = namePart.charAt(0).toUpperCase() + namePart.slice(1);
             senderName = `${capitalized} | IPGATE - EVREKA GROUP`;
         }
     }
 
-    // 2. Mail Gönderim Ayarları (Sistemin çıkış kapısı)
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        // DİKKAT: info hesabından çıkış yapacaksak, info hesabının şifresini buraya girmelisiniz.
-        // Daha önce kubilayguzel@.. için şifre girmiştik. info hesabı için Gmail'den yeni bir 
-        // 16 haneli uygulama şifresi alıp buraya boşluksuz yapıştırmalısınız.
         user: "info@evrekagroup.com", 
         pass: "urpl kfoj idye jgyp" 
       },
@@ -136,12 +151,12 @@ serve(async (req: Request) => {
 
     // 3. Maili Gönder
     const info = await transporter.sendMail({
-      from: `"${senderName}" <${systemEmail}>`, // Görünür İsim + Gerçek Çıkış Maili
-      replyTo: replyToAddress,                  // Yanıtlar her zaman Selcan Hanım'a
+      from: `"${senderName}" <${systemEmail}>`, 
+      replyTo: replyToAddress,                  
       to: [...new Set(toList)].join(','),
       cc: [...new Set(ccList)].join(','),
       subject: finalSubject,
-      html: notification.body,
+      html: finalBodyHtml, // 🔥 Artık linklerin de gömülü olduğu yeni HTML'i kullanıyoruz!
       attachments: finalAttachments 
     });
 

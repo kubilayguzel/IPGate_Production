@@ -658,7 +658,11 @@ export class ManuelPdfTransactionManager {
 
         if (txData.documents && txData.documents.length > 0) {
             const docInserts = txData.documents.map(d => ({
-                transaction_id: txId, document_name: d.name, document_url: d.url, document_type: d.type || 'application/pdf'
+                transaction_id: txId, 
+                document_name: d.name, 
+                document_url: d.url, 
+                document_type: d.type || 'application/pdf',
+                document_designation: d.documentDesignation || null // 🔥 YENİ: Mail toplayıcı için etiket ataması
             }));
             await supabase.from('transaction_documents').insert(docInserts);
         }
@@ -693,7 +697,18 @@ export class ManuelPdfTransactionManager {
                 await this._addTransaction(recRes.id, { type: "2", transactionHierarchy: 'parent', description: 'Başvuru', date: newRecordData.applicationDate });
             }
 
+            const isChild = !!childTypeId;
+            const targetTypeId = isChild ? childTypeId : parentTypeId;
             const filesToUpload = this.uploadedFilesMap.get('manual-indexing-pane') || [];
+
+            // 🔥 YENİ: 48 ve 27 Numaralı İşlemler İçin Dosya Zorunluluğu Kontrolü
+            if (String(targetTypeId) === '48' && filesToUpload.length === 0) {
+                throw new Error('İşlemi tamamlamak için lütfen dosya ekleme alanına "Kullanım İspatı Talep Dilekçesi" belgesini yükleyin.');
+            }
+            if (String(targetTypeId) === '27' && filesToUpload.length === 0) {
+                throw new Error('İşlemi tamamlamak için lütfen dosya ekleme alanına "İtiraz Dilekçesi" belgesini yükleyin.');
+            }
+
             const uploadedDocuments = [];
 
             for (const fileItem of filesToUpload) {
@@ -703,11 +718,23 @@ export class ManuelPdfTransactionManager {
                 
                 await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
                 const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
-                uploadedDocuments.push({ id: generateUUID(), name: file.name, url: urlData.publicUrl, type: 'application/pdf', path: storagePath });
+                
+                // 🔥 YENİ: Mail motoru için dosyanın adını (designation) veritabanına özel olarak işliyoruz
+                let designation = null;
+                if (String(targetTypeId) === '48') designation = 'Kullanım İspatı Talep Dilekçesi';
+                else if (String(targetTypeId) === '27') designation = 'İtiraz Dilekçesi';
+
+                uploadedDocuments.push({ 
+                    id: generateUUID(), 
+                    name: file.name, 
+                    url: urlData.publicUrl, 
+                    type: 'application/pdf', 
+                    path: storagePath,
+                    documentDesignation: designation
+                });
             }
 
             let finalParentId = existingParentId === "CREATE_NEW" ? null : existingParentId;
-            const isChild = !!childTypeId;
 
             if (isChild && !finalParentId) {
                 const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTypeId));
@@ -717,7 +744,6 @@ export class ManuelPdfTransactionManager {
                 finalParentId = pResult.id;
             }
 
-            const targetTypeId = isChild ? childTypeId : parentTypeId;
             const typeObj = this.allTransactionTypes.find(t => String(t.id) === String(targetTypeId));
            
             let createdTaskId = null;
@@ -756,7 +782,7 @@ export class ManuelPdfTransactionManager {
                     isEligibleFor66 = true;
                 } else if (recOwnerType === 'self' && ['32', '33', '34', '35', '50', '51'].includes(cIdStr)) {
                     isEligibleFor66 = true;
-                } else if (recOwnerType === 'third_party' && ['51', '52', '31', '32', '35', '36'].includes(cIdStr)) {
+                } else if (recOwnerType === 'third_party' && ['51', '52', '31', '32', '35', '36', '48'].includes(cIdStr)) { // 🔥 '48' Eklendi
                     isEligibleFor66 = true;
                 }
 

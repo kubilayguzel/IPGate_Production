@@ -221,6 +221,8 @@ export class DocumentReviewManager {
 
         this._setupPdfDropzone('oppositionPetitionDropzone', 'oppositionPetitionFile', 'oppositionPetitionFileName');
         this._setupPdfDropzone('oppositionEpatsDropzone', 'oppositionEpatsPetitionFile', 'oppositionEpatsFileName');
+        // 🔥 YENİ: 48 Tipi için Dosya Yükleme Alanı Tetikleyicisi
+        this._setupPdfDropzone('proofOfUseDropzone', 'proofOfUseFile', 'proofOfUseFileName');
     }
 
     _setupPdfDropzone(dropzoneId, inputId, filenameLabelId) {
@@ -577,6 +579,12 @@ export class DocumentReviewManager {
             oppositionSection.style.display = (childTypeId === '27') ? 'block' : 'none';
         }
 
+        // 🔥 YENİ: 48 Seçilirse Formu Göster
+        const proofOfUseSection = document.getElementById('proofOfUseSection');
+        if (proofOfUseSection) {
+            proofOfUseSection.style.display = (childTypeId === '48') ? 'block' : 'none';
+        }
+
         const registrationSection = document.getElementById('registry-editor-section'); 
         if (registrationSection) {
             let showRegistration = false;
@@ -858,8 +866,26 @@ export class DocumentReviewManager {
             let oppositionFileName = null;
             let oppositionEpatsFileUrl = null;
             let oppositionEpatsFileName = null;
+            
+            // 🔥 YENİ: 48 Tipi PDF Değişkenleri
+            let proofOfUseFileUrl = null;
+            let proofOfUseFileName = null;
 
-            if (String(childTypeId) === '27') { 
+            // 🔥 YENİ: 48 Tipi seçilmişse PDF'i Storage'a zorla yükle
+            if (String(childTypeId) === '48') {
+                const proofFileInput = document.getElementById('proofOfUseFile')?.files?.[0] || null;
+                if (!proofFileInput) throw new Error('İşlemi tamamlamak için "Kullanım İspatı Talep Dilekçesi" yüklenmesi zorunludur.');
+
+                const storagePath = `incoming_documents/${this.matchedRecord.id}/${Date.now()}_${proofFileInput.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
+                const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, proofFileInput);
+                if (upErr) throw upErr;
+
+                const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+                proofOfUseFileUrl = urlData.publicUrl;
+                proofOfUseFileName = proofFileInput.name;
+            }
+
+            if (String(childTypeId) === '27') {
                 const ownerInput = document.getElementById('oppositionOwnerInput').value;
                 const fileInput = document.getElementById('oppositionPetitionFile').files[0];
                 const epatsFileInput = document.getElementById('oppositionEpatsPetitionFile')?.files?.[0] || null;
@@ -949,7 +975,6 @@ export class DocumentReviewManager {
                 parentId: finalParentId,
                 description: childTypeObj.alias || childTypeObj.name,
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
-                // 🔥 YENİ EKLENEN SATIR: Bulunan/Seçilen Task ID'yi işleme bağlıyoruz
                 taskId: typeof overrideTaskId !== 'undefined' ? overrideTaskId : null,
                 documents: [{
                     name: this.pdfData.fileName || 'Resmi Yazı.pdf',
@@ -957,6 +982,15 @@ export class DocumentReviewManager {
                     documentDesignation: 'Resmi Yazı'
                 }]
             };
+
+            // 🔥 YENİ: 48 numaralı işlemse PDF'i de evraklara (ve otomatik maile) ekle
+            if (String(childTypeId) === '48' && proofOfUseFileUrl) {
+                transactionData.documents.push({
+                    name: proofOfUseFileName,
+                    url: proofOfUseFileUrl,
+                    documentDesignation: 'Kullanım İspatı Talep Dilekçesi'
+                });
+            }
 
             const txResult = await this._addTransaction(this.matchedRecord.id, transactionData);
             const childTransactionId = txResult.id;
@@ -1076,7 +1110,7 @@ export class DocumentReviewManager {
                     isEligibleFor66 = true;
                 } else if (recOwnerType === 'self' && ['7', '8', '9', '10', '32', '33', '34', '35', '50', '51'].includes(currentChildIdStr)) {
                     isEligibleFor66 = true;
-                } else if (recOwnerType === 'third_party' && ['7', '8', '9', '10', '51', '52', '31', '32', '35', '36'].includes(currentChildIdStr)) {
+                } else if (recOwnerType === 'third_party' && ['7', '8', '9', '10', '51', '52', '31', '32', '35', '36', '48'].includes(currentChildIdStr)) { // 🔥 '48' Eklendi
                     isEligibleFor66 = true;
                 }
 

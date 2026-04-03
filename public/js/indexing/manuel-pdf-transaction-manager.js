@@ -669,6 +669,88 @@ export class ManuelPdfTransactionManager {
         return { success: true, id: txId };
     }
 
+    // 🔥 YENİ: İki Aşamalı Yenileme Tarihi Modal Yöneticisi
+    _promptRenewalDateUpdate(currentDateStr) {
+        return new Promise((resolve, reject) => {
+            let modalEl = document.getElementById('renewalDateUpdateModal');
+            if (!modalEl) {
+                const modalHtml = `
+                <div class="modal fade" id="renewalDateUpdateModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false" style="z-index: 1060;">
+                    <div class="modal-dialog modal-dialog-centered" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title"><i class="fas fa-calendar-check mr-2"></i>Yenileme Tarihi Güncellemesi</h5>
+                            </div>
+                            <div class="modal-body text-dark">
+                                <div id="renewalModalStep1">
+                                    <p class="mb-2"><strong>Yenileme Kabul Kararı</strong> kaydediyorsunuz.</p>
+                                    <p class="mb-2">Mevcut Yenileme Tarihi: <strong id="currentRenewalDateText" class="text-danger">-</strong></p>
+                                    <p class="mb-4">Sistemdeki yenileme tarihine otomatik 10 yıl ekleyerek <strong id="proposedRenewalDateText" class="text-success">-</strong> yapmak ister misiniz?</p>
+                                    <div class="d-flex justify-content-end">
+                                        <button type="button" class="btn btn-outline-secondary mr-2" id="btnRenewalNo">Hayır, Geç</button>
+                                        <button type="button" class="btn btn-primary" id="btnRenewalYes">Evet, Güncelle</button>
+                                    </div>
+                                </div>
+                                <div id="renewalModalStep2" style="display: none;">
+                                    <p class="mb-3">Lütfen kaydedilecek yeni yenileme tarihini kontrol edin veya düzenleyin:</p>
+                                    <div class="form-group">
+                                        <label class="font-weight-bold text-primary">Yeni Yenileme Tarihi</label>
+                                        <input type="date" id="newRenewalDateInput" class="form-control form-control-lg border-primary shadow-sm">
+                                    </div>
+                                    <div class="d-flex justify-content-end mt-4">
+                                        <button type="button" class="btn btn-secondary mr-2" id="btnRenewalCancel">İptal ve Geri Dön</button>
+                                        <button type="button" class="btn btn-success font-weight-bold" id="btnRenewalConfirm"><i class="fas fa-check mr-1"></i> Tarihi Güncelle ve İşlemi Kaydet</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                modalEl = document.getElementById('renewalDateUpdateModal');
+            }
+
+            const modal = $(modalEl);
+            const step1 = document.getElementById('renewalModalStep1');
+            const step2 = document.getElementById('renewalModalStep2');
+            
+            let curDate = new Date();
+            let hasValidCurrentDate = false;
+            if (currentDateStr) {
+                const parsed = new Date(currentDateStr);
+                if (!isNaN(parsed)) { curDate = parsed; hasValidCurrentDate = true; }
+            }
+            
+            const formatDateTR = (d) => d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const formatDateInput = (d) => {
+                const tzOffset = d.getTimezoneOffset() * 60000;
+                return new Date(d - tzOffset).toISOString().split('T')[0];
+            };
+
+            const proposedDate = new Date(curDate);
+            proposedDate.setFullYear(proposedDate.getFullYear() + 10);
+            
+            document.getElementById('currentRenewalDateText').textContent = hasValidCurrentDate ? formatDateTR(curDate) : "Belirtilmemiş";
+            document.getElementById('proposedRenewalDateText').textContent = formatDateTR(proposedDate);
+            document.getElementById('newRenewalDateInput').value = formatDateInput(proposedDate);
+            
+            step1.style.display = 'block';
+            step2.style.display = 'none';
+            
+            $('#btnRenewalNo').off('click').on('click', () => { modal.modal('hide'); resolve({ shouldUpdate: false }); });
+            $('#btnRenewalYes').off('click').on('click', () => { step1.style.display = 'none'; step2.style.display = 'block'; });
+            $('#btnRenewalCancel').off('click').on('click', () => { modal.modal('hide'); reject(new Error("İptal")); });
+            $('#btnRenewalConfirm').off('click').on('click', () => {
+                const finalDate = document.getElementById('newRenewalDateInput').value;
+                if (!finalDate) return Swal.fire('Hata', 'Lütfen geçerli bir tarih girin.', 'error');
+                modal.modal('hide');
+                resolve({ shouldUpdate: true, newDate: finalDate });
+            });
+            
+            modal.modal('show');
+        });
+    }
+
     async handleManualTransactionSubmit() {
         const parentTypeId = document.getElementById('specificManualTransactionType')?.value;
         const childTypeId = document.getElementById('manualChildTransactionType')?.value;
@@ -697,9 +779,36 @@ export class ManuelPdfTransactionManager {
                 await this._addTransaction(recRes.id, { type: "2", transactionHierarchy: 'parent', description: 'Başvuru', date: newRecordData.applicationDate });
             }
 
+            // Önce değişkenleri tanımlıyoruz
             const isChild = !!childTypeId;
             const targetTypeId = isChild ? childTypeId : parentTypeId;
             const filesToUpload = this.uploadedFilesMap.get('manual-indexing-pane') || [];
+
+            // 🔥 YENİ: Yenileme Kabul Kararı Tarih Güncelleme Araya Girişi (MANUEL)
+            let isRenewalAcceptance = false;
+            if (isChild && String(childTypeId) === '40') {
+                let pType = null;
+                if (existingParentId === "CREATE_NEW") {
+                    pType = String(parentTypeId);
+                } else {
+                    const extParent = this.currentRecordTransactions.find(t => String(t.id) === String(existingParentId));
+                    if (extParent) pType = String(extParent.transaction_type_id || extParent.type);
+                }
+                if (pType === '22') isRenewalAcceptance = true;
+            }
+
+            let renewalUpdateData = { shouldUpdate: false };
+            if (isRenewalAcceptance) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Kaydet';
+                try {
+                    renewalUpdateData = await this._promptRenewalDateUpdate(this.selectedRecordManual.renewal_date || this.selectedRecordManual.renewalDate);
+                } catch (err) {
+                    return; // İptal edildi
+                }
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor...';
+            }
 
             // 🔥 YENİ: 48 ve 27 Numaralı İşlemler İçin Dosya Zorunluluğu Kontrolü
             if (String(targetTypeId) === '48' && filesToUpload.length === 0) {
@@ -1016,6 +1125,14 @@ export class ManuelPdfTransactionManager {
                         indexed_at: new Date().toISOString()
                     });
                 }
+            }
+
+            // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
+            if (renewalUpdateData.shouldUpdate && renewalUpdateData.newDate) {
+                await supabase
+                    .from('ip_records')
+                    .update({ renewal_date: renewalUpdateData.newDate, updated_at: new Date().toISOString() })
+                    .eq('id', this.selectedRecordManual.id);
             }
 
             showNotification('İşlem başarıyla kaydedildi!', 'success');

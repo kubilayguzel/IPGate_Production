@@ -131,15 +131,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Sınıf: Finansal Rakam Toplayıcı (Sadece Raw Number tutar, Excel'in kendi formatına bırakır)
                 class CurrencyTracker {
-                    constructor(rates) { this.totalTRY = 0; this.rates = rates; }
+                    constructor(rates) { 
+                        this.totalTRY = 0; 
+                        this.rates = rates; 
+                        this.original = {}; // 🔥 Dövize göre ayrı toplamları tutacağımız obje
+                    }
                     add(amount, currency) {
                         const curr = currency || 'TRY';
                         const amt = parseFloat(amount) || 0;
                         const rate = this.rates[curr] || 1;
                         this.totalTRY += (amt * rate);
+                        
+                        // 🔥 Orijinal döviz cinsinden ayrı ayrı topla
+                        if (!this.original[curr]) this.original[curr] = 0;
+                        this.original[curr] += amt;
                     }
                     getRaw() { return this.totalTRY; }
                     formatStr() { return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(this.totalTRY) + ' ₺'; }
+                    
+                    // 🔥 YENİ: Döviz cinsinden toplanmış rakamları yan yana formatlı string olarak verir (Örn: 1.500,00 EUR + 200,00 USD)
+                    getOriginalTotalsStr() {
+                        const parts = [];
+                        for (const [curr, amt] of Object.entries(this.original)) {
+                            if (Math.abs(amt) > 0.01) { // 0 olanları gizle
+                                parts.push(new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amt) + ' ' + curr);
+                            }
+                        }
+                        return parts.length > 0 ? parts.join(' + ') : '0 TRY';
+                    }
                 }
 
                 const grandTotals = {
@@ -313,9 +332,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                         isAlternate = !isAlternate;
                     });
 
-                    // --- AYLIK ALT TOPLAM (SUBTOTAL) ---
+                    // --- AYLIK ALT TOPLAM (DÖVİZ CİNSİNDEN) ---
+                    const originalSubtotalRow = worksheet.addRow({
+                        party: `${monthYear} DÖVİZ TOPLAMLARI:`,
+                        totalAmount: monthTotals.total.getOriginalTotalsStr(),
+                        remainingAmount: monthTotals.remaining.getOriginalTotalsStr()
+                    });
+                    
+                    originalSubtotalRow.height = 20;
+                    originalSubtotalRow.eachCell((cell, colNumber) => {
+                        cell.font = { name: 'Montserrat', size: 9, bold: true, color: { argb: 'FF334155' }, italic: true };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // Çok açık mavi/gri
+                        cell.border = { top: { style: 'thin', color: {argb: 'FFCBD5E1'} } };
+                        if (colNumber > 1) cell.alignment = { horizontal: 'right', vertical: 'middle' };
+                    });
+
+                    // --- AYLIK ALT TOPLAM (TL KARŞILIĞI) ---
                     const subtotalRow = worksheet.addRow({
-                        party: `${monthYear} TOPLAMI:`,
+                        party: `${monthYear} TL KARŞILIĞI:`,
                         totalAmount: monthTotals.total.getRaw(),
                         remainingAmount: monthTotals.remaining.getRaw()
                     });
@@ -323,15 +357,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                     subtotalRow.height = 22;
                     subtotalRow.eachCell((cell) => {
                         cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; // Koyu Gri/Mavi Zemin
-                        cell.border = { top: { style: 'thin', color: {argb: 'FF94A3B8'} }, bottom: { style: 'medium', color: {argb: 'FF94A3B8'} } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; // Koyu Gri Zemin
+                        cell.border = { bottom: { style: 'medium', color: {argb: 'FF94A3B8'} } };
                     });
                     worksheet.addRow({}); // Aylar arasına nefes boşluğu
                 }
 
                 // --- BÖLÜM 4: GENEL TOPLAM (GRAND TOTAL) ---
+                const originalGrandTotalRow = worksheet.addRow({
+                    party: 'GENEL DÖVİZ TOPLAMLARI:',
+                    totalAmount: grandTotals.total.getOriginalTotalsStr(),
+                    remainingAmount: grandTotals.remaining.getOriginalTotalsStr()
+                });
+                
+                originalGrandTotalRow.height = 22;
+                originalGrandTotalRow.eachCell((cell, colNumber) => {
+                    cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF065F46' }, italic: true };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Açık yeşil arka plan
+                    if (colNumber > 1) cell.alignment = { horizontal: 'right', vertical: 'middle' };
+                });
+
                 const grandTotalRow = worksheet.addRow({
-                    party: 'GENEL TOPLAM RAPORU:',
+                    party: 'GENEL TOPLAM RAPORU (TL KARŞILIĞI):',
                     totalAmount: grandTotals.total.getRaw(),
                     remainingAmount: grandTotals.remaining.getRaw()
                 });
@@ -339,7 +386,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 grandTotalRow.height = 25;
                 grandTotalRow.eachCell((cell) => {
                     cell.font = { name: 'Montserrat', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }; // Zümrüt Yeşili (Başarı Hissi)
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }; // Zümrüt Yeşili
                 });
 
                 // Dosyayı Dışa Aktar

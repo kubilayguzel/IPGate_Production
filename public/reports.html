@@ -56,57 +56,143 @@
 
     <div class="page-wrapper">
         <main class="main-container">
+        <div class="report-header">
+            <div>
+                <h1 class="report-title">Sistem Raporları</h1>
+                <p class="report-subtitle">Esnek Raporlama ve Analiz Paneli</p>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs mb-4" id="reportTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <a class="nav-link active font-weight-bold" id="system-reports-tab" data-toggle="tab" href="#system-reports" role="tab" style="font-size: 1.1em; color: #1a2b4c;">
+                    <i class="fas fa-chart-line mr-2"></i> Sistem Raporları
+                </a>
+            </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link font-weight-bold" id="client-reports-tab" data-toggle="tab" href="#client-reports" role="tab" style="font-size: 1.1em; color: #1a2b4c;">
+                    <i class="fas fa-users-cog mr-2"></i> Müvekkil Özel Raporları (Portal)
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="reportTabsContent">
             
-            <div class="report-header">
-                <div>
-                    <h1 class="report-title">Sistem Raporları</h1>
-                    <p class="report-subtitle">Esnek Raporlama ve Analiz Paneli</p>
-                </div>
-            </div>
-
-            <div class="card shadow-sm mb-4">
-                <div class="card-header py-3 bg-white">
-                    <h6 class="m-0 font-weight-bold text-primary">Rapor Kriterleri</h6>
-                </div>
-                <div class="card-body">
-                    <div class="row mb-3">
-                        <div class="col-md-5">
-                            <label class="font-weight-bold text-dark mb-1">Rapor Türü Seçin:</label>
-                            <select id="reportTypeSelector" class="form-control form-control-lg" style="border-radius: 10px; font-size: 1em;">
-                                <option value="" disabled selected>Lütfen bir rapor seçin...</option>
-                                <option value="opposition_report">Müvekkil İtiraz İşleri Raporu</option>
+            <div class="tab-pane fade show active" id="system-reports" role="tabpanel">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header py-3 bg-white">
+                        <h6 class="m-0 font-weight-bold text-primary">Rapor Kriterleri</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-5">
+                                <label class="font-weight-bold text-dark mb-1">Rapor Türü Seçin:</label>
+                                <select id="reportTypeSelector" class="form-control form-control-lg" style="border-radius: 10px; font-size: 1em;">
+                                    <option value="" disabled selected>Lütfen bir rapor seçin...</option>
+                                    <option value="opposition_report">Müvekkil İtiraz İşleri Raporu</option>
                                 </select>
+                            </div>
+                        </div>
+                        <hr class="my-4" style="border-color: #f1f2f6;">
+                        <div id="dynamicFilterArea" class="row align-items-end" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-4" id="reportResultsCard" style="display: none;">
+                    <div class="card-header py-3 bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="m-0 font-weight-bold text-primary" id="reportResultTitle">Rapor Sonuçları</h6>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-success btn-sm font-weight-bold mr-2" id="btnExportExcel" style="border-radius: 8px;">
+                                <i class="fas fa-file-excel mr-1"></i> Excel İndir
+                            </button>
+                            <button class="btn btn-danger btn-sm font-weight-bold" id="btnExportPDF" style="border-radius: 8px;">
+                                <i class="fas fa-file-pdf mr-1"></i> PDF İndir
+                            </button>
                         </div>
                     </div>
-                    <hr class="my-4" style="border-color: #f1f2f6;">
+                    <div class="card-body p-0"> 
+                        <div class="table-responsive p-3">
+                            <table class="table table-hover table-bordered table-striped mb-0" id="dynamicReportTable" width="100%" cellspacing="0">
+                                <thead id="dynamicReportThead"></thead>
+                                <tbody id="dynamicReportTbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="client-reports" role="tabpanel">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header py-3 bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="m-0 font-weight-bold text-primary">Müvekkil Rapor Şablonları</h6>
+                        <button class="btn btn-primary btn-sm font-weight-bold" id="btnCreateClientReport" style="border-radius: 8px;">
+                            <i class="fas fa-plus mr-1"></i> Yeni Rapor Paketi Oluştur
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive p-3">
+                            <table class="table table-hover table-bordered mb-0" width="100%" cellspacing="0">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th>Rapor Adı</th>
+                                        <th>Rapor Türü</th>
+                                        <th>Tanımlı Client Numaraları</th>
+                                        <th>Atanan Kullanıcı Sayısı</th>
+                                        <th class="text-center">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="clientReportsTableBody">
+                                    <tr><td colspan="5" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="modal fade" id="clientReportModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content" style="border-radius: 15px;">
+                <div class="modal-header bg-primary text-white" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
+                    <h5 class="modal-title font-weight-bold" id="clientReportModalLabel">Müvekkil Rapor Paketi</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                    <form id="clientReportForm">
+                    <input type="hidden" id="reportConfigId">
+                    <div class="form-group">
+                        <label class="font-weight-bold">Rapor Adı <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="reportName" placeholder="Örn: Dash Mermer Bülten Taraması" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="font-weight-bold">Rapor Türü <span class="text-danger">*</span></label>
+                        <select class="form-control" id="reportType" required>
+                            <option value="" disabled selected>Rapor Türü Seçiniz...</option>
+                            <option value="bulletin_search">Bülten Kayıtları Sorgusu (TPE)</option>
+                            <option value="status_based">Statü Bazlı Portföy Raporu (Örnek)</option>
+                        </select>
+                    </div>
                     
-                    <div id="dynamicFilterArea" class="row align-items-end" style="display: none;">
+                    <div id="dynamicCriteriaContainer" class="p-3 mb-3 bg-light rounded" style="display: none; border: 1px dashed #ccc;">
                         </div>
+
+                    <div class="form-group">
+                        <label class="font-weight-bold">Bu Raporu Görebilecek Portal Kullanıcıları</label>
+                        <div id="portalUsersContainer" class="border p-3 rounded" style="max-height: 200px; overflow-y: auto; background: #f8f9fa;">
+                            <div class="text-center text-muted small"><i class="fas fa-spinner fa-spin"></i> Kullanıcılar yükleniyor...</div>
+                        </div>
+                    </div>
+                </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">İptal</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveClientReport">Kaydet</button>
                 </div>
             </div>
-
-            <div class="card shadow-sm mb-4" id="reportResultsCard" style="display: none;">
-                <div class="card-header py-3 bg-white d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary" id="reportResultTitle">Rapor Sonuçları</h6>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-success btn-sm font-weight-bold mr-2" id="btnExportExcel" style="border-radius: 8px;">
-                            <i class="fas fa-file-excel mr-1"></i> Excel İndir
-                        </button>
-                        <button class="btn btn-danger btn-sm font-weight-bold" id="btnExportPDF" style="border-radius: 8px;">
-                            <i class="fas fa-file-pdf mr-1"></i> PDF İndir
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0"> <div class="table-responsive p-3">
-                        <table class="table table-hover table-bordered table-striped mb-0" id="dynamicReportTable" width="100%" cellspacing="0">
-                            <thead id="dynamicReportThead"></thead>
-                            <tbody id="dynamicReportTbody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-        </main>
+        </div>
+    </div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>

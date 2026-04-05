@@ -471,35 +471,109 @@
 
         <div class="tab-pane fade" id="reports">
             <div class="d-flex justify-content-between align-items-center mb-4">
-                <h1 class="header-title">Yönetim ve Performans Raporları</h1>
+                <h1 class="header-title">Raporlar ve Analizler</h1>
                 <button class="btn btn-outline-secondary btn-sm" onclick="window.initReports()"><i class="fas fa-sync-alt"></i> Yenile</button>
             </div>
-            <div class="card shadow mb-4">
-                <div class="card-header py-3 bg-white d-flex align-items-center justify-content-between">
-                    <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-globe-americas mr-2"></i>Global Varlık Dağılımı</h6>
-                    <span class="badge badge-primary badge-pill" id="rep-total-countries">0 Ülke</span>
-                </div>
-                <div class="card-body p-0"><div id="world-map-markers" style="height: 450px; width: 100%;"></div></div>
-            </div>
-            <div class="row mb-4">
-                <div class="col-md-3"><div class="card p-3 border-left-primary shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Toplam Varlık</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-total-assets">-</div></div></div>
-                <div class="col-md-3"><div class="card p-3 border-left-warning shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Onay Bekleyen</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-pending-tasks">-</div></div></div>
-                <div class="col-md-3"><div class="card p-3 border-left-danger shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Aktif Hukuki Süreç</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-active-legal">-</div></div></div>
-                <div class="col-md-3"><div class="card p-3 border-left-success shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Bütçe Projeksiyonu</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-budget-est">-</div></div></div>
-            </div>
-            <div class="row">
-                <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-danger">Hukuki Süreç Durumu</h6></div><div class="card-body"><div id="chart-legal-status"></div></div></div></div>
-                <div class="col-lg-8 mb-4">
-                    <div class="card shadow h-100">
-                        <div class="card-header d-flex justify-content-between"><h6 class="m-0 font-weight-bold text-warning">Sürüncemede Kalan İşler (>6 Ay)</h6><small class="text-danger font-weight-bold">Kritik</small></div>
-                        <div class="card-body p-0"><table class="table table-striped table-sm mb-0"><thead><tr><th>Marka/Konu</th><th>Aşama</th><th>Bekleme Süresi</th></tr></thead><tbody id="rep-stuck-list"></tbody></table></div>
+
+            <ul class="nav nav-pills mb-4 bg-white p-2 shadow-sm rounded" id="clientReportPills" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active font-weight-bold" data-toggle="pill" href="#rep-custom">
+                        <i class="fas fa-search mr-2"></i> Müvekkil Özel Raporları (Bülten Taraması)
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link font-weight-bold" data-toggle="pill" href="#rep-dashboard">
+                        <i class="fas fa-chart-pie mr-2"></i> Yönetim ve Performans Dashboard
+                    </a>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+                <div class="tab-pane fade show active" id="rep-custom">
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">Rapor Kriterleri</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-5">
+                                    <label class="font-weight-bold text-muted">Bana Atanan Raporlar:</label>
+                                    <select class="form-control form-control-lg" id="customReportSelector">
+                                        <option value="" disabled selected>Yükleniyor...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="font-weight-bold text-muted">Bülten Seçimi:</label>
+                                    <select class="form-control form-control-lg" id="bulletinSelector" disabled>
+                                        <option value="" disabled selected>Önce rapor seçiniz...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 d-flex align-items-end">
+                                    <button class="btn btn-primary btn-lg btn-block font-weight-bold" id="btnRunCustomReport" disabled>
+                                        <i class="fas fa-play mr-2"></i> Raporla
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm mb-4" id="customReportResultsCard" style="display: none;">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="m-0 font-weight-bold text-success"><i class="fas fa-check-circle mr-2"></i> Bulunan Kayıtlar</h6>
+                            <button class="btn btn-sm btn-outline-success font-weight-bold" id="btnExportCustomReportExcel">
+                                <i class="fas fa-file-excel mr-1"></i> Excel'e Aktar
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive p-3">
+                                <table class="table table-hover table-bordered table-striped" id="customReportTable">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th>Görsel</th>
+                                            <th>Bülten No</th>
+                                            <th>Başvuru No</th>
+                                            <th>Marka Adı</th>
+                                            <th>Sınıflar</th>
+                                            <th>Eşleşen Müvekkil</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="customReportTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="row">
-                <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-primary">Varlık Türü</h6></div><div class="card-body"><div id="chart-portfolio-dist"></div></div></div></div>
-                <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-info">Sektörel Dağılım</h6></div><div class="card-body"><div id="chart-class-radar"></div></div></div></div>
-                <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-success">6 Aylık Bütçe</h6></div><div class="card-body"><div id="chart-budget-forecast"></div></div></div></div>
+
+                <div class="tab-pane fade" id="rep-dashboard">
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3 bg-white d-flex align-items-center justify-content-between">
+                            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-globe-americas mr-2"></i>Global Varlık Dağılımı</h6>
+                            <span class="badge badge-primary badge-pill" id="rep-total-countries">0 Ülke</span>
+                        </div>
+                        <div class="card-body p-0"><div id="world-map-markers" style="height: 450px; width: 100%;"></div></div>
+                    </div>
+                    
+                    <div class="row mb-4">
+                        <div class="col-md-3"><div class="card p-3 border-left-primary shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Toplam Varlık</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-total-assets">-</div></div></div>
+                        <div class="col-md-3"><div class="card p-3 border-left-warning shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Onay Bekleyen</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-pending-tasks">-</div></div></div>
+                        <div class="col-md-3"><div class="card p-3 border-left-danger shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Aktif Hukuki Süreç</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-active-legal">-</div></div></div>
+                        <div class="col-md-3"><div class="card p-3 border-left-success shadow-sm h-100"><div class="text-muted small text-uppercase font-weight-bold">Bütçe Projeksiyonu</div><div class="h3 mb-0 font-weight-bold text-gray-800" id="rep-budget-est">-</div></div></div>
+                    </div>
+                    <div class="row">
+                        <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-danger">Hukuki Süreç Durumu</h6></div><div class="card-body"><div id="chart-legal-status"></div></div></div></div>
+                        <div class="col-lg-8 mb-4">
+                            <div class="card shadow h-100">
+                                <div class="card-header d-flex justify-content-between"><h6 class="m-0 font-weight-bold text-warning">Sürüncemede Kalan İşler (>6 Ay)</h6><small class="text-danger font-weight-bold">Kritik</small></div>
+                                <div class="card-body p-0"><table class="table table-striped table-sm mb-0"><thead><tr><th>Marka/Konu</th><th>Aşama</th><th>Bekleme Süresi</th></tr></thead><tbody id="rep-stuck-list"></tbody></table></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-primary">Varlık Türü</h6></div><div class="card-body"><div id="chart-portfolio-dist"></div></div></div></div>
+                        <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-info">Sektörel Dağılım</h6></div><div class="card-body"><div id="chart-class-radar"></div></div></div></div>
+                        <div class="col-lg-4 mb-4"><div class="card shadow h-100"><div class="card-header"><h6 class="m-0 font-weight-bold text-success">6 Aylık Bütçe</h6></div><div class="card-body"><div id="chart-budget-forecast"></div></div></div></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

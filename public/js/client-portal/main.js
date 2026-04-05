@@ -8,6 +8,7 @@ import { InvoiceManager } from './InvoiceManager.js';
 import { ContractManager } from './ContractManager.js';
 import { RenderHelper } from './RenderHelper.js';
 import Pagination from '../pagination.js';
+import { CustomReportManager } from './CustomReportManager.js';
 
 class ClientPortalController {
     constructor() {
@@ -16,6 +17,7 @@ class ClientPortalController {
         this.taskManager = new TaskManager();
         this.invoiceManager = new InvoiceManager();
         this.contractManager = new ContractManager();
+        this.customReportManager = new CustomReportManager(this.authManager);
         
         this.state = {
             selectedClientId: 'ALL',
@@ -53,6 +55,7 @@ class ClientPortalController {
         this.renderClientSelector();
         this.initTheme();
         this.setupEventListeners();
+        await this.customReportManager.init();
 
         await this.loadAllData();
     }
@@ -747,6 +750,13 @@ class ClientPortalController {
             // Sekme değiştiğinde filtreleri tetikleyerek arayüzü tazeleyelim
             if (['#marka-list', '#patent-list', '#tasarim-list', '#dava-list', '#dava-itiraz-list'].includes(target)) {
                 this.applyAllFilters();
+            }
+        });
+
+        // 👇 HARİTA İÇİN YENİ EKLENEN KOD BURASI 👇
+        $('a[data-toggle="pill"]').on('shown.bs.tab', function (e) {
+            if ($(e.target).attr('href') === '#rep-dashboard') {
+                window.dispatchEvent(new Event('resize'));
             }
         });
 

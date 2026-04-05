@@ -1,4 +1,6 @@
 import { OppositionReport } from './OppositionReport.js';
+// YENİ EKLENEN IMPORT:
+import { ClientReportAdminManager } from './ClientReportAdminManager.js';
 
 class MainReportController {
     constructor() {
@@ -10,6 +12,9 @@ class MainReportController {
         };
 
         this.init();
+        
+        // YENİ EKLENEN: Müvekkil Özel Rapor Yöneticisini Başlat
+        this.clientReportAdminManager = new ClientReportAdminManager();
     }
 
     init() {
@@ -37,6 +42,7 @@ class MainReportController {
     // Seçili stratejideki "Üret" butonuna basıldığında tetiklenir
     async executeReport(strategyInstance) {
         const btn = document.getElementById('btnGenerateReport');
+        if(!btn) return; // Buton yoksa hata vermesin
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Üretiliyor...';
         
         try {
@@ -52,5 +58,4 @@ class MainReportController {
     }
 }
 
-// DÜZELTME: DOMContentLoaded event'ini kaldırdık. Modül yüklendiği an çalışacak.
 window.MainReportController = new MainReportController();

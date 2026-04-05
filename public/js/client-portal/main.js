@@ -753,10 +753,12 @@ class ClientPortalController {
             }
         });
 
-        // 👇 HARİTA İÇİN YENİ EKLENEN KOD BURASI 👇
-        $('a[data-toggle="pill"]').on('shown.bs.tab', function (e) {
+        // DASHBOARD SEKME GEÇİŞİ
+        $('a[data-toggle="pill"]').on('shown.bs.tab', (e) => {
             if ($(e.target).attr('href') === '#rep-dashboard') {
-                window.dispatchEvent(new Event('resize'));
+                // Sadece pencere boyutunu tetiklemek yerine, raporları tamamen yeniden çiziyoruz.
+                // Bu sayede harita görünür olduğu an sıfırdan sorunsuz çizilecektir.
+                this.renderReports();
             }
         });
 
@@ -1968,7 +1970,9 @@ PDF raporuna marka görselleri de eklensin mi?
 
         const mapContainer = document.getElementById("world-map-markers");
         mapContainer.innerHTML = ""; 
-        if (Object.keys(mapData).length > 0 && window.jsVectorMap) {
+        
+        // YENİ EKLENEN ŞART: offsetWidth > 0 (Eğer sekme gizliyse haritayı çizip NaN hatası verdirme)
+        if (Object.keys(mapData).length > 0 && window.jsVectorMap && mapContainer.offsetWidth > 0) {
             new jsVectorMap({
                 selector: '#world-map-markers', map: 'world', zoomButtons: true,
                 regionStyle: { initial: { fill: '#e3eaef' }, hover: { fillOpacity: 0.7 } },

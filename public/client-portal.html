@@ -490,26 +490,28 @@
 
             <div class="tab-content">
                 <div class="tab-pane fade show active" id="rep-custom">
-                    <div class="card shadow-sm mb-4">
-                        <div class="card-header bg-white py-3">
+                    <div class="card shadow-sm mb-4 border-0">
+                        <div class="card-header bg-white py-3 border-bottom-0">
                             <h6 class="m-0 font-weight-bold text-primary">Rapor Kriterleri</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-5">
-                                    <label class="font-weight-bold text-muted">Bana Atanan Raporlar:</label>
-                                    <select class="form-control form-control-lg" id="customReportSelector">
+                        <div class="card-body bg-light rounded-bottom">
+                            <div class="row align-items-end">
+                                <div class="col-md-5 mb-3">
+                                    <label class="font-weight-bold text-dark">Raporlar:</label>
+                                    <select class="form-control form-control-lg shadow-sm" id="customReportSelector" style="border-radius: 8px;">
                                         <option value="" disabled selected>Yükleniyor...</option>
                                     </select>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="font-weight-bold text-muted">Bülten Seçimi:</label>
-                                    <select class="form-control form-control-lg" id="bulletinSelector" disabled>
-                                        <option value="" disabled selected>Önce rapor seçiniz...</option>
+                                
+                                <div class="col-md-4 mb-3" id="dynamicBulletinContainer" style="display: none;">
+                                    <label class="font-weight-bold text-dark">Bülten Seçimi:</label>
+                                    <select class="form-control form-control-lg shadow-sm" id="bulletinSelector" style="border-radius: 8px;">
+                                        <option value="" disabled selected>Bültenler yükleniyor...</option>
                                     </select>
                                 </div>
-                                <div class="col-md-3 d-flex align-items-end">
-                                    <button class="btn btn-primary btn-lg btn-block font-weight-bold" id="btnRunCustomReport" disabled>
+                                
+                                <div class="col-md-3 mb-3">
+                                    <button class="btn btn-primary btn-lg btn-block shadow-sm font-weight-bold" id="btnRunCustomReport" disabled style="border-radius: 8px;">
                                         <i class="fas fa-play mr-2"></i> Raporla
                                     </button>
                                 </div>
@@ -517,24 +519,23 @@
                         </div>
                     </div>
 
-                    <div class="card shadow-sm mb-4" id="customReportResultsCard" style="display: none;">
+                    <div class="card shadow-sm mb-4 border-0" id="customReportResultsCard" style="display: none;">
                         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                            <h6 class="m-0 font-weight-bold text-success"><i class="fas fa-check-circle mr-2"></i> Bulunan Kayıtlar</h6>
-                            <button class="btn btn-sm btn-outline-success font-weight-bold" id="btnExportCustomReportExcel">
-                                <i class="fas fa-file-excel mr-1"></i> Excel'e Aktar
+                            <h6 class="m-0 font-weight-bold text-success"><i class="fas fa-list mr-2"></i> Sorgu Sonuçları</h6>
+                            <button class="btn btn-sm btn-outline-success font-weight-bold" id="btnExportCustomReportExcel" style="border-radius: 6px;">
+                                <i class="fas fa-file-excel mr-1"></i> Excel İndir
                             </button>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive p-3">
-                                <table class="table table-hover table-bordered table-striped" id="customReportTable">
-                                    <thead class="bg-light">
+                                <table class="table table-hover table-striped mb-0" id="customReportTable" width="100%">
+                                    <thead class="text-muted" style="background-color: #f8f9fa;">
                                         <tr>
-                                            <th>Görsel</th>
-                                            <th>Bülten No</th>
-                                            <th>Başvuru No</th>
-                                            <th>Marka Adı</th>
-                                            <th>Sınıflar</th>
-                                            <th>Eşleşen Müvekkil</th>
+                                            <th class="text-center" style="width: 180px;">Görsel</th>
+                                            <th style="width: 15%;">Başvuru No</th>
+                                            <th style="width: 25%;">Marka Adı</th>
+                                            <th style="width: 35%;">Sahip Unvanı</th>
+                                            <th style="width: 15%;">Başvuru Tarihi</th>
                                         </tr>
                                     </thead>
                                     <tbody id="customReportTableBody"></tbody>

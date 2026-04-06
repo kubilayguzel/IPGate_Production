@@ -54,6 +54,17 @@ serve(async (req: Request) => {
         renewalDateText = new Date(viewData.renewal_date).toLocaleDateString('tr-TR');
     }
 
+    // 🔥 YENİ EKLENEN: Başvuru Tarihi ve Sınıfları formatlama
+    let applicationDateText = "-";
+    if (viewData?.application_date) {
+        applicationDateText = new Date(viewData.application_date).toLocaleDateString('tr-TR');
+    }
+
+    let classNumbersText = "-";
+    if (viewData?.nice_classes && Array.isArray(viewData.nice_classes) && viewData.nice_classes.length > 0) {
+        classNumbersText = viewData.nice_classes.join(', ');
+    }
+
     // 🔥 ÇÖZÜM 2: Mailde gösterilecek İşlem (Evrak) Tarihi
     let transactionDate = new Date().toLocaleDateString('tr-TR'); // Varsayılan: Bugün
     
@@ -121,7 +132,9 @@ serve(async (req: Request) => {
         "{{transactionDate}}": transactionDate,
         "{{renewalDate}}": renewalDateText,
         "{{markImageUrl}}": imgUrl,
-        "{{itiraz_sahibi}}": itirazSahibi
+        "{{itiraz_sahibi}}": itirazSahibi,
+        "{{applicationDate}}": applicationDateText,
+        "{{classNumbers}}": classNumbersText
     };
 
     console.log(`[MAIL-DEBUG] Oluşturulan E-posta Parametreleri:`, JSON.stringify(emailParams));

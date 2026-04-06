@@ -228,7 +228,8 @@ class ClientPortalController {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
             'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
-            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor',
+            'renewal - check': 'Yenileme - Kontrol'
         };
 
         let filtered = this.state.portfolios.filter(item => {
@@ -1095,7 +1096,8 @@ class ClientPortalController {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
             'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
-            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor',
+            'renewal - check': 'Yenileme - Kontrol'
         };
 
         let sourceData = [];
@@ -1198,7 +1200,8 @@ class ClientPortalController {
             'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
             'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
             'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
-            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
+            'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor',
+            'renewal - check': 'Yenileme - Kontrol'
         };
 
         if (listId === 'marka-list') {

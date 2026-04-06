@@ -135,7 +135,8 @@ export const STATUSES = {
         { value: 'registered', text: 'Tescil Edildi' },
         { value: 'rejected', text: 'Reddedildi' },
         { value: 'expired', text: 'Koruma Süresi Bitti (Geçersiz)' },
-        { value: 'invalid_not_renewed', text: 'Yenilenmedi (Geçersiz)' }
+        { value: 'invalid_not_renewed', text: 'Yenilenmedi (Geçersiz)' },
+        { value: 'renewal - check', text: 'Yenileme - Kontrol' }
     ],
     trademark: [
         { value: 'filed', text: 'Başvuru' },
@@ -147,7 +148,8 @@ export const STATUSES = {
         { value: 'partial_refusal', text: 'Kısmen Yayınlandı' },
         { value: 'rejected', text: 'Geçersiz' },
         { value: 'expired', text: 'Geçersiz (Yenilenmedi)'},
-        { value: 'invalidated', text: 'Hükümsüz' }
+        { value: 'invalidated', text: 'Hükümsüz' },
+        { value: 'renewal - check', text: 'Yenileme - Kontrol' }
     ],
     design: [
         { value: 'filed', text: 'Başvuru' },
@@ -157,7 +159,8 @@ export const STATUSES = {
         { value: 'registered', text: 'Tescil Edildi' },
         { value: 'rejected', text: 'Reddedildi' },
         { value: 'expired', text: 'Koruma Süresi Bitti (Geçersiz)' },
-        { value: 'invalid_not_renewed', text: 'Yenilenmedi (Geçersiz)' }
+        { value: 'invalid_not_renewed', text: 'Yenilenmedi (Geçersiz)' },
+        { value: 'renewal - check', text: 'Yenileme - Kontrol' }
     ],
     copyright: [
         { value: 'registered', text: 'Tescil Edildi' },

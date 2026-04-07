@@ -8,7 +8,7 @@
         },
         {
           "view_name": "v_tasks_dashboard",
-          "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tmd.brand_name, s.title, s.court_name, (t.details ->> 'brand_name'::text), t.title) AS \"iprecordTitle\",\n    COALESCE(p_owner.name, p_suit_client.name, p_task_owner.name, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    COALESCE(bull.bulletin_no, (t.details ->> 'bulletin_no'::text)) AS \"bulletinNo\",\n    COALESCE((bull.bulletin_date)::text, (t.details ->> 'bulletin_date'::text)) AS \"bulletinDate\"\n   FROM ((((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tmd ON ((ip.id = tmd.ip_record_id)))\n     LEFT JOIN ip_record_bulletins bull ON ((ip.id = bull.ip_record_id)))\n     LEFT JOIN ip_record_applicants ipa ON (((ip.id = ipa.ip_record_id) AND (ipa.order_index = 0))))\n     LEFT JOIN persons p_owner ON ((ipa.person_id = p_owner.id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p_suit_client ON ((s.client_id = p_suit_client.id)))\n     LEFT JOIN persons p_task_owner ON ((t.task_owner_id = p_task_owner.id)));"
+          "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tmd.brand_name, s.title, s.court_name, (t.details ->> 'brand_name'::text), t.title) AS \"iprecordTitle\",\n    COALESCE(p_owner.name, p_suit_client.name, p_task_owner.name, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    COALESCE((t.details ->> 'bulletin_no'::text), bull.bulletin_no) AS \"bulletinNo\",\n    COALESCE((t.details ->> 'bulletin_date'::text), (bull.bulletin_date)::text) AS \"bulletinDate\",\n    (t.details ->> 'opposed_mark_owner'::text) AS \"opposedMarkOwner\",\n    ( SELECT tx.opposition_owner\n           FROM transactions tx\n          WHERE ((tx.task_id = t.id) AND (tx.opposition_owner IS NOT NULL))\n          ORDER BY tx.created_at DESC\n         LIMIT 1) AS \"oppositionOwner\",\n    ip.record_owner_type AS \"recordOwnerType\",\n    (t.details ->> 'epatsDocumentDate'::text) AS \"epatsDocumentDate\"\n   FROM ((((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tmd ON ((ip.id = tmd.ip_record_id)))\n     LEFT JOIN ip_record_bulletins bull ON ((ip.id = bull.ip_record_id)))\n     LEFT JOIN ip_record_applicants ipa ON (((ip.id = ipa.ip_record_id) AND (ipa.order_index = 0))))\n     LEFT JOIN persons p_owner ON ((ipa.person_id = p_owner.id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p_suit_client ON ((s.client_id = p_suit_client.id)))\n     LEFT JOIN persons p_task_owner ON ((t.task_owner_id = p_task_owner.id)));"
         },
         {
           "view_name": "v_tasks_expanded",
@@ -17,32 +17,18 @@
         {
           "view_name": "v_mail_notifications_list",
           "view_definition": " SELECT mn.id,\n    mn.subject,\n    mn.status,\n    mn.created_at,\n    mn.is_held,\n    mn.to_list,\n    mn.cc_list,\n    mn.objection_deadline,\n    mn.associated_transaction_id,\n    mn.source_document_id,\n    mn.related_ip_record_id,\n    ir.application_number AS app_no,\n    tt.alias AS type_text,\n    COALESCE(( SELECT p.name\n           FROM (tasks t\n             JOIN persons p ON ((p.id = t.task_owner_id)))\n          WHERE (t.id = tx.task_id)\n         LIMIT 1), ( SELECT p.name\n           FROM (ip_record_applicants ira\n             JOIN persons p ON ((p.id = ira.person_id)))\n          WHERE (ira.ip_record_id = ir.id)\n         LIMIT 1), '-'::text) AS client_name,\n    mn.associated_task_id,\n    mn.triggered_by_user_id,\n    mn.sent_by,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.triggered_by_user_id)\n         LIMIT 1) AS triggered_by_name,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.sent_by)\n         LIMIT 1) AS sent_by_name,\n    tsk.status AS task_status,\n    td.brand_name\n   FROM (((((mail_notifications mn\n     LEFT JOIN ip_records ir ON ((ir.id = mn.related_ip_record_id)))\n     LEFT JOIN transactions tx ON ((tx.id = mn.associated_transaction_id)))\n     LEFT JOIN transaction_types tt ON ((tt.id = tx.transaction_type_id)))\n     LEFT JOIN tasks tsk ON ((tsk.id = mn.associated_task_id)))\n     LEFT JOIN ip_record_trademark_details td ON ((td.ip_record_id = ir.id)));"
+        },
+        {
+          "view_name": "v_client_bulletin_matches",
+          "view_definition": " SELECT t.id AS task_id,\n    t.task_owner_id AS client_id,\n    tbr.application_number AS competitor_app_no,\n    tbr.brand_name AS competitor_brand_name,\n    tbr.image_url AS competitor_image_url,\n    tbr.application_date AS competitor_app_date,\n    tbr.nice_classes AS competitor_classes,\n    tbr.holders AS competitor_holders,\n    mtr.similarity_score,\n    mtr.success_chance,\n    mtr.note,\n    my_ip.id AS my_ip_record_id,\n    my_ip.application_number AS my_app_no,\n    my_ip.application_date AS my_app_date,\n    my_tm.brand_name AS my_brand_name,\n    my_tm.brand_image_url AS my_image_url,\n    ( SELECT string_agg(p.name, ', '::text ORDER BY a.order_index) AS string_agg\n           FROM (ip_record_applicants a\n             JOIN persons p ON ((p.id = a.person_id)))\n          WHERE (a.ip_record_id = my_ip.id)) AS my_applicant_name,\n    ( SELECT array_to_string(array_agg(DISTINCT c.class_no ORDER BY c.class_no), ', '::text) AS array_to_string\n           FROM ip_record_classes c\n          WHERE (c.ip_record_id = my_ip.id)) AS my_nice_classes\n   FROM (((((((tasks t\n     LEFT JOIN ip_records comp_ip ON ((comp_ip.id = t.ip_record_id)))\n     JOIN trademark_bulletin_records tbr ON ((tbr.application_number = COALESCE(comp_ip.application_number, (t.details ->> 'targetAppNo'::text)))))\n     JOIN monitoring_trademark_records mtr ON (((mtr.bulletin_record_id = tbr.id) AND (mtr.is_similar = true))))\n     JOIN monitoring_trademarks mt ON ((mt.id = mtr.monitored_trademark_id)))\n     JOIN ip_records my_ip ON ((my_ip.id = mt.ip_record_id)))\n     JOIN ip_record_applicants ira ON (((ira.ip_record_id = my_ip.id) AND (ira.person_id = t.task_owner_id))))\n     LEFT JOIN ip_record_trademark_details my_tm ON ((my_tm.ip_record_id = my_ip.id)))\n  WHERE (t.task_type_id = '20'::text);"
         }
       ],
       "tables": [
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "uploaded_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
               "column_name": "document_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -53,8 +39,26 @@
               "column_default": "gen_random_uuid()"
             },
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "uploaded_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "text",
               "column_name": "accrual_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -65,46 +69,34 @@
         {
           "columns": [
             {
-              "data_type": "numeric",
-              "column_name": "official_fee_amount",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "date",
-              "column_name": "payment_date",
+              "data_type": "text",
+              "column_name": "evreka_invoice_no",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "boolean",
-              "column_name": "is_foreign_transaction",
+              "data_type": "text",
+              "column_name": "accrual_type",
               "is_nullable": "YES",
-              "column_default": "false"
+              "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "service_fee_currency",
+              "column_name": "status",
               "is_nullable": "YES",
-              "column_default": "'TRY'::text"
+              "column_default": "'unpaid'::text"
             },
             {
-              "data_type": "boolean",
-              "column_name": "apply_vat_to_official_fee",
+              "data_type": "text",
+              "column_name": "description",
               "is_nullable": "YES",
-              "column_default": "false"
+              "column_default": null
             },
             {
-              "data_type": "numeric",
-              "column_name": "vat_rate",
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
               "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "numeric",
-              "column_name": "service_fee_amount",
-              "is_nullable": "YES",
-              "column_default": "0"
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -132,8 +124,8 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "tpe_invoice_no",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
@@ -144,27 +136,33 @@
             },
             {
               "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": "'unpaid'::text"
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "accrual_type",
+              "data_type": "date",
+              "column_name": "payment_date",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "evreka_invoice_no",
+              "column_name": "service_fee_currency",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "'TRY'::text"
             },
             {
-              "data_type": "text",
-              "column_name": "tpe_invoice_no",
+              "data_type": "numeric",
+              "column_name": "official_fee_amount",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "0"
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "service_fee_amount",
+              "is_nullable": "YES",
+              "column_default": "0"
             },
             {
               "data_type": "jsonb",
@@ -173,28 +171,34 @@
               "column_default": "'[]'::jsonb"
             },
             {
+              "data_type": "numeric",
+              "column_name": "vat_rate",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "apply_vat_to_official_fee",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
               "data_type": "jsonb",
               "column_name": "total_amount",
               "is_nullable": "YES",
               "column_default": "'[]'::jsonb"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "data_type": "boolean",
+              "column_name": "is_foreign_transaction",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": "false"
             },
             {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
             }
           ],
           "triggers": null,
@@ -203,22 +207,28 @@
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
               "column_name": "error_message",
               "is_nullable": "YES",
               "column_default": null
             },
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "uuid",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "uuid_generate_v4()"
+            },
+            {
+              "data_type": "character varying",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": "'pending'::character varying"
             },
             {
               "data_type": "character varying",
@@ -231,12 +241,6 @@
               "column_name": "application_number",
               "is_nullable": "NO",
               "column_default": null
-            },
-            {
-              "data_type": "character varying",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": "'pending'::character varying"
             }
           ],
           "triggers": null,
@@ -245,28 +249,10 @@
         {
           "columns": [
             {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "results",
-              "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
-            },
-            {
               "data_type": "text",
               "column_name": "bulletin_key",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "search_date",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -275,8 +261,26 @@
               "column_default": null
             },
             {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "last_similarity_update",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "results",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "search_date",
               "is_nullable": "YES",
               "column_default": "now()"
             }
@@ -287,16 +291,88 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "id",
+              "data_type": "uuid",
+              "column_name": "report_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "user_id",
               "is_nullable": "NO",
               "column_default": null
             },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            }
+          ],
+          "triggers": null,
+          "table_name": "client_report_assignments"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "report_type",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "criteria",
+              "is_nullable": "NO",
+              "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            }
+          ],
+          "triggers": null,
+          "table_name": "client_report_configs"
+        },
+        {
+          "columns": [
             {
               "data_type": "jsonb",
               "column_name": "data",
               "is_nullable": "YES",
               "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -323,14 +399,26 @@
         {
           "columns": [
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "uuid",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
             },
             {
+              "data_type": "jsonb",
+              "column_name": "context",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
+            },
+            {
               "data_type": "text",
-              "column_name": "user_id",
+              "column_name": "action",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -341,26 +429,14 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "text",
-              "column_name": "action",
+              "column_name": "error_message",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "jsonb",
-              "column_name": "context",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
               "data_type": "text",
-              "column_name": "error_message",
+              "column_name": "user_id",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -371,18 +447,6 @@
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "teblig_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "token_used",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
               "data_type": "text",
               "column_name": "evrak_no",
               "is_nullable": "YES",
@@ -390,31 +454,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "processed_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "fetched_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_id",
+              "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -426,7 +466,25 @@
             },
             {
               "data_type": "text",
-              "column_name": "ip_record_id",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "token_used",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "teblig_tarihi",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -435,6 +493,24 @@
               "column_name": "raw_data",
               "is_nullable": "YES",
               "column_default": "'{}'::jsonb"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "fetched_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "processed_at",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -443,10 +519,34 @@
         {
           "columns": [
             {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "last_used_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_active",
+              "is_nullable": "YES",
+              "column_default": "true"
             },
             {
               "data_type": "jsonb",
@@ -461,34 +561,10 @@
               "column_default": null
             },
             {
-              "data_type": "boolean",
-              "column_name": "is_active",
-              "is_nullable": "YES",
-              "column_default": "true"
-            },
-            {
               "data_type": "text",
               "column_name": "token",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "last_used_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
             }
           ],
           "triggers": null,
@@ -503,6 +579,12 @@
               "column_default": null
             },
             {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "ARRAY",
               "column_name": "transaction_types",
               "is_nullable": "YES",
@@ -513,12 +595,6 @@
               "column_name": "email",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
             }
           ],
           "triggers": null,
@@ -527,26 +603,8 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_url",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "file_path",
+              "data_type": "date",
+              "column_name": "teblig_tarihi",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -555,72 +613,6 @@
               "column_name": "belge_tarihi",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_source",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": "'pending'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "application_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "teblig_tarihi",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "transaction_type_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "created_transaction_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "boolean",
@@ -633,6 +625,90 @@
               "column_name": "indexed_at",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_type_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "application_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": "'pending'::text"
+            },
+            {
+              "data_type": "text",
+              "column_name": "document_source",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "file_path",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "file_url",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "file_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             }
           ],
           "triggers": [
@@ -646,16 +722,22 @@
         {
           "columns": [
             {
-              "data_type": "boolean",
-              "column_name": "is_invoice_client",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
               "data_type": "uuid",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "integer",
+              "column_name": "order_index",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_invoice_client",
+              "is_nullable": "YES",
+              "column_default": "false"
             },
             {
               "data_type": "text",
@@ -668,12 +750,6 @@
               "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "integer",
-              "column_name": "order_index",
-              "is_nullable": "YES",
-              "column_default": "0"
             }
           ],
           "triggers": null,
@@ -689,14 +765,14 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "ip_record_id",
-              "is_nullable": "YES",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -718,9 +794,9 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "data_type": "ARRAY",
+              "column_name": "items",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
@@ -730,9 +806,9 @@
               "column_default": null
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "items",
-              "is_nullable": "YES",
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             }
           ],
@@ -742,10 +818,10 @@
         {
           "columns": [
             {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
+              "data_type": "text",
+              "column_name": "person_id",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "text",
@@ -754,16 +830,16 @@
               "column_default": null
             },
             {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "person_id",
-              "is_nullable": "YES",
-              "column_default": null
             },
             {
               "data_type": "text",
@@ -791,6 +867,12 @@
             },
             {
               "data_type": "text",
+              "column_name": "priority_number",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "priority_country",
               "is_nullable": "YES",
               "column_default": null
@@ -799,12 +881,6 @@
               "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "priority_number",
-              "is_nullable": "YES",
               "column_default": null
             }
           ],
@@ -815,19 +891,43 @@
           "columns": [
             {
               "data_type": "text",
+              "column_name": "brand_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "consent_request",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "has_registration_cert",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "non_latin_alphabet",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "text",
               "column_name": "ip_record_id",
               "is_nullable": "NO",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "brand_category",
+              "column_name": "cover_letter_request",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "brand_image_url",
+              "column_name": "brand_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -839,37 +939,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "consent_request",
+              "column_name": "brand_image_url",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "cover_letter_request",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "non_latin_alphabet",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "has_registration_cert",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "text",
-              "column_name": "brand_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "brand_name",
+              "column_name": "brand_category",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -880,26 +956,14 @@
         {
           "columns": [
             {
-              "data_type": "date",
-              "column_name": "registration_date",
+              "data_type": "jsonb",
+              "column_name": "old_transactions",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "'[]'::jsonb"
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "origin",
+              "column_name": "status",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -911,31 +975,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "record_owner_type",
-              "is_nullable": "YES",
-              "column_default": "'self'::text"
-            },
-            {
-              "data_type": "text",
-              "column_name": "application_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "registration_number",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "country_code",
+              "column_name": "wipo_ir",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -947,7 +987,19 @@
             },
             {
               "data_type": "text",
+              "column_name": "record_owner_type",
+              "is_nullable": "YES",
+              "column_default": "'self'::text"
+            },
+            {
+              "data_type": "text",
               "column_name": "parent_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "application_date",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -959,20 +1011,38 @@
             },
             {
               "data_type": "text",
-              "column_name": "wipo_ir",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "aripo_ir",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "date",
-              "column_name": "application_date",
+              "data_type": "text",
+              "column_name": "origin",
               "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "date",
+              "column_name": "registration_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -988,16 +1058,22 @@
               "column_default": "now()"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "data_type": "text",
+              "column_name": "registration_number",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             },
             {
-              "data_type": "jsonb",
-              "column_name": "old_transactions",
+              "data_type": "text",
+              "column_name": "application_number",
               "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "country_code",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -1007,25 +1083,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "notification_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "file_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "uuid",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "storage_path",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1034,6 +1092,24 @@
               "column_name": "url",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "notification_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "storage_path",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "uuid",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
             }
           ],
           "triggers": null,
@@ -1042,20 +1118,20 @@
         {
           "columns": [
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "uuid",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "cc_emails",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "body",
+              "data_type": "timestamp with time zone",
+              "column_name": "sent_at",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1066,10 +1142,10 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "from_email",
+              "data_type": "ARRAY",
+              "column_name": "cc_emails",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "'{}'::text[]"
             },
             {
               "data_type": "ARRAY",
@@ -1078,14 +1154,26 @@
               "column_default": "'{}'::text[]"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "data_type": "text",
+              "column_name": "from_email",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "status",
+              "column_name": "body",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "subject",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "gmail_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1097,7 +1185,49 @@
             },
             {
               "data_type": "text",
-              "column_name": "gmail_id",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "mail_messages"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "text",
+              "column_name": "body",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "notification_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "missing_fields",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "cc_list",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "to_list",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "last_reminder_at",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1112,16 +1242,16 @@
               "column_name": "subject",
               "is_nullable": "YES",
               "column_default": null
-            }
-          ],
-          "triggers": null,
-          "table_name": "mail_messages"
-        },
-        {
-          "columns": [
+            },
             {
               "data_type": "text",
-              "column_name": "source",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1132,30 +1262,6 @@
               "column_default": "true"
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "sent_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "last_reminder_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_held",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
               "data_type": "text",
               "column_name": "triggered_by_user_id",
               "is_nullable": "YES",
@@ -1163,37 +1269,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "last_reminder_by",
+              "column_name": "source_document_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "sent_by",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "provider",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "message_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "gmail_thread_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "gmail_message_id",
+              "column_name": "mode",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1205,7 +1287,37 @@
             },
             {
               "data_type": "text",
-              "column_name": "source_document_id",
+              "column_name": "gmail_message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "gmail_thread_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "provider",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "sent_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "last_reminder_by",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1253,57 +1365,21 @@
             },
             {
               "data_type": "text",
-              "column_name": "notification_type",
+              "column_name": "source",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "missing_fields",
+              "data_type": "boolean",
+              "column_name": "is_held",
               "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
+              "column_default": "false"
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "cc_list",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "to_list",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "text",
-              "column_name": "body",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "subject",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "mode",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "column_default": "now()"
             }
           ],
           "triggers": null,
@@ -1318,22 +1394,10 @@
               "column_default": null
             },
             {
-              "data_type": "jsonb",
-              "column_name": "payload",
-              "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
               "data_type": "text",
               "column_name": "action_type",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -1346,6 +1410,18 @@
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": "gen_random_uuid()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "payload",
+              "is_nullable": "YES",
+              "column_default": "'{}'::jsonb"
             }
           ],
           "triggers": null,
@@ -1354,16 +1430,16 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "mail_subject",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             },
             {
-              "data_type": "text",
-              "column_name": "subject",
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -1378,20 +1454,20 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "data_type": "text",
+              "column_name": "subject",
               "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "body2",
+              "column_name": "mail_subject",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "body",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1403,7 +1479,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "body",
+              "column_name": "body2",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -1414,6 +1490,18 @@
         {
           "columns": [
             {
+              "data_type": "text",
+              "column_name": "thread_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
               "data_type": "timestamp with time zone",
               "column_name": "last_updated",
               "is_nullable": "YES",
@@ -1421,31 +1509,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "root_subject",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_message_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "first_message_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_triggering_child_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "last_triggering_task_id",
+              "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1457,20 +1521,32 @@
             },
             {
               "data_type": "text",
-              "column_name": "ip_record_id",
+              "column_name": "last_triggering_task_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "thread_id",
+              "column_name": "last_triggering_child_type",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "first_message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "last_message_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "root_subject",
+              "is_nullable": "YES",
               "column_default": null
             }
           ],
@@ -1486,10 +1562,16 @@
               "column_default": "now()"
             },
             {
-              "data_type": "boolean",
-              "column_name": "is_similar",
+              "data_type": "text",
+              "column_name": "success_chance",
               "is_nullable": "YES",
-              "column_default": "false"
+              "column_default": null
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "similarity_score",
+              "is_nullable": "YES",
+              "column_default": "0"
             },
             {
               "data_type": "boolean",
@@ -1498,10 +1580,10 @@
               "column_default": "false"
             },
             {
-              "data_type": "numeric",
-              "column_name": "similarity_score",
+              "data_type": "boolean",
+              "column_name": "is_similar",
               "is_nullable": "YES",
-              "column_default": "0"
+              "column_default": "false"
             },
             {
               "data_type": "text",
@@ -1517,13 +1599,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "success_chance",
-              "is_nullable": "YES",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "matched_term",
+              "column_name": "monitored_trademark_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1535,14 +1617,8 @@
             },
             {
               "data_type": "text",
-              "column_name": "monitored_trademark_id",
+              "column_name": "matched_term",
               "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
               "column_default": null
             }
           ],
@@ -1552,9 +1628,15 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "search_mark_name",
+              "data_type": "ARRAY",
+              "column_name": "nice_class_search",
               "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -1565,13 +1647,13 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "search_mark_name",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "ARRAY",
-              "column_name": "nice_class_search",
+              "column_name": "brand_text_search",
               "is_nullable": "YES",
               "column_default": "'{}'::text[]"
             },
@@ -1586,12 +1668,6 @@
               "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "brand_text_search",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
             }
           ],
           "triggers": null,
@@ -1604,12 +1680,6 @@
               "column_name": "sub_classes",
               "is_nullable": "YES",
               "column_default": "'[]'::jsonb"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
@@ -1628,6 +1698,12 @@
               "column_name": "class_title",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -1636,10 +1712,10 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "country_code",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -1649,7 +1725,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_type",
+              "column_name": "country_code",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1678,10 +1754,10 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "data_type": "text",
+              "column_name": "document_type",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -1691,27 +1767,39 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "phone",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "birth_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_evaluation_required",
+              "is_nullable": "YES",
+              "column_default": "false"
             },
             {
               "data_type": "timestamp with time zone",
               "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "province",
+              "is_nullable": "YES",
+              "column_default": null
             },
             {
               "data_type": "text",
@@ -1722,6 +1810,12 @@
             {
               "data_type": "text",
               "column_name": "address",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "phone",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -1762,26 +1856,8 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_evaluation_required",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
               "data_type": "text",
-              "column_name": "province",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "birth_date",
+              "column_name": "name",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -1791,6 +1867,12 @@
         },
         {
           "columns": [
+            {
+              "data_type": "boolean",
+              "column_name": "resp_finance",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
             {
               "data_type": "boolean",
               "column_name": "notify_litigation_cc",
@@ -1804,16 +1886,10 @@
               "column_default": "false"
             },
             {
-              "data_type": "text",
-              "column_name": "name",
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -1822,52 +1898,10 @@
               "column_default": null
             },
             {
-              "data_type": "boolean",
-              "column_name": "resp_patent",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "resp_design",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
               "data_type": "text",
               "column_name": "email",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "resp_litigation",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "resp_finance",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "text",
-              "column_name": "person_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "notify_trademark_to",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "boolean",
@@ -1884,12 +1918,6 @@
             {
               "data_type": "boolean",
               "column_name": "notify_design_cc",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "resp_trademark",
               "is_nullable": "YES",
               "column_default": "false"
             },
@@ -1912,8 +1940,56 @@
               "column_default": "false"
             },
             {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "person_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_patent",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_trademark",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
               "data_type": "boolean",
               "column_name": "notify_trademark_cc",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_design",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "notify_trademark_to",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "resp_litigation",
               "is_nullable": "YES",
               "column_default": "false"
             }
@@ -1925,55 +2001,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "applicant_names",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "nice_classes",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "transaction_hierarchy",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "renewal_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "registration_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "applicants_json",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "application_date",
+              "column_name": "brand_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2045,19 +2073,67 @@
             },
             {
               "data_type": "text",
+              "column_name": "transaction_hierarchy",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "parent_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "brand_name",
+              "column_name": "brand_image_url",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "brand_image_url",
+              "column_name": "applicant_names",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "application_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "registration_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "renewal_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "applicants_json",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "nice_classes",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -2067,12 +2143,6 @@
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
             {
               "data_type": "timestamp with time zone",
               "column_name": "processed_at",
@@ -2084,6 +2154,12 @@
               "column_name": "thread_id",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -2092,9 +2168,27 @@
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "due_date",
+              "data_type": "text",
+              "column_name": "description",
               "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             },
             {
@@ -2117,27 +2211,9 @@
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
+              "column_name": "due_date",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             }
           ],
           "triggers": null,
@@ -2146,22 +2222,10 @@
         {
           "columns": [
             {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
               "data_type": "timestamp with time zone",
               "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
             },
             {
               "data_type": "text",
@@ -2170,16 +2234,28 @@
               "column_default": null
             },
             {
-              "data_type": "integer",
-              "column_name": "total_records",
+              "data_type": "text",
+              "column_name": "status",
               "is_nullable": "YES",
-              "column_default": "0"
+              "column_default": null
             },
             {
               "data_type": "integer",
               "column_name": "current_results",
               "is_nullable": "YES",
               "column_default": "0"
+            },
+            {
+              "data_type": "integer",
+              "column_name": "total_records",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -2189,19 +2265,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "application_no",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "monitored_trademark_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "image_path",
+              "column_name": "mark_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2219,6 +2283,12 @@
             },
             {
               "data_type": "text",
+              "column_name": "image_path",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "job_id",
               "is_nullable": "YES",
               "column_default": null
@@ -2231,13 +2301,19 @@
             },
             {
               "data_type": "text",
+              "column_name": "application_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "nice_classes",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "mark_name",
+              "column_name": "monitored_trademark_id",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -2247,24 +2323,6 @@
         },
         {
           "columns": [
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "integer",
-              "column_name": "progress",
-              "is_nullable": "YES",
-              "column_default": "0"
-            },
-            {
-              "data_type": "text",
-              "column_name": "job_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
             {
               "data_type": "text",
               "column_name": "status",
@@ -2276,6 +2334,24 @@
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "job_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "integer",
+              "column_name": "progress",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             }
           ],
           "triggers": null,
@@ -2283,6 +2359,12 @@
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "document_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
             {
               "data_type": "uuid",
               "column_name": "id",
@@ -2298,12 +2380,6 @@
             {
               "data_type": "text",
               "column_name": "document_url",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2327,7 +2403,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "file_no",
+              "column_name": "court_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2344,16 +2420,10 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "transaction_type_id",
+              "data_type": "timestamp with time zone",
+              "column_name": "opening_date",
               "is_nullable": "YES",
               "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
             },
             {
               "data_type": "timestamp with time zone",
@@ -2363,31 +2433,19 @@
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "opening_date",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_type_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "client_role",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "opposing_party",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "opposing_counsel",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "client_id",
+              "column_name": "task_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2399,7 +2457,25 @@
             },
             {
               "data_type": "text",
-              "column_name": "task_id",
+              "column_name": "client_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "opposing_counsel",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "opposing_party",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "client_role",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2429,7 +2505,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "court_name",
+              "column_name": "file_no",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -2440,12 +2516,6 @@
         {
           "columns": [
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
               "data_type": "boolean",
               "column_name": "allow_manual_override",
               "is_nullable": "YES",
@@ -2453,15 +2523,15 @@
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
             },
             {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -2480,6 +2550,12 @@
               "column_name": "updated_by",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -2495,7 +2571,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_name",
+              "column_name": "document_type",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2507,7 +2583,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_type",
+              "column_name": "document_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2530,6 +2606,12 @@
         {
           "columns": [
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "text",
               "column_name": "user_id",
               "is_nullable": "YES",
@@ -2542,16 +2624,10 @@
               "column_default": "gen_random_uuid()"
             },
             {
-              "data_type": "jsonb",
-              "column_name": "details",
+              "data_type": "text",
+              "column_name": "action",
               "is_nullable": "YES",
-              "column_default": "'{}'::jsonb"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             },
             {
               "data_type": "text",
@@ -2560,10 +2636,10 @@
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "action",
+              "data_type": "jsonb",
+              "column_name": "details",
               "is_nullable": "YES",
-              "column_default": null
+              "column_default": "'{}'::jsonb"
             }
           ],
           "triggers": null,
@@ -2571,18 +2647,6 @@
         },
         {
           "columns": [
-            {
-              "data_type": "text",
-              "column_name": "created_by",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "operational_due_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
             {
               "data_type": "jsonb",
               "column_name": "details",
@@ -2597,13 +2661,31 @@
             },
             {
               "data_type": "timestamp with time zone",
+              "column_name": "official_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_type_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
               "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
             },
             {
+              "data_type": "date",
+              "column_name": "delivery_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "text",
-              "column_name": "assigned_to",
+              "column_name": "status",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2621,31 +2703,7 @@
             },
             {
               "data_type": "text",
-              "column_name": "task_type_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "priority",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2662,23 +2720,37 @@
               "column_default": null
             },
             {
-              "data_type": "date",
-              "column_name": "delivery_date",
+              "data_type": "text",
+              "column_name": "created_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "priority",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "official_due_date",
+              "column_name": "operational_due_date",
               "is_nullable": "YES",
               "column_default": null
             }
           ],
           "triggers": [
-            {
-              "definition": "CREATE TRIGGER trigger_task_delete_cleanup AFTER DELETE ON public.tasks FOR EACH ROW EXECUTE FUNCTION trg_on_task_delete_cleanup()",
-              "trigger_name": "trigger_task_delete_cleanup"
-            },
             {
               "definition": "CREATE TRIGGER trigger_handle_accrual_task_status AFTER UPDATE OF status ON public.tasks FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION trg_handle_accrual_task_status()",
               "trigger_name": "trigger_handle_accrual_task_status"
@@ -2688,12 +2760,20 @@
               "trigger_name": "trigger_cleanup_transaction_on_rejection"
             },
             {
-              "definition": "CREATE TRIGGER task_mail_triggers AFTER INSERT OR UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-task-mails', 'POST', '{\"Content-type\":\"application/json\",\"Authorization\":\"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE3ODQ0OCwiZXhwIjoyMDg3NzU0NDQ4fQ.WUKhJrBnWNABIZnUj9EF2zKyIsan7M3DCm7Nwu1NeGQ\"}', '{}', '5000')",
-              "trigger_name": "task_mail_triggers"
+              "definition": "CREATE TRIGGER trigger_task_delete_cleanup AFTER DELETE ON public.tasks FOR EACH ROW EXECUTE FUNCTION trg_on_task_delete_cleanup()",
+              "trigger_name": "trigger_task_delete_cleanup"
             },
             {
               "definition": "CREATE TRIGGER unlock_evaluation_mail_trigger AFTER UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION trg_unlock_evaluation_mail()",
               "trigger_name": "unlock_evaluation_mail_trigger"
+            },
+            {
+              "definition": "CREATE TRIGGER trigger_renewal_task_closure AFTER UPDATE OF status ON public.tasks FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION handle_renewal_task_closure()",
+              "trigger_name": "trigger_renewal_task_closure"
+            },
+            {
+              "definition": "CREATE TRIGGER task_mail_triggers AFTER INSERT OR UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/handle-task-mails', 'POST', '{\"Content-type\":\"application/json\",\"Authorization\":\"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZHh2a2VqemN0d3ltemV5cnJsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE3ODQ0OCwiZXhwIjoyMDg3NzU0NDQ4fQ.WUKhJrBnWNABIZnUj9EF2zKyIsan7M3DCm7Nwu1NeGQ\"}', '{}', '5000')",
+              "trigger_name": "task_mail_triggers"
             }
           ],
           "table_name": "tasks"
@@ -2702,19 +2782,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "main_process_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "template_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
+              "column_name": "sub_process_type",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2726,25 +2794,37 @@
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "source_type",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "sub_process_type",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "template_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
               "column_name": "task_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "main_process_type",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -2756,8 +2836,14 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "bulletin_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "class_text",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
@@ -2774,14 +2860,8 @@
             },
             {
               "data_type": "text",
-              "column_name": "bulletin_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "class_text",
-              "is_nullable": "YES",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
             }
           ],
@@ -2791,20 +2871,14 @@
         {
           "columns": [
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "date",
               "column_name": "application_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "source",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "brand_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2816,26 +2890,26 @@
             },
             {
               "data_type": "text",
+              "column_name": "brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "source",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
               "column_name": "image_url",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "holders",
-              "is_nullable": "YES",
-              "column_default": "'[]'::jsonb"
-            },
-            {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "application_number",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
@@ -2846,9 +2920,15 @@
             },
             {
               "data_type": "text",
-              "column_name": "application_number",
-              "is_nullable": "YES",
+              "column_name": "id",
+              "is_nullable": "NO",
               "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "holders",
+              "is_nullable": "YES",
+              "column_default": "'[]'::jsonb"
             }
           ],
           "triggers": null,
@@ -2856,6 +2936,24 @@
         },
         {
           "columns": [
+            {
+              "data_type": "date",
+              "column_name": "bulletin_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
             {
               "data_type": "text",
               "column_name": "bulletin_no",
@@ -2867,24 +2965,6 @@
               "column_name": "type",
               "is_nullable": "YES",
               "column_default": "'marka'::text"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "bulletin_date",
-              "is_nullable": "YES",
-              "column_default": null
             }
           ],
           "triggers": null,
@@ -2894,19 +2974,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": "gen_random_uuid()"
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "uploaded_at",
-              "is_nullable": "YES",
-              "column_default": "now()"
-            },
-            {
-              "data_type": "text",
-              "column_name": "document_designation",
+              "column_name": "document_url",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2918,9 +2986,21 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_url",
+              "column_name": "document_designation",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "uploaded_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
             },
             {
               "data_type": "text",
@@ -2930,9 +3010,9 @@
             },
             {
               "data_type": "text",
-              "column_name": "transaction_id",
-              "is_nullable": "YES",
-              "column_default": null
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": "gen_random_uuid()"
             }
           ],
           "triggers": null,
@@ -2947,26 +3027,8 @@
               "column_default": "'{}'::text[]"
             },
             {
-              "data_type": "ARRAY",
-              "column_name": "index_file",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "index_bulk",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "index_manuel",
-              "is_nullable": "YES",
-              "column_default": "'{}'::text[]"
-            },
-            {
               "data_type": "text",
-              "column_name": "task_triggered",
+              "column_name": "document_designation_default",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -2984,33 +3046,9 @@
             },
             {
               "data_type": "text",
-              "column_name": "ip_type",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "alias",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "id",
               "is_nullable": "NO",
               "column_default": null
-            },
-            {
-              "data_type": "integer",
-              "column_name": "order_index",
-              "is_nullable": "YES",
-              "column_default": "0"
             },
             {
               "data_type": "timestamp with time zone",
@@ -3031,6 +3069,18 @@
               "column_default": "0"
             },
             {
+              "data_type": "text",
+              "column_name": "name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "alias",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
               "data_type": "boolean",
               "column_name": "is_top_level_selectable",
               "is_nullable": "YES",
@@ -3038,9 +3088,39 @@
             },
             {
               "data_type": "text",
-              "column_name": "document_designation_default",
+              "column_name": "ip_type",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "integer",
+              "column_name": "order_index",
+              "is_nullable": "YES",
+              "column_default": "0"
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_triggered",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_manuel",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_bulk",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "index_file",
+              "is_nullable": "YES",
+              "column_default": "'{}'::text[]"
             }
           ],
           "triggers": null,
@@ -3050,7 +3130,7 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "note",
+              "column_name": "task_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3061,44 +3141,32 @@
               "column_default": null
             },
             {
+              "data_type": "timestamp with time zone",
+              "column_name": "transaction_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": "now()"
+            },
+            {
               "data_type": "text",
-              "column_name": "opposition_owner",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_name",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "user_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "parent_id",
+              "column_name": "transaction_type_id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3110,31 +3178,43 @@
             },
             {
               "data_type": "text",
-              "column_name": "transaction_type_id",
+              "column_name": "parent_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "ip_record_id",
+              "column_name": "description",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
+              "column_name": "note",
+              "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "data_type": "text",
+              "column_name": "user_id",
               "is_nullable": "YES",
-              "column_default": "now()"
+              "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "transaction_date",
+              "data_type": "text",
+              "column_name": "user_email",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "user_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "opposition_owner",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -3144,18 +3224,6 @@
         },
         {
           "columns": [
-            {
-              "data_type": "boolean",
-              "column_name": "perm_approval",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_primary",
-              "is_nullable": "YES",
-              "column_default": "false"
-            },
             {
               "data_type": "text",
               "column_name": "person_id",
@@ -3173,6 +3241,18 @@
               "column_name": "perm_view",
               "is_nullable": "YES",
               "column_default": "true"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "perm_approval",
+              "is_nullable": "YES",
+              "column_default": "false"
+            },
+            {
+              "data_type": "boolean",
+              "column_name": "is_primary",
+              "is_nullable": "YES",
+              "column_default": "false"
             }
           ],
           "triggers": null,
@@ -3182,31 +3262,19 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "NO",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "display_name",
               "is_nullable": "YES",
               "column_default": null
             },
             {
-              "data_type": "text",
-              "column_name": "email",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
               "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
+              "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": "now()"
             },
             {
               "data_type": "text",
-              "column_name": "role",
+              "column_name": "email",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3218,9 +3286,21 @@
             },
             {
               "data_type": "timestamp with time zone",
-              "column_name": "created_at",
+              "column_name": "updated_at",
               "is_nullable": "YES",
               "column_default": "now()"
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
+              "is_nullable": "NO",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "role",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -3228,6 +3308,150 @@
         },
         {
           "columns": [
+            {
+              "data_type": "text",
+              "column_name": "my_brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "my_nice_classes",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "my_applicant_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "my_image_url",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "my_app_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "my_ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "note",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "success_chance",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "competitor_classes",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "competitor_image_url",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "competitor_brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "competitor_app_no",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "client_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "my_app_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "numeric",
+              "column_name": "similarity_score",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "competitor_holders",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "competitor_app_date",
+              "is_nullable": "YES",
+              "column_default": null
+            }
+          ],
+          "triggers": null,
+          "table_name": "v_client_bulletin_matches"
+        },
+        {
+          "columns": [
+            {
+              "data_type": "boolean",
+              "column_name": "is_held",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "brand_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "sent_by_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "triggered_by_name",
+              "is_nullable": "YES",
+              "column_default": null
+            },
             {
               "data_type": "text",
               "column_name": "sent_by",
@@ -3243,18 +3467,6 @@
             {
               "data_type": "text",
               "column_name": "associated_task_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_status",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "sent_by_name",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3277,56 +3489,8 @@
               "column_default": null
             },
             {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "boolean",
-              "column_name": "is_held",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
               "data_type": "text",
               "column_name": "related_ip_record_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "source_document_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "associated_transaction_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "objection_deadline",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "cc_list",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "ARRAY",
-              "column_name": "to_list",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "status",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3344,13 +3508,43 @@
             },
             {
               "data_type": "text",
-              "column_name": "brand_name",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "to_list",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "ARRAY",
+              "column_name": "cc_list",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "triggered_by_name",
+              "column_name": "objection_deadline",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "associated_transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "source_document_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
               "is_nullable": "YES",
               "column_default": null
             }
@@ -3362,85 +3556,31 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "iprecordApplicantName",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "title",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "description",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "task_type_id",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "status",
+              "column_name": "recordOwnerType",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "priority",
+              "column_name": "oppositionOwner",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "ip_record_id",
+              "column_name": "opposedMarkOwner",
               "is_nullable": "YES",
               "column_default": null
             },
             {
               "data_type": "text",
-              "column_name": "transaction_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "task_owner_id",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "created_by",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "assigned_to",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "iprecordApplicationNo",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "iprecordTitle",
+              "column_name": "bulletinDate",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3452,7 +3592,85 @@
             },
             {
               "data_type": "text",
-              "column_name": "bulletinDate",
+              "column_name": "iprecordApplicantName",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordTitle",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicationNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_by",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "task_owner_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "transaction_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "ip_record_id",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "priority",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "status",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "epatsDocumentDate",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "description",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "title",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "id",
               "is_nullable": "YES",
               "column_default": null
             },
@@ -3500,84 +3718,6 @@
           "columns": [
             {
               "data_type": "text",
-              "column_name": "bulletinNo",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "delivery_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "official_due_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "operational_due_date",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "jsonb",
-              "column_name": "details",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "created_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "timestamp with time zone",
-              "column_name": "updated_at",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "iprecordApplicantName",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "iprecordTitle",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "date",
-              "column_name": "bulletinDate",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "iprecordApplicationNo",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "assigned_to",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
-              "column_name": "created_by",
-              "is_nullable": "YES",
-              "column_default": null
-            },
-            {
-              "data_type": "text",
               "column_name": "task_owner_id",
               "is_nullable": "YES",
               "column_default": null
@@ -3629,6 +3769,84 @@
               "column_name": "id",
               "is_nullable": "YES",
               "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "delivery_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "operational_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "jsonb",
+              "column_name": "details",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "official_due_date",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "created_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "timestamp with time zone",
+              "column_name": "updated_at",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "date",
+              "column_name": "bulletinDate",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "bulletinNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicantName",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordTitle",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "iprecordApplicationNo",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "assigned_to",
+              "is_nullable": "YES",
+              "column_default": null
+            },
+            {
+              "data_type": "text",
+              "column_name": "created_by",
+              "is_nullable": "YES",
+              "column_default": null
             }
           ],
           "triggers": null,
@@ -3661,8 +3879,20 @@
           "function_name": "export_mini_db"
         },
         {
+          "definition": "CREATE OR REPLACE FUNCTION public.get_client_bulletin_report(p_report_id uuid, p_bulletin_id text)\n RETURNS SETOF trademark_bulletin_records\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n    v_is_authorized boolean;\r\n    v_client_nos text[];\r\nBEGIN\r\n    -- 1. Yetki Kontrolü\r\n    SELECT EXISTS (\r\n        SELECT 1 FROM public.client_report_assignments\r\n        WHERE report_id = p_report_id AND user_id = auth.uid()\r\n    ) INTO v_is_authorized;\r\n\r\n    IF NOT v_is_authorized THEN\r\n        RAISE EXCEPTION 'Bu raporu görüntüleme yetkiniz bulunmamaktadır.';\r\n    END IF;\r\n\r\n    -- 2. Kriterleri (Aranacak Client Numaralarını) Çek\r\n    SELECT ARRAY(\r\n        SELECT jsonb_array_elements_text(criteria->'client_nos')\r\n    )\r\n    INTO v_client_nos\r\n    FROM public.client_report_configs\r\n    WHERE id = p_report_id;\r\n\r\n    -- 3. ZIRHLI ARAMA İŞLEMİ (JSON'a çevirmeden, metni temizleyerek arama yapıyoruz)\r\n    RETURN QUERY\r\n    SELECT t.*\r\n    FROM public.trademark_bulletin_records t\r\n    WHERE t.bulletin_id = p_bulletin_id\r\n    AND EXISTS (\r\n        SELECT 1 \r\n        FROM unnest(v_client_nos) AS cno\r\n        -- chr(92) ters eğik çizgiyi (\\) temsil eder. Tüm boşlukları ve \\ işaretlerini silip net eşleşme arıyoruz.\r\n        WHERE REPLACE(REPLACE(t.holders::text, chr(92), ''), ' ', '') LIKE '%\"clientNo\":\"' || REPLACE(cno, ' ', '') || '\"%'\r\n    );\r\nEND;\r\n$function$\n",
+          "function_name": "get_client_bulletin_report"
+        },
+        {
           "definition": "CREATE OR REPLACE FUNCTION public.trg_unlock_evaluation_mail()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  -- Eğer güncellenen görev 66 (Değerlendirme) tipindeyse VE statüsü yeni 'completed' olmuşsa\r\n  IF NEW.task_type_id = '66' AND NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN\r\n    \r\n    -- Bu görevin bağlı olduğu PDF işlemine ait 'evaluation_pending' durumundaki maili serbest bırak\r\n    UPDATE public.mail_notifications\r\n    SET \r\n        status = 'awaiting_client_approval'\r\n        -- Hata veren updated_at = NOW() satırını buradan kaldırdık!\r\n    WHERE associated_transaction_id = NEW.transaction_id\r\n      AND status = 'evaluation_pending';\r\n      \r\n  END IF;\r\n\r\n  RETURN NEW;\r\nEND;\r\n$function$\n",
           "function_name": "trg_unlock_evaluation_mail"
+        },
+        {
+          "definition": "CREATE OR REPLACE FUNCTION public.handle_renewal_task_closure()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    -- Sadece Yenileme İşlemi (Görev Tipi: 22) ise ve \r\n    -- statü Müvekkil Reddi ('client_approval_closed') veya Cevapsız Kapatma ('client_no_response_closed') olduysa çalış\r\n    IF NEW.task_type_id = '22' AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n        \r\n        -- Bağlı olduğu portföy kaydının (ip_records) statüsünü 'renewal - check' olarak güncelle\r\n        UPDATE public.ip_records\r\n        SET \r\n            status = 'renewal - check',\r\n            updated_at = NOW()\r\n        WHERE id = NEW.ip_record_id;\r\n\r\n    END IF;\r\n    \r\n    RETURN NEW;\r\nEND;\r\n$function$\n",
+          "function_name": "handle_renewal_task_closure"
+        },
+        {
+          "definition": "CREATE OR REPLACE FUNCTION public.auto_expire_unrenewed_records()\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    UPDATE public.ip_records r\r\n    SET \r\n        status = 'expired',\r\n        updated_at = NOW()\r\n    WHERE status = 'renewal - check'\r\n      AND r.renewal_date + INTERVAL '6 months 10 days' < NOW()\r\n      AND NOT EXISTS (\r\n          SELECT 1 FROM public.tasks t\r\n          WHERE t.ip_record_id = r.id\r\n            AND t.task_type_id = '22'\r\n            AND t.status IN ('open', 'awaiting_client_approval')\r\n      );\r\nEND;\r\n$function$\n",
+          "function_name": "auto_expire_unrenewed_records"
         }
       ]
     }

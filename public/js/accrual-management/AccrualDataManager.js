@@ -460,4 +460,33 @@ export class AccrualDataManager {
         await supabase.from('accruals').delete().eq('id', id);
         await this.fetchAllData();
     }
+
+    async createKolaybiInvoice(selectedIds) {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) throw new Error("Fatura kesmek için tahakkuk seçmelisiniz.");
+
+        try {
+            // Supabase Edge Function'ı çağırıyoruz
+            const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+                body: { accrualIds: ids }
+            });
+
+            if (error) {
+                console.error("Supabase Fonksiyon Hatası:", error);
+                throw new Error(error.message || "Fatura oluşturulurken bir hata oluştu.");
+            }
+
+            if (!data.success) {
+                throw new Error(data.error || data.message || "Beklenmeyen bir hata oluştu.");
+            }
+
+            // İşlem başarılıysa verileri yenile (Arayüzde statüler 'Faturalandı' olarak güncellenecek)
+            await this.fetchAllData();
+            return data;
+
+        } catch (error) {
+            console.error("KolayBi Fatura Hatası:", error);
+            throw error;
+        }
+    }
 }

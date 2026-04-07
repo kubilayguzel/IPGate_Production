@@ -119,3 +119,14 @@ entrypoint = "./functions/save-epats-document/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/save-epats-document/*.html" ]
+
+[functions.create-kolaybi-invoice]
+enabled = true
+verify_jwt = true
+import_map = "./functions/create-kolaybi-invoice/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/create-kolaybi-invoice/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/create-kolaybi-invoice/*.html" ]

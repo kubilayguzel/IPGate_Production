@@ -537,6 +537,32 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
 
+            // YENİ: KolayBi Fatura Kes Butonu Dinleyicisi
+            const bulkCreateInvoiceBtn = document.getElementById('bulkCreateInvoiceBtn');
+            if (bulkCreateInvoiceBtn) {
+                bulkCreateInvoiceBtn.addEventListener('click', async () => {
+                    if (this.state.selectedIds.size === 0) return;
+
+                    if (!confirm(`${this.state.selectedIds.size} adet tahakkuk için KolayBi'de e-Fatura oluşturulacak. Onaylıyor musunuz?`)) {
+                        return;
+                    }
+
+                    this.uiManager.toggleLoading(true);
+                    try {
+                        const result = await this.dataManager.createKolaybiInvoice(this.state.selectedIds);
+                        
+                        this.state.selectedIds.clear(); // Seçimleri temizle
+                        this.renderPage(); // Tabloyu yenile
+                        
+                        showNotification(`Başarılı! KolayBi Faturası oluşturuldu.`, 'success');
+                    } catch (error) {
+                        showNotification(`Hata: ${error.message}`, 'error');
+                    } finally {
+                        this.uiManager.toggleLoading(false);
+                    }
+                });
+            }
+
             document.getElementById('saveAccrualChangesBtn').addEventListener('click', async () => {
                 const formResult = this.uiManager.getEditFormData();
                 if (!formResult.success) { showNotification(formResult.error, 'error'); return; }

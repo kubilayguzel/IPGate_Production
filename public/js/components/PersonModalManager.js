@@ -1,5 +1,5 @@
 import { PersonDataManager } from '../persons/PersonDataManager.js';
-import { personService } from '../../supabase-config.js';
+import { personService, supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
 
 const $ = window.jQuery || window.$;
@@ -67,9 +67,16 @@ export class PersonModalManager {
                                             </div>
                                         </div>
                                         <div id="tuzelFields" style="display:none;">
-                                            <div class="form-group">
-                                                <label class="small font-weight-bold text-muted">VERGİ NO (VKN)</label>
-                                                <input type="text" id="personVkn" class="form-control rounded-lg border-2" maxlength="10">
+                                            <div class="form-row">
+                                                <div class="form-group col-md-6">
+                                                    <label class="small font-weight-bold text-muted">VERGİ NO (VKN)</label>
+                                                    <input type="text" id="personVkn" class="form-control rounded-lg border-2" maxlength="10">
+                                                </div>
+                                                <div class="form-group col-md-6">
+                                                    <label class="small font-weight-bold text-muted">VERGİ DAİRESİ</label>
+                                                    <input list="taxOfficeDatalist" id="personTaxOffice" class="form-control rounded-lg border-2" placeholder="Yazarak arayın...">
+                                                    <datalist id="taxOfficeDatalist"></datalist>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -391,6 +398,7 @@ export class PersonModalManager {
                 tckn: document.getElementById('personTckn').value,
                 birthDate: document.getElementById('personBirthDate').value,
                 taxNo: document.getElementById('personVkn').value,
+                tax_office: document.getElementById('personTaxOffice') ? document.getElementById('personTaxOffice').value : null,
                 tpeNo: document.getElementById('personTpeNo').value,
                 email: document.getElementById('personEmail').value,
                 phone: document.getElementById('personPhone').value,
@@ -741,6 +749,20 @@ export class PersonModalManager {
             if(docCountry) docCountry.value = trOption.code;
             await this.loadProvinces(trOption.code);
         }
+
+        // YENİ EKLENEN: Vergi Dairelerini Çek ve Datalist'e Doldur
+        try {
+            const { data: taxData, error: taxError } = await supabase.from('common').select('data').eq('id', 'tax_offices').single();
+            if (taxData && taxData.data) {
+                const datalist = document.getElementById('taxOfficeDatalist');
+                if (datalist) {
+                    // Veritabanındaki JSON yapısına göre "isim" ve "il" alanlarını kullanarak option'ları oluşturuyoruz
+                    datalist.innerHTML = taxData.data.map(vd => `<option value="${vd.isim}">${vd.isim} (${vd.il})</option>`).join('');
+                }
+            }
+        } catch (e) {
+            console.error("Vergi daireleri yüklenirken hata:", e);
+        }
     }
 
     async loadProvinces(code) {
@@ -781,6 +803,7 @@ export class PersonModalManager {
         document.getElementById('personTckn').value = p.tckn || '';
         document.getElementById('personBirthDate').value = p.birthDate || '';
         document.getElementById('personVkn').value = p.taxNo || '';
+        if(document.getElementById('personTaxOffice')) document.getElementById('personTaxOffice').value = p.tax_office || '';
         document.getElementById('personTpeNo').value = p.tpeNo || '';
         document.getElementById('personEmail').value = p.email || '';
         document.getElementById('personPhone').value = p.phone || '';

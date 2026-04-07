@@ -322,16 +322,21 @@ class TaskUpdateController {
 
     async uploadDocuments(files) {
         if (!files || !files.length) return;
+        
+        // YENİ EKLENEN: Bu göreve bağlı bir "İşlem (Transaction)" var mı bul
+        const txId = this.taskData.transaction_id || this.taskData.transactionId || this.taskData.details?.transactionId || this.taskData.details?.associated_transaction_id;
+
         for (const file of files) {
             const id = this.generateUUID();
             const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
             const path = `tasks/${this.taskId}/${id}_${cleanFileName}`;
             
             try {
+                // 1. Storage'a yalnızca bir (1) kez yükle
                 const uploadRes = await storageService.uploadFile('documents', path, file);
                 if (!uploadRes.success) throw new Error(uploadRes.error);
                 
-                // 🔥 SADECE BU EKLENDİ: Storage'a yüklendiği an DB'ye de yaz.
+                // 2. Orijinal Görev (Task) tablosuna yaz
                 await supabase.from('task_documents').insert({
                     id: id,
                     task_id: String(this.taskId),
@@ -339,6 +344,17 @@ class TaskUpdateController {
                     document_url: uploadRes.url,
                     document_type: 'task_document'
                 });
+
+                // YENİ EKLENEN: 3. İşlem (Transaction) varsa, AYNI URL'yi kullanarak bağla
+                if (txId) {
+                    await supabase.from('transaction_documents').insert({
+                        id: this.generateUUID(), // Satır ID'si farklı, ama URL/İçerik aynı
+                        transaction_id: String(txId),
+                        document_name: file.name,
+                        document_url: uploadRes.url,
+                        document_type: 'task_document'
+                    });
+                }
 
                 this.currentDocuments.push({
                     id, 
@@ -364,8 +380,12 @@ class TaskUpdateController {
         if (doc && doc.storagePath) {
             try { 
                 await supabase.storage.from('documents').remove([doc.storagePath]); 
-                // 🔥 SADECE BU EKLENDİ: Veritabanından da sil
                 await supabase.from('task_documents').delete().eq('id', id);
+                
+                // YENİ EKLENEN: (Varsa) Transaction kayıtlarından URL'ye göre kökünden temizle
+                if (doc.url) {
+                    await supabase.from('transaction_documents').delete().eq('document_url', doc.url);
+                }
             } catch(e){}
         }
         
@@ -405,11 +425,13 @@ class TaskUpdateController {
         const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
         const path = `tasks/${this.taskId}/epats_${id}_${cleanFileName}`;
         
+        // YENİ EKLENEN:
+        const txId = this.taskData.transaction_id || this.taskData.transactionId || this.taskData.details?.transactionId || this.taskData.details?.associated_transaction_id;
+        
         try {
             const uploadRes = await storageService.uploadFile('documents', path, file);
             if (!uploadRes.success) throw new Error(uploadRes.error);
 
-            // 🔥 SADECE BU EKLENDİ: EPATS evrağı Storage'a eklendiği an DB'ye de yaz
             await supabase.from('task_documents').insert({
                 id: id,
                 task_id: String(this.taskId),
@@ -417,6 +439,18 @@ class TaskUpdateController {
                 document_url: uploadRes.url,
                 document_type: 'epats_document'
             });
+
+            // YENİ EKLENEN: Transaction varsa, aynı URL ile oraya da yansıt
+            if (txId) {
+                await supabase.from('transaction_documents').insert({
+                    id: this.generateUUID(),
+                    transaction_id: String(txId),
+                    document_name: file.name,
+                    document_url: uploadRes.url,
+                    document_type: 'epats_document',
+                    document_designation: 'Resmi Yazı' 
+                });
+            }
 
             const epatsDoc = {
                 id, 
@@ -456,8 +490,12 @@ class TaskUpdateController {
         if (epatsDoc?.storagePath) {
             try { 
                 await supabase.storage.from('documents').remove([epatsDoc.storagePath]); 
-                // 🔥 SADECE BU EKLENDİ: Veritabanından da sil
                 await supabase.from('task_documents').delete().eq('id', epatsDoc.id);
+                
+                // YENİ EKLENEN: İşlemlerden (Aynı URL ile) temizle
+                if (epatsDoc.url) {
+                    await supabase.from('transaction_documents').delete().eq('document_url', epatsDoc.url);
+                }
             } catch (e) { }
         }
         

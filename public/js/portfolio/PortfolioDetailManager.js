@@ -212,13 +212,28 @@ export class PortfolioDetailManager {
             const pageSeenDocs = new Set();
             const generateDocsHtml = (docs) => {
                 const uniqueDocs = [];
+                const txSeenNames = new Set(); // Sadece o satıra (işleme) özel isim kontrolü
+                
                 for (const d of docs || []) {
-                    if (!d.url) continue;
-                    const cleanUrl = d.url.split('?')[0].toLowerCase();
-                    if (!pageSeenDocs.has(cleanUrl)) {
-                        pageSeenDocs.add(cleanUrl);
-                        uniqueDocs.push(d);
-                    }
+                    // API'den gelebilecek tüm URL varyasyonlarını yakala
+                    const url = d.url || d.fileUrl || d.document_url;
+                    if (!url) continue;
+
+                    const cleanUrl = url.split('?')[0].toLowerCase();
+                    const docName = (d.name || d.document_name || d.fileName || 'isimsiz_belge').toLowerCase().trim();
+
+                    // 1. KURAL: Aynı URL daha önce sayfanın HERHANGİ bir yerinde gösterildiyse atla
+                    if (pageSeenDocs.has(cleanUrl)) continue;
+
+                    // 2. KURAL: URL'si farklı olsa bile, AYNI İSİMLİ evrak bu satırda zaten gösterildiyse atla (Kopya Engelleme)
+                    if (txSeenNames.has(docName)) continue;
+
+                    pageSeenDocs.add(cleanUrl);
+                    txSeenNames.add(docName);
+                    
+                    // İkonun hatasız tıklanabilmesi için url değerini standartlaştırıyoruz
+                    d.url = url; 
+                    uniqueDocs.push(d);
                 }
                 const icons = uniqueDocs.map((d, i) => this.createDocIcon(d, i === 0)).join(' ');
                 return icons || '-';

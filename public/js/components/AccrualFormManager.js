@@ -346,6 +346,7 @@ export class AccrualFormManager {
         document.getElementById(`${p}EpatsDocumentContainer`).style.display = 'none';
 
         this.handleForeignToggle();
+        this.setReadOnlyState(false);
     }
 
     setData(data) {
@@ -408,6 +409,7 @@ export class AccrualFormManager {
         this.handleForeignToggle();
         
         this.calculateTotal();
+        this.setReadOnlyState(data.status === 'paid');
     }
 
     manualSelectDisplay(baseId, person) {
@@ -518,6 +520,66 @@ export class AccrualFormManager {
                 files: files                        
             }
         };
+    }
+
+    setReadOnlyState(isPaid) {
+        const p = this.prefix;
+        
+        // Kilitlenecek alanların listesi (Fatura No'lar HARİÇ)
+        const elementsToToggle = [
+            `${p}AccrualType`,
+            `${p}IsForeignTransaction`,
+            `${p}Subject`,
+            `${p}AccrualDescription`,
+            `${p}OfficialFee`,
+            `${p}OfficialFeeCurrency`,
+            `${p}ServiceFee`,
+            `${p}ServiceFeeCurrency`,
+            `${p}VatRate`,
+            `${p}ApplyVatToOfficial`,
+            `${p}TpInvoicePartySearch`,
+            `${p}ForeignPaymentPartySearch`,
+            `${p}ForeignInvoiceFile`
+        ];
+
+        elementsToToggle.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.disabled = isPaid;
+                // Görsel olarak da kilitli olduğunu hissettirmek için arkaplanı gri yap
+                if (el.type !== 'checkbox') {
+                    el.style.backgroundColor = isPaid ? '#e9ecef' : ''; 
+                }
+            }
+        });
+
+        // "Dosya Seç" butonunun tıklanmasını ve görünümünü engelle
+        const fileLabel = this.container.querySelector(`label[for="${p}ForeignInvoiceFile"]`);
+        if (fileLabel) {
+            fileLabel.style.pointerEvents = isPaid ? 'none' : 'auto';
+            fileLabel.style.opacity = isPaid ? '0.5' : '1';
+        }
+
+        // Seçilen kişiyi listeden çıkartma (Çarpı) butonlarını gizle
+        const removeBtns = this.container.querySelectorAll('.remove-selection');
+        removeBtns.forEach(btn => {
+            btn.style.display = isPaid ? 'none' : 'inline-block';
+        });
+        
+        // Kullanıcıya bilgi veren bir uyarı bandı ekle
+        let warningMsg = document.getElementById(`${p}PaidWarningMessage`);
+        if (isPaid) {
+            if (!warningMsg) {
+                warningMsg = document.createElement('div');
+                warningMsg.id = `${p}PaidWarningMessage`;
+                warningMsg.className = 'alert alert-warning p-2 text-center mb-3 font-weight-bold';
+                warningMsg.innerHTML = '<i class="fas fa-lock mr-2"></i> Bu tahakkuk ödendiği için sadece <u>Fatura Numaraları</u> güncellenebilir.';
+                this.container.prepend(warningMsg); // Formun en tepesine ekler
+            }
+            warningMsg.style.display = 'block';
+        } else {
+            if (warningMsg) warningMsg.style.display = 'none';
+        }
     }
     
     showEpatsDoc(docOrTask) {

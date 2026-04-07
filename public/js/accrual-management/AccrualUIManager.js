@@ -126,10 +126,10 @@ export class AccrualUIManager {
                 const efn = acc.evrekaInvoiceNo || '-';
                 const officialStr = acc.officialFee ? this._formatMoney(acc.officialFee.amount, acc.officialFee.currency) : '-';
 
-                const isEditDisabled = acc.status === 'paid';
-                const editBtnClass = isEditDisabled ? 'btn btn-sm btn-light text-muted disabled' : 'btn btn-sm btn-light text-warning edit-btn action-btn';
-                const editBtnStyle = isEditDisabled ? 'cursor: not-allowed; opacity: 0.5;' : 'cursor: pointer;';
-                const editTitle = isEditDisabled ? 'Ödenmiş kayıt düzenlenemez' : 'Düzenle';
+                // Artık ödenmiş olanlar da düzenlenebilecek, o yüzden disabled kilidini kaldırıyoruz
+                const editBtnClass = 'btn btn-sm btn-light text-warning edit-btn action-btn';
+                const editBtnStyle = 'cursor: pointer;';
+                const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
 
                 const actionMenuHtml = `
                     <div class="dropdown">

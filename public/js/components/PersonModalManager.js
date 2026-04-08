@@ -398,7 +398,8 @@ export class PersonModalManager {
                 tckn: document.getElementById('personTckn').value,
                 birthDate: document.getElementById('personBirthDate').value,
                 taxNo: document.getElementById('personVkn').value,
-                tax_office: document.getElementById('personTaxOffice') ? document.getElementById('personTaxOffice').value : null,
+                // Vergi Dairesi alanı tam olarak burada:
+                taxOffice: document.getElementById('personTaxOffice') ? document.getElementById('personTaxOffice').value : null,
                 tpeNo: document.getElementById('personTpeNo').value,
                 email: document.getElementById('personEmail').value,
                 phone: document.getElementById('personPhone').value,
@@ -412,6 +413,9 @@ export class PersonModalManager {
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
             };
+
+            // HATA AYIKLAMA İÇİN EKLENEN LOG:
+            console.log("🚀 SUPABASE'E GİDECEK KİŞİ VERİSİ (Arayüzden Okunan):", personData);
 
             let savedId = this.currentPersonId;
             if (this.isEdit) {

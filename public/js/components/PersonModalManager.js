@@ -807,7 +807,7 @@ export class PersonModalManager {
         document.getElementById('personTckn').value = p.tckn || '';
         document.getElementById('personBirthDate').value = p.birthDate || '';
         document.getElementById('personVkn').value = p.taxNo || '';
-        if(document.getElementById('personTaxOffice')) document.getElementById('personTaxOffice').value = p.tax_office || '';
+        if(document.getElementById('personTaxOffice')) document.getElementById('personTaxOffice').value = p.taxOffice || p.tax_office || '';
         document.getElementById('personTpeNo').value = p.tpeNo || '';
         document.getElementById('personEmail').value = p.email || '';
         document.getElementById('personPhone').value = p.phone || '';

@@ -8,6 +8,7 @@ export class AccrualUIManager {
     constructor() {
         this.tableBody = document.getElementById('accrualsTableBody');
         this.foreignTableBody = document.getElementById('foreignTableBody');
+        this.invoicesTableBody = document.getElementById('invoicesTableBody');
         this.noRecordsMessage = document.getElementById('noRecordsMessage');
         this.bulkActions = document.getElementById('bulkActions');
         this.loadingIndicator = document.getElementById('loadingIndicator');
@@ -58,7 +59,9 @@ export class AccrualUIManager {
         this.currentData = data || [];
 
         const { tasks, transactionTypes, ipRecordsMap, selectedIds } = lookups;
-        const targetBody = activeTab === 'foreign' ? this.foreignTableBody : this.tableBody;
+        let targetBody = this.tableBody;
+        if (activeTab === 'foreign') targetBody = this.foreignTableBody;
+        else if (activeTab === 'invoices') targetBody = this.invoicesTableBody;
         
         if (targetBody) targetBody.innerHTML = '';
         if (!data || data.length === 0) {
@@ -170,7 +173,54 @@ export class AccrualUIManager {
                     remainingHtml = `<span class="text-success font-weight-bold">Tamamlandı</span>`;
                 }
 
-                if (activeTab === 'main') {
+                if (activeTab === 'invoices') {
+                    // FATURALAR SEKMESİ İÇİN ÇİZİM
+                    const invDate = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
+                    const documentDate = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : invDate; 
+                    const invTotal = this._formatMoney(acc.totalAmount, acc.currency);
+                    
+                    let invStatusText = 'Taslak', invStatusClass = 'badge-secondary';
+                    if (acc.status === 'draft') { invStatusText = 'Taslak'; invStatusClass = 'badge-warning text-dark'; }
+                    else if (acc.status === 'sent') { invStatusText = 'Gönderildi'; invStatusClass = 'badge-success'; }
+                    else if (acc.status === 'cancelled') { invStatusText = 'İptal Edildi'; invStatusClass = 'badge-danger'; }
+
+                    const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' 
+                        ? `<a href="https://ofis-sandbox.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi'de Aç</a>`
+                        : '';
+                        
+                    const cancelBtn = acc.status === 'draft'
+                        ? `<a href="#" class="dropdown-item text-danger cancel-invoice-btn" data-id="${acc.id}"><i class="fas fa-trash-alt mr-2"></i> Faturayı Sil / İptal Et</a>`
+                        : `<span class="dropdown-item text-muted" title="Sadece taslak faturalar silinebilir"><i class="fas fa-trash-alt mr-2"></i> Silinemez</span>`;
+
+                    const actionMenuHtml = `
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-right shadow-sm border-0">
+                            ${viewKolaybiBtn}
+                            ${viewKolaybiBtn ? '<div class="dropdown-divider"></div>' : ''}
+                            ${cancelBtn}
+                        </div>
+                    </div>
+                    `;
+
+                    const serialNumber = index + 1;
+
+                    return `
+                    <tr>
+                        <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
+                        <td class="font-weight-bold text-muted">${serialNumber}</td>
+                        <td>${invDate}</td>
+                        <td>${documentDate}</td>
+                        <td><span class="font-weight-bold text-primary">${acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-'}</span></td>
+                        <td><span class="font-weight-bold">${acc.clientName}</span></td>
+                        <td><span class="badge ${invStatusClass}">${invStatusText}</span></td>
+                        <td><span class="font-weight-bold text-success">${invTotal}</span></td>
+                        <td class="text-center">${actionMenuHtml}</td>
+                    </tr>`;
+                }
+                else if (activeTab === 'main') {
                     const serviceStr = acc.serviceFee ? this._formatMoney(acc.serviceFee.amount, acc.serviceFee.currency) : '-';
                     
                     return `

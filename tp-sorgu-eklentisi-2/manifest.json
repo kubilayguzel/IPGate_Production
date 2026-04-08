@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Evreka IP - TÜRKPATENT Sorgu Yardımcısı",
-  "version": "2.2.11",
+  "version": "2.2.12",
   "description": "Evreka IP uygulamasından TÜRKPATENT üzerinde otomatik sorgulama yapar.",
   "permissions": [],
   "host_permissions": [

@@ -432,7 +432,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             $('a[data-toggle="tab"]').on('shown.bs.tab', (e) => {
-                this.state.activeTab = $(e.target).attr("href") === '#content-foreign' ? 'foreign' : 'main';
+                const targetHref = $(e.target).attr("href");
+                if (targetHref === '#content-foreign') this.state.activeTab = 'foreign';
+                else if (targetHref === '#content-invoices') this.state.activeTab = 'invoices';
+                else this.state.activeTab = 'main';
+                
+                this.state.selectedIds.clear(); // Sekme değişince seçimleri temizlemek iyi bir pratiktir
                 this.renderPage();
             });
 
@@ -516,6 +521,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if(this.uiManager.tableBody) this.uiManager.tableBody.addEventListener('click', handleActionClick);
             if(this.uiManager.foreignTableBody) this.uiManager.foreignTableBody.addEventListener('click', handleActionClick);
+
+            // YENİ: INVOICE SILME (İPTAL) BUTONU DİNLEYİCİSİ
+            const handleInvoiceActionClick = async (e) => {
+                const cancelBtn = e.target.closest('.cancel-invoice-btn');
+                if (cancelBtn) {
+                    e.preventDefault();
+                    const invoiceId = cancelBtn.dataset.id;
+                    
+                    if (confirm('Bu faturayı KolayBi ve sistem üzerinden kalıcı olarak silmek istediğinize emin misiniz?\\n\\n(Faturaya bağlı tahakkuklar serbest kalacaktır.)')) {
+                        this.uiManager.toggleLoading(true);
+                        try {
+                            const { supabase } = await import('../../supabase-config.js');
+                            const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+                                body: { action: 'delete', invoiceId: invoiceId }
+                            });
+
+                            if (error) throw new Error(error.message);
+                            if (!data.success) throw new Error(data.error);
+
+                            showNotification('Fatura başarıyla silindi ve tahakkuklar serbest bırakıldı.', 'success');
+                            await this.dataManager.fetchAllData(); 
+                            this.renderPage(); 
+                        } catch (err) {
+                            showNotification('Fatura silinemedi: ' + err.message, 'error');
+                        } finally {
+                            this.uiManager.toggleLoading(false);
+                        }
+                    }
+                }
+            };
+            
+            if(this.uiManager.invoicesTableBody) this.uiManager.invoicesTableBody.addEventListener('click', handleInvoiceActionClick);
 
             document.getElementById('bulkMarkPaidBtn').addEventListener('click', () => {
                 const selected = Array.from(this.state.selectedIds).map(id => this.dataManager.allAccruals.find(a => a.id === id)).filter(Boolean);

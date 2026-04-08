@@ -266,6 +266,11 @@
                             <i class="fas fa-globe-americas mr-2"></i>Yurt Dışı Ödemeler
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link font-weight-bold" id="tab-invoices" data-toggle="tab" href="#content-invoices" role="tab" style="color:#17a2b8;">
+                            <i class="fas fa-file-invoice-dollar mr-2"></i>Faturalar
+                        </a>
+                    </li>
                 </ul>
 
                 <div class="tab-content">
@@ -313,6 +318,24 @@
                                     </tr>
                                  </thead>
                                  <tbody id="foreignTableBody"></tbody>
+                             </table>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="content-invoices" role="tabpanel">
+                        <div class="table-container">
+                             <table class="accruals-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckboxInvoices"></th>
+                                        <th>#</th> <th class="sortable" data-sort="createdAt">Kesim Tarihi <i class="fas fa-sort sort-icon"></i></th>
+                                        <th>Fatura Tarihi</th> <th>KolayBi Fatura ID</th>
+                                        <th class="sortable" data-sort="clientName">Fatura Edilen Cari <i class="fas fa-sort sort-icon"></i></th>
+                                        <th class="sortable" data-sort="status">Durum <i class="fas fa-sort sort-icon"></i></th>
+                                        <th class="sortable" data-sort="totalAmount">Fatura Tutarı <i class="fas fa-sort sort-icon"></i></th>
+                                        <th class="text-center">İşlemler</th>
+                                    </tr>
+                                 </thead>
+                                 <tbody id="invoicesTableBody"></tbody>
                              </table>
                         </div>
                     </div>

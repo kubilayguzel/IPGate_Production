@@ -21,11 +21,13 @@ export class AccrualDataManager {
 
     async fetchAllData() {
         try {
-            // 🔥 ÇÖZÜM 1: Belgeleri getirmek için accrual_documents(*) JOIN eklendi!
             const accPromise = supabase.from('accruals').select('*, accrual_documents(*)').limit(10000).order('created_at', { ascending: false });
+            // 🔥 YENİ: Faturaları da çekiyoruz
+            const invPromise = supabase.from('invoices').select('*').limit(5000).order('created_at', { ascending: false });
 
-            const [accRes, usersRes, typesRes, personsRes] = await Promise.all([
+            const [accRes, invRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
+                invPromise, // 🔥 YENİ
                 taskService.getAllUsers(),
                 transactionTypeService.getTransactionTypes(),
                 personService.getPersons() 
@@ -81,6 +83,20 @@ export class AccrualDataManager {
 
             await this._fetchTasksInBatches();
             await this._fetchIpRecordsInBatches();
+
+            // 🔥 YENİ: Faturaları (Invoices) kullanılabilir formata dönüştür
+            this.allInvoices = invRes.data ? invRes.data.map(row => ({
+                id: String(row.id),
+                kolaybiInvoiceId: row.kolaybi_invoice_id,
+                invoiceNo: row.invoice_no || '-',
+                status: row.status || 'draft',
+                totalAmount: row.total_amount || 0,
+                currency: row.currency || 'TRY',
+                clientId: row.client_id,
+                clientName: getPersonName(row.client_id) || 'Bilinmiyor',
+                createdAt: row.created_at ? new Date(row.created_at) : new Date(0)
+            })) : [];
+
             this._buildSearchStrings();
             this.processedData = [...this.allAccruals];
             return true;
@@ -173,6 +189,14 @@ export class AccrualDataManager {
 
     filterAndSort(criteria, sort) {
         const { tab, filters } = criteria;
+
+        // 🔥 YENİ: Eğer aktif sekme faturalar ise, accruals yerine faturaları döndür
+        if (tab === 'invoices') {
+            let invData = [...(this.allInvoices || [])];
+            // Burada istersen faturaya özel filtreleme kuralları (Müşteri adına göre arama vb.) ekleyebilirsin.
+            return invData;
+        }
+
         if (!this.allAccruals || this.allAccruals.length === 0) return [];
 
         let data = this.allAccruals;
@@ -466,9 +490,9 @@ export class AccrualDataManager {
         if (ids.length === 0) throw new Error("Fatura kesmek için tahakkuk seçmelisiniz.");
 
         try {
-            // Supabase Edge Function'ı çağırıyoruz
+            // 🔥 BURASI GÜNCELLENDİ (action parametresi eklendi)
             const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
-                body: { accrualIds: ids }
+                body: { action: 'create', accrualIds: ids }
             });
 
             if (error) {
@@ -480,7 +504,6 @@ export class AccrualDataManager {
                 throw new Error(data.error || data.message || "Beklenmeyen bir hata oluştu.");
             }
 
-            // İşlem başarılıysa verileri yenile (Arayüzde statüler 'Faturalandı' olarak güncellenecek)
             await this.fetchAllData();
             return data;
 

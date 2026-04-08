@@ -6,18 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// KolayBi API Temel URL'si (Test/Sandbox Ortamı)
 const KOLAYBI_BASE_URL = "https://ofis-sandbox-api.kolaybi.com"; 
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { accrualIds } = await req.json();
-
-    if (!accrualIds || accrualIds.length === 0) {
-      throw new Error("Lütfen faturalandırılacak tahakkukları seçin.");
-    }
+    const body = await req.json();
+    const action = body.action || 'create';
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -25,192 +21,227 @@ serve(async (req) => {
       global: { headers: { Authorization: req.headers.get('Authorization')! } }
     });
 
-    // 1. Tahakkuk Verilerini Çek
-    const { data: accruals, error: accError } = await supabaseClient
-      .from('accruals')
-      .select('*')
-      .in('id', accrualIds);
-
-    if (accError || !accruals || accruals.length === 0) throw new Error("Tahakkuk verileri alınamadı.");
-
-    const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
-    if (!clientId) {
-      throw new Error("Bu tahakkukta faturanın kesileceği bir Taraf (Müşteri/Cari) seçilmemiş. Lütfen önce tahakkuku düzenleyip bir taraf seçin.");
-    }
-
-    // 2. Müşteri (Cari) Verilerini Çek
-    const { data: clientData, error: clientError } = await supabaseClient
-      .from('persons')
-      .select('*')
-      .eq('id', clientId)
-      .single();
-
-    if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
-
-    // 3. ZORUNLU ALAN KONTROLÜ (GİB Kurallarına Göre)
-    const missingFields: string[] = [];
-    if (!clientData.name || clientData.name.trim() === '') missingFields.push("Ad Soyad / Unvan");
-    
-    // VKN veya TCKN'den en az biri olmak zorunda ve boşluklar temizlenmeli
-    const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
-    
-    if (!identityNo || identityNo === '') {
-        missingFields.push("TCKN veya VKN");
-    } else if (identityNo.length === 10) {
-        // ŞİRKET (VKN) İÇİN VERGİ DAİRESİ ZORUNLUDUR
-        if (!clientData.tax_office || clientData.tax_office.trim() === '') {
-            missingFields.push("Vergi Dairesi (10 haneli VKN'si olan firmalar için zorunludur)");
-        }
-    }
-
-    if (!clientData.address || clientData.address.trim() === '') missingFields.push("Açık Adres");
-    if (!clientData.province || clientData.province.trim() === '') missingFields.push("İl / Şehir");
-
-    if (missingFields.length > 0) {
-        throw new Error(`Seçili kişi/firma kartında (${clientData.name || 'İsimsiz'}) e-Fatura kesebilmek için şu zorunlu bilgiler eksik: ${missingFields.join(', ')}. Lütfen Kişiler menüsünden güncelleyin.`);
-    }
-
-    // ==============================================================================
-    // KOLAYBI API ENTEGRASYONU BAŞLIYOR
-    // ==============================================================================
-    
     const apiKey = Deno.env.get('KOLAYBI_API_KEY') ?? 'b9de5d0f-a1f1-49c8-8f3c-af2a1ddb9158'; 
     const channel = Deno.env.get('KOLAYBI_CHANNEL') ?? 'evrekapatent';
 
-    // ADIM 1: Access Token Alımı
-    const authReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/access_token`, {
-        method: 'POST',
-        headers: {
-            'Channel': channel,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ api_key: apiKey })
-    });
-
-    const authData = await authReq.json();
-    if (!authReq.ok) {
-        throw new Error(`KolayBi Kimlik Doğrulama Hatası: ${authData.message || 'Sunucuya bağlanılamadı'}`);
-    }
-
-    const accessToken = authData.data || authData.access_token || authData.token;
-    if (!accessToken) throw new Error("KolayBi'den Access Token alınamadı.");
-
-    const apiHeaders = {
-        'Authorization': `Bearer ${accessToken}`,
-        'Channel': channel,
-        'Content-Type': 'application/json'
+    const getKolaybiToken = async () => {
+        const authReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/access_token`, {
+            method: 'POST',
+            headers: { 'Channel': channel, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const authData = await authReq.json();
+        if (!authReq.ok) throw new Error(`KolayBi Kimlik Doğrulama Hatası: ${authData.message}`);
+        return authData.data || authData.access_token || authData.token;
     };
 
-    // ADIM 2: Müşteriyi (Cariyi) KolayBi'de Oluştur veya Bul
-    const associatePayload: Record<string, any> = {
-        name: clientData.name,
-        identity_no: identityNo,
-        address: clientData.address,
-        city: clientData.province,
-        email: clientData.email || ""
-    };
+    // ==============================================================================
+    // İŞLEM 1: FATURA SİLME / İPTAL ETME (DELETE)
+    // ==============================================================================
+    if (action === 'delete') {
+        const { invoiceId } = body;
+        if (!invoiceId) throw new Error("Fatura ID (invoiceId) gerekli.");
 
-    // Vergi dairesi varsa ekle (Yoksa hiç gönderme, şahıslar için böylece hata vermez)
-    if (clientData.tax_office && clientData.tax_office.trim() !== '') {
-        associatePayload.tax_office = clientData.tax_office.trim();
-    }
+        const { data: invoiceData, error: invError } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
+        if (invError || !invoiceData) throw new Error("Fatura veritabanında bulunamadı.");
+        if (invoiceData.status !== 'draft') throw new Error("Sadece 'Taslak' durumundaki faturalar iptal edilebilir.");
 
-    const associateReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates`, {
-        method: 'POST',
-        headers: apiHeaders,
-        body: JSON.stringify(associatePayload)
-    });
+        const kolaybiDocId = invoiceData.kolaybi_invoice_id;
 
-    const associateRes = await associateReq.json();
-    if (!associateReq.ok) {
-        throw new Error(`KolayBi Cari Kayıt Hatası: ${associateRes.message || JSON.stringify(associateRes)}`);
-    }
-    
-    const kolaybiContactId = associateRes.data?.id || associateRes.id;
-    const kolaybiAddressId = associateRes.data?.addresses?.[0]?.id || associateRes.data?.default_address_id || 1;
-
-    // ADIM 3: Ürün (Hizmet) ID'sini Bul
-    let productId = 1;
-    const productsReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/products`, { headers: apiHeaders });
-    if (productsReq.ok) {
-        const productsRes = await productsReq.json();
-        if (productsRes.data && productsRes.data.length > 0) {
-            productId = productsRes.data[0].id; 
+        if (kolaybiDocId && kolaybiDocId !== 'undefined' && kolaybiDocId !== 'null') {
+            const accessToken = await getKolaybiToken();
+            const delReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${kolaybiDocId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel }
+            });
+            if (!delReq.ok) console.log("KolayBi silme uyarısı:", await delReq.text());
         }
-    }
 
-    // ADIM 4: Faturayı Oluştur
-    const invoiceItems = accruals.map(acc => {
-        const offFee = parseFloat(acc.official_fee_amount || '0');
-        const srvFee = parseFloat(acc.service_fee_amount || '0');
-        const description = acc.description || "Danışmanlık ve Hizmet Bedeli";
+        await supabaseClient.from('accruals').update({ invoice_id: null }).eq('invoice_id', invoiceId);
+        const { error: delError } = await supabaseClient.from('invoices').delete().eq('id', invoiceId);
         
-        return {
-            product_id: productId, 
-            name: description,
-            quantity: "1.00",
-            unit_price: (offFee + srvFee).toFixed(2), 
-            vat_rate: acc.vat_rate || 20 
-        };
-    });
+        if (delError) throw new Error("Fatura KolayBi'den silindi ancak veritabanından silinemedi.");
 
-    const invoicePayload = {
-        associate_id: kolaybiContactId, 
-        address_id: kolaybiAddressId, 
-        issue_date: new Date().toISOString().split('T')[0], 
-        currency: accruals[0].service_fee_currency || 'TRY',
-        items: invoiceItems,
-        notes: "IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur."
-    };
-
-    const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, {
-        method: 'POST',
-        headers: apiHeaders,
-        body: JSON.stringify(invoicePayload)
-    });
-
-    const invoiceRes = await invoiceReq.json();
-    if (!invoiceReq.ok) {
-        throw new Error(`KolayBi Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)}`);
+        return new Response(JSON.stringify({ success: true, message: "Fatura başarıyla silindi ve tahakkuklar serbest bırakıldı." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
-    const kolaybiInvoiceId = invoiceRes.data?.id || invoiceRes.id; 
-    const totalAmount = invoiceRes.data?.total_amount || invoicePayload.items.reduce((s, i) => s + parseFloat(i.unit_price), 0);
 
     // ==============================================================================
-    // SUPABASE VERİTABANI GÜNCELLEMELERİ
+    // İŞLEM 2: FATURA OLUŞTURMA (CREATE)
     // ==============================================================================
-    
-    const { data: newInvoice, error: invError } = await supabaseClient
-      .from('invoices')
-      .insert({
-        kolaybi_invoice_id: String(kolaybiInvoiceId),
-        invoice_no: null,
-        status: 'draft',
-        total_amount: totalAmount,
-        currency: invoicePayload.currency,
-        client_id: clientId
-      })
-      .select()
-      .single();
+    if (action === 'create') {
+        const { accrualIds } = body;
+        if (!accrualIds || accrualIds.length === 0) throw new Error("Lütfen faturalandırılacak tahakkukları seçin.");
 
-    if (invError) throw new Error("Fatura KolayBi'de kesildi ancak yerel veritabanına kaydedilemedi: " + invError.message);
+        const { data: accruals, error: accError } = await supabaseClient.from('accruals').select('*').in('id', accrualIds);
+        if (accError || !accruals || accruals.length === 0) throw new Error("Tahakkuk verileri alınamadı.");
 
-    await supabaseClient
-      .from('accruals')
-      .update({ invoice_id: newInvoice.id, status: 'invoiced' })
-      .in('id', accrualIds);
+        const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
+        if (!clientId) throw new Error("Taraf (Müşteri/Cari) seçilmemiş.");
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: "Fatura başarıyla KolayBi'ye iletildi.",
-      invoiceId: newInvoice.id 
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
+        if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
+
+        const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
+        console.log("=== YENİ KOLAYBİ FATURA OLUŞTURMA İŞLEMİ BAŞLADI ===");
+
+        const accessToken = await getKolaybiToken();
+
+        const apiHeadersForm = {
+            'Authorization': `Bearer ${accessToken}`,
+            'Channel': channel,
+            'Content-Type': 'application/x-www-form-urlencoded' 
+        };
+        const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
+
+        // --- CARİ PARAMETRELERİ ---
+        const associateParams = new URLSearchParams();
+        if (identityNo.length === 10) {
+            associateParams.append("is_corporate", "true");
+            associateParams.append("name", clientData.name);
+            associateParams.append("surname", "ŞTİ."); 
+        } else {
+            associateParams.append("is_corporate", "false");
+            const nameParts = clientData.name.trim().split(' ');
+            const surname = nameParts.length > 1 ? nameParts.pop() : clientData.name;
+            const firstName = nameParts.length > 0 ? nameParts.join(' ') : clientData.name;
+            associateParams.append("name", firstName);
+            associateParams.append("surname", surname);
+        }
+
+        associateParams.append("identity_no", identityNo);
+        if (clientData.email) associateParams.append("email", clientData.email);
+        if (clientData.tax_office) associateParams.append("tax_office", clientData.tax_office);
+
+        // 🔥 DÜZELTME: API Dokümantasyonuna Göre Sadeleştirildi (district kaldırıldı)
+        associateParams.append("addresses[address]", clientData.address || "Merkez");
+        associateParams.append("addresses[city]", clientData.province || "Ankara");
+        associateParams.append("addresses[country]", "Türkiye"); 
+        associateParams.append("addresses[address_type]", "invoice");
+
+        let kolaybiContactId = null;
+        let kolaybiAddressId = null;
+
+        console.log(`KolayBi'de ${identityNo} VKN/TCKN ile cari aranıyor...`);
+        const searchReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates?query=${identityNo}&limit=50`, { method: 'GET', headers: getHeaders });
+        const searchRes = await searchReq.json();
+        const list = searchRes.data?.data || searchRes.data || [];
+        
+        const foundAssociate = list.find((a: any) => String(a.identity_no) === identityNo || String(a.tax_number) === identityNo);
+
+        if (foundAssociate && foundAssociate.id) {
+            kolaybiContactId = foundAssociate.id;
+            console.log(`Cari mevcut (ID: ${kolaybiContactId}). Bilgileri güncelleniyor...`);
+            
+            await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates/${kolaybiContactId}`, { 
+                method: 'PUT', headers: apiHeadersForm, body: associateParams.toString() 
+            });
+
+            const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates/${kolaybiContactId}`, { method: 'GET', headers: getHeaders });
+            if (detailReq.ok) {
+                const detailRes = await detailReq.json();
+                const detailData = detailRes.data || detailRes;
+                kolaybiAddressId = detailData.default_address_id || detailData.address?.[0]?.id || detailData.addresses?.[0]?.id || detailData.address_id;
+            }
+        } else {
+            console.log(`Cari bulunamadı. Yeni kayıt oluşturuluyor...`);
+            const associateReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates`, {
+                method: 'POST', headers: apiHeadersForm, body: associateParams.toString()
+            });
+            const associateResText = await associateReq.text();
+            let associateRes;
+            try { associateRes = JSON.parse(associateResText); } catch(e) { throw new Error(`API Yanıtı Okunamadı`); }
+
+            if (!associateReq.ok || associateRes.success === false) {
+                throw new Error(`Cari Kayıt Hatası: ${associateRes.message}`);
+            }
+
+            const dataObj = associateRes.data || associateRes;
+            kolaybiContactId = dataObj.id;
+            kolaybiAddressId = dataObj.default_address_id || dataObj.address?.[0]?.id || dataObj.addresses?.[0]?.id || dataObj.address_id;
+        }
+
+        if (!kolaybiContactId) throw new Error("KolayBi Cari ID'si alınamadı.");
+        if (!kolaybiAddressId) {
+            const addressParams = new URLSearchParams();
+            addressParams.append("associate_id", String(kolaybiContactId));
+            addressParams.append("address", clientData.address || "Merkez");
+            addressParams.append("city", clientData.province || "Ankara");
+            // 🔥 DÜZELTME: Adres oluştururken de district kaldırıldı
+            addressParams.append("country", "Türkiye");
+            addressParams.append("address_type", "invoice");
+
+            const addrReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/address/create`, { method: 'POST', headers: apiHeadersForm, body: addressParams.toString() });
+            const addrResText = await addrReq.text();
+            try { const addrRes = JSON.parse(addrResText); if (addrRes.data && addrRes.data.id) kolaybiAddressId = addrRes.data.id; } catch(e) {}
+        }
+        if (!kolaybiAddressId) throw new Error("Cari Adres ID alınamadı.");
+
+        // --- HİZMET VE FATURA ---
+        let productId = 1;
+        const productsReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/products`, { method: 'GET', headers: getHeaders });
+        if (productsReq.ok) {
+            const productsRes = await productsReq.json();
+            if (productsRes.data && productsRes.data.length > 0) productId = productsRes.data[0].id; 
+        }
+
+        const invoiceParams = new URLSearchParams();
+        invoiceParams.append("contact_id", String(kolaybiContactId));
+        invoiceParams.append("address_id", String(kolaybiAddressId));
+        invoiceParams.append("order_date", new Date().toISOString().split('T')[0]); 
+        invoiceParams.append("type", "sale_invoice"); 
+        invoiceParams.append("document_scenario", identityNo.length === 10 ? "TICARIFATURA" : "EARSIV"); 
+        invoiceParams.append("document_type", "SATIS"); 
+        invoiceParams.append("description", "IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.");
+        
+        let invoiceCurrency = accruals[0].service_fee_currency || 'TRY';
+        if (invoiceCurrency.toUpperCase() === 'TL') invoiceCurrency = 'TRY';
+        invoiceParams.append("currency", invoiceCurrency.toUpperCase());
+
+        let itemIndex = 0;
+        accruals.forEach((acc) => {
+            const offFee = parseFloat(acc.official_fee_amount || '0');
+            const srvFee = parseFloat(acc.service_fee_amount || '0');
+            const totalLineAmount = offFee + srvFee;
+            if (totalLineAmount > 0) {
+                invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
+                invoiceParams.append(`items[${itemIndex}][quantity]`, "1.00");
+                invoiceParams.append(`items[${itemIndex}][unit_price]`, totalLineAmount.toFixed(2));
+                invoiceParams.append(`items[${itemIndex}][vat_rate]`, String(acc.vat_rate || 20));
+                invoiceParams.append(`items[${itemIndex}][description]`, acc.description || "Danışmanlık ve Hizmet Bedeli");
+                itemIndex++;
+            }
+        });
+
+        if (itemIndex === 0) throw new Error("Tahakkuk bedelleri toplamı 0 TL olduğu için fatura oluşturulamadı.");
+
+        const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, { method: 'POST', headers: apiHeadersForm, body: invoiceParams.toString() });
+        const invoiceResText = await invoiceReq.text();
+        let invoiceRes;
+        try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Fatura API Yanıtı Okunamadı`); }
+
+        if (!invoiceReq.ok || invoiceRes.success === false) {
+            throw new Error(`Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)}`);
+        }
+        
+        const kolaybiInvoiceId = invoiceRes.data?.document_id || invoiceRes.data?.id || invoiceRes.document_id || invoiceRes.id; 
+        const totalAmount = invoiceRes.data?.total_amount || invoiceRes.data?.grand_total || accruals.reduce((s, a) => s + parseFloat(a.service_fee_amount || '0') + parseFloat(a.official_fee_amount || '0'), 0);
+
+        const { data: newInvoice, error: invError } = await supabaseClient.from('invoices').insert({
+            kolaybi_invoice_id: String(kolaybiInvoiceId),
+            status: 'draft',
+            total_amount: totalAmount,
+            currency: invoiceCurrency.toUpperCase(),
+            client_id: clientId
+        }).select().single();
+
+        if (invError) throw new Error("Fatura KolayBi'de kesildi ama yerel DB'ye kaydedilemedi: " + invError.message);
+
+        await supabaseClient.from('accruals').update({ invoice_id: newInvoice.id }).in('id', accrualIds);
+
+        return new Response(JSON.stringify({ success: true, message: "Fatura başarıyla KolayBi'ye iletildi.", invoiceId: newInvoice.id }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ success: false, error: error.message }), { 
-      status: 200, 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-    });
+    return new Response(JSON.stringify({ success: false, error: error.message }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

@@ -1863,9 +1863,7 @@ export const taskService = {
     }
 };
 
-// ==========================================
 // 9. TAHAKKUK (ACCRUAL) SERVİSİ
-// ==========================================
 export const accrualService = {
     
     async _getNextAccrualId() {
@@ -1889,72 +1887,39 @@ export const accrualService = {
         }
     },
 
-    // 🔥 YENİ: Merkezi Dosya Yükleme Fonksiyonu
     async _handleAccrualFiles(accrualId, files) {
         if (!files || files.length === 0) return;
         const docInserts = [];
-
         for (const fileObj of files) {
             const actualFile = fileObj instanceof File ? fileObj : fileObj.file;
-            
-            // Eğer gelen nesne gerçekten yeni bir dosya ise (önceden yüklenmiş bir link değilse) Storage'a at
             if (actualFile instanceof File || actualFile instanceof Blob) {
                 const cleanFileName = actualFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                 const filePath = `accruals/${accrualId}/${Date.now()}_${cleanFileName}`;
-
                 const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, actualFile);
                 if (!uploadError) {
                     const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-                    docInserts.push({
-                        accrual_id: String(accrualId),
-                        document_name: actualFile.name,
-                        document_url: urlData.publicUrl,
-                        document_type: actualFile.type || 'other'
-                    });
+                    docInserts.push({ accrual_id: String(accrualId), document_name: actualFile.name, document_url: urlData.publicUrl, document_type: actualFile.type || 'other' });
                 }
             }
         }
-
-        if (docInserts.length > 0) {
-            await supabase.from('accrual_documents').insert(docInserts);
-        }
+        if (docInserts.length > 0) await supabase.from('accrual_documents').insert(docInserts);
     },
 
     async deleteDocumentFully(documentId, fileUrl) {
         try {
-            // 1. URL'den Storage dosya yolunu (path) çıkartıyoruz
             let filePath = '';
-            if (fileUrl && fileUrl.includes('/documents/')) {
-                filePath = fileUrl.split('/documents/')[1];
-                filePath = decodeURIComponent(filePath); 
-            }
-
-            // 2. ÖNCE STORAGE'DAN FİZİKSEL DOSYAYI SİL
-            if (filePath) {
-                const { error: storageError } = await supabase.storage.from('documents').remove([filePath]);
-                if (storageError) console.warn("Fiziksel dosya silinirken uyarı:", storageError);
-            }
-
-            // 3. SONRA VERİTABANINDAN (DB) KAYDI SİL
-            if (documentId) {
-                const { error: dbError } = await supabase.from('accrual_documents').delete().eq('id', String(documentId));
-                if (dbError) throw dbError;
-            }
-
+            if (fileUrl && fileUrl.includes('/documents/')) filePath = decodeURIComponent(fileUrl.split('/documents/')[1]);
+            if (filePath) await supabase.storage.from('documents').remove([filePath]);
+            if (documentId) await supabase.from('accrual_documents').delete().eq('id', String(documentId));
             return { success: true };
-        } catch (error) {
-            console.error("❌ Dosya silme hatası:", error);
-            return { success: false, error: error.message };
-        }
+        } catch (error) { return { success: false, error: error.message }; }
     },
 
     async addAccrual(accrualData) {
         try {
             let isInserted = false, insertedData = null, retryCount = 0;
-
             while (!isInserted && retryCount < 5) {
                 const nextId = accrualData.id || await this._getNextAccrualId();
-                
                 const payload = { 
                     id: nextId,
                     task_id: accrualData.taskId ? String(accrualData.taskId) : null,
@@ -1976,24 +1941,30 @@ export const accrualService = {
                     is_foreign_transaction: accrualData.isForeignTransaction || false,
                     description: accrualData.description || null 
                 };
-
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
                 const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
-                
-                if (error) {
-                    if (error.code === '23505' || error.message?.includes('duplicate')) { retryCount++; continue; }
-                    throw error;
-                }
+                if (error) { if (error.code === '23505' || error.message?.includes('duplicate')) { retryCount++; continue; } throw error; }
                 insertedData = data; isInserted = true;
             }
 
             if (!isInserted) throw new Error("Tahakkuk ID'si alınamadı.");
 
-            // 🔥 ÇÖZÜM: Dosyalar varsa, servisin kendisi DB'ye eklendikten SONRA yükleme yapar.
-            if (accrualData.files && accrualData.files.length > 0) {
-                await this._handleAccrualFiles(insertedData.id, accrualData.files);
+            // 🔥 YENİ: Alt Kalemleri (Fatura Satırlarını) Veritabanına Yaz
+            if (accrualData.items && accrualData.items.length > 0) {
+                const itemInserts = accrualData.items.map(item => ({
+                    accrual_id: insertedData.id,
+                    fee_type: item.fee_type,
+                    item_name: item.item_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    vat_rate: item.vat_rate,
+                    total_amount: item.total_amount,
+                    currency: item.currency || 'TRY'
+                }));
+                await supabase.from('accrual_items').insert(itemInserts);
             }
 
+            if (accrualData.files && accrualData.files.length > 0) await this._handleAccrualFiles(insertedData.id, accrualData.files);
             return { success: true, data: { id: insertedData.id } };
         } catch (error) { return { success: false, error: error.message }; }
     },
@@ -2020,23 +1991,37 @@ export const accrualService = {
                 description: updateData.description,
                 updated_at: new Date().toISOString()
             };
-
             Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
             const { error } = await supabase.from('accruals').update(payload).eq('id', String(id));
             if (error) throw error;
 
-            // 🔥 ÇÖZÜM: Güncellemede yeni dosya eklendiyse otomatik algıla ve yükle
-            if (updateData.files && updateData.files.length > 0) {
-                await this._handleAccrualFiles(id, updateData.files);
+            // 🔥 YENİ: Eski Alt Kalemleri Sil ve Yenilerini Ekle (Senkronizasyon)
+            if (updateData.items) {
+                await supabase.from('accrual_items').delete().eq('accrual_id', String(id));
+                if (updateData.items.length > 0) {
+                    const itemInserts = updateData.items.map(item => ({
+                        accrual_id: String(id),
+                        fee_type: item.fee_type,
+                        item_name: item.item_name,
+                        quantity: item.quantity,
+                        unit_price: item.unit_price,
+                        vat_rate: item.vat_rate,
+                        total_amount: item.total_amount,
+                        currency: item.currency || 'TRY'
+                    }));
+                    await supabase.from('accrual_items').insert(itemInserts);
+                }
             }
 
+            if (updateData.files && updateData.files.length > 0) await this._handleAccrualFiles(id, updateData.files);
             return { success: true };
         } catch (error) { return { success: false, error: error.message }; }
     },
 
     async getAccrualsByTaskId(taskId) {
         try {
-            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*)').eq('task_id', String(taskId));
+            // 🔥 YENİ: accrual_items(*) Eklendi!
+            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').eq('task_id', String(taskId));
             if (error) throw error;
             return { success: true, data: this._mapAccrualsData(data) };
         } catch (error) { return { success: false, error: error.message, data: [] }; }
@@ -2044,7 +2029,8 @@ export const accrualService = {
 
     async getAccruals() {
         try {
-            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*)').order('created_at', { ascending: false });
+            // 🔥 YENİ: accrual_items(*) Eklendi!
+            const { data, error } = await supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').order('created_at', { ascending: false });
             if (error) throw error;
             
             const personIds = [...new Set([...data.map(a => a.tp_invoice_party_id).filter(Boolean), ...data.map(a => a.service_invoice_party_id).filter(Boolean)])];
@@ -2053,9 +2039,7 @@ export const accrualService = {
                 const { data: persons } = await supabase.from('persons').select('id, name').in('id', personIds);
                 if (persons) persons.forEach(p => personsMap[p.id] = p.name);
             }
-
-            const mappedData = this._mapAccrualsData(data, personsMap);
-            return { success: true, data: mappedData };
+            return { success: true, data: this._mapAccrualsData(data, personsMap) };
         } catch (error) { return { success: false, error: error.message, data: [] }; }
     },
 
@@ -2068,6 +2052,10 @@ export const accrualService = {
             type: acc.accrual_type,
             totalAmount: acc.total_amount,
             remainingAmount: acc.remaining_amount,
+            
+            // 🔥 YENİ: Kalemler Eklendi
+            items: acc.accrual_items || [], 
+
             officialFeeAmount: acc.official_fee_amount,
             officialFeeCurrency: acc.official_fee_currency,
             officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },
@@ -2414,3 +2402,183 @@ export const reminderService = {
     }
 };
 window.supabase = supabase;
+
+// ==========================================
+// 15. MERKEZİ HESAPLAMA MOTORU (FEE CALCULATION ENGINE)
+// ==========================================
+export const feeCalculationService = {
+    
+    /**
+     * Görev tipine ve müvekkil bilgisine göre fatura kalemlerini dinamik çeker.
+     * @param {Object} params - { taskTypeId, clientId, recordId, extraParams }
+     * @returns {Promise<Array>} Fatura alt kalemleri listesi
+     */
+    async calculateAccrualItems({ taskTypeId, clientId, recordId = null, extraParams = {} }) {
+        console.log(`[CALCULATION ENGINE] 🚀 Hesaplama Başladı. Görev Tipi: ${taskTypeId}, Müvekkil: ${clientId}`);
+        
+        try {
+            const taskObj = extraParams.task || {};
+            const ipRecord = extraParams.ipRecord || {};
+            
+            // ---------------------------------------------------------
+            // 1. ZAMAN TESPİTİ (Tarihe Göre Tarife Seçimi)
+            // ---------------------------------------------------------
+            let taskDate = new Date(); // Varsayılan olarak bugünü al
+            
+            // Eğer göreve ePATS belgesi eklenmişse onun tarihini (sunulduğu tarihi) baz al
+            if (taskObj.epatsDocument && taskObj.epatsDocument.uploadedAt) {
+                taskDate = new Date(taskObj.epatsDocument.uploadedAt);
+            } 
+            // Yoksa görevin oluşturulma tarihini al
+            else if (taskObj.createdAt || taskObj.created_at) {
+                taskDate = new Date(taskObj.createdAt || taskObj.created_at);
+            }
+            console.log(`[CALCULATION ENGINE] 🕒 İşlem Tarihi Olarak Baz Alınan Tarih: ${taskDate.toLocaleDateString('tr-TR')}`);
+
+            // ---------------------------------------------------------
+            // 2. SINIF VE CEZALI YENİLEME TESPİTİ
+            // ---------------------------------------------------------
+            let isPenalty = false;
+            let finalClassCount = extraParams.classCount || 1;
+
+            // Dosyanın sınıf sayısını otomatik bul
+            if (ipRecord.niceClasses && Array.isArray(ipRecord.niceClasses)) {
+                finalClassCount = ipRecord.niceClasses.length;
+            }
+
+            // Yenileme tarihi kontrolü (Görev tarihi, yenileme tarihini geçmişse CEZALIDIR)
+            if (ipRecord.renewalDate || ipRecord.renewal_date) {
+                const renDate = new Date(ipRecord.renewalDate || ipRecord.renewal_date);
+                if (taskDate > renDate) {
+                    isPenalty = true;
+                    console.log(`[CALCULATION ENGINE] 🚨 Cezalı Yenileme Tespit Edildi! (İşlem: ${taskDate.toLocaleDateString('tr-TR')} > Bitiş: ${renDate.toLocaleDateString('tr-TR')})`);
+                }
+            }
+
+            // 3. Haritaları Getir
+            const { data: maps, error: mapErr } = await supabase
+                .from('transaction_fee_maps')
+                .select(`
+                    calculation_rule,
+                    fee_id,
+                    fee_tariffs (*)
+                `)
+                .eq('transaction_type_id', String(taskTypeId));
+
+            if (mapErr) throw mapErr;
+            if (!maps || maps.length === 0) {
+                console.log(`[CALCULATION ENGINE] ℹ️ Bu görev tipi (${taskTypeId}) için tanımlı otomatik ücret haritası bulunamadı.`);
+                return []; 
+            }
+
+            // 4. Müvekkile Özel Fiyatları Çek (Eğer clientId varsa)
+            let clientCustomFees = {};
+            if (clientId) {
+                const { data: customFees } = await supabase
+                    .from('client_fee_tariffs')
+                    .select('*')
+                    .eq('client_id', String(clientId));
+                
+                if (customFees) {
+                    customFees.forEach(cf => {
+                        clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency };
+                    });
+                }
+            }
+
+            const accrualItems = [];
+
+            for (const map of maps) {
+                const tariff = map.fee_tariffs;
+                if (!tariff) continue;
+
+                // ---------------------------------------------------------
+                // 🔥 TARİFEYİ ZAMANA GÖRE FİLTRELEME
+                // ---------------------------------------------------------
+                if (tariff.valid_from && new Date(tariff.valid_from) > taskDate) continue; // Tarife henüz başlamamış
+                if (tariff.valid_to && new Date(tariff.valid_to) < taskDate) continue;     // Tarifenin süresi geçmiş (eski tarife)
+
+                // --- A. Fiyat Belirleme (Standart vs Özel) ---
+                let unitPrice = clientCustomFees[tariff.id] ? clientCustomFees[tariff.id].amount : tariff.amount;
+                let currency = clientCustomFees[tariff.id] ? (clientCustomFees[tariff.id].currency || tariff.currency) : tariff.currency;
+                let isCustomPrice = !!clientCustomFees[tariff.id];
+
+                // --- B. Miktar (Quantity) Kuralları ---
+                let quantity = 0;
+                const rule = map.calculation_rule;
+
+                switch (rule) {
+                    // --- STANDART KURALLAR ---
+                    case 'fixed': 
+                        quantity = 1; 
+                        break;
+                    case 'per_class': 
+                        quantity = finalClassCount > 0 ? finalClassCount : 1; 
+                        break;
+                    case 'second_class_only': 
+                        quantity = finalClassCount >= 2 ? 1 : 0; 
+                        break;
+                    case 'extra_class_over_2': 
+                        quantity = Math.max(0, finalClassCount - 2); 
+                        break;
+                    case 'extra_class_over_3': 
+                        quantity = Math.max(0, finalClassCount - 3); 
+                        break;
+                    
+                    // --- RÜÇHAN VE 35.05 İSTİSNALARI ---
+                    case 'per_priority': 
+                        quantity = extraParams.priorityCount || 0; 
+                        break;
+                    case 'class_35_retail_over_2': 
+                        quantity = Math.max(0, (extraParams.retailClassCount || 0) - 2); 
+                        break;
+
+                    // --- YENİLEME KURALLARI (Cezalı vs Normal) ---
+                    case 'fixed_normal': 
+                        quantity = !isPenalty ? 1 : 0; 
+                        break;
+                    case 'fixed_penalty': 
+                        quantity = isPenalty ? 1 : 0;  
+                        break;
+                    case 'extra_class_normal': 
+                        quantity = !isPenalty ? Math.max(0, finalClassCount - 2) : 0; 
+                        break;
+                    case 'extra_class_penalty': 
+                        quantity = isPenalty ? Math.max(0, finalClassCount - 2) : 0; 
+                        break;
+
+                    default:
+                        console.warn(`[CALCULATION ENGINE] ⚠️ Bilinmeyen hesaplama kuralı: ${rule}`);
+                        quantity = 1;
+                        break;
+                }
+
+                // --- C. Kalemi Listeye Ekle (Sadece Miktarı 0'dan büyük olanlar yansır) ---
+                if (quantity > 0) {
+                    const vatRate = (tariff.fee_type === 'TP Harç') ? 0 : 20;
+
+                    accrualItems.push({
+                        fee_id: tariff.id,
+                        fee_type: tariff.fee_type,
+                        item_name: tariff.name,
+                        quantity: quantity,
+                        unit_price: parseFloat(unitPrice),
+                        vat_rate: vatRate,
+                        total_amount: parseFloat(unitPrice) * quantity,
+                        currency: currency,
+                        is_custom_price: isCustomPrice
+                    });
+                }
+            }
+
+            console.log(`[CALCULATION ENGINE] 🎉 Hesaplama Tamamlandı. Fatura Kalemleri:`, accrualItems);
+            return accrualItems;
+
+        } catch (error) {
+            console.error(`[CALCULATION ENGINE] ❌ ÇATI HATASI:`, error);
+            return [];
+        }
+    }
+};
+
+window.feeCalculationService = feeCalculationService;

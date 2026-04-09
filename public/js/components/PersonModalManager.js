@@ -108,9 +108,10 @@ export class PersonModalManager {
                             <div class="card border-0 shadow-sm rounded-lg mb-4 p-4">
                                 <h6 class="text-primary font-weight-bold mb-4 border-bottom pb-2"><i class="fas fa-map-marker-alt mr-2"></i>Adres Bilgileri</h6>
                                 <div class="row">
-                                    <div class="col-md-4"><label class="small font-weight-bold text-muted">ÜLKE</label><select id="countrySelect" class="form-control rounded-lg border-2"></select></div>
-                                    <div class="col-md-4"><label class="small font-weight-bold text-muted">İL / EYALET</label><select id="provinceSelect" class="form-control rounded-lg border-2"></select><input type="text" id="provinceText" class="form-control rounded-lg" style="display:none;"></div>
-                                    <div class="col-md-4"><label class="small font-weight-bold text-muted">TAM ADRES</label><input type="text" id="personAddress" class="form-control rounded-lg border-2"></div>
+                                    <div class="col-md-3"><label class="small font-weight-bold text-muted">ÜLKE</label><select id="countrySelect" class="form-control rounded-lg border-2"></select></div>
+                                    <div class="col-md-3"><label class="small font-weight-bold text-muted">İL / EYALET</label><select id="provinceSelect" class="form-control rounded-lg border-2"></select><input type="text" id="provinceText" class="form-control rounded-lg border-2" style="display:none;"></div>
+                                    <div class="col-md-3"><label class="small font-weight-bold text-muted">İLÇE</label><select id="districtSelect" class="form-control rounded-lg border-2"></select><input type="text" id="districtText" class="form-control rounded-lg border-2" style="display:none;"></div>
+                                    <div class="col-md-3"><label class="small font-weight-bold text-muted">TAM ADRES</label><input type="text" id="personAddress" class="form-control rounded-lg border-2"></div>
                                 </div>
                             </div>
 
@@ -260,7 +261,24 @@ export class PersonModalManager {
             const isTR = /^(TR|TUR)$/i.test(countryCode);
             el('provinceSelect').style.display = isTR ? '' : 'none';
             el('provinceText').style.display = isTR ? 'none' : '';
-            if (isTR) await this.loadProvinces(countryCode);
+            el('districtSelect').style.display = isTR ? '' : 'none';
+            el('districtText').style.display = isTR ? 'none' : '';
+            
+            if (isTR) {
+                await this.loadProvinces(countryCode);
+            } else {
+                if(el('districtSelect')) el('districtSelect').innerHTML = '';
+            }
+        };
+
+        // 🔥 YENİ: İl değiştiğinde ilçeleri yükle
+        if(el('provinceSelect')) el('provinceSelect').onchange = async (e) => {
+            const provinceId = e.target.value;
+            if(provinceId) {
+                await this.loadDistricts(provinceId);
+            } else {
+                if(el('districtSelect')) el('districtSelect').innerHTML = '<option value="">Önce İl Seçiniz</option>';
+            }
         };
 
         document.querySelectorAll('.scope-cb').forEach(cb => {
@@ -390,6 +408,7 @@ export class PersonModalManager {
 
             const countrySel = document.getElementById('countrySelect');
             const provinceSel = document.getElementById('provinceSelect');
+            const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
             
             const personData = {
                 id: this.currentPersonId,
@@ -398,7 +417,6 @@ export class PersonModalManager {
                 tckn: document.getElementById('personTckn').value,
                 birthDate: document.getElementById('personBirthDate').value,
                 taxNo: document.getElementById('personVkn').value,
-                // Vergi Dairesi alanı tam olarak burada:
                 taxOffice: document.getElementById('personTaxOffice') ? document.getElementById('personTaxOffice').value : null,
                 tpeNo: document.getElementById('personTpeNo').value,
                 email: document.getElementById('personEmail').value,
@@ -409,6 +427,11 @@ export class PersonModalManager {
                 province: provinceSel.style.display === 'none' 
                             ? document.getElementById('provinceText').value 
                             : provinceSel.options[provinceSel.selectedIndex]?.text,
+                // 🔥 EKLEMEN GEREKEN SATIR:
+                district: document.getElementById('districtSelect').style.display === 'none'
+                            ? document.getElementById('districtText').value
+                            : document.getElementById('districtSelect').value,
+                
                 is_evaluation_required: document.getElementById('is_evaluation_required').checked,
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
@@ -783,6 +806,17 @@ export class PersonModalManager {
         if (provinceSel) provinceSel.innerHTML = options;
     }
 
+    // 🔥 YENİ: Seçilen İle Göre İlçeleri Getirme
+    async loadDistricts(provinceId) {
+        const districts = await this.dataManager.getDistricts(provinceId);
+        const options = ['<option value="">İlçe Seçiniz</option>'].concat(
+            districts.map(d => `<option value="${d.name}">${d.name}</option>`)
+        ).join('');
+        
+        const districtSel = document.getElementById('districtSelect');
+        if (districtSel) districtSel.innerHTML = options;
+    }
+
     // YENİ ŞEMA UYUMU: getPersons() yerine getPersonById() kullanılarak evraklar dahil tüm veriler çekiliyor
     async loadPersonData(id) {
         const res = await personService.getPersonById(id); 
@@ -831,15 +865,34 @@ export class PersonModalManager {
                         if (provinceSelect.options[i].text === p.province) {
                             provinceSelect.selectedIndex = i;
                             found = true;
+                            // 🔥 YENİ: İli bulduysak ilçelerini de çekelim
+                            await this.loadDistricts(provinceSelect.value);
                             break;
                         }
                     }
                     if (!found) provinceSelect.value = p.province;
                 }
+
+                // 🔥 YENİ: Kayıtlı İlçeyi Seçili Hale Getirme
+                if (p.district) {
+                    const districtSelect = document.getElementById('districtSelect');
+                    if (districtSelect && districtSelect.style.display !== 'none') {
+                        districtSelect.value = p.district;
+                    } else if (document.getElementById('districtText')) {
+                        document.getElementById('districtText').value = p.district;
+                    }
+                }
             } else {
                 document.getElementById('provinceSelect').style.display = 'none';
                 document.getElementById('provinceText').style.display = '';
                 document.getElementById('provinceText').value = p.province || '';
+                
+                // 🔥 YENİ: Yabancı adresler için ilçe ayarı
+                document.getElementById('districtSelect').style.display = 'none';
+                if(document.getElementById('districtText')) {
+                    document.getElementById('districtText').style.display = '';
+                    document.getElementById('districtText').value = p.district || '';
+                }
             }
         }
 

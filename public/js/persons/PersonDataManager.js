@@ -24,6 +24,42 @@ export class PersonDataManager {
         return data[0].data.list || data[0].data.provinces || [];
     }
 
+    // 🔥 YENİ: İl ismine (Örn: "Ankara") göre plaka kodunu bulup ilçeleri çeken fonksiyon
+    async getDistricts(provinceName) {
+        if (!provinceName) return [];
+
+        try {
+            // 1. İlin plaka kodunu (il_id) bulmak için şehir listesini çekiyoruz
+            const { data: cityData } = await supabase.from('common').select('data').eq('id', 'cities_TR').single();
+            if (!cityData || !cityData.data || !cityData.data.list) return [];
+
+            const cities = cityData.data.list;
+            // Şehrin dizideki sırası (index + 1) bize il_id'yi (Plaka) verir (Örn: Adana -> 0 + 1 = 1)
+            const cityIndex = cities.findIndex(c => c.localeCompare(provinceName, 'tr', { sensitivity: 'base' }) === 0);
+
+            if (cityIndex === -1) return [];
+            const ilId = String(cityIndex + 1);
+
+            // 2. İlçeleri çekiyoruz
+            const { data: distData, error } = await supabase.from('common').select('data').eq('id', 'districts').single();
+
+            if (error || !distData || !distData.data) return [];
+
+            // 3. Supabase JSON'u string (metin) olarak kaydettiyse diziye çevir (Parse)
+            let districtsArray = distData.data;
+            if (typeof districtsArray === 'string') {
+                districtsArray = JSON.parse(districtsArray);
+            }
+
+            // 4. İlgili plaka koduna (il_id) ait ilçeleri filtrele ve döndür
+            return districtsArray.filter(d => String(d.il_id) === ilId);
+            
+        } catch (error) {
+            console.error("İlçeler çekilirken hata:", error);
+            return [];
+        }
+    }
+
     // 🔥 İŞTE EKSİK OLAN VE HATAYA SEBEP OLAN FONKSİYON
     async getRelatedPersons(personId) {
         return await personService.getRelatedPersons(personId);

@@ -112,9 +112,13 @@ serve(async (req) => {
         if (clientData.email) associateParams.append("email", clientData.email);
         if (clientData.tax_office) associateParams.append("tax_office", clientData.tax_office);
 
-        // 🔥 DÜZELTME: API Dokümantasyonuna Göre Sadeleştirildi (district kaldırıldı)
+        // 🔥 YENİ: Gerçek Veritabanı Verileri Kullanılıyor
+        const cityName = clientData.province && clientData.province.trim() !== '' ? clientData.province.trim() : "Ankara";
+        const districtName = clientData.district && clientData.district.trim() !== '' ? clientData.district.trim() : "Merkez";
+
         associateParams.append("addresses[address]", clientData.address || "Merkez");
-        associateParams.append("addresses[city]", clientData.province || "Ankara");
+        associateParams.append("addresses[city]", cityName);
+        associateParams.append("addresses[district]", districtName); // 🔥 GERÇEK İLÇE
         associateParams.append("addresses[country]", "Türkiye"); 
         associateParams.append("addresses[address_type]", "invoice");
 
@@ -162,11 +166,12 @@ serve(async (req) => {
 
         if (!kolaybiContactId) throw new Error("KolayBi Cari ID'si alınamadı.");
         if (!kolaybiAddressId) {
+            console.log(`Adres ID bulunamadı. Adres API'si tetikleniyor...`);
             const addressParams = new URLSearchParams();
             addressParams.append("associate_id", String(kolaybiContactId));
             addressParams.append("address", clientData.address || "Merkez");
-            addressParams.append("city", clientData.province || "Ankara");
-            // 🔥 DÜZELTME: Adres oluştururken de district kaldırıldı
+            addressParams.append("city", cityName);
+            addressParams.append("district", districtName); // 🔥 GERÇEK İLÇE
             addressParams.append("country", "Türkiye");
             addressParams.append("address_type", "invoice");
 

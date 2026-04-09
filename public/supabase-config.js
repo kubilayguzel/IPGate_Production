@@ -196,6 +196,7 @@ export const personService = {
             address: p.address, 
             countryCode: p.country_code, 
             province: p.province,
+            district: p.district,
             is_evaluation_required: p.is_evaluation_required
             // NOT: 'documents' ve 'details' yeni şemada kaldırıldığı için çıkarıldı.
         }));
@@ -239,6 +240,7 @@ export const personService = {
             address: data.address, 
             countryCode: data.country_code, 
             province: data.province,
+            district: data.district,
             is_evaluation_required: data.is_evaluation_required,
             documents: mappedDocuments // 🔥 Belgeleri arayüze iletiyoruz
         };
@@ -263,6 +265,7 @@ export const personService = {
             address: personData.address || null, 
             country_code: personData.countryCode || null, 
             province: personData.province || null,
+            district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false
         };
 
@@ -300,7 +303,8 @@ export const personService = {
             phone: personData.phone || null,
             address: personData.address || null, 
             country_code: personData.countryCode || null, 
-            province: personData.province || null, 
+            province: personData.province || null,
+            district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false,
             updated_at: new Date().toISOString()
         };

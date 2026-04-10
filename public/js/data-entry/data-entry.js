@@ -869,27 +869,33 @@ class DataEntryModule {
 
                 debounceTimer = setTimeout(async () => {
                     try {
-                        const { data: ipData } = await supabase.from('ip_records')
-                            .select('id, brand_name, application_number, ip_type, details')
+                        // 🔥 ÇÖZÜM: 'ip_records' yerine tüm marka adlarını hazır barındıran 'portfolio_list_view' kullanıyoruz!
+                        const { data: ipData, error: ipError } = await supabase.from('portfolio_list_view')
+                            .select('id, application_number, ip_type, brand_name, brand_image_url')
                             .neq('portfolio_status', 'inactive')
-                            .or(`brand_name.ilike.%${term}%,application_number.ilike.%${term}%`)
+                            .or(`application_number.ilike.%${term}%,brand_name.ilike.%${term}%`)
                             .limit(10);
 
-                        const { data: suitData } = await supabase.from('suits')
+                        if (ipError) console.error('Portföy arama hatası (Supabase):', ipError.message);
+
+                        const { data: suitData, error: suitError } = await supabase.from('suits')
                             .select('*')
                             .neq('status', 'closed')
                             .or(`court_name.ilike.%${term}%,file_no.ilike.%${term}%,plaintiff.ilike.%${term}%,defendant.ilike.%${term}%,subject.ilike.%${term}%`)
                             .limit(10);
+                            
+                        if (suitError) console.error('Dava arama hatası (Supabase):', suitError.message);
 
                         let matches = [];
 
                         (ipData || []).forEach(d => {
                             matches.push({ 
-                                id: d.id, ...d.details, 
+                                id: d.id, 
                                 _source: 'ipRecord', 
-                                displayType: 'Marka/Patent',
-                                displayTitle: d.brand_name || d.details?.title,
-                                displayNumber: d.application_number
+                                displayType: d.ip_type === 'trademark' ? 'Marka' : (d.ip_type === 'patent' ? 'Patent' : 'Tasarım'),
+                                displayTitle: d.brand_name || 'İsimsiz Kayıt',
+                                displayNumber: d.application_number || 'No Yok',
+                                imageUrl: d.brand_image_url // 🔥 Görsel eklendi
                             });
                         });
 
@@ -915,15 +921,30 @@ class DataEntryModule {
                             } else {
                                 results.innerHTML = matches.map(rec => {
                                     const badgeClass = rec._source === 'suit' ? 'badge-primary' : 'badge-success';
-                                    const icon = rec._source === 'suit' ? '<i class="fas fa-gavel mr-1"></i>' : '<i class="fas fa-certificate mr-1"></i>';
+                                    const badgeIcon = rec._source === 'suit' ? '<i class="fas fa-gavel mr-1"></i>' : '<i class="fas fa-certificate mr-1"></i>';
+                                    
+                                    // 🔥 Marka Logosu veya Placeholder İkon Belirleme
+                                    let imgHtml = '';
+                                    if (rec._source === 'ipRecord' && rec.imageUrl) {
+                                        imgHtml = `<img src="${rec.imageUrl}" alt="Marka" style="width: 45px; height: 45px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; margin-right: 15px; background: white;">`;
+                                    } else if (rec._source === 'ipRecord') {
+                                        imgHtml = `<div style="width: 45px; height: 45px; background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 6px; margin-right: 15px; display: flex; align-items: center; justify-content: center; color: #adb5bd; font-size: 20px;"><i class="fas fa-image"></i></div>`;
+                                    } else {
+                                        // Dava dosyası ikonu
+                                        imgHtml = `<div style="width: 45px; height: 45px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; margin-right: 15px; display: flex; align-items: center; justify-content: center; color: #4f46e5; font-size: 20px;"><i class="fas fa-balance-scale"></i></div>`;
+                                    }
+
                                     return `
-                                    <div class="search-result-item p-2 border-bottom" style="cursor:pointer;" data-id="${rec.id}">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <span class="font-weight-bold text-dark">${rec.displayTitle || '-'}</span>
-                                            <span class="badge ${badgeClass}" style="font-size:10px;">${icon}${rec.displayType}</span>
+                                    <div class="search-result-item p-2 border-bottom d-flex align-items-center" style="cursor:pointer;" data-id="${rec.id}" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='transparent'">
+                                        ${imgHtml}
+                                        <div class="flex-grow-1" style="min-width: 0;">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="font-weight-bold text-dark text-truncate" style="font-size: 14px;">${rec.displayTitle || '-'}</span>
+                                                <span class="badge ${badgeClass}" style="font-size: 11px;">${badgeIcon}${rec.displayType}</span>
+                                            </div>
+                                            <div class="small font-weight-bold text-secondary"><i class="fas fa-hashtag mr-1"></i>${rec.displayNumber || 'No Yok'}</div>
+                                            ${rec.extraInfo ? `<div class="mt-1">${rec.extraInfo}</div>` : ''}
                                         </div>
-                                        <div class="small text-muted">${rec.displayNumber || 'No Yok'}</div>
-                                        ${rec.extraInfo || ''}
                                     </div>`;
                                 }).join('');
 
@@ -936,7 +957,7 @@ class DataEntryModule {
                             }
                             results.style.display = 'block';
                         }
-                    } catch (err) { console.error('Arama hatası:', err); }
+                    } catch (err) { console.error('Arama catch hatası:', err); }
                 }, 300);
             });
         }

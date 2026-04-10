@@ -316,9 +316,14 @@ export const FormTemplates = {
         `).join('');
 
         return `
-        <div class="form-grid">
-            <div class="form-group full-width">
-                <label for="suitCourt" class="form-label">Mahkeme</label>
+        <div class="premium-card mb-4" id="suitDetailsCard">
+            <div class="card-header-custom">
+                <span><i class="fas fa-balance-scale text-success mr-2"></i>3. Mahkeme ve Dava Detayları</span>
+            </div>
+            <div class="card-body-custom">
+                <div class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="suitCourt" class="form-label">Mahkeme</label>
                 <select id="suitCourt" name="suitCourt" class="form-select" required>
                     <option value="">Seçiniz...</option>
                     ${courtOptions}
@@ -360,7 +365,9 @@ export const FormTemplates = {
                 </div>
                 <small class="text-muted d-block mt-2">Dava dilekçesi, tensip zaptı vb. evrakları buraya yükleyebilirsiniz.</small>
             </div>
-        </div>`;
+        </div>
+      </div>
+    </div>`;
     },
 
     getClientSection: () => `
@@ -410,11 +417,11 @@ export const FormTemplates = {
                 <span><i class="fas fa-briefcase text-info mr-2"></i>2. Dava Konusu (Portföy Varlığı)</span>
             </div>
             <div class="card-body-custom">
-                <div class="form-group full-width">
+                <div class="form-group full-width" style="position: relative; z-index: 1050;">
                     <label for="subjectAssetSearch" class="form-label">Portföyden Varlık Ara</label>
-                    <div class="search-input-wrapper">
+                    <div class="search-input-wrapper" style="position: relative;">
                         <input type="text" id="subjectAssetSearch" class="form-input" placeholder="Başlık, numara, tip..." autocomplete="off">
-                        <div id="subjectAssetSearchResults" class="search-results-list" style="display:none;"></div> 
+                        <div id="subjectAssetSearchResults" class="search-results-list" style="display:none; position: absolute; top: 100%; left: 0; right: 0; z-index: 99999; background: white; border: 1px solid #cbd5e1; border-radius: 5px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.25); margin-top: 5px;"></div> 
                     </div>
                 </div>
                 <div id="selectedSubjectAsset" class="selected-item d-none mt-3">

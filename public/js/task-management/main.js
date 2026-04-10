@@ -1,7 +1,7 @@
 // public/js/task-management/main.js
 
 // 🔥 Firebase yerine Supabase importları ve servisleri
-import { authService, taskService, ipRecordsService, accrualService, personService, transactionTypeService, supabase } from '../../supabase-config.js';
+import { authService, taskService, ipRecordsService, accrualService, personService, transactionTypeService, feeCalculationService, supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
 import { loadSharedLayout } from '../layout-loader.js';
 
@@ -171,61 +171,121 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.createTaskFormManager = new AccrualFormManager(
                 'createTaskAccrualFormContainer', 
                 'createTask', 
-                this.allPersons
+                this.allPersons,
+                {
+                    // 🔥 YENİ: Tahakkuk oluştur modalındaki hesapla butonu
+                    onAutoCalc: async () => { await this.executeAutoCalc(this.currentTaskForAccrual, this.createTaskFormManager); }
+                }
             );
             this.createTaskFormManager.render();
 
             this.completeTaskFormManager = new AccrualFormManager(
                 'completeAccrualFormContainer', 
                 'comp', 
-                this.allPersons
+                this.allPersons,
+                {
+                    // 🔥 YENİ: Görevi tamamla modalındaki hesapla butonu
+                    onAutoCalc: async () => {
+                        const taskId = document.getElementById('targetTaskIdForCompletion')?.value;
+                        const task = this.allTasks.find(t => t.id === taskId);
+                        await this.executeAutoCalc(task, this.completeTaskFormManager);
+                    }
+                }
             );
             this.completeTaskFormManager.render();
             
             this.taskDetailManager = new TaskDetailManager('modalBody');
         }
 
-        processData(preservePage = false) {
-            const parseDate = (d) => {
-                if (!d) return null;
-                return new Date(d); 
-            };
+        // 🔥 YENİ: Otomatik Hesaplama Motorunu Çağıran Ana Fonksiyon
+        async executeAutoCalc(task, formManager) {
+            if (!task) return;
 
+            let loader = window.showSimpleLoading ? window.showSimpleLoading('Kriterler Analiz Ediliyor', 'Ücretler hesaplanırken lütfen bekleyiniz...') : null;
+
+            try {
+                // 1. Görevin bağlı olduğu asıl dosyanın (Marka/Patent) sınıf bilgilerini çek
+                let ipRecord = {};
+                if (task.relatedIpRecordId || task.ip_record_id) {
+                    const recId = task.relatedIpRecordId || task.ip_record_id;
+                    const { data } = await supabase.from('ip_records')
+                        .select('*, ip_record_classes(class_no)')
+                        .eq('id', String(recId))
+                        .single();
+                        
+                    if (data) {
+                        ipRecord = data;
+                        ipRecord.niceClasses = data.ip_record_classes || [];
+                    }
+                }
+
+                // 2. Müvekkil/Müşteri bilgisini tespit et
+                const clientId = task.relatedPartyId || task.task_owner_id || null;
+
+                // 3. Hesaplama Motoruna Verileri Gönder
+                const calculatedItems = await feeCalculationService.calculateAccrualItems({
+                    taskTypeId: task.taskType || task.task_type_id,
+                    clientId: clientId,
+                    recordId: ipRecord.id || null,
+                    extraParams: {
+                        task: task,
+                        ipRecord: ipRecord,
+                        classCount: ipRecord.niceClasses ? ipRecord.niceClasses.length : 1,
+                        // Not: Rüçhan sayısı gibi manuel girilmesi gereken istisnaları 0 geçiyoruz, 
+                        // kullanıcı tablo eklendikten sonra "Adet" sütunundan elle artırabilir.
+                        priorityCount: 0, 
+                        retailClassCount: 0 
+                    }
+                });
+
+                // 4. Dönen sonuçları form tablosuna yansıt
+                if (calculatedItems.length === 0) {
+                    showNotification('Bu işlem tipi için tanımlanmış otomatik bir hesaplama kuralı bulunamadı. Lütfen kalemleri manuel ekleyiniz.', 'warning');
+                } else {
+                    formManager.setCalculatedItems(calculatedItems);
+                    showNotification('Kalemler başarıyla hesaplandı!', 'success');
+                }
+
+            } catch (error) {
+                console.error('Auto Calc Error:', error);
+                showNotification('Hesaplama sırasında bir hata oluştu.', 'error');
+            } finally {
+                if (loader) loader.hide();
+            }
+        }
+
+        processData(preservePage = false) {
+            // 🔥 YENİ VE HAFİFLETİLMİŞ PROCESS DATA
             this.processedData = this.allTasks.map(task => {
-                // 🔥 ÇÖZÜM 2: Supabase'den gelen her türlü isimlendirme ihtimaline karşı yedek (fallback) zinciri kuruldu
                 const appNo = task.iprecordApplicationNo || task.target_app_no || task.iprecord_application_no || "-";
                 const recordTitle = task.iprecordTitle || task.relatedIpRecordTitle || task.iprecord_title || "-";
                 const applicantName = task.iprecordApplicantName || task.relatedPartyName || task.iprecord_applicant_name || "-";
 
-                // String dönüşümü ile kesin tip eşleşmesi
                 const transactionTypeObj = this.transactionTypesMap.get(String(task.taskType));
                 const taskTypeDisplay = transactionTypeObj ? (transactionTypeObj.alias || transactionTypeObj.name) : (task.taskType || 'Bilinmiyor');
 
                 const assignedUser = this.usersMap.get(String(task.assignedTo_uid));
                 const assignedToDisplay = assignedUser ? (assignedUser.displayName || assignedUser.email) : (task.assignedTo_email || 'Atanmamış');
 
-                const operationalDueObj = parseDate(task.operationalDueDate || task.dueDate); 
-                const operationalDueDisplay = operationalDueObj ? operationalDueObj.toLocaleDateString('tr-TR') : 'Belirtilmemiş';
-                const officialDueObj = parseDate(task.officialDueDate); 
-                const officialDueDisplay = officialDueObj ? officialDueObj.toLocaleDateString('tr-TR') : 'Belirtilmemiş';
-
+                // Ağır new Date() yerine hafif string manipülasyonu
+                const opDue = task.operationalDueDate || task.dueDate;
+                const offDue = task.officialDueDate;
+                
+                const operationalDueDisplay = opDue ? opDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
+                const officialDueDisplay = offDue ? offDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
                 const statusText = this.statusDisplayMap[task.status] || task.status;
                 
-                const searchString = `${task.id} ${task.title || ''} ${appNo} ${recordTitle} ${applicantName} ${taskTypeDisplay} ${assignedToDisplay} ${statusText}`.toLowerCase();
+                // Arama işlemleri için arama katarını (searchString) olabildiğince kısa tut
+                const searchString = [task.title, appNo, recordTitle, applicantName, taskTypeDisplay, assignedToDisplay]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
 
                 return {
                     ...task,
-                    appNo,
-                    recordTitle,
-                    applicantName,
-                    relatedRecord: appNo,
-                    taskTypeDisplay,
-                    assignedToDisplay,
-                    operationalDueDisplay,
-                    officialDueDisplay,
-                    operationalDueObj,
-                    officialDueObj,
-                    statusText,
+                    appNo, recordTitle, applicantName, relatedRecord: appNo,
+                    taskTypeDisplay, assignedToDisplay, statusText,
+                    operationalDueDisplay, officialDueDisplay,
                     searchString
                 };
             });
@@ -297,17 +357,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (isEmptyA && isEmptyB) return 0;
 
-                // 🔥 ÇÖZÜM: Eğer tarihleri sıralıyorsak boşları EN ÜSTE at
-                if ((valA instanceof Date || isEmptyA) && (valB instanceof Date || isEmptyB)) {
-                    if (isEmptyA) return -1 * multiplier; // A boşsa A'yı üste al
-                    if (isEmptyB) return 1 * multiplier;  // B boşsa B'yi üste al
-                    return (valA - valB) * multiplier;    // İkisi de doluysa tarihe göre sırala
+                // 🔥 YENİ: Sıralanan kolonun bir 'Tarih' kolonu olup olmadığını isimden yakala
+                // (due, date, obj, at gibi kelimeler içeren anahtarları tarih olarak kabul et)
+                const isDateColumn = key.toLowerCase().includes('due') || key.toLowerCase().includes('date') || key.toLowerCase().includes('obj') || key.toLowerCase().includes('at');
+
+                if (isDateColumn) {
+                    if (isEmptyA) return -1 * multiplier; // A boşsa (Belirtilmemişse) en üste at
+                    if (isEmptyB) return 1 * multiplier;  // B boşsa en üste at
+                    
+                    // Metin tabanlı ISO tarihleri (2026-03-03) çok hızlı matematiksel operatörlerle sıralanır
+                    return (valA < valB ? -1 : (valA > valB ? 1 : 0)) * multiplier;
                 }
 
-                // String (Metin) sıralamalarında boş olanları alta at (Görsellik için)
+                // Diğer metin (String) sıralamalarında boş olanları alta at (Görsellik ve düzen için)
                 if (isEmptyA) return 1; 
                 if (isEmptyB) return -1;
 
+                // Sayısal ID Sıralaması
                 if (key === 'id') {
                     const numA = parseFloat(String(valA).replace(/[^0-9]/g, ''));
                     const numB = parseFloat(String(valB).replace(/[^0-9]/g, ''));
@@ -316,6 +382,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
+                // Standart Türkçe Metin Sıralaması (isimler, markalar vb. için)
                 return String(valA).localeCompare(String(valB), 'tr') * multiplier;
             });
         }

@@ -7,12 +7,22 @@ export class AccrualFormManager {
         this.allPersons = allPersons;
         this.isFreestyle = options.isFreestyle || false; 
         
+        // Dışarıdan Otomatik Hesapla fonksiyonu gelirse al
+        this.onAutoCalc = options.onAutoCalc || null;
+        
         this.selectedTpParty = null;
         this.selectedForeignParty = null;
     }
 
     render() {
         if (!this.container) return;
+
+        // 🔥 KESİN ÇÖZÜM: Senin HTML yapında hedef .modal-dialog DEĞİL, doğrudan .modal-content!
+        const modalContent = this.container.closest('.modal-content');
+        if (modalContent) {
+            modalContent.style.setProperty('max-width', '1400px', 'important');
+            modalContent.style.setProperty('width', '95vw', 'important');
+        }
 
         const p = this.prefix;
         const inputHeightStyle = "height: 50px !important;";
@@ -63,23 +73,28 @@ export class AccrualFormManager {
             <div class="form-group mt-4 mb-4 p-3 border rounded shadow-sm" style="background-color: #fcfcfc;">
                 <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
                     <label class="font-weight-bold text-primary mb-0" style="font-size: 1.1em;"><i class="fas fa-list-ol mr-2"></i>Fatura / Tahakkuk Kalemleri</label>
-                    <div>
-                        <button type="button" class="btn btn-sm btn-outline-primary mr-2" id="${p}AutoCalcBtn" style="display:none;"><i class="fas fa-magic mr-1"></i>Otomatik Hesapla</button>
-                        <button type="button" class="btn btn-sm btn-success" id="${p}AddLineItemBtn"><i class="fas fa-plus mr-1"></i>Kalem Ekle</button>
+                    
+                    <div class="d-flex align-items-center">
+                        <button type="button" class="btn btn-sm btn-outline-primary mr-2 d-flex align-items-center justify-content-center" id="${p}AutoCalcBtn" style="${this.onAutoCalc ? '' : 'display:none;'} height: 34px; padding: 0 15px; font-weight: 600;">
+                            <i class="fas fa-magic mr-2"></i>Otomatik Hesapla
+                        </button>
+                        <button type="button" class="btn btn-sm btn-success d-flex align-items-center justify-content-center" id="${p}AddLineItemBtn" style="height: 34px; padding: 0 15px; font-weight: 600;">
+                            <i class="fas fa-plus mr-2"></i>Kalem Ekle
+                        </button>
                     </div>
                 </div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered bg-white mb-0">
+                <div class="table-responsive" style="overflow-x: visible;">
+                    <table class="table table-sm table-bordered mb-0">
                         <thead class="bg-light text-muted">
                             <tr>
-                                <th style="width: 130px;">Türü</th>
+                                <th style="width: 150px;">Türü</th>
                                 <th>Kalem Açıklaması</th>
-                                <th style="width: 80px;">Adet</th>
-                                <th style="width: 120px;">Birim Fiyat</th>
-                                <th style="width: 80px;">KDV(%)</th>
-                                <th style="width: 100px;">Para Birimi</th>
-                                <th style="width: 120px;" class="text-right">Toplam</th>
-                                <th style="width: 40px;"></th>
+                                <th style="width: 90px;">Adet</th>
+                                <th style="width: 130px;">Birim Fiyat</th>
+                                <th style="width: 90px;">KDV(%)</th>
+                                <th style="width: 100px;">Birim</th>
+                                <th style="width: 140px;" class="text-right">Toplam</th>
+                                <th style="width: 50px;"></th>
                             </tr>
                         </thead>
                         <tbody id="${p}LineItemsBody">
@@ -165,24 +180,43 @@ export class AccrualFormManager {
             if (nameEl) nameEl.textContent = e.target.files[0] ? e.target.files[0].name : '';
         });
 
-        // 🔥 YENİ: Kalem Ekleme Butonu
         document.getElementById(`${p}AddLineItemBtn`)?.addEventListener('click', () => this.addLineItem());
+
+        const autoCalcBtn = document.getElementById(`${p}AutoCalcBtn`);
+        if (autoCalcBtn && this.onAutoCalc) {
+            autoCalcBtn.addEventListener('click', () => this.onAutoCalc());
+        }
 
         this.setupSearch(`${p}TpInvoiceParty`, (person) => { this.selectedTpParty = person; });
         this.setupSearch(`${p}ForeignPaymentParty`, (person) => { this.selectedForeignParty = person; });
     }
 
-    // 🔥 YENİ: Tabloya Dinamik Satır Ekleme Fonksiyonu
+    setCalculatedItems(items) {
+        const tbody = document.getElementById(`${this.prefix}LineItemsBody`);
+        if (!tbody) return;
+        
+        tbody.innerHTML = ''; 
+        
+        if (items && items.length > 0) {
+            items.forEach(item => this.addLineItem(item));
+        } else {
+            this.addLineItem(); 
+        }
+        
+        this.calculateTotal(); 
+    }
+
     addLineItem(item = {}) {
         const tbody = document.getElementById(`${this.prefix}LineItemsBody`);
         const tr = document.createElement('tr');
         
         tr.innerHTML = `
             <td>
-                <select class="form-control form-control-sm item-type">
-                    <option value="Hizmet" ${item.fee_type === 'Hizmet' ? 'selected' : ''}>Hizmet Bedeli</option>
+                <select class="form-control form-control-sm item-type font-weight-bold border-0 bg-transparent">
+                    <option value="Hizmet" ${item.fee_type === 'Hizmet' ? 'selected' : ''}>EVREKA Hizmeti</option>
                     <option value="TP Harç" ${item.fee_type === 'TP Harç' ? 'selected' : ''}>TP Harç</option>
                     <option value="TP Hizmet" ${item.fee_type === 'TP Hizmet' ? 'selected' : ''}>TP Hizmet</option>
+                    <option value="Masraf" ${item.fee_type === 'Masraf' ? 'selected' : ''}>Masraf/Diğer</option>
                 </select>
             </td>
             <td>
@@ -205,7 +239,7 @@ export class AccrualFormManager {
                     <option value="GBP" ${item.currency === 'GBP' ? 'selected' : ''}>GBP</option>
                 </select>
             </td>
-            <td class="font-weight-bold text-right item-total align-middle text-primary">0.00 ₺</td>
+            <td class="font-weight-bold text-right item-total align-middle text-dark">0.00</td>
             <td class="text-center align-middle">
                 <button type="button" class="btn btn-sm btn-link text-danger p-0 delete-row-btn" title="Satırı Sil"><i class="fas fa-trash-alt"></i></button>
             </td>
@@ -213,7 +247,20 @@ export class AccrualFormManager {
         
         tbody.appendChild(tr);
 
-        // Satır İçi Hesaplama (Miktar * Fiyat + KDV)
+        const updateRowStyle = () => {
+            const type = tr.querySelector('.item-type').value;
+            if (type === 'Hizmet') {
+                tr.style.backgroundColor = '#f0fff4'; 
+                tr.querySelector('.item-type').style.color = '#276749';
+            } else if (type === 'TP Harç' || type === 'TP Hizmet') {
+                tr.style.backgroundColor = '#ebf8ff'; 
+                tr.querySelector('.item-type').style.color = '#2b6cb0';
+            } else {
+                tr.style.backgroundColor = '#ffffff'; 
+                tr.querySelector('.item-type').style.color = '#4a5568';
+            }
+        };
+
         const calcRow = () => {
             const qty = parseFloat(tr.querySelector('.item-qty').value) || 0;
             const price = parseFloat(tr.querySelector('.item-price').value) || 0;
@@ -222,25 +269,27 @@ export class AccrualFormManager {
             
             const total = (qty * price) * (1 + vat / 100);
             
-            tr.querySelector('.item-total').textContent = new Intl.NumberFormat('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits:2}).format(total) + ' ' + currency;
+            tr.querySelector('.item-total').textContent = new Intl.NumberFormat('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits:2}).format(total);
+            
             tr.dataset.rawTotal = total;
             tr.dataset.currency = currency;
             
-            this.calculateTotal(); // Genel Toplamı Güncelle
+            this.calculateTotal(); 
+            updateRowStyle(); 
         };
 
-        // Dinleyiciler
         tr.querySelectorAll('input, select').forEach(inp => inp.addEventListener('input', calcRow));
+        tr.querySelector('.item-type').addEventListener('change', updateRowStyle); 
         tr.querySelector('.delete-row-btn').addEventListener('click', () => { tr.remove(); this.calculateTotal(); });
         
-        calcRow(); // İlk açıldığında hesapla
+        calcRow(); 
+        updateRowStyle();
     }
 
-    // 🔥 YENİ: Genel Toplamı (Fatura Altı) Hesaplama
     calculateTotal() {
         const p = this.prefix;
         const tbody = document.getElementById(`${p}LineItemsBody`);
-        const totalsMap = {}; // Kurlara göre gruplama (Örn: { TRY: 5000, USD: 100 })
+        const totalsMap = {}; 
 
         tbody.querySelectorAll('tr').forEach(tr => {
             const total = parseFloat(tr.dataset.rawTotal) || 0;
@@ -393,15 +442,12 @@ export class AccrualFormManager {
         const descInput = document.getElementById(`${p}AccrualDescription`);
         if (descInput) descInput.value = data.description || data.foreignDescription || '';
 
-        // 🔥 YENİ: Kalemleri (Items) Tabloya Doldur
         const tbody = document.getElementById(`${p}LineItemsBody`);
         tbody.innerHTML = '';
         
         if (data.items && data.items.length > 0) {
-            // Eğer yeni şema verisi (accrual_items) varsa onları çiz
             data.items.forEach(item => this.addLineItem(item));
         } else {
-            // Geriye Dönük Uyumluluk (Legacy Data): Eski officialFee ve serviceFee verilerini satıra dönüştür
             let hasRows = false;
             if (data.officialFee && data.officialFee.amount > 0) {
                 this.addLineItem({
@@ -419,11 +465,9 @@ export class AccrualFormManager {
                 });
                 hasRows = true;
             }
-            // Hiç tutar yoksa 1 tane boş satır at
             if (!hasRows) this.addLineItem(); 
         }
 
-        // Fatura PDF Linki Geriye Dönük Uyumluluk
         const nameEl = document.getElementById(`${p}ForeignInvoiceFileName`);
         if (data.files && data.files.length > 0) {
             const f = data.files[0];
@@ -439,7 +483,6 @@ export class AccrualFormManager {
             if (nameEl) nameEl.innerHTML = '';
         }
 
-        // Kişi Eşleştirmeleri
         if (data.tpInvoiceParty) {
             this.selectedTpParty = data.tpInvoiceParty;
             this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);
@@ -499,9 +542,8 @@ export class AccrualFormManager {
         const tpeInvoiceNo = document.getElementById(`${p}TpeInvoiceNo`).value.trim();
         const evrekaInvoiceNo = document.getElementById(`${p}EvrekaInvoiceNo`).value.trim();
 
-        // 🔥 YENİ: Tablodaki Verileri Oku (Items Array)
         const items = [];
-        let fallbackOffAmount = 0; // Eski sistem bozulmasın diye
+        let fallbackOffAmount = 0; 
         let fallbackSrvAmount = 0;
         const totalsMap = {};
 
@@ -517,10 +559,8 @@ export class AccrualFormManager {
                 const total_amount = (quantity * unit_price) * (1 + vat_rate / 100);
                 
                 items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount, currency });
-                
                 totalsMap[currency] = (totalsMap[currency] || 0) + total_amount;
 
-                // Eski kodlar patlamasın diye yalancı toplam (Fallback)
                 if (fee_type.includes('Harç')) fallbackOffAmount += total_amount;
                 else fallbackSrvAmount += total_amount;
             }
@@ -556,9 +596,8 @@ export class AccrualFormManager {
                 subject: subjectText, 
                 isFreestyle: this.isFreestyle, 
                 
-                items: items, // 🔥 YENİ SİSTEM
+                items: items, 
                 
-                // Geriye Dönük Uyumluluk (Legacy)
                 officialFee: { amount: fallbackOffAmount, currency: 'TRY' },
                 serviceFee: { amount: fallbackSrvAmount, currency: 'TRY' },
                 vatRate: items.length > 0 ? items[0].vat_rate : 20, 
@@ -600,7 +639,6 @@ export class AccrualFormManager {
             }
         });
 
-        // Tablodaki inputları kilitle
         const tbody = document.getElementById(`${p}LineItemsBody`);
         if (tbody) {
             tbody.querySelectorAll('input, select, button').forEach(el => {

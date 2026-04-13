@@ -878,10 +878,11 @@ class DataEntryModule {
 
                         if (ipError) console.error('Portföy arama hatası (Supabase):', ipError.message);
 
+                        // 🔥 ÇÖZÜM: 'plaintiff' ve 'defendant' yerine veritabanında gerçekten var olan 'opposing_party'de arıyoruz
                         const { data: suitData, error: suitError } = await supabase.from('suits')
                             .select('*')
                             .neq('status', 'closed')
-                            .or(`court_name.ilike.%${term}%,file_no.ilike.%${term}%,plaintiff.ilike.%${term}%,defendant.ilike.%${term}%,subject.ilike.%${term}%`)
+                            .or(`court_name.ilike.%${term}%,file_no.ilike.%${term}%,opposing_party.ilike.%${term}%,subject.ilike.%${term}%`)
                             .limit(10);
                             
                         if (suitError) console.error('Dava arama hatası (Supabase):', suitError.message);
@@ -899,6 +900,7 @@ class DataEntryModule {
                             });
                         });
 
+                        // 🔥 ÇÖZÜM: Dava sonuçlarını ekrana basarken doğru kolonu gösteriyoruz
                         (suitData || []).forEach(d => {
                             matches.push({ 
                                 id: d.id, ...d.details,
@@ -909,8 +911,7 @@ class DataEntryModule {
                                 displayTitle: d.court_name || d.subject,
                                 displayNumber: d.file_no,
                                 extraInfo: `<div class="d-flex justify-content-between mt-1" style="font-size:0.85em; color:#666;">
-                                    <span><i class="fas fa-user mr-1"></i>${d.plaintiff || 'Belirsiz'}</span>
-                                    <span><i class="fas fa-user-shield mr-1"></i>${d.defendant || '-'}</span>
+                                    <span><i class="fas fa-user-shield mr-1"></i>Karşı Taraf: ${d.opposing_party || 'Belirtilmemiş'}</span>
                                 </div>`
                             });
                         });

@@ -412,11 +412,11 @@ export const FormTemplates = {
     `,
 
     getSubjectAssetSection: () => `
-        <div class="premium-card mb-4" id="subjectAssetSection">
+        <div class="premium-card mb-4" id="subjectAssetSection" style="overflow: visible !important;">
             <div class="card-header-custom">
                 <span><i class="fas fa-briefcase text-info mr-2"></i>2. Dava Konusu (Portföy Varlığı)</span>
             </div>
-            <div class="card-body-custom">
+            <div class="card-body-custom" style="overflow: visible !important;">
                 <div class="form-group full-width" style="position: relative; z-index: 1050;">
                     <label for="subjectAssetSearch" class="form-label">Portföyden Varlık Ara</label>
                     <div class="search-input-wrapper" style="position: relative;">

@@ -108,8 +108,13 @@ export class ClientReportAdminManager {
             }
         });
 
-        $('#reportAssignedUsers').on('change', () => this.handleAssignedUsersChange());
-    }
+        // Kullanıcı checkbox'ları tıklanıp değiştiğinde müvekkil listesini getir
+        document.addEventListener('change', (e) => {
+                if (e.target && e.target.classList.contains('user-checkbox')) {
+                    this.handleAssignedUsersChange();
+                }
+            });
+        }
 
     // YENİ FONKSİYON: Mevcut verilerle modalı doldurur
     openEditModal(id) {
@@ -149,6 +154,10 @@ export class ClientReportAdminManager {
                 if (cb) cb.checked = true;
             });
         }
+
+        // 🔥 YENİ: Rapor düzenlenirken daha önce kaydedilmiş müvekkilleri de ekrana çizdir ve işaretle
+        const targetClients = config.criteria?.target_portal_clients || [];
+        this.handleAssignedUsersChange(targetClients);
 
         // Modalı aç ve başlığı değiştir
         document.getElementById('clientReportModalLabel').innerHTML = '<i class="fas fa-edit"></i> Rapor Paketini Güncelle';
@@ -282,6 +291,13 @@ export class ClientReportAdminManager {
 
         const selectedUserIds = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
 
+        // 🔥 YENİ: İşaretlenen hedef müvekkilleri topla ve criteria objesine ekle
+        const targetPortalClients = [];
+        document.querySelectorAll('.target-client-cb:checked').forEach(cb => {
+            targetPortalClients.push(cb.value);
+        });
+        criteriaObj.target_portal_clients = targetPortalClients;
+
         const btn = document.getElementById('btnSaveClientReport');
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Kaydediliyor...';
         btn.disabled = true;
@@ -365,7 +381,9 @@ export class ClientReportAdminManager {
     }
 
     async handleAssignedUsersChange(preselectedClients = []) {
-        const selectedUsers = $('#reportAssignedUsers').val() || [];
+        // 🔥 DÜZELTME: Kullanıcılar HTML'de <select> değil, .user-checkbox olarak tutuluyor.
+        const selectedUsers = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
+        
         const container = $('#reportTargetClientsContainer');
         const listDiv = $('#reportTargetClientsList');
 

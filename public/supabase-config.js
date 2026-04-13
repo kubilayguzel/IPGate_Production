@@ -223,7 +223,8 @@ export const personService = {
             documentType: doc.document_type,
             url: doc.url,
             countryCode: doc.country_code,
-            validityDate: doc.validity_date
+            validityDate: doc.validity_date,
+            authorizedParty: doc.authorized_party
         }));
 
         const mappedData = {
@@ -281,7 +282,8 @@ export const personService = {
                 document_type: doc.documentType || doc.type || 'vekaletname',
                 url: doc.url,
                 country_code: doc.countryCode || null,
-                validity_date: doc.validityDate || null
+                validity_date: doc.validityDate || null,
+                authorized_party: doc.authorizedParty || null
             }));
             
             await supabase.from('person_documents').insert(docsPayload);
@@ -333,7 +335,8 @@ export const personService = {
                     document_type: doc.documentType || doc.type || 'vekaletname',
                     url: doc.url,
                     country_code: doc.countryCode || null,
-                    validity_date: doc.validityDate || null
+                    validity_date: doc.validityDate || null,
+                    authorized_party: doc.authorizedParty || null
                 }));
                 
                 await supabase.from('person_documents').insert(docsPayload);

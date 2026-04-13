@@ -708,22 +708,23 @@ class ClientPortalController {
                 }
             }
 
-            // 🔥 2. SÜRESİZ TARİH ETİKETİ (GÜNCELLENDİ)
+            // 🔥 2. SÜRESİZ TARİH ETİKETİ
             let validUntilDisplay;
-            // Eğer veri boşsa, null ise VEYA veritabanında direkt "Süresiz" yazıyorsa
             if (!doc.validityDate || String(doc.validityDate).trim().toLowerCase() === 'süresiz') {
                 validUntilDisplay = '<span class="badge badge-success" style="font-size: 0.85em;">Süresiz</span>';
             } else {
-                // Normal bir tarihse (örneğin 2028-06-16) formatlayarak bas
                 validUntilDisplay = this.renderHelper.formatDate(doc.validityDate);
             }
+
+            // 🔥 YENİ: Vekalet Verilen Taraf Bilgisi
+            const proxyPartyDisplay = doc.authorizedParty ? doc.authorizedParty : '-';
 
             const btn = doc.url ? `<a href="${doc.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-eye"></i> İncele</a>` : `<span class="badge badge-secondary">Dosya Yok</span>`;
             
             tbody.innerHTML += `<tr>
                 <td>${startIndex + index + 1}</td>
                 <td class="font-weight-bold text-primary"><i class="fas fa-file-alt mr-2 text-muted"></i>${doc.type}</td>
-                <td>${countryDisplay}</td>
+                <td>${proxyPartyDisplay}</td> <td>${countryDisplay}</td>
                 <td>${validUntilDisplay}</td>
                 <td class="text-center">${btn}</td>
             </tr>`;
@@ -2010,36 +2011,37 @@ PDF raporuna marka görselleri de eklensin mi?
                 visualizeData: { scale: ['#a2cffe', '#2e59d9'], values: mapData },
                 onRegionTooltipShow(e, tooltip, code) { if(mapData[code]) tooltip.text(`<strong>${tooltip.text()}</strong>: ${mapData[code]} Dosya`, true); },
                 // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarına Gitme
+                // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarına Gitme
                 onRegionClick: (e, code) => {
-                    if (!mapData[code]) return; // O ülkede dosya yoksa işlem yapma
+                    if (!mapData[code]) return; // Dosya yoksa işlem yapma
                     const countryName = this.state.countries.get(code) || code;
                     const filterVal = code === 'TR' ? 'TÜRKPATENT' : countryName;
                     
-                    this.state.activeColumnFilters['marka-list-1'] = [filterVal]; // Ülke kolonuna filtreyi ekle
-                    this.applyAllFilters();
+                    this.state.activeColumnFilters['marka-list-1'] = [filterVal]; 
                     
-                    $('#sidebar a[href="#portfolio-content"]').tab('show');
-                    setTimeout(() => $('#portfolioTopTabs a[href="#marka-list"]').tab('show'), 100);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    // Tablodaki huni (filtre) ikonunu da görsel olarak aktif mavi renge boya
+                    $('#marka-list th[data-col-idx="1"] .filter-icon').addClass('active').css('color', '#007bff');
+                    
+                    this.applyAllFilters();
+                    window.goToSection('portfolio-content', 'marka-list'); // Temiz fonksiyon çağrısı
                 }
             });
         }
 
-        // 🔥 YENİ: Dashboard Kartlarına Tıklanabilir (Yönlendirmeli) Linkler
+        // 🔥 YENİ: Yönetim Dashboard Rapor Kartlarına Temiz ve Tıklanabilir Linkler
         const assetCount = portfolios.length;
         const pendingCount = taskData.filter(t => t.status === 'awaiting_client_approval').length;
         const legalCount = legalData.filter(l => !(l.statusText || l.suitStatus || '').toLowerCase().includes('kapatıldı')).length;
 
-        document.getElementById('rep-total-assets').innerHTML = `<a href="#" onclick="$('#sidebar a[href=\\'#portfolio-content\\']').tab('show'); setTimeout(() => $('#portfolioTopTabs a[href=\\'#marka-list\\']').tab('show'), 100); return false;" style="text-decoration:none; color:inherit;" title="Portföy Listesine Git">${assetCount} <i class="fas fa-external-link-alt" style="font-size:0.4em; opacity:0.5; vertical-align:middle;"></i></a>`;
+        document.getElementById('rep-total-assets').innerHTML = `<a href="#" onclick="window.goToSection('portfolio-content', 'marka-list'); return false;" style="text-decoration:none; color:inherit;" title="Portföy Listesine Git">${assetCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         
         document.getElementById('rep-total-countries').textContent = uniqueCountries.size + ' Ülke';
         
-        document.getElementById('rep-pending-tasks').innerHTML = `<a href="#" onclick="$('#sidebar a[href=\\'#tasks\\']').tab('show'); setTimeout(() => { $('.task-card-link[data-target-area=\\'marka-tasks\\']').click(); setTimeout(() => $('.detail-card-link[data-task-type=\\'pending-approval\\']').click(), 400); }, 100); return false;" style="text-decoration:none; color:inherit;" title="Onay Bekleyen İşlere Git">${pendingCount} <i class="fas fa-external-link-alt" style="font-size:0.4em; opacity:0.5; vertical-align:middle;"></i></a>`;
+        document.getElementById('rep-pending-tasks').innerHTML = `<a href="#" onclick="window.goToTasks(); return false;" style="text-decoration:none; color:inherit;" title="Onay Bekleyen İşlere Git">${pendingCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         
-        document.getElementById('rep-active-legal').innerHTML = `<a href="#" onclick="$('#sidebar a[href=\\'#portfolio-content\\']').tab('show'); setTimeout(() => $('#portfolioTopTabs a[href=\\'#dava-list\\']').tab('show'), 100); return false;" style="text-decoration:none; color:inherit;" title="Davalar Listesine Git">${legalCount} <i class="fas fa-external-link-alt" style="font-size:0.4em; opacity:0.5; vertical-align:middle;"></i></a>`;
+        document.getElementById('rep-active-legal').innerHTML = `<a href="#" onclick="window.goToSection('portfolio-content', 'dava-list'); return false;" style="text-decoration:none; color:inherit;" title="Davalar Listesine Git">${legalCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         
         document.getElementById('rep-budget-est').textContent = '₺' + Object.values(budgetForecast).reduce((a,b)=>a+b, 0).toLocaleString('tr-TR');
-
         const stuckItems = portfolios.filter(item => (item.status || '').toLowerCase().includes('başvuru') && new Date(item.applicationDate) < new Date(now.setMonth(now.getMonth()-6))).slice(0,5);
         document.getElementById('rep-stuck-list').innerHTML = stuckItems.length === 0 ? '<tr><td colspan="4" class="text-center text-success">Sürüncemede iş yok.</td></tr>' : stuckItems.map(item => `<tr><td><b>${item.title}</b></td><td>Başvuru</td><td class="text-danger">Bekliyor</td><td>İlerleme Yok</td></tr>`).join('');
 

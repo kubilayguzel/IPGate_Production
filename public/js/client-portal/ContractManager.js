@@ -28,7 +28,8 @@ export class ContractManager {
                 url: doc.url,
                 countryCode: doc.country_code,
                 countryName: doc.country_code, // UI tarafında harita (map) ile asıl isme çevrilecek
-                validityDate: doc.validity_date
+                validityDate: doc.validity_date,
+                authorizedParty: doc.authorized_party // 🔥 YENİ: Vekalet Verilen Taraf eklendi
             }));
         } catch (error) {
             console.error("Vekaletler çekilirken hata:", error);

@@ -270,49 +270,54 @@ class ClientPortalController {
     }
 
     toggleReportMenuState() {
-        // Bootstrap'in yapısına uygun daha geniş seçiciler
-        const reportTabSidebar = document.querySelector('a[href="#reports-content"]');
-        const reportTabTop = document.querySelector('a[href="#reports"]');
+        // 1. ANA MENÜ bağlantılarını her zaman aktif tut (Böylece Dashboard'a erişim kesilmez)
+        const mainReportSidebar = document.querySelector('#sidebar a[href="#reports-content"]');
+        const mainReportTopTab = document.querySelector('#portfolioTopTabs a[href="#reports"]');
+        
+        [mainReportSidebar, mainReportTopTab].forEach(el => {
+            if (el) {
+                el.classList.remove('disabled-menu-item', 'disabled');
+                el.style.opacity = "1";
+                el.style.pointerEvents = "auto";
+            }
+        });
+
+        // 2. SADECE Raporlar sayfasının içindeki "Müvekkile Özel Raporlar" sekmesini hedefle
+        // NOT: Eğer HTML'de bu sekmenin ID'si veya href'i farklıysa lütfen "#custom-reports-tab" kısmını güncelleyin.
+        const specialReportsTab = document.querySelector('a[href="#custom-reports-tab"]') || 
+                                 document.querySelector('a[href="#special-reports"]');
 
         let shouldBeActive = false;
         const currentId = String(this.state.selectedClientId).trim();
 
         if (currentId === 'ALL' || !currentId || currentId === 'undefined') {
-            // "HEPSİ" seçiliyse, yetkili olunan müşterilerden en az birinin raporu var mı diye bak
             const authorizedIds = (this.state.linkedClients || []).map(c => String(c.id).trim());
             shouldBeActive = authorizedIds.some(id => this.state.clientsWithReports.has(id));
         } else {
-            // Belirli bir müşteri seçiliyse, direkt onun raporu var mı diye bak
             shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.has(currentId);
         }
 
-        const targets = [reportTabSidebar, reportTabTop].filter(Boolean);
-
-        targets.forEach(el => {
+        if (specialReportsTab) {
             if (shouldBeActive) {
-                // 🔥 AKTİF ET
-                el.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
-                el.style.opacity = "1";
-                el.style.pointerEvents = "auto";
-                el.style.cursor = "pointer";
-                el.removeAttribute('title');
-                
-                // Bootstrap sekme geçişini geri ver
-                if (!el.hasAttribute('data-toggle')) {
-                    el.setAttribute('data-toggle', 'tab');
+                // SEKMEYİ AKTİF ET
+                specialReportsTab.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
+                specialReportsTab.style.opacity = "1";
+                specialReportsTab.style.pointerEvents = "auto";
+                specialReportsTab.style.cursor = "pointer";
+                specialReportsTab.removeAttribute('title');
+                if (!specialReportsTab.hasAttribute('data-toggle')) {
+                    specialReportsTab.setAttribute('data-toggle', 'tab');
                 }
             } else {
-                // 🔥 PASİF ET (Zorunlu Devre Dışı)
-                el.classList.add('disabled-menu-item', 'disabled', 'text-muted');
-                el.style.opacity = "0.4";
-                el.style.pointerEvents = "none";
-                el.style.cursor = "not-allowed";
-                el.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
-                
-                // Bootstrap sekme geçişini tamamen iptal et (Tıklamayı engellemenin en kesin yolu)
-                el.removeAttribute('data-toggle');
+                // SEKMEYİ PASİF ET
+                specialReportsTab.classList.add('disabled-menu-item', 'disabled', 'text-muted');
+                specialReportsTab.style.opacity = "0.4";
+                specialReportsTab.style.pointerEvents = "none";
+                specialReportsTab.style.cursor = "not-allowed";
+                specialReportsTab.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
+                specialReportsTab.removeAttribute('data-toggle'); // Tıklanabilirliği Bootstrap seviyesinde kapatır
             }
-        });
+        }
     }
 
     // ==========================================

@@ -219,7 +219,7 @@ export const COURTS_LIST = [
         label: 'İstanbul (Bakırköy)',
         options: [
             { value: 'İstanbul Bakırköy 1. FSHHM', text: 'İstanbul Bakırköy 1. Fikri ve Sınai Haklar Hukuk Mahkemesi' },
-            { value: 'İstanbul Bakırköy  2. FSHHM', text: 'İstanbul Bakırköy 1. Fikri ve Sınai Haklar Hukuk Mahkemesi' },
+            { value: 'İstanbul Bakırköy  2. FSHHM', text: 'İstanbul Bakırköy 2. Fikri ve Sınai Haklar Hukuk Mahkemesi' },
             { value: 'İstanbul Bakırköy  1. FSHCM', text: 'İstanbul Bakırköy 1. Fikri ve Sınai Haklar Ceza Mahkemesi' },
             { value: 'İstanbul Bakırköy  2. FSHCM', text: 'İstanbul Bakırköy 2. Fikri ve Sınai Haklar Ceza Mahkemesi' },
         ]

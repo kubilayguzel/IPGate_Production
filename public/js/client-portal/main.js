@@ -232,32 +232,37 @@ class ClientPortalController {
         document.getElementById('taskCount-dava-completed').textContent = davaCompleted;
     }
 
+    // --- ÖZEL RAPOR KONTROL MEKANİZMASI ---
     async checkSpecialReportsAvailability() {
         try {
-            // 1. Kullanıcının yetkili olduğu tüm firma ID'lerini al
-            const authorizedIds = this.state.linkedClients.map(c => c.id);
-            if (authorizedIds.length === 0) return;
-
-            // 2. Bu firmalar için sistemde tanımlı rapor var mı veritabanına sor
-            // Not: client_report_configs tablosundaki criteria->'client_nos' içinde bu ID'ler aranır
+            // 1. Veritabanından rapor tanımlarını çek
             const { data: configs, error } = await supabase
                 .from('client_report_configs')
-                .select('id, criteria');
+                .select('criteria');
 
             if (error) throw error;
 
-            // 3. Hangi firmaların raporu olduğunu bir Set içinde sakla
             this.state.clientsWithReports = new Set();
-            configs.forEach(config => {
-                const clientNos = config.criteria?.client_nos || [];
-                clientNos.forEach(no => {
-                    if (authorizedIds.includes(no)) {
-                        this.state.clientsWithReports.add(no);
+
+            if (configs) {
+                configs.forEach(config => {
+                    // JSONB alanını güvenli bir şekilde objeye çevir
+                    let criteriaObj = config.criteria;
+                    if (typeof criteriaObj === 'string') {
+                        try { criteriaObj = JSON.parse(criteriaObj); } catch (e) { criteriaObj = {}; }
+                    }
+
+                    const clientNos = criteriaObj?.client_nos || [];
+                    
+                    if (Array.isArray(clientNos)) {
+                        clientNos.forEach(no => {
+                            this.state.clientsWithReports.add(String(no).trim());
+                        });
                     }
                 });
-            });
+            }
 
-            // 4. Menü butonunu güncelle
+            // 2. Durumu denetle ve menüyü ayarla
             this.toggleReportMenuState();
         } catch (err) {
             console.error("Rapor kontrolü sırasında hata:", err);
@@ -265,33 +270,47 @@ class ClientPortalController {
     }
 
     toggleReportMenuState() {
-        const reportTab = document.querySelector('#sidebar a[href="#reports-content"]');
-        const reportTopTab = document.querySelector('#portfolioTopTabs a[href="#reports"]');
-        if (!reportTab && !reportTopTab) return;
+        // Bootstrap'in yapısına uygun daha geniş seçiciler
+        const reportTabSidebar = document.querySelector('a[href="#reports-content"]');
+        const reportTabTop = document.querySelector('a[href="#reports"]');
 
         let shouldBeActive = false;
+        const currentId = String(this.state.selectedClientId).trim();
 
-        if (this.state.selectedClientId === 'ALL') {
-            // Filtre "HEPSİ" ise: Yetkili olunan firmalardan en az birinin raporu varsa aktif et
-            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.size > 0;
+        if (currentId === 'ALL' || !currentId || currentId === 'undefined') {
+            // "HEPSİ" seçiliyse, yetkili olunan müşterilerden en az birinin raporu var mı diye bak
+            const authorizedIds = (this.state.linkedClients || []).map(c => String(c.id).trim());
+            shouldBeActive = authorizedIds.some(id => this.state.clientsWithReports.has(id));
         } else {
-            // Belirli bir firma seçili ise: Sadece o firmanın raporu varsa aktif et
-            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.has(this.state.selectedClientId);
+            // Belirli bir müşteri seçiliyse, direkt onun raporu var mı diye bak
+            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.has(currentId);
         }
 
-        // UI Güncelleme: Pasifse tıklanamaz yap ve rengini soluklaştır
-        [reportTab, reportTopTab].forEach(el => {
-            if (!el) return;
+        const targets = [reportTabSidebar, reportTabTop].filter(Boolean);
+
+        targets.forEach(el => {
             if (shouldBeActive) {
-                el.classList.remove('disabled-menu-item');
+                // 🔥 AKTİF ET
+                el.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
                 el.style.opacity = "1";
                 el.style.pointerEvents = "auto";
-                el.title = "";
+                el.style.cursor = "pointer";
+                el.removeAttribute('title');
+                
+                // Bootstrap sekme geçişini geri ver
+                if (!el.hasAttribute('data-toggle')) {
+                    el.setAttribute('data-toggle', 'tab');
+                }
             } else {
-                el.classList.add('disabled-menu-item');
+                // 🔥 PASİF ET (Zorunlu Devre Dışı)
+                el.classList.add('disabled-menu-item', 'disabled', 'text-muted');
                 el.style.opacity = "0.4";
                 el.style.pointerEvents = "none";
-                el.title = "Bu firma için tanımlı özel rapor bulunmamaktadır.";
+                el.style.cursor = "not-allowed";
+                el.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
+                
+                // Bootstrap sekme geçişini tamamen iptal et (Tıklamayı engellemenin en kesin yolu)
+                el.removeAttribute('data-toggle');
             }
         });
     }
@@ -2085,14 +2104,45 @@ PDF raporuna marka görselleri de eklensin mi?
 
         // 🔥 ÇÖZÜM: BÜTÇE PROJEKSİYONU İÇİN DİNAMİK TARİFE ÇEKİMİ
         // Sisteminizi (feeCalculationService) yormamak için Yenileme (Task Type 22) tarifesini 1 kere çekip kullanıyoruz.
-        let trBaseFee = 4500; let trExtraClassFee = 1500; // Varsayılan yedek fiyatlar
+        let trBaseFee = 0; let trExtraClassFee = 0;
         try {
-            const { data: feeMaps } = await supabase.from('transaction_fee_maps').select('calculation_rule, fee_tariffs(amount)').eq('transaction_type_id', '22');
+            // fee_tariffs içinden geçerlilik tarihlerini de (valid_from, valid_to) çekiyoruz
+            const { data: feeMaps } = await supabase.from('transaction_fee_maps')
+                .select('calculation_rule, fee_tariffs(amount, valid_from, valid_to, fee_type)')
+                .eq('transaction_type_id', '22');
+
             if (feeMaps && feeMaps.length > 0) {
-                trBaseFee = feeMaps.filter(m => m.calculation_rule.includes('fixed')).reduce((sum, m) => sum + (m.fee_tariffs?.amount || 0), 0) || trBaseFee;
-                trExtraClassFee = feeMaps.filter(m => m.calculation_rule.includes('extra_class')).reduce((sum, m) => sum + (m.fee_tariffs?.amount || 0), 0) || trExtraClassFee;
+                const nowMs = now.getTime();
+                
+                feeMaps.forEach(m => {
+                    const t = m.fee_tariffs;
+                    if (!t) return;
+                    
+                    // 1. Sadece "Geçerli" (süresi dolmamış veya henüz başlamamış olmayan) tarifeleri al
+                    if (t.valid_from && new Date(t.valid_from).getTime() > nowMs) return;
+                    if (t.valid_to && new Date(t.valid_to).getTime() < nowMs) return;
+
+                    // 2. Sadece "Normal" (Cezalı OLMAYAN) kalemleri topla (TP Harcı + Hizmet Bedeli dahil)
+                    if (m.calculation_rule === 'fixed_normal' || m.calculation_rule === 'fixed') {
+                        trBaseFee += parseFloat(t.amount || 0);
+                    }
+                    
+                    // 3. Ek sınıf farklarını topla (Normal yenileme için)
+                    if (m.calculation_rule === 'extra_class_normal' || m.calculation_rule === 'extra_class_over_2') {
+                        trExtraClassFee += parseFloat(t.amount || 0);
+                    }
+                });
             }
-        } catch(e) { console.warn("Güncel yenileme tarifesi çekilemedi, varsayılan kullanılacak."); }
+        } catch(e) { 
+            console.warn("Güncel yenileme tarifesi çekilemedi, varsayılan kullanılacak.", e); 
+        }
+
+        // Bütçe takibi için sayaçlar (Loglamak için)
+        let totalRenewalCount = 0;
+        let grandTotalBudget = 0;
+        console.log(`\n=========================================`);
+        console.log(`📊 BÜTÇE PROJEKSİYONU HESAPLANIYOR...`);
+        console.log(`   TR Taban Ücret: ₺${trBaseFee} | Ek Sınıf Ücreti: ₺${trExtraClassFee}`);
 
         portfolios.forEach(item => {
             const originRaw = (item.origin || '').toUpperCase();
@@ -2110,18 +2160,31 @@ PDF raporuna marka görselleri de eklensin mi?
             // 🔥 BÜTÇE HESAPLAMASI (Sınıf Sayısı * Güncel Tarife)
             if (item.renewalDate) {
                 let rDate = new Date(item.renewalDate);
+                // Eğer yenileme tarihi bugünden sonraysa ve önümüzdeki 1 yıl içindeyse
                 if (rDate > now && rDate < nextYear) {
                     const key = `${rDate.getFullYear()}-${rDate.getMonth()}`; 
                     let classCount = item.classes && item.classes !== '-' ? item.classes.split(',').length : 1;
                     
                     let calculatedFee = 0;
-                    if (isTurk) calculatedFee = trBaseFee + (Math.max(0, classCount - 2) * trExtraClassFee);
-                    else calculatedFee = 15000 + (Math.max(0, classCount - 1) * 3000); // Yurtdışı temsili hesap
+                    if (isTurk) {
+                        calculatedFee = trBaseFee + (Math.max(0, classCount - 2) * trExtraClassFee);
+                    } else {
+                        calculatedFee = 15000 + (Math.max(0, classCount - 1) * 3000); // Yurtdışı temsili hesap
+                    }
+
+                    // Hesaplamayı konsola yazdır
+                    totalRenewalCount++;
+                    grandTotalBudget += calculatedFee;
+                    console.log(`[+] Yaklaşan Yenileme (${isTurk ? 'TR' : 'Yurtdışı'}): ${item.title} | Sınıf: ${classCount} | Hesaplanan: ₺${calculatedFee}`);
 
                     budgetForecast[key] = (budgetForecast[key] || 0) + calculatedFee;
                 }
             }
         });
+
+        console.log(`\n✅ ÖZET: Toplam ${totalRenewalCount} adet yenilenecek dosya bulundu.`);
+        console.log(`✅ ÖZET: Toplam Öngörülen Bütçe: ₺${grandTotalBudget}`);
+        console.log(`=========================================\n`);
 
         const mapContainer = document.getElementById("world-map-markers");
         mapContainer.innerHTML = ""; 
@@ -2139,7 +2202,6 @@ PDF raporuna marka görselleri de eklensin mi?
             });
         }
 
-        // 🔥 ÇÖZÜM: AKTİF DAVA SAYISI (İtirazları eledik, sadece statüsü continue olan davaları sayıyoruz)
         const assetCount = portfolios.length;
         const pendingCount = taskData.filter(t => t.status === 'awaiting_client_approval').length;
         const legalCount = this.state.suits.filter(s => s.status === 'continue').length; 
@@ -2149,8 +2211,13 @@ PDF raporuna marka görselleri de eklensin mi?
         document.getElementById('rep-pending-tasks').innerHTML = `<a href="#" onclick="window.goToTasks(); return false;" style="text-decoration:none; color:inherit;" title="Onay Bekleyen İşlere Git">${pendingCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         document.getElementById('rep-active-legal').innerHTML = `<a href="#" onclick="window.goToSection('portfolio-content', 'dava-list'); return false;" style="text-decoration:none; color:inherit;" title="Davalar Listesine Git">${legalCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         
-        document.getElementById('rep-budget-est').textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Object.values(budgetForecast).reduce((a,b)=>a+b, 0));
-        
+        // 🔥 ÇÖZÜM: maximumFractionDigits: 0 ekleyerek kuruş ve virgülleri engelledik!
+        document.getElementById('rep-budget-est').textContent = new Intl.NumberFormat('tr-TR', { 
+            style: 'currency', 
+            currency: 'TRY',
+            maximumFractionDigits: 0 
+        }).format(grandTotalBudget);
+
         const stuckItems = portfolios.filter(item => (item.status || '').toLowerCase().includes('başvuru') && new Date(item.applicationDate) < new Date(now.setMonth(now.getMonth()-6))).slice(0,5);
         document.getElementById('rep-stuck-list').innerHTML = stuckItems.length === 0 ? '<tr><td colspan="4" class="text-center text-success">Sürüncemede iş yok.</td></tr>' : stuckItems.map(item => `<tr><td><b>${item.title}</b></td><td>Başvuru</td><td class="text-danger">Bekliyor</td><td>İlerleme Yok</td></tr>`).join('');
 

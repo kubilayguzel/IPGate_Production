@@ -126,6 +126,23 @@ class ClientPortalController {
             this.state.invoices = invoices;
             this.state.contracts = contracts;
 
+            // 🔥 YENİ: Haritadan yeni sekmede açıldıysa URL parametresini yakala
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetCountryCode = urlParams.get('filterCountry');
+
+            if (targetCountryCode) {
+                // Menşe filtresini "HEPSI" yapıyoruz
+                const menseFilter = document.getElementById('menseFilter');
+                if (menseFilter) menseFilter.value = 'HEPSI';
+
+                // Kolon filtresi HACK'i yerine özel bir state değişkenine atıyoruz
+                this.state.mapTargetCountry = targetCountryCode;
+                
+                // Portföy > Marka sekmesini aktif et
+                $('#sidebar a[href="#portfolio-content"]').tab('show');
+                setTimeout(() => $('#portfolioTopTabs a[href="#marka-list"]').tab('show'), 100);
+            }
+
             this.applyAllFilters();
             this.updateDashboardCounts();
             
@@ -236,6 +253,29 @@ class ClientPortalController {
 
         let filtered = this.state.portfolios.filter(item => {
             if (item.parentId) return false;
+
+            // 🔥 YENİ: Haritadan Ülke Filtresi Geldiyse (WIPO Alt Kayıtlarını da Tarar)
+            if (this.state.mapTargetCountry) {
+                if (this.state.mapTargetCountry === 'TR') {
+                    // Türkiye seçildiyse menşesi Türkpatent olanları getir
+                    const oRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
+                    if (!oRaw.includes('TURK') && !oRaw.includes('TÜRK')) return false;
+                } else {
+                    // Yurtdışı için: Ebeveynin ülkesi direkt ABD mi?
+                    let isMatch = item.country === this.state.mapTargetCountry;
+                    
+                    // Değilse (örneğin WIPO ise), bu dosyanın alt kayıtları (children) arasında ABD var mı?
+                    if (!isMatch) {
+                        const hasChildInCountry = this.state.portfolios.some(child => 
+                            child.parentId === item.id && child.country === this.state.mapTargetCountry
+                        );
+                        if (hasChildInCountry) isMatch = true;
+                    }
+                    
+                    // Hiçbir şekilde eşleşmiyorsa bu dosyayı gizle
+                    if (!isMatch) return false;
+                }
+            }
 
             const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
             const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
@@ -2010,20 +2050,12 @@ PDF raporuna marka görselleri de eklensin mi?
                 regionStyle: { initial: { fill: '#e3eaef' }, hover: { fillOpacity: 0.7 } },
                 visualizeData: { scale: ['#a2cffe', '#2e59d9'], values: mapData },
                 onRegionTooltipShow(e, tooltip, code) { if(mapData[code]) tooltip.text(`<strong>${tooltip.text()}</strong>: ${mapData[code]} Dosya`, true); },
-                // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarına Gitme
-                // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarına Gitme
+                // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarını YENİ SEKMEDE Açma
                 onRegionClick: (e, code) => {
-                    if (!mapData[code]) return; // Dosya yoksa işlem yapma
-                    const countryName = this.state.countries.get(code) || code;
-                    const filterVal = code === 'TR' ? 'TÜRKPATENT' : countryName;
+                    if (!mapData[code]) return; // O ülkede dosya yoksa işlem yapma
                     
-                    this.state.activeColumnFilters['marka-list-1'] = [filterVal]; 
-                    
-                    // Tablodaki huni (filtre) ikonunu da görsel olarak aktif mavi renge boya
-                    $('#marka-list th[data-col-idx="1"] .filter-icon').addClass('active').css('color', '#007bff');
-                    
-                    this.applyAllFilters();
-                    window.goToSection('portfolio-content', 'marka-list'); // Temiz fonksiyon çağrısı
+                    // URL parametresine ülke kodunu ekleyerek portalı yeni sekmede başlatıyoruz
+                    window.open(`client-portal.html?filterCountry=${code}`, '_blank');
                 }
             });
         }

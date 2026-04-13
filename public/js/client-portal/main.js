@@ -145,6 +145,7 @@ class ClientPortalController {
 
             this.applyAllFilters();
             this.updateDashboardCounts();
+            this.checkSpecialReportsAvailability();
             
             if ($('#portfolioTopTabs a.nav-link.active').attr('href') === '#reports') this.renderReports();
 
@@ -229,6 +230,70 @@ class ClientPortalController {
         if (elCompleted) elCompleted.textContent = completedTasks;        
         document.getElementById('taskCount-dava-pending').textContent = davaPending;
         document.getElementById('taskCount-dava-completed').textContent = davaCompleted;
+    }
+
+    async checkSpecialReportsAvailability() {
+        try {
+            // 1. Kullanıcının yetkili olduğu tüm firma ID'lerini al
+            const authorizedIds = this.state.linkedClients.map(c => c.id);
+            if (authorizedIds.length === 0) return;
+
+            // 2. Bu firmalar için sistemde tanımlı rapor var mı veritabanına sor
+            // Not: client_report_configs tablosundaki criteria->'client_nos' içinde bu ID'ler aranır
+            const { data: configs, error } = await supabase
+                .from('client_report_configs')
+                .select('id, criteria');
+
+            if (error) throw error;
+
+            // 3. Hangi firmaların raporu olduğunu bir Set içinde sakla
+            this.state.clientsWithReports = new Set();
+            configs.forEach(config => {
+                const clientNos = config.criteria?.client_nos || [];
+                clientNos.forEach(no => {
+                    if (authorizedIds.includes(no)) {
+                        this.state.clientsWithReports.add(no);
+                    }
+                });
+            });
+
+            // 4. Menü butonunu güncelle
+            this.toggleReportMenuState();
+        } catch (err) {
+            console.error("Rapor kontrolü sırasında hata:", err);
+        }
+    }
+
+    toggleReportMenuState() {
+        const reportTab = document.querySelector('#sidebar a[href="#reports-content"]');
+        const reportTopTab = document.querySelector('#portfolioTopTabs a[href="#reports"]');
+        if (!reportTab && !reportTopTab) return;
+
+        let shouldBeActive = false;
+
+        if (this.state.selectedClientId === 'ALL') {
+            // Filtre "HEPSİ" ise: Yetkili olunan firmalardan en az birinin raporu varsa aktif et
+            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.size > 0;
+        } else {
+            // Belirli bir firma seçili ise: Sadece o firmanın raporu varsa aktif et
+            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.has(this.state.selectedClientId);
+        }
+
+        // UI Güncelleme: Pasifse tıklanamaz yap ve rengini soluklaştır
+        [reportTab, reportTopTab].forEach(el => {
+            if (!el) return;
+            if (shouldBeActive) {
+                el.classList.remove('disabled-menu-item');
+                el.style.opacity = "1";
+                el.style.pointerEvents = "auto";
+                el.title = "";
+            } else {
+                el.classList.add('disabled-menu-item');
+                el.style.opacity = "0.4";
+                el.style.pointerEvents = "none";
+                el.title = "Bu firma için tanımlı özel rapor bulunmamaktadır.";
+            }
+        });
     }
 
     // ==========================================
@@ -2005,12 +2070,11 @@ PDF raporuna marka görselleri de eklensin mi?
     }
 }
 
-    renderReports() {
+    async renderReports() { // 🔥 DİKKAT: Başına async ekledik!
         const portfolios = this.state.portfolios;
-        const legalData = [...this.state.suits, ...this.state.filteredObjections || []];
         const taskData = this.state.tasks;
 
-        if (portfolios.length === 0 && legalData.length === 0) {
+        if (portfolios.length === 0 && this.state.suits.length === 0) {
             document.getElementById('world-map-markers').innerHTML = '<div class="d-flex justify-content-center align-items-center h-100 text-muted">Bu müşteri için analiz edilecek veri bulunamadı.</div>';
             return;
         }
@@ -2019,9 +2083,19 @@ PDF raporuna marka görselleri de eklensin mi?
         const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
         const now = new Date(); const nextYear = new Date(); nextYear.setFullYear(now.getFullYear() + 1);
 
+        // 🔥 ÇÖZÜM: BÜTÇE PROJEKSİYONU İÇİN DİNAMİK TARİFE ÇEKİMİ
+        // Sisteminizi (feeCalculationService) yormamak için Yenileme (Task Type 22) tarifesini 1 kere çekip kullanıyoruz.
+        let trBaseFee = 4500; let trExtraClassFee = 1500; // Varsayılan yedek fiyatlar
+        try {
+            const { data: feeMaps } = await supabase.from('transaction_fee_maps').select('calculation_rule, fee_tariffs(amount)').eq('transaction_type_id', '22');
+            if (feeMaps && feeMaps.length > 0) {
+                trBaseFee = feeMaps.filter(m => m.calculation_rule.includes('fixed')).reduce((sum, m) => sum + (m.fee_tariffs?.amount || 0), 0) || trBaseFee;
+                trExtraClassFee = feeMaps.filter(m => m.calculation_rule.includes('extra_class')).reduce((sum, m) => sum + (m.fee_tariffs?.amount || 0), 0) || trExtraClassFee;
+            }
+        } catch(e) { console.warn("Güncel yenileme tarifesi çekilemedi, varsayılan kullanılacak."); }
+
         portfolios.forEach(item => {
             const originRaw = (item.origin || '').toUpperCase();
-            // 🔥 DÜZELTME
             const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
             
             let code = '';
@@ -2032,11 +2106,19 @@ PDF raporuna marka görselleri de eklensin mi?
             const t = item.type === 'trademark' ? 'Marka' : (item.type === 'patent' ? 'Patent' : 'Tasarım');
             typeCounts[t] = (typeCounts[t] || 0) + 1;
             if (item.classes && item.classes !== '-') item.classes.split(',').forEach(c => { const cleanC = c.trim(); if(cleanC) classCounts[cleanC] = (classCounts[cleanC] || 0) + 1; });
+            
+            // 🔥 BÜTÇE HESAPLAMASI (Sınıf Sayısı * Güncel Tarife)
             if (item.renewalDate) {
                 let rDate = new Date(item.renewalDate);
                 if (rDate > now && rDate < nextYear) {
                     const key = `${rDate.getFullYear()}-${rDate.getMonth()}`; 
-                    budgetForecast[key] = (budgetForecast[key] || 0) + (isTurk ? 4500 : 15000);
+                    let classCount = item.classes && item.classes !== '-' ? item.classes.split(',').length : 1;
+                    
+                    let calculatedFee = 0;
+                    if (isTurk) calculatedFee = trBaseFee + (Math.max(0, classCount - 2) * trExtraClassFee);
+                    else calculatedFee = 15000 + (Math.max(0, classCount - 1) * 3000); // Yurtdışı temsili hesap
+
+                    budgetForecast[key] = (budgetForecast[key] || 0) + calculatedFee;
                 }
             }
         });
@@ -2050,30 +2132,25 @@ PDF raporuna marka görselleri de eklensin mi?
                 regionStyle: { initial: { fill: '#e3eaef' }, hover: { fillOpacity: 0.7 } },
                 visualizeData: { scale: ['#a2cffe', '#2e59d9'], values: mapData },
                 onRegionTooltipShow(e, tooltip, code) { if(mapData[code]) tooltip.text(`<strong>${tooltip.text()}</strong>: ${mapData[code]} Dosya`, true); },
-                // 🔥 YENİ: Haritada Ülkeye Tıklayınca O Ülkenin Markalarını YENİ SEKMEDE Açma
                 onRegionClick: (e, code) => {
-                    if (!mapData[code]) return; // O ülkede dosya yoksa işlem yapma
-                    
-                    // URL parametresine ülke kodunu ekleyerek portalı yeni sekmede başlatıyoruz
+                    if (!mapData[code]) return; 
                     window.open(`client-portal.html?filterCountry=${code}`, '_blank');
                 }
             });
         }
 
-        // 🔥 YENİ: Yönetim Dashboard Rapor Kartlarına Temiz ve Tıklanabilir Linkler
+        // 🔥 ÇÖZÜM: AKTİF DAVA SAYISI (İtirazları eledik, sadece statüsü continue olan davaları sayıyoruz)
         const assetCount = portfolios.length;
         const pendingCount = taskData.filter(t => t.status === 'awaiting_client_approval').length;
-        const legalCount = legalData.filter(l => !(l.statusText || l.suitStatus || '').toLowerCase().includes('kapatıldı')).length;
+        const legalCount = this.state.suits.filter(s => s.status === 'continue').length; 
 
         document.getElementById('rep-total-assets').innerHTML = `<a href="#" onclick="window.goToSection('portfolio-content', 'marka-list'); return false;" style="text-decoration:none; color:inherit;" title="Portföy Listesine Git">${assetCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
-        
         document.getElementById('rep-total-countries').textContent = uniqueCountries.size + ' Ülke';
-        
         document.getElementById('rep-pending-tasks').innerHTML = `<a href="#" onclick="window.goToTasks(); return false;" style="text-decoration:none; color:inherit;" title="Onay Bekleyen İşlere Git">${pendingCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
-        
         document.getElementById('rep-active-legal').innerHTML = `<a href="#" onclick="window.goToSection('portfolio-content', 'dava-list'); return false;" style="text-decoration:none; color:inherit;" title="Davalar Listesine Git">${legalCount} <i class="fas fa-external-link-alt" style="font-size:0.5em; opacity:0.6; vertical-align:middle; margin-left:3px;"></i></a>`;
         
-        document.getElementById('rep-budget-est').textContent = '₺' + Object.values(budgetForecast).reduce((a,b)=>a+b, 0).toLocaleString('tr-TR');
+        document.getElementById('rep-budget-est').textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Object.values(budgetForecast).reduce((a,b)=>a+b, 0));
+        
         const stuckItems = portfolios.filter(item => (item.status || '').toLowerCase().includes('başvuru') && new Date(item.applicationDate) < new Date(now.setMonth(now.getMonth()-6))).slice(0,5);
         document.getElementById('rep-stuck-list').innerHTML = stuckItems.length === 0 ? '<tr><td colspan="4" class="text-center text-success">Sürüncemede iş yok.</td></tr>' : stuckItems.map(item => `<tr><td><b>${item.title}</b></td><td>Başvuru</td><td class="text-danger">Bekliyor</td><td>İlerleme Yok</td></tr>`).join('');
 
@@ -2133,19 +2210,21 @@ PDF raporuna marka görselleri de eklensin mi?
 
         // 🔥 YENİ: Link Yönlendirmeleri İçin Global Navigasyon Fonksiyonları
         window.goToSection = (sidebarId, tabId) => {
+            
+            // 🔥 ÇÖZÜM: Portföye tıklanınca tüm harita ve kolon filtrelerini temizle!
+            if (sidebarId === 'portfolio-content') {
+                const menseFilter = document.getElementById('menseFilter');
+                if (menseFilter) menseFilter.value = 'HEPSI';
+                this.state.mapTargetCountry = null; // Harita filtresini iptal et
+                delete this.state.activeColumnFilters['marka-list-1']; // Menşe iptal
+                delete this.state.activeColumnFilters['marka-list-2']; // Ülke iptal
+                this.applyAllFilters(); // Listeyi yenile
+            }
+
             $(`#sidebar a[href="#${sidebarId}"]`).tab('show');
             if (tabId) {
                 setTimeout(() => $(`#portfolioTopTabs a[href="#${tabId}"]`).tab('show'), 100);
             }
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-
-        window.goToTasks = () => {
-            $('#sidebar a[href="#tasks"]').tab('show'); 
-            setTimeout(() => { 
-                $('.task-card-link[data-target-area="marka-tasks"]').click(); 
-                setTimeout(() => $('.detail-card-link[data-task-type="pending-approval"]').click(), 400); 
-            }, 100);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
     }

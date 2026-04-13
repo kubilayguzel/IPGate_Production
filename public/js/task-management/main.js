@@ -274,8 +274,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const operationalDueDisplay = opDue ? opDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
                 const officialDueDisplay = offDue ? offDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
                 const statusText = this.statusDisplayMap[task.status] || task.status;
+
+                // 🔥 ÇÖZÜM 1: Sıralama motorunun kullanabilmesi için Gerçek Tarih Objelerini oluştur
+                const operationalDueObj = opDue ? new Date(opDue) : null;
+                const officialDueObj = offDue ? new Date(offDue) : null;
                 
-                // Arama işlemleri için arama katarını (searchString) olabildiğince kısa tut
                 const searchString = [task.title, appNo, recordTitle, applicantName, taskTypeDisplay, assignedToDisplay]
                     .filter(Boolean)
                     .join(' ')
@@ -286,6 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     appNo, recordTitle, applicantName, relatedRecord: appNo,
                     taskTypeDisplay, assignedToDisplay, statusText,
                     operationalDueDisplay, officialDueDisplay,
+                    operationalDueObj, officialDueObj, // 🔥 Tarihleri listeye dahil ettik
                     searchString
                 };
             });
@@ -352,28 +356,40 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let valA = a[key];
                 let valB = b[key];
 
+                // 🔥 ÇÖZÜM 2a: Öncelik (Priority) Mantıksal Sıralaması
+                if (key === 'priority') {
+                    // Kelimelere sayısal bir ağırlık veriyoruz ki alfabetik değil, önem sırasına göre dizilsin
+                    const priorityWeight = { 'yüksek': 3, 'high': 3, 'normal': 2, 'düşük': 1, 'low': 1 };
+                    const pA = priorityWeight[String(valA || 'normal').toLowerCase()] || 0;
+                    const pB = priorityWeight[String(valB || 'normal').toLowerCase()] || 0;
+                    
+                    // asc (Artan) sıralamada Yüksek(3) olanlar en üstte çıksın
+                    return (pB - pA) * multiplier; 
+                }
+
                 const isEmptyA = (valA === null || valA === undefined || valA === '');
                 const isEmptyB = (valB === null || valB === undefined || valB === '');
 
                 if (isEmptyA && isEmptyB) return 0;
 
-                // 🔥 YENİ: Sıralanan kolonun bir 'Tarih' kolonu olup olmadığını isimden yakala
-                // (due, date, obj, at gibi kelimeler içeren anahtarları tarih olarak kabul et)
+                // 🔥 ÇÖZÜM 2b: Tarih Objelerinin Matematiksel Olarak Kıyaslanması
                 const isDateColumn = key.toLowerCase().includes('due') || key.toLowerCase().includes('date') || key.toLowerCase().includes('obj') || key.toLowerCase().includes('at');
 
                 if (isDateColumn) {
-                    if (isEmptyA) return -1 * multiplier; // A boşsa (Belirtilmemişse) en üste at
-                    if (isEmptyB) return 1 * multiplier;  // B boşsa en üste at
+                    if (isEmptyA) return 1; // Tarihi boş olanları her zaman tablonun en altına at
+                    if (isEmptyB) return -1;
                     
-                    // Metin tabanlı ISO tarihleri (2026-03-03) çok hızlı matematiksel operatörlerle sıralanır
-                    return (valA < valB ? -1 : (valA > valB ? 1 : 0)) * multiplier;
+                    // JS Date objesinin Milisaniye değeri üzerinden zaman kıyası
+                    const timeA = new Date(valA).getTime();
+                    const timeB = new Date(valB).getTime();
+                    
+                    return (timeA < timeB ? -1 : (timeA > timeB ? 1 : 0)) * multiplier;
                 }
 
-                // Diğer metin (String) sıralamalarında boş olanları alta at (Görsellik ve düzen için)
+                // Diğer Metin Kolonları İçin Varsayılan Sıralama
                 if (isEmptyA) return 1; 
                 if (isEmptyB) return -1;
 
-                // Sayısal ID Sıralaması
                 if (key === 'id') {
                     const numA = parseFloat(String(valA).replace(/[^0-9]/g, ''));
                     const numB = parseFloat(String(valB).replace(/[^0-9]/g, ''));
@@ -382,7 +398,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                // Standart Türkçe Metin Sıralaması (isimler, markalar vb. için)
                 return String(valA).localeCompare(String(valB), 'tr') * multiplier;
             });
         }

@@ -235,7 +235,6 @@ class ClientPortalController {
     // --- ÖZEL RAPOR KONTROL MEKANİZMASI ---
     async checkSpecialReportsAvailability() {
         try {
-            // O Anki Kullanıcının ID'sini Al
             const currentUser = await supabase.auth.getUser();
             const currentUserId = currentUser.data?.user?.id;
             if (!currentUserId) return;
@@ -259,21 +258,25 @@ class ClientPortalController {
                     if (!config) return;
 
                     let criteriaObj = config.criteria;
+                    // Eğer veritabanından string olarak geldiyse objeye çevir
                     if (typeof criteriaObj === 'string') {
                         try { criteriaObj = JSON.parse(criteriaObj); } catch (e) { criteriaObj = {}; }
                     }
 
-                    // 🔥 DİKKAT: Artık client_nos DEĞİL, modalda seçtiğimiz hedef firmalara bakıyoruz!
+                    // 🔥 YENİ: target_portal_clients dizisini güvenle al ve Set'e ekle
                     const targetClients = criteriaObj?.target_portal_clients || [];
                     
                     if (Array.isArray(targetClients)) {
-                        targetClients.forEach(no => {
-                            this.state.clientsWithReports.add(String(no).trim());
+                        targetClients.forEach(id => {
+                            if (id) this.state.clientsWithReports.add(String(id).trim());
                         });
                     }
                 });
             }
 
+            // Geliştirici konsoluna (F12) raporu olan firmaların ID'sini yazdır
+            console.log("✅ [RAPOR KONTROL] Raporu Olan Müşteri ID'leri:", Array.from(this.state.clientsWithReports));
+            
             this.toggleReportMenuState();
         } catch (err) {
             console.error("Rapor kontrolü sırasında hata:", err);
@@ -281,52 +284,54 @@ class ClientPortalController {
     }
 
     toggleReportMenuState() {
-        // 1. ANA MENÜ bağlantılarını her zaman aktif tut (Böylece Dashboard'a erişim kesilmez)
-        const mainReportSidebar = document.querySelector('#sidebar a[href="#reports-content"]');
-        const mainReportTopTab = document.querySelector('#portfolioTopTabs a[href="#reports"]');
-        
-        [mainReportSidebar, mainReportTopTab].forEach(el => {
-            if (el) {
-                el.classList.remove('disabled-menu-item', 'disabled');
-                el.style.opacity = "1";
-                el.style.pointerEvents = "auto";
-            }
-        });
+        // HTML dosyanızdaki gerçek href değeri olan #rep-custom'ı buraya ekledik
+        const specialReportsTab = document.querySelector('a[href="#rep-custom"]');
 
-        // 2. SADECE Raporlar sayfasının içindeki "Müvekkile Özel Raporlar" sekmesini hedefle
-        // NOT: Eğer HTML'de bu sekmenin ID'si veya href'i farklıysa lütfen "#custom-reports-tab" kısmını güncelleyin.
-        const specialReportsTab = document.querySelector('a[href="#custom-reports-tab"]') || 
-                                 document.querySelector('a[href="#special-reports"]');
+        if (!specialReportsTab) {
+            console.warn("⚠️ [RAPOR KONTROL] Özel raporlar sekmesi (tab) DOM'da bulunamadı! Lütfen HTML'deki sekme href değerini kontrol edin.");
+            return;
+        }
 
         let shouldBeActive = false;
         const currentId = String(this.state.selectedClientId).trim();
 
-        if (currentId === 'ALL' || !currentId || currentId === 'undefined') {
+        console.log(`🔍 [RAPOR KONTROL] Şu An Portalda Seçili Olan Müşteri ID: "${currentId}"`);
+
+        // Eğer Tüm Müşteriler seçiliyse veya sistem ilk kez açılıyorsa
+        if (currentId === 'ALL' || currentId === '' || currentId === 'undefined' || currentId === 'null') {
             const authorizedIds = (this.state.linkedClients || []).map(c => String(c.id).trim());
             shouldBeActive = authorizedIds.some(id => this.state.clientsWithReports.has(id));
+            console.log(`🔍 [RAPOR KONTROL] Durum: TÜMÜ Seçili. Yetkili Müşterilerden en az birinin raporu var mı? -> ${shouldBeActive}`);
         } else {
-            shouldBeActive = this.state.clientsWithReports && this.state.clientsWithReports.has(currentId);
+            // Belli bir müşteri seçiliyse: Bu ID bizim "Raporu Olan Müşteriler" listemizde var mı?
+            shouldBeActive = this.state.clientsWithReports.has(currentId);
+            console.log(`🔍 [RAPOR KONTROL] Durum: TEK MÜŞTERİ Seçili. Bu müşterinin rapor listesinde yetkisi var mı? -> ${shouldBeActive}`);
         }
 
-        if (specialReportsTab) {
-            if (shouldBeActive) {
-                // SEKMEYİ AKTİF ET
-                specialReportsTab.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
-                specialReportsTab.style.opacity = "1";
-                specialReportsTab.style.pointerEvents = "auto";
-                specialReportsTab.style.cursor = "pointer";
-                specialReportsTab.removeAttribute('title');
-                if (!specialReportsTab.hasAttribute('data-toggle')) {
-                    specialReportsTab.setAttribute('data-toggle', 'tab');
-                }
-            } else {
-                // SEKMEYİ PASİF ET
-                specialReportsTab.classList.add('disabled-menu-item', 'disabled', 'text-muted');
-                specialReportsTab.style.opacity = "0.4";
-                specialReportsTab.style.pointerEvents = "none";
-                specialReportsTab.style.cursor = "not-allowed";
-                specialReportsTab.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
-                specialReportsTab.removeAttribute('data-toggle'); // Tıklanabilirliği Bootstrap seviyesinde kapatır
+        if (shouldBeActive) {
+            // 🔥 SEKMEYİ AKTİF ET
+            specialReportsTab.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
+            specialReportsTab.style.opacity = "1";
+            specialReportsTab.style.pointerEvents = "auto";
+            specialReportsTab.style.cursor = "pointer";
+            specialReportsTab.removeAttribute('title');
+            if (!specialReportsTab.hasAttribute('data-toggle')) {
+                specialReportsTab.setAttribute('data-toggle', 'tab');
+            }
+        } else {
+            // 🔥 SEKMEYİ PASİF ET
+            specialReportsTab.classList.add('disabled-menu-item', 'disabled', 'text-muted');
+            specialReportsTab.style.opacity = "0.4";
+            specialReportsTab.style.pointerEvents = "none";
+            specialReportsTab.style.cursor = "not-allowed";
+            specialReportsTab.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
+            specialReportsTab.removeAttribute('data-toggle'); // Tıklanabilirliği (Bootstrap seviyesinde) tamamen keser
+            
+            // Eğer müşteri değiştirdiğinde sekme açık kalmışsa, zorla Dashboard sekmesine at
+            if (specialReportsTab.classList.contains('active')) {
+                specialReportsTab.classList.remove('active');
+                const defaultTab = document.querySelector('a[href="#reports-dashboard"]'); // Dashboard sekmesinin href'i
+                if(defaultTab) defaultTab.click();
             }
         }
     }

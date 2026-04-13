@@ -235,34 +235,45 @@ class ClientPortalController {
     // --- ÖZEL RAPOR KONTROL MEKANİZMASI ---
     async checkSpecialReportsAvailability() {
         try {
-            // 1. Veritabanından rapor tanımlarını çek
-            const { data: configs, error } = await supabase
-                .from('client_report_configs')
-                .select('criteria');
+            // O Anki Kullanıcının ID'sini Al
+            const currentUser = await supabase.auth.getUser();
+            const currentUserId = currentUser.data?.user?.id;
+            if (!currentUserId) return;
+
+            // SADECE GİRİŞ YAPAN KULLANICIYA ATANMIŞ raporları JOIN ile çek
+            const { data: assignments, error } = await supabase
+                .from('client_report_assignments')
+                .select(`
+                    report_id,
+                    client_report_configs ( criteria )
+                `)
+                .eq('user_id', currentUserId);
 
             if (error) throw error;
 
             this.state.clientsWithReports = new Set();
 
-            if (configs) {
-                configs.forEach(config => {
-                    // JSONB alanını güvenli bir şekilde objeye çevir
+            if (assignments) {
+                assignments.forEach(assignment => {
+                    const config = assignment.client_report_configs;
+                    if (!config) return;
+
                     let criteriaObj = config.criteria;
                     if (typeof criteriaObj === 'string') {
                         try { criteriaObj = JSON.parse(criteriaObj); } catch (e) { criteriaObj = {}; }
                     }
 
-                    const clientNos = criteriaObj?.client_nos || [];
+                    // 🔥 DİKKAT: Artık client_nos DEĞİL, modalda seçtiğimiz hedef firmalara bakıyoruz!
+                    const targetClients = criteriaObj?.target_portal_clients || [];
                     
-                    if (Array.isArray(clientNos)) {
-                        clientNos.forEach(no => {
+                    if (Array.isArray(targetClients)) {
+                        targetClients.forEach(no => {
                             this.state.clientsWithReports.add(String(no).trim());
                         });
                     }
                 });
             }
 
-            // 2. Durumu denetle ve menüyü ayarla
             this.toggleReportMenuState();
         } catch (err) {
             console.error("Rapor kontrolü sırasında hata:", err);

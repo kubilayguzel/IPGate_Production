@@ -107,6 +107,8 @@ export class ClientReportAdminManager {
                 container.style.display = 'none';
             }
         });
+
+        $('#reportAssignedUsers').on('change', () => this.handleAssignedUsersChange());
     }
 
     // YENİ FONKSİYON: Mevcut verilerle modalı doldurur
@@ -359,6 +361,52 @@ export class ClientReportAdminManager {
         } catch (error) {
             console.error('Silme Hatası:', error);
             alert('Silinirken bir hata oluştu.');
+        }
+    }
+
+    async handleAssignedUsersChange(preselectedClients = []) {
+        const selectedUsers = $('#reportAssignedUsers').val() || [];
+        const container = $('#reportTargetClientsContainer');
+        const listDiv = $('#reportTargetClientsList');
+
+        if (selectedUsers.length === 0) {
+            container.hide();
+            listDiv.empty();
+            return;
+        }
+
+        try {
+            // Seçilen kullanıcıların yetkili olduğu tüm firmaları çek
+            const { data: links, error } = await supabase
+                .from('user_person_links')
+                .select('person_id, persons(name)')
+                .in('user_id', selectedUsers);
+
+            if (error) throw error;
+
+            // Firmaları tekilleştir
+            const uniqueClients = new Map();
+            links.forEach(link => {
+                if (link.persons) uniqueClients.set(link.person_id, link.persons.name);
+            });
+
+            listDiv.empty();
+            if (uniqueClients.size === 0) {
+                listDiv.html('<div class="text-muted small">Bu kullanıcıların yetkili olduğu bir firma bulunamadı.</div>');
+            } else {
+                uniqueClients.forEach((name, id) => {
+                    const isChecked = preselectedClients.includes(id) ? 'checked' : '';
+                    listDiv.append(`
+                        <div class="custom-control custom-checkbox mb-1">
+                            <input type="checkbox" class="custom-control-input target-client-cb" id="tc_${id}" value="${id}" ${isChecked}>
+                            <label class="custom-control-label" for="tc_${id}">${name}</label>
+                        </div>
+                    `);
+                });
+            }
+            container.show();
+        } catch (err) {
+            console.error("Müvekkiller çekilemedi:", err);
         }
     }
 }

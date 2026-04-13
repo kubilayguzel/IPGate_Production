@@ -179,10 +179,16 @@
                         </div>
 
                     <div class="form-group">
-                        <label class="font-weight-bold">Bu Raporu Görebilecek Portal Kullanıcıları</label>
-                        <div id="portalUsersContainer" class="border p-3 rounded" style="max-height: 200px; overflow-y: auto; background: #f8f9fa;">
-                            <div class="text-center text-muted small"><i class="fas fa-spinner fa-spin"></i> Kullanıcılar yükleniyor...</div>
-                        </div>
+                        <label>Bu Raporu Görebilecek Portal Kullanıcıları</label>
+                        <select id="reportAssignedUsers" class="form-control select2-users" multiple="multiple"></select>
+                    </div>
+                    
+                    <div class="form-group mt-3" id="reportTargetClientsContainer" style="display: none;">
+                        <label>Raporun Aktif Olacağı Müvekkiller <br>
+                            <small class="text-danger">(Kullanıcının portalda hangi firmayı seçtiğinde bu raporu göreceğini belirleyin)</small>
+                        </label>
+                        <div id="reportTargetClientsList" class="border p-2 rounded bg-light" style="max-height: 150px; overflow-y: auto;">
+                            </div>
                     </div>
                 </form>
                 </div>

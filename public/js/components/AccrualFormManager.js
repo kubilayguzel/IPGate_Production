@@ -561,8 +561,11 @@ export class AccrualFormManager {
                 items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount, currency });
                 totalsMap[currency] = (totalsMap[currency] || 0) + total_amount;
 
-                if (fee_type.includes('Harç')) fallbackOffAmount += total_amount;
-                else fallbackSrvAmount += total_amount;
+                // 🔥 SORUN 1 ÇÖZÜMÜ: Düzenleme modunda rakamların şişmemesi için 
+                // KDV'li (total_amount) yerine, KDV'siz (Birim x Adet) ham fiyatı kaydediyoruz.
+                const preVatAmount = quantity * unit_price;
+                if (fee_type.includes('Harç')) fallbackOffAmount += preVatAmount;
+                else fallbackSrvAmount += preVatAmount;
             }
         });
 

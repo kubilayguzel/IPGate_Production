@@ -61,6 +61,7 @@ export class AccrualDataManager {
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     description: row.description || d.description || '', 
+                    items: row.items || d.items || [],
                     
                     // 🔥 ÇÖZÜM 2: Gelen belgeler (documents) UI'ın anladığı 'files' dizisine dönüştürülüyor
                     files: row.accrual_documents && row.accrual_documents.length > 0 
@@ -328,7 +329,10 @@ export class AccrualDataManager {
             vat_rate: formData.vatRate || 20,
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
-            description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null)
+            description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
+            tpe_invoice_no: formData.tpeInvoiceNo || null,
+            evreka_invoice_no: formData.evrekaInvoiceNo || null,
+            details: { items: formData.items }
         };
 
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
@@ -392,6 +396,9 @@ export class AccrualDataManager {
 
         const payload = {
             ...formData,
+            tpe_invoice_no: formData.tpeInvoiceNo || null,
+            evreka_invoice_no: formData.evrekaInvoiceNo || null,
+            details: { ...(currentAccrual.details || {}), items: formData.items },
             totalAmount: newTotalArray,
             // Eğer statü 'unpaid' (ödenmedi) ise Kalan Tutar, Toplam Tutar'a eşittir.
             // Eğer 'paid' (ödendi) ise Kalan Tutar boş dizi [] olmalıdır.

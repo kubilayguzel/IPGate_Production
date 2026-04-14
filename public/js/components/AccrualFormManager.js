@@ -87,12 +87,12 @@ export class AccrualFormManager {
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="bg-light text-muted">
                             <tr>
-                                <th style="width: 150px;">Türü</th>
+                                <th style="width: 220px;">Türü</th>
                                 <th>Kalem Açıklaması</th>
-                                <th style="width: 90px;">Adet</th>
-                                <th style="width: 130px;">Birim Fiyat</th>
+                                <th style="width: 70px;">Adet</th>
+                                <th style="width: 110px;">Birim Fiyat</th>
                                 <th style="width: 90px;">KDV(%)</th>
-                                <th style="width: 100px;">Birim</th>
+                                <th style="width: 80px;">Birim</th>
                                 <th style="width: 140px;" class="text-right">Toplam</th>
                                 <th style="width: 50px;"></th>
                             </tr>

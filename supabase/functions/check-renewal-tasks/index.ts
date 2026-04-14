@@ -96,7 +96,7 @@ serve(async (req) => {
         }
     }
 
-    // TÜM MARKALARI ÇEK
+    // TÜM AKTİF MARKALARI ÇEK (status kolonuna bakarak rejected, expired vb. olanları dışla)
     const { data: ipRecords, error: ipError } = await supabaseAdmin.from('ip_records')
         .select(`
             id, 
@@ -110,7 +110,7 @@ serve(async (req) => {
             ip_record_trademark_details(brand_name),
             ip_record_applicants(person_id, persons(name))
         `)
-        .not('status', 'in', '("geçersiz", "rejected", "expired", "invalidated", "reddedildi")');
+        .not('status', 'in', '(geçersiz,rejected,expired,invalidated,reddedildi)');
 
     if (ipError) throw new Error("Markalar çekilemedi: " + ipError.message);
 
@@ -133,6 +133,17 @@ serve(async (req) => {
         }
 
         if ((record.wipo_ir || record.origin === 'WIPO' || record.origin === 'ARIPO') && record.transaction_hierarchy !== 'parent') {
+            continue;
+        }
+
+        // 🔥 YENİ EKLENEN KOD: TÜRKPATENT Tasarım, Patent ve Faydalı Modellerini Atla
+        if (
+            (record.origin === 'TURK' || record.origin === 'TÜRKPATENT') && 
+            record.application_number && 
+            (record.application_number.startsWith('T/') || 
+             record.application_number.startsWith('D/') || 
+             record.application_number.startsWith('K/'))
+        ) {
             continue;
         }
 

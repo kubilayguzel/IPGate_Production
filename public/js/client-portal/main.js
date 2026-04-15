@@ -991,10 +991,11 @@ class ClientPortalController {
             
             if (action === 'approve' && confirm('Bu işi onaylamak istiyor musunuz?')) {
                 try {
-                    // 1. Görevi çekip görev tipini (task_type_id) ve detaylarını öğrenelim
+                    // 1. Görevi çekip görev tipini (task_type_id), durumunu ve detaylarını öğrenelim
                     const { data: taskData, error: taskError } = await supabase
                         .from('tasks')
-                        .select('task_type_id, details')
+                        // 🔥 DÜZELTME: Logda eski durumu tutabilmek için 'status' alanını da çekiyoruz
+                        .select('task_type_id, details, status') 
                         .eq('id', taskId)
                         .single();
                         
@@ -1009,7 +1010,6 @@ class ClientPortalController {
                             .eq('id', String(taskData.task_type_id))
                             .maybeSingle();
 
-                        // Eğer kural varsa ve içinde atanacak kişiler tanımlanmışsa ilk kişiyi seç
                         if (assignmentData && assignmentData.assignee_ids && assignmentData.assignee_ids.length > 0) {
                             assignedToUser = assignmentData.assignee_ids[0]; 
                         }
@@ -1023,18 +1023,31 @@ class ClientPortalController {
                         try { currentDetails = JSON.parse(currentDetails); } catch(err) { currentDetails = {}; }
                     }
                     
-                    // Kural varsa kişiyi ata
                     if (assignedToUser) {
                         updatePayload.assigned_to = assignedToUser;
                     }
                     
-                    // Onay tarihini JSON'a (details) gömüyoruz
                     currentDetails.clientApprovedAt = new Date().toISOString();
                     updatePayload.details = currentDetails;
 
-                    // Veritabanını güncelle
+                    // Görev Veritabanını güncelle
                     const { error: updateError } = await supabase.from('tasks').update(updatePayload).eq('id', taskId);
                     if (updateError) throw updateError;
+                    
+                    // =========================================
+                    // 🔥 YENİ EKLENEN: ONAYLAMA İŞLEMİNİ LOGLA
+                    // =========================================
+                    const currentUser = await supabase.auth.getUser();
+                    await supabase.from('task_history').insert({
+                        task_id: taskId,
+                        user_id: currentUser.data.user?.id,
+                        action: 'client_approval', // İşlem tipi
+                        details: {
+                            old_status: taskData.status || 'awaiting_client_approval',
+                            new_status: 'open',
+                            note: 'Müvekkil Portalı üzerinden ONAYLANDI.'
+                        }
+                    });
                     
                     alert('İş başarıyla onaylandı ve ilgili uzmana iletildi.');
                     await this.loadAllData();
@@ -1043,11 +1056,11 @@ class ClientPortalController {
                     alert('İş onaylanırken bir hata oluştu.');
                 }
                 
-                } else if (action === 'reject') {
-                // 🔥 ÇÖZÜM 4: Prompt kaldırıldı, yerine onay sorusu getirildi
+            } else if (action === 'reject') {
                 if (confirm('Bu işi reddetmek ve kapatmak istediğinize emin misiniz?')) { 
                     try {
-                        const { data: taskData } = await supabase.from('tasks').select('details').eq('id', taskId).single();
+                        // 🔥 DÜZELTME: 'status' bilgisini çektik
+                        const { data: taskData } = await supabase.from('tasks').select('details, status').eq('id', taskId).single();
                         
                         let currentDetails = taskData?.details || {};
                         if (typeof currentDetails === 'string') {
@@ -1056,7 +1069,6 @@ class ClientPortalController {
                         
                         currentDetails.clientRejectedAt = new Date().toISOString();
 
-                        // 🔥 ÇÖZÜM: Trigger'ın çalışıp fatura/işlemleri iptal etmesi için statüyü 'client_approval_closed' yapıyoruz
                         const { error } = await supabase.from('tasks')
                             .update({ 
                                 status: 'client_approval_closed', 
@@ -1066,6 +1078,21 @@ class ClientPortalController {
                             .eq('id', taskId);
 
                         if (error) throw error;
+                        
+                        // =========================================
+                        // 🔥 YENİ EKLENEN: REDDETME İŞLEMİNİ LOGLA
+                        // =========================================
+                        const currentUser = await supabase.auth.getUser();
+                        await supabase.from('task_history').insert({
+                            task_id: taskId,
+                            user_id: currentUser.data.user?.id,
+                            action: 'client_rejection', // İşlem tipi
+                            details: {
+                                old_status: taskData.status || 'awaiting_client_approval',
+                                new_status: 'client_approval_closed',
+                                note: 'Müvekkil Portalı üzerinden REDDEDİLDİ.'
+                            }
+                        });
                         
                         alert('İş reddedildi ve iptal işlemleri başlatıldı.');
                         await this.loadAllData();

@@ -1096,9 +1096,30 @@ class ClientPortalController {
 
             document.getElementById('portfolioDetailModalLabel').textContent = item.title;
             document.getElementById('modal-img').src = item.brandImageUrl || 'https://placehold.co/150x150?text=Yok';
-            document.getElementById('modal-details-card').innerHTML = `<p><strong>Tür:</strong> ${displayType}</p><p><strong>Başvuru No:</strong> ${item.applicationNumber}</p><p><strong>Sınıflar:</strong> ${item.classes}</p>`;
-            document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.renderHelper.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.renderHelper.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${displayStatus}</span>`;
             
+            // 🔥 YENİ: Menşe ve Ülke bilgisini hazırlıyoruz
+            let originText = item.origin || 'TÜRKPATENT';
+            let countryHtml = '';
+            
+            // 🔥 DÜZELTME: Ülke bilgisi sadece Yurtdışı Ulusal ise gösterilecek. 
+            // WIPO ve ARIPO sadece Menşe olarak görünecek.
+            const upperOrigin = originText.toUpperCase();
+            if (upperOrigin === 'YURTDIŞI ULUSAL' || upperOrigin === 'YURTDISI ULUSAL') {
+                // Ülke kodunu Türkçe isme çeviriyoruz (örn: US -> Amerika Birleşik Devletleri)
+                const countryName = this.state.countries.get(item.country) || item.country || 'Belirtilmedi';
+                countryHtml = `<p><strong>Ülke:</strong> ${countryName}</p>`;
+            }
+
+            // 🔥 YENİ: Varlık Detayları kartına Menşe ve Ülkeyi basıyoruz
+            document.getElementById('modal-details-card').innerHTML = `
+                <p><strong>Tür:</strong> ${displayType}</p>
+                <p><strong>Menşe:</strong> ${originText}</p>
+                ${countryHtml}
+                <p><strong>Başvuru No:</strong> ${item.applicationNumber}</p>
+                <p><strong>Sınıflar:</strong> ${item.classes}</p>
+            `;
+            
+            document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.renderHelper.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.renderHelper.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${displayStatus}</span>`;
             // 🔥 ÇÖZÜM 2: Eşya Listesi Gösterimi (Veritabanından gelen items'lar)
             if (item.fullClasses && item.fullClasses.length > 0) {
                 const classesHtml = item.fullClasses.map(c => `

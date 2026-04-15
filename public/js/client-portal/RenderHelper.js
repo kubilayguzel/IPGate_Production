@@ -400,7 +400,17 @@ export class RenderHelper {
 
             const dateVal = this.formatDate(task.dueDate);
             const dateLabel = isCompletedView ? 'Oluşturma Tarihi:' : 'Son Onay Tarihi:';
-            const dateWarning = !isCompletedView ? `<span class="text-muted ml-2 d-block d-sm-inline" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların bu tarihten önce iletilmesi beklenmektedir.)</span>` : '';
+            
+            // 🔥 YENİ: Yenileme görevleri (22) için özel uyarı metni
+            let dateWarning = '';
+            if (!isCompletedView) {
+            // 🔥 DÜZELTME: Uzun metin butonları kaydırdığı için ikinci cümleyi <br> ile alt satıra alıyoruz
+            if (String(task.taskType) === '22') {
+                dateWarning = `<span class="text-muted ml-2 d-block d-sm-inline" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların bu tarihten önce iletilmesi beklenmektedir.<br>Bu tarihten sonra yenileme işleminin ek süre içinde yapılıp yapılmayacağı hususunu müvekkil temsilcinizden teyit etmeniz beklenmektedir.)</span>`;
+            } else {
+                    dateWarning = `<span class="text-muted ml-2 d-block d-sm-inline" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların bu tarihten önce iletilmesi beklenmektedir.)</span>`;
+                }
+            }
 
             return `
             <div class="col-12 mb-4">

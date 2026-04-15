@@ -212,7 +212,7 @@ export class AccrualFormManager {
         
         tr.innerHTML = `
             <td>
-                <select class="form-control form-control-sm item-type font-weight-bold border-0 bg-transparent">
+                <select class="form-control form-control-sm item-type font-weight-bold border-0 bg-transparent" style="height: 35px !important; padding: 4px 8px !important; font-size: 0.9rem;">
                     <option value="Hizmet" ${item.fee_type === 'Hizmet' ? 'selected' : ''}>EVREKA Hizmeti</option>
                     <option value="TP Harç" ${item.fee_type === 'TP Harç' ? 'selected' : ''}>TP Harç</option>
                     <option value="TP Hizmet" ${item.fee_type === 'TP Hizmet' ? 'selected' : ''}>TP Hizmet</option>
@@ -232,7 +232,7 @@ export class AccrualFormManager {
                 <input type="number" class="form-control form-control-sm item-vat text-center" value="${item.vat_rate !== undefined ? item.vat_rate : 20}" min="0" step="1">
             </td>
             <td>
-                <select class="form-control form-control-sm item-currency">
+                <select class="form-control form-control-sm item-currency" style="height: 35px !important; padding: 4px 8px !important;">
                     <option value="TRY" ${item.currency === 'TRY' ? 'selected' : ''}>TRY</option>
                     <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option>
                     <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>

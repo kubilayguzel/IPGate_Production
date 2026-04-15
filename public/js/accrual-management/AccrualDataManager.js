@@ -21,7 +21,7 @@ export class AccrualDataManager {
 
     async fetchAllData() {
         try {
-            const accPromise = supabase.from('accruals').select('*, accrual_documents(*)').limit(10000).order('created_at', { ascending: false });
+            const accPromise = supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').limit(10000).order('created_at', { ascending: false });
             // 🔥 YENİ: Faturaları da çekiyoruz
             const invPromise = supabase.from('invoices').select('*').limit(5000).order('created_at', { ascending: false });
 
@@ -61,7 +61,7 @@ export class AccrualDataManager {
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     description: row.description || d.description || '', 
-                    items: row.items || d.items || [],
+                    items: row.accrual_items || d.items || [],
                     
                     // 🔥 ÇÖZÜM 2: Gelen belgeler (documents) UI'ın anladığı 'files' dizisine dönüştürülüyor
                     files: row.accrual_documents && row.accrual_documents.length > 0 
@@ -332,11 +332,25 @@ export class AccrualDataManager {
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
-            details: { items: formData.items }
         };
 
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
         if (accError) throw accError;
+
+        // 🔥 DOĞRU ÇÖZÜM: Tahakkuk kalemlerini accrual_items tablosuna kaydediyoruz
+        if (formData.items && formData.items.length > 0) {
+            const itemsToInsert = formData.items.map(item => ({
+                accrual_id: String(newAccrualId),
+                fee_type: item.fee_type,
+                item_name: item.item_name,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                vat_rate: item.vat_rate,
+                total_amount: item.total_amount,
+                currency: item.currency
+            }));
+            await supabase.from('accrual_items').insert(itemsToInsert);
+        }
 
         const filesToProcess = fileToUpload ? [fileToUpload] : formData.files;
         if (filesToProcess && filesToProcess.length > 0) {
@@ -398,7 +412,6 @@ export class AccrualDataManager {
             ...formData,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
-            details: { ...(currentAccrual.details || {}), items: formData.items },
             totalAmount: newTotalArray,
             // Eğer statü 'unpaid' (ödenmedi) ise Kalan Tutar, Toplam Tutar'a eşittir.
             // Eğer 'paid' (ödendi) ise Kalan Tutar boş dizi [] olmalıdır.
@@ -408,6 +421,24 @@ export class AccrualDataManager {
 
         const res = await accrualService.updateAccrual(accrualId, payload);
         if (!res.success) throw new Error(res.error);
+        // 🔥 DOĞRU ÇÖZÜM: Düzenleme modunda eski kalemleri silip yenilerini ekliyoruz
+        if (formData.items) {
+            await supabase.from('accrual_items').delete().eq('accrual_id', String(accrualId));
+            
+            if (formData.items.length > 0) {
+                const itemsToInsert = formData.items.map(item => ({
+                    accrual_id: String(accrualId),
+                    fee_type: item.fee_type,
+                    item_name: item.item_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    vat_rate: item.vat_rate,
+                    total_amount: item.total_amount,
+                    currency: item.currency
+                }));
+                await supabase.from('accrual_items').insert(itemsToInsert);
+            }
+        }
         await this.fetchAllData(); 
     }
 

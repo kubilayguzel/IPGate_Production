@@ -1132,9 +1132,49 @@ class ClientPortalController {
             } else {
                 document.getElementById('esyaListesiContent').innerHTML = '<p class="text-muted">Eşya listesi detayı bulunamadı.</p>';
             }
+
+            // 🔥 YENİ: Ülkeler Sekmesi Kontrolü (Sadece WIPO/ARIPO ve Alt Kaydı Olanlar İçin)
+            const originRaw = (item.origin || '').toUpperCase();
+            const childRecords = this.state.portfolios.filter(p => p.parentId === item.id);
+            const ulkelerTabContainer = document.getElementById('modal-ulkeler-tab-container');
+            const ulkelerTbody = document.querySelector('#modal-ulkeler tbody');
+            
+            if ((originRaw === 'WIPO' || originRaw === 'ARIPO') && childRecords.length > 0) {
+                ulkelerTabContainer.style.display = 'block'; // Sekmeyi Görünür Yap
+                
+                // Ülkeleri alfabeye göre sıralıyoruz
+                childRecords.sort((a, b) => {
+                    const cA = (this.state.countries.get(a.country) || a.country || '').toLowerCase();
+                    const cB = (this.state.countries.get(b.country) || b.country || '').toLowerCase();
+                    return cA.localeCompare(cB, 'tr');
+                });
+
+                // public/js/client-portal/main.js içindeki ilgili map fonksiyonu
+                ulkelerTbody.innerHTML = childRecords.map((child, index) => {
+                    const cCountry = this.state.countries.get(child.country) || child.country || '-';
+                    const cSt = (child.status || '').toLowerCase();
+                    const cDisplayStatus = statusTranslations[cSt] || child.status || '-';
+                    
+                    let badgeClass = 'secondary';
+                    if (cSt.includes('tescil') || cSt.includes('registered')) badgeClass = 'success';
+                    else if (cSt.includes('başvuru') || cSt.includes('filed')) badgeClass = 'primary';
+                    else if (cSt.includes('red') || cSt.includes('rejected')) badgeClass = 'danger';
+                    else if (cSt.includes('itiraz') || cSt.includes('opposition')) badgeClass = 'warning';
+
+                    return `<tr>
+                        <td class="align-middle">${index + 1}</td> <td class="font-weight-bold align-middle">${cCountry}</td>
+                        <td class="align-middle"><span class="badge badge-${badgeClass}">${cDisplayStatus}</span></td>
+                        <td class="align-middle">${child.applicationNumber || '-'}</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                // Eğer WIPO değilse veya alt ülkesi yoksa sekmeyi tamamen gizle
+                ulkelerTabContainer.style.display = 'none';
+                if (ulkelerTbody) ulkelerTbody.innerHTML = '';
+            }
             
             document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
-            $('#portfolioDetailModal').modal('show'); $('#myTab a[href="#modal-islemler"]').tab('show'); 
+            $('#portfolioDetailModal').modal('show'); $('#myTab a[href="#modal-islemler"]').tab('show');
             
             // 🔥 ÇÖZÜM 3: Güvenli İşlem Geçmişi Çekimi (Zırhlı)
             try {

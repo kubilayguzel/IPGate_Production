@@ -272,7 +272,20 @@ export class RenderHelper {
                     cardTitle += ` - ${targetAppNo} - ${compName}`;
                 } else {
                     // Diğer işlerde müvekkilin kendi markasını göster
-                    cardTitle += ` - ${task.appNo} - ${task.recordTitle}`;
+                    // 🔥 YENİ: Menşe ve Ülke bilgisini başlığa ekleme
+                    let originSuffix = '';
+                    const origin = task.origin || '';
+                    const upperOrigin = origin.toUpperCase();
+
+                    if (upperOrigin === 'YURTDIŞI ULUSAL' || upperOrigin === 'YURTDISI ULUSAL') {
+                        const countryCode = task.country;
+                        const countryName = this.state?.countries?.get(countryCode) || countryCode || 'Belirtilmedi';
+                        originSuffix = ` (${countryName})`;
+                    } else if (origin && origin !== '-') {
+                        originSuffix = ` (${origin})`;
+                    }
+
+                    cardTitle += ` - ${task.appNo} - ${task.recordTitle}${originSuffix}`;
                 }
             }
 

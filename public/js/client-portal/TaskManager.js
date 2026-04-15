@@ -36,7 +36,7 @@ export class TaskManager {
             // 1. Temel IP Verilerini Çek (Standart / Diğer görevler için)
             const promises = [];
             if (taskIpIds.length > 0) {
-                promises.push(supabase.from('ip_records').select('id, application_number, application_date').in('id', taskIpIds));
+                promises.push(supabase.from('ip_records').select('id, application_number, application_date, origin, country_code').in('id', taskIpIds));
                 promises.push(supabase.from('ip_record_trademark_details').select('ip_record_id, brand_name, brand_image_url').in('ip_record_id', taskIpIds));
                 promises.push(supabase.from('ip_record_applicants').select('ip_record_id, person_id').in('ip_record_id', taskIpIds).eq('order_index', 0));
                 promises.push(supabase.from('ip_record_classes').select('ip_record_id, class_no').in('ip_record_id', taskIpIds));
@@ -74,6 +74,8 @@ export class TaskManager {
                 ipMap.set(ip.id, { 
                     appNo: ip.application_number, 
                     appDate: ip.application_date,
+                    origin: ip.origin, // 🔥 EKLENDİ
+                    country: ip.country_code, // 🔥 EKLENDİ
                     applicantName: ipApplicantMap.get(ip.id) || '-',
                     niceClasses: ipClassMap.has(ip.id) ? ipClassMap.get(ip.id).join(', ') : '-'
                 });
@@ -183,6 +185,8 @@ export class TaskManager {
                     brandImageUrl: ipRecord.brandImageUrl || '',
                     applicantName: ipRecord.applicantName || '-',
                     niceClasses: ipRecord.niceClasses || '-',
+                    origin: ipRecord.origin || '-', // 🔥 EKLENDİ
+                    country: ipRecord.country || '-', // 🔥 EKLENDİ
                     clientId: task.task_owner_id,
                     details: parsedDetails,
                     _relatedClientIds: [task.task_owner_id, ...clientIds].filter(Boolean)

@@ -601,10 +601,25 @@
                 <ul class="nav nav-tabs" id="myTab" role="tablist">
                     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#modal-islemler">İşlemler</a></li>
                     <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#modal-esya">Eşya Listesi</a></li>
+                    <li class="nav-item" id="modal-ulkeler-tab-container" style="display:none;"><a class="nav-link" data-toggle="tab" href="#modal-ulkeler">Ülkeler</a></li>
                 </ul>
                 <div class="tab-content tab-content-card">
                     <div class="tab-pane fade show active" id="modal-islemler"><table class="table"><thead><tr><th>#</th><th>İşlem</th><th>Tarih</th><th>Evrak</th></tr></thead><tbody></tbody></table></div>
                     <div class="tab-pane fade" id="modal-esya"><div id="esyaListesiContent" class="p-2"></div></div>
+                    <div class="tab-pane fade" id="modal-ulkeler">
+                        <div id="ulkelerListesiContent" class="p-2">
+                            <table class="table table-hover table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>#</th> <th>Ülke Adı</th>
+                                        <th>Durum</th>
+                                        <th>Başvuru No</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

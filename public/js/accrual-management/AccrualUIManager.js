@@ -127,8 +127,31 @@ export class AccrualUIManager {
 
                 const tfn = acc.tpeInvoiceNo || '-';
                 const efn = acc.evrekaInvoiceNo || '-';
-                const officialStr = acc.officialFee ? this._formatMoney(acc.officialFee.amount, acc.officialFee.currency) : '-';
+                // --- 🔥 YENİ HESAPLAMA MANTIĞI BAŞLANGICI ---
+                const items = acc.items || [];
+                
+                // 1. Hizmet Ücreti (Sadece Evreka Hizmeti)
+                const srvItems = items.filter(i => i.fee_type === 'Hizmet');
+                const srvMap = {};
+                srvItems.forEach(i => {
+                    const curr = i.currency || 'TRY';
+                    srvMap[curr] = (srvMap[curr] || 0) + (Number(i.unit_price) * Number(i.quantity));
+                });
+                const serviceStr = Object.keys(srvMap).length > 0 
+                    ? Object.entries(srvMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
+                    : '-';
 
+                // 2. Resmi Ücret (Evreka Hizmeti dışındaki her şey: Harç, TP Hizmet, Masraf, Yurtdışı Maliyet)
+                const offItems = items.filter(i => i.fee_type !== 'Hizmet');
+                const offMap = {};
+                offItems.forEach(i => {
+                    const curr = i.currency || 'TRY';
+                    offMap[curr] = (offMap[curr] || 0) + (Number(i.unit_price) * Number(i.quantity));
+                });
+                const officialStr = Object.keys(offMap).length > 0 
+                    ? Object.entries(offMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
+                    : '-';
+                // --- 🔥 YENİ HESAPLAMA MANTIĞI BİTİŞİ ---
                 // Artık ödenmiş olanlar da düzenlenebilecek, o yüzden disabled kilidini kaldırıyoruz
                 const editBtnClass = 'btn btn-sm btn-light text-warning edit-btn action-btn';
                 const editBtnStyle = 'cursor: pointer;';
@@ -221,8 +244,6 @@ export class AccrualUIManager {
                     </tr>`;
                 }
                 else if (activeTab === 'main') {
-                    const serviceStr = acc.serviceFee ? this._formatMoney(acc.serviceFee.amount, acc.serviceFee.currency) : '-';
-                    
                     return `
                     <tr>
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
@@ -411,6 +432,42 @@ export class AccrualUIManager {
         const totalStr = this._formatMoney(accrual.totalAmount);
         const remainingStr = this._formatMoney(accrual.remainingAmount);
 
+        let itemsHtml = '';
+        if (accrual.items && accrual.items.length > 0) {
+            itemsHtml = accrual.items.map(i => {
+                const qty = Number(i.quantity) || 1;
+                const unitPrice = Number(i.unit_price) || 0;
+                const vat = Number(i.vat_rate) || 0;
+                const total = Number(i.total_amount) || 0;
+                const curr = i.currency || 'TRY';
+                
+                return `
+                <div class="d-flex justify-content-between mb-2 pb-2 border-bottom" style="font-size: 0.9em;">
+                    <div class="d-flex flex-column">
+                        <span class="font-weight-bold text-dark">${i.item_name || '-'} <span class="badge badge-light text-muted ml-1 border">${i.fee_type || '-'}</span></span>
+                        <span class="text-muted" style="font-size: 0.85em;">${qty} x ${this._formatMoney(unitPrice, curr)} (KDV: %${vat})</span>
+                    </div>
+                    <strong class="text-dark align-self-center">${this._formatMoney(total, curr)}</strong>
+                </div>`;
+            }).join('');
+        } else {
+            // Eğer çok eski bir tahakkuksa ve içinde item yoksa eski görünümü koru
+            itemsHtml = `
+                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                    <span class="text-secondary">Resmi Ücret:</span>
+                    <strong class="text-dark">${offFeeStr}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                    <span class="text-secondary">Hizmet/Masraf:</span>
+                    <strong class="text-dark">${srvFeeStr}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                    <span class="text-secondary">KDV Oranı:</span>
+                    <strong class="text-dark">%${accrual.vatRate || 0} <small class="text-muted font-weight-normal">(Resmiye Dahil: ${applyVatToOfficial})</small></strong>
+                </div>
+            `;
+        }
+
         body.innerHTML = `
             <div class="container-fluid p-0" style="font-size: 0.95rem; color: #333;">
                 
@@ -462,17 +519,9 @@ export class AccrualUIManager {
                                 <i class="fas fa-coins mr-2 text-success"></i>Finansal Detaylar
                             </div>
                             <div class="card-body p-3">
-                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
-                                    <span class="text-secondary">Resmi Ücret:</span>
-                                    <strong class="text-dark">${offFeeStr}</strong>
-                                </div>
-                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
-                                    <span class="text-secondary">Hizmet/Masraf:</span>
-                                    <strong class="text-dark">${srvFeeStr}</strong>
-                                </div>
-                                <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
-                                    <span class="text-secondary">KDV Oranı:</span>
-                                    <strong class="text-dark">%${accrual.vatRate || 0} <small class="text-muted font-weight-normal">(Resmiye Dahil: ${applyVatToOfficial})</small></strong>
+                                <div class="mb-3">
+                                    <h6 class="text-secondary font-weight-bold border-bottom pb-2 mb-3">Kalem Detayları</h6>
+                                    ${itemsHtml}
                                 </div>
                                 <div class="d-flex justify-content-between mb-3 pt-2">
                                     <span class="font-weight-bold text-primary">GENEL TOPLAM:</span>

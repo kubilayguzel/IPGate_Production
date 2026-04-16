@@ -387,26 +387,22 @@ export class AccrualDataManager {
         const currentAccrual = this.allAccruals.find(a => a.id === accrualId);
         if (!currentAccrual) throw new Error("Tahakkuk bulunamadı.");
 
-        // 🔥 ÇÖZÜM 1: Ücretler güncellendiyse Total ve Remaining (Kalan Tutar) Array'lerini yeniden hesapla!
-        const vatRate = formData.vatRate !== undefined ? formData.vatRate : (currentAccrual.vatRate || 20);
-        const applyVatOff = formData.applyVatToOfficialFee !== undefined ? formData.applyVatToOfficialFee : currentAccrual.applyVatToOfficialFee;
-        const vatMultiplier = 1 + (vatRate / 100);
-
-        const offAmt = parseFloat(formData.officialFee?.amount || currentAccrual.officialFeeAmount || 0);
-        const offCur = formData.officialFee?.currency || currentAccrual.officialFeeCurrency || 'TRY';
-        const finalOffAmt = applyVatOff ? offAmt * vatMultiplier : offAmt;
-
-        const srvAmt = parseFloat(formData.serviceFee?.amount || currentAccrual.serviceFeeAmount || 0);
-        const srvCur = formData.serviceFee?.currency || currentAccrual.serviceFeeCurrency || 'TRY';
-        const finalSrvAmt = srvAmt * vatMultiplier;
-
-        // Tutarları kurlarına göre gruplayıp toplayalım
-        const sumsMap = {};
-        if (finalOffAmt > 0) sumsMap[offCur] = (sumsMap[offCur] || 0) + finalOffAmt;
-        if (finalSrvAmt > 0) sumsMap[srvCur] = (sumsMap[srvCur] || 0) + finalSrvAmt;
-
-        // Dizi (Array) formatına çevir
-        const newTotalArray = Object.entries(sumsMap).map(([c, a]) => ({ amount: a, currency: c }));
+        // 🔥 YENİ ÇÖZÜM: Ücretler düzenlendiğinde eski "tek döviz cinsi" hesaplamasını pas geçip, 
+        // formdan gelen KDV'si zaten hesaplanmış çoklu kur Array'ini (formData.totalAmount) doğrudan alıyoruz.
+        let newTotalArray = currentAccrual.totalAmount || [];
+        
+        if (formData.items && formData.items.length > 0) {
+            const sumsMap = {};
+            formData.items.forEach(item => {
+                const amt = Number(item.total_amount) || 0;
+                const curr = item.currency || 'TRY';
+                if (!sumsMap[curr]) sumsMap[curr] = 0;
+                sumsMap[curr] += amt;
+            });
+            newTotalArray = Object.entries(sumsMap).map(([c, a]) => ({ amount: a, currency: c }));
+        } else if (formData.totalAmount && formData.totalAmount.length > 0) {
+            newTotalArray = formData.totalAmount;
+        }
 
         const payload = {
             ...formData,

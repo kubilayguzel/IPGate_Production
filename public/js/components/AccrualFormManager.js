@@ -217,6 +217,7 @@ export class AccrualFormManager {
                     <option value="TP Harç" ${item.fee_type === 'TP Harç' ? 'selected' : ''}>TP Harç</option>
                     <option value="TP Hizmet" ${item.fee_type === 'TP Hizmet' ? 'selected' : ''}>TP Hizmet</option>
                     <option value="Masraf" ${item.fee_type === 'Masraf' ? 'selected' : ''}>Masraf/Diğer</option>
+                    <option value="Yurtdışı Maliyet" ${item.fee_type === 'Yurtdışı Maliyet' ? 'selected' : ''}>Yurtdışı Maliyet</option>
                 </select>
             </td>
             <td>
@@ -255,6 +256,10 @@ export class AccrualFormManager {
             } else if (type === 'TP Harç' || type === 'TP Hizmet') {
                 tr.style.backgroundColor = '#ebf8ff'; 
                 tr.querySelector('.item-type').style.color = '#2b6cb0';
+            } else if (type === 'Yurtdışı Maliyet') {
+                // 🔥 YENİ: Yurtdışı Maliyet için hafif kırmızı/pembe tema
+                tr.style.backgroundColor = '#fff5f5'; 
+                tr.querySelector('.item-type').style.color = '#c53030';
             } else {
                 tr.style.backgroundColor = '#ffffff'; 
                 tr.querySelector('.item-type').style.color = '#4a5568';
@@ -564,7 +569,7 @@ export class AccrualFormManager {
                 // 🔥 SORUN 1 ÇÖZÜMÜ: Düzenleme modunda rakamların şişmemesi için 
                 // KDV'li (total_amount) yerine, KDV'siz (Birim x Adet) ham fiyatı kaydediyoruz.
                 const preVatAmount = quantity * unit_price;
-                if (fee_type.includes('Harç')) fallbackOffAmount += preVatAmount;
+                if (fee_type.includes('Harç') || fee_type === 'Yurtdışı Maliyet') fallbackOffAmount += preVatAmount;
                 else fallbackSrvAmount += preVatAmount;
             }
         });

@@ -163,8 +163,37 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
             });
 
+            // YENİ SAYACLARI GÜNCELLE ÇAĞRISI BURAYA EKLENDİ
+            this.updateTabCounts();
+
             const currentQuery = document.getElementById('searchInput')?.value || '';
             this.handleSearch(currentQuery, preservePage); 
+        }
+
+        // 🔥 YENİ: Sayaçları Hesaplayan ve Ekrana Basan Fonksiyon
+        updateTabCounts() {
+            let counts = { general: 0, renewals: 0, opposition: 0, closed: 0 };
+
+            this.processedData.forEach(item => {
+                const isOpposition = String(item.taskType) === '20';
+                const isRenewal = String(item.taskType) === '22';
+                const isClosed = ['client_approval_closed', 'client_no_response_closed'].includes(item.status);
+
+                if (isClosed) counts.closed++;
+                else if (isRenewal) counts.renewals++;
+                else if (isOpposition) counts.opposition++;
+                else counts.general++;
+            });
+
+            const updateEl = (id, count) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = count;
+            };
+
+            updateEl('count-general', counts.general);
+            updateEl('count-renewals', counts.renewals);
+            updateEl('count-opposition', counts.opposition);
+            updateEl('count-closed', counts.closed);
         }
 
         handleSearch(query, preservePage = false) {
@@ -177,15 +206,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 // 🔥 YENİ SEKMELERE GÖRE FİLTRELEME
                 const isOpposition = String(item.taskType) === '20'; // 20: Yayına İtiraz
+                const isRenewal = String(item.taskType) === '22'; // 22: Yenileme
                 const isClosed = ['client_approval_closed', 'client_no_response_closed'].includes(item.status);
                 let matchesTab = false;
                 
                 if (this.activeTab === 'closed') {
                     matchesTab = isClosed; // Kapatılanlar sekmesinde sadece kapalılar
+                } else if (this.activeTab === 'renewals') {
+                    matchesTab = isRenewal && !isClosed; // 🔥 YENİ: Sadece Açık Yenilemeler
                 } else if (this.activeTab === 'general') {
-                    matchesTab = !isOpposition && !isClosed; // Diğer tetiklenenler
+                    matchesTab = !isOpposition && !isRenewal && !isClosed; // Diğer tüm tetiklenen işler
                 } else if (this.activeTab === 'opposition') {
-                    matchesTab = isOpposition && !isClosed; // Aktif Yayına itirazlar
+                    matchesTab = isOpposition && !isClosed; // Aktif Yayına İtirazlar
                 }
 
                 return matchesSearch && matchesStatus && matchesTab;

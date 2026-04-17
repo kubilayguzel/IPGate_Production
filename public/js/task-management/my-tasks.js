@@ -484,13 +484,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const taskId = btn.dataset.id;
                 
                 if (btn.classList.contains('view-btn') || btn.dataset.action === 'view') {
-                    const task = this.allTasks.find(t => t.id === taskId);
-                    if (task && String(task.taskType) === '2') {
-                        this.taskDetailManager.showApplicationSummary(task);
-                    } else {
-                        this.showTaskDetailModal(taskId);
-                    }
-                } 
+                    // 🔥 YENİ: taskType kontrolünü kaldırdık. 
+                    // Tüm işleri standart showTaskDetailModal'a gönderiyoruz.
+                    // Çünkü arka plandaki TaskDetailManager, iş tipi '2' ise modalı 
+                    // otomatik olarak genişletip Marka Başvuru Özetini çiziyor!
+                    this.showTaskDetailModal(taskId);
+                }
                 else if (btn.classList.contains('edit-btn') || btn.dataset.action === 'edit') {
                     const task = this.allTasks.find(t => t.id === taskId);
                     if (task && (String(task.taskType) === '53' || task.taskType === 'accrual_creation')) {

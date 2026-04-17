@@ -87,14 +87,25 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
   const registrationDate = turkpatentData.registrationDate ? formatDate(turkpatentData.registrationDate) : formatDate(details?.['Tescil Tarihi']);
   const regNo = registrationNumber || details?.['Tescil Numarası'] || null;
 
+  const finalAppDate = applicationDate || details?.['Başvuru Tarihi'];
+  const korumaTarihi = details?.['Koruma Tarihi'];
+
   let calculatedRenewalDate = null;
-  const topLevelRenewal = turkpatentData?.renewalDate || details?.['Yenileme Tarihi'];
-  if (topLevelRenewal) {
-    const d = new Date(formatDate(topLevelRenewal) || topLevelRenewal);
-    if (!isNaN(d.getTime())) calculatedRenewalDate = d.toISOString().split('T')[0];
-  } else if (registrationDate || applicationDate) {
-    const baseDate = new Date(registrationDate || formatDate(applicationDate) || applicationDate);
-    if (!isNaN(baseDate.getTime())) { baseDate.setFullYear(baseDate.getFullYear() + 10); calculatedRenewalDate = baseDate.toISOString().split('T')[0]; }
+
+  if (korumaTarihi) {
+    // 1. ÖNCELİK: "Koruma Tarihi" (Koruma Başlangıcı) geldiyse üzerine 10 yıl ekle
+    const baseDate = new Date(formatDate(korumaTarihi) || korumaTarihi);
+    if (!isNaN(baseDate.getTime())) { 
+        baseDate.setFullYear(baseDate.getFullYear() + 10); 
+        calculatedRenewalDate = baseDate.toISOString().split('T')[0]; 
+    }
+  } else if (finalAppDate) {
+    // 2. ÖNCELİK: Koruma Tarihi yoksa, "Başvuru Tarihi" üzerine 10 yıl ekle
+    const baseDate = new Date(formatDate(finalAppDate) || finalAppDate);
+    if (!isNaN(baseDate.getTime())) { 
+        baseDate.setFullYear(baseDate.getFullYear() + 10); 
+        calculatedRenewalDate = baseDate.toISOString().split('T')[0]; 
+    }
   }
 
   // ==========================================

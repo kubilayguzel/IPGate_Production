@@ -12,6 +12,7 @@ export class AccrualFormManager {
         
         this.selectedTpParty = null;
         this.selectedForeignParty = null;
+        this.currentData = null;
     }
 
     render() {
@@ -183,8 +184,17 @@ export class AccrualFormManager {
         document.getElementById(`${p}AddLineItemBtn`)?.addEventListener('click', () => this.addLineItem());
 
         const autoCalcBtn = document.getElementById(`${p}AutoCalcBtn`);
-        if (autoCalcBtn && this.onAutoCalc) {
-            autoCalcBtn.addEventListener('click', () => this.onAutoCalc());
+        if (autoCalcBtn) {
+            autoCalcBtn.addEventListener('click', () => {
+                if (this.onAutoCalc) {
+                    this.onAutoCalc();
+                } else {
+                    // YENİ EKLENDİ: O anki tahakkuk verisiyle global bir event fırlat
+                    document.dispatchEvent(new CustomEvent('accrual-auto-calc-request', { 
+                        detail: { accrualData: this.currentData } 
+                    }));
+                }
+            });
         }
 
         this.setupSearch(`${p}TpInvoiceParty`, (person) => { this.selectedTpParty = person; });
@@ -436,6 +446,8 @@ export class AccrualFormManager {
     setData(data) {
         const p = this.prefix;
         if(!data) return;
+        
+        this.currentData = data; // YENİ EKLENDİ: Form verisini hafızada tut
 
         this.originalRemainingAmount = data.remainingAmount || null;
         document.getElementById(`${p}AccrualType`).value = data.type || data.accrualType || (this.isFreestyle ? 'Masraf' : 'Hizmet');

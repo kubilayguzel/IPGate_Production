@@ -2423,6 +2423,20 @@ export const feeCalculationService = {
             const taskObj = extraParams.task || {};
             const ipRecord = extraParams.ipRecord || {};
             
+            // 🔥 1. ADIM EKLENTİSİ: GÖREV TİPİ 53 (TAHAKKUK OLUŞTURMA) İSE ASIL İŞİ BUL
+            if (String(taskTypeId) === '53' || (taskObj.title && taskObj.title.toLowerCase().includes('tahakkuk'))) {
+                let detailsObj = typeof taskObj.details === 'string' ? JSON.parse(taskObj.details) : (taskObj.details || {});
+                let parentId = detailsObj.parent_task_id || detailsObj.relatedTaskId || taskObj.relatedTaskId;
+
+                if (parentId) {
+                    const { data: parentTask } = await supabase.from('tasks').select('task_type_id').eq('id', String(parentId)).single();
+                    if (parentTask && parentTask.task_type_id) {
+                        taskTypeId = parentTask.task_type_id; 
+                        console.log(`[CALCULATION ENGINE] ✅ Asıl İş Bulundu! Yeni Görev Tipi: ${taskTypeId}`);
+                    }
+                }
+            }
+            
             // ---------------------------------------------------------
             // 1. ZAMAN TESPİTİ (Tarihe Göre Tarife Seçimi)
             // ---------------------------------------------------------

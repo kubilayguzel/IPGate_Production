@@ -431,6 +431,56 @@ document.addEventListener('DOMContentLoaded', async () => {
                 this.renderPage();
             });
 
+            // 🔥 2. ADIM EKLENTİSİ: MERKEZİ MOTORU ÇAĞIRAN YENİ DİNLEYİCİ
+            document.addEventListener('accrual-auto-calc-request', async (e) => {
+                const { accrualData } = e.detail;
+                
+                if (!accrualData || (!accrualData.taskId || accrualData.taskId === 'null')) {
+                    showNotification("Bu tahakkukun bağlı olduğu bir görev bulunamadı.", "warning");
+                    return;
+                }
+
+                this.uiManager.toggleLoading(true);
+                try {
+                    const { supabase, feeCalculationService } = await import('../../supabase-config.js');
+                    
+                    // 1. Görev ve Portföy verilerini çek
+                    const { data: taskData } = await supabase.from('tasks').select('*').eq('id', accrualData.taskId).single();
+                    if (!taskData) throw new Error("Görev bulunamadı.");
+
+                    let ipRecordData = {};
+                    if (taskData.ip_record_id) {
+                        const { data: ipData } = await supabase.from('ip_records').select('*').eq('id', taskData.ip_record_id).single();
+                        if (ipData) ipRecordData = ipData;
+                    }
+
+                    // 2. SUPABASE-CONFIG.JS'DEKİ MERKEZİ MOTORU ÇAĞIR
+                    const calculatedItems = await feeCalculationService.calculateAccrualItems({
+                        taskTypeId: taskData.task_type_id,
+                        clientId: taskData.task_owner_id,
+                        recordId: taskData.ip_record_id,
+                        extraParams: { task: taskData, ipRecord: ipRecordData }
+                    });
+
+                    if (!calculatedItems || calculatedItems.length === 0) {
+                        showNotification("Bu işlem için tanımlanmış bir tarife bulunamadı.", "warning");
+                        return;
+                    }
+
+                    // 3. Kalemleri Forma Bas
+                    if (this.uiManager.editFormManager) {
+                        this.uiManager.editFormManager.setCalculatedItems(calculatedItems);
+                        showNotification("Fatura kalemleri başarıyla hesaplandı.", "success");
+                    }
+
+                } catch (error) {
+                    console.error("Otomatik hesaplama hatası:", error);
+                    showNotification("Hesaplama hatası: " + error.message, "error");
+                } finally {
+                    this.uiManager.toggleLoading(false);
+                }
+            });
+
             $('a[data-toggle="tab"]').on('shown.bs.tab', (e) => {
                 const targetHref = $(e.target).attr("href");
                 if (targetHref === '#content-foreign') this.state.activeTab = 'foreign';

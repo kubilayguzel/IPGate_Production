@@ -328,16 +328,48 @@ serve(async (req: Request) => {
 
     if (rule && rule.template_id) {
         templateId = rule.template_id;
-        const { data: template } = await supabaseAdmin.from('mail_templates').select('*').eq('id', templateId).maybeSingle();
+        const { data: template } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', templateId).maybeSingle();
         
         if (template) {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
 
-            if (!isPortfolio && template.body2) {
-                rawBody = template.body2;
-            } else if (isPortfolio && template.body1) {
-                rawBody = template.body1;
+            // 🔥 1. ANA İŞLEM TİPİNİ BUL (Parent Task Type ID)
+            let parentTaskTypeId = null;
+            if (transactionData && transactionData.parent_id) {
+                const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
+                if (pTx && pTx.transaction_type_id) {
+                    parentTaskTypeId = String(pTx.transaction_type_id);
+                }
+            }
+
+            // 🔥 2. AKTİF ŞARTLARI BELİRLE
+            const recordOwnerType = isPortfolio ? 'self' : 'third_party';
+            const activeConditions = [`owner_${recordOwnerType}`];
+            if (parentTaskTypeId) activeConditions.push(`parent_${parentTaskTypeId}`);
+
+            console.log(`[HANDLE_INDEXED_VARIANT] 🔍 Şablon: ${templateId}, Şartlar:`, activeConditions);
+
+            // 🔥 3. VARYANT TABLOSUNDA ARA
+            const { data: variants } = await supabaseAdmin
+                .from('mail_template_variants')
+                .select('condition_key, body')
+                .eq('template_id', templateId)
+                .in('condition_key', activeConditions);
+
+            if (variants && variants.length > 0) {
+                const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
+                const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
+
+                if (parentVariant) {
+                    rawBody = parentVariant.body;
+                    console.log(`[HANDLE_INDEXED_VARIANT] 🎯 SEÇİLEN: Parent Varyantı (parent_${parentTaskTypeId})`);
+                } else if (ownerVariant) {
+                    rawBody = ownerVariant.body;
+                    console.log(`[HANDLE_INDEXED_VARIANT] 🎯 SEÇİLEN: Owner Varyantı (owner_${recordOwnerType})`);
+                }
+            } else {
+                console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
             }
 
             const placeholders: Record<string, string> = {

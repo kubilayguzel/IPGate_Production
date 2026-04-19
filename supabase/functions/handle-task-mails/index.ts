@@ -54,15 +54,92 @@ serve(async (req: Request) => {
         renewalDateText = new Date(viewData.renewal_date).toLocaleDateString('tr-TR');
     }
 
-    // 🔥 YENİ EKLENEN: Başvuru Tarihi ve Sınıfları formatlama
+    // 🔥 YENİ EKLENEN: Başvuru Tarihi, Sınıflar ve Ülke formatlama (DETAYLI LOGLAMA İLE)
     let applicationDateText = "-";
     if (viewData?.application_date) {
         applicationDateText = new Date(viewData.application_date).toLocaleDateString('tr-TR');
     }
 
+    console.log(`[MAIL-DEBUG-COUNTRY] 1. IP Record Data -> Origin: "${viewData?.origin}", Country Code: "${viewData?.country_code}"`);
+
+    // 1. Sınıfları doğrudan veritabanından çek
+    const { data: classesData, error: classesErr } = await supabaseAdmin.from('ip_record_classes').select('class_no').eq('ip_record_id', targetIpRecordId);
     let classNumbersText = "-";
-    if (viewData?.nice_classes && Array.isArray(viewData.nice_classes) && viewData.nice_classes.length > 0) {
-        classNumbersText = viewData.nice_classes.join(', ');
+    if (classesData && classesData.length > 0) {
+        classNumbersText = classesData.map(c => c.class_no).sort((a: any, b: any) => a - b).join(', ');
+    }
+    console.log(`[MAIL-DEBUG-COUNTRY] 2. Çekilen Sınıflar: ${classNumbersText}`);
+
+    // 2. Ülke Bilgisi İçin Common Tablosundan Ülkeleri Çek
+    const { data: commonData, error: commonErr } = await supabaseAdmin.from('common').select('data').eq('id', 'countries').maybeSingle();
+    if (commonErr) console.error(`[MAIL-DEBUG-COUNTRY] ❌ Common tablosu çekme hatası:`, commonErr);
+    
+    const origin = (viewData?.origin || "").toUpperCase().trim();
+    const isWipoOrAripo = ["WIPO", "ARIPO"].some(o => origin.includes(o));
+    const isYurtdisi = ["YURTDIŞI", "YURT DIŞI"].some(o => origin.includes(o));
+    const showCountry = isWipoOrAripo || isYurtdisi;
+    
+    console.log(`[MAIL-DEBUG-COUNTRY] 3. Origin Kontrolü -> İşlenmiş Origin: "${origin}", WIPO/ARIPO mu?: ${isWipoOrAripo}, Ülke Gösterilecek mi?: ${showCountry}`);
+
+    let countryInfoHtml = "";
+    if (showCountry) {
+        let countryCodes: string[] = [];
+
+        if (isWipoOrAripo) {
+            // WIPO veya ARIPO ise Child kayıtları bul (parent_id veya wipo_ir/aripo_ir üzerinden)
+            console.log(`[MAIL-DEBUG-COUNTRY] 3.1 WIPO/ARIPO Child Ülkeleri Aranıyor. Parent ID: ${targetIpRecordId}`);
+            
+            let orQuery = `parent_id.eq.${targetIpRecordId}`;
+            if (viewData?.wipo_ir) orQuery += `,wipo_ir.eq."${viewData.wipo_ir}"`;
+            if (viewData?.aripo_ir) orQuery += `,aripo_ir.eq."${viewData.aripo_ir}"`;
+
+            const { data: childRecords, error: childErr } = await supabaseAdmin
+                .from('ip_records')
+                .select('country_code')
+                .or(orQuery);
+
+            if (childErr) {
+                console.error(`[MAIL-DEBUG-COUNTRY] ❌ Child kayıtları çekme hatası:`, childErr);
+            } else if (childRecords && childRecords.length > 0) {
+                // Null olmayan ülke kodlarını al ve listeye ekle
+                countryCodes = childRecords.map(c => c.country_code).filter(Boolean);
+                console.log(`[MAIL-DEBUG-COUNTRY] 3.2 Bulunan Child Ülke Kodları:`, countryCodes);
+            } else {
+                console.log(`[MAIL-DEBUG-COUNTRY] 3.2 DİKKAT: WIPO/ARIPO için child ülke kodu bulunamadı!`);
+            }
+        } else if (isYurtdisi && viewData?.country_code) {
+            // Yurtdışı Ulusal ise direkt kendi kodunu al
+            countryCodes = [viewData.country_code];
+        }
+
+        // Aynı ülkeden 2 tane yazmasını önlemek için listeyi tekilleştir
+        countryCodes = [...new Set(countryCodes)];
+        
+        console.log(`[MAIL-DEBUG-COUNTRY] 4. Common Data Var mı?:`, !!commonData?.data);
+        
+        const countryList = commonData?.data?.list || commonData?.data || [];
+        const countryNames: string[] = [];
+
+        // Tüm toplanan ülke kodlarını Türkçe isimlerine çevir
+        for (const code of countryCodes) {
+            let cName = code;
+            if (Array.isArray(countryList)) {
+                const found = countryList.find((c: any) => c.code === code || c.iso2 === code);
+                if (found && (found.tr || found.name)) {
+                    cName = found.tr || found.name; 
+                }
+            }
+            countryNames.push(cName.toLocaleUpperCase('tr-TR'));
+        }
+        
+        if (countryNames.length > 0) {
+            // Ülkeleri virgülle ayırarak tek bir metin haline getir (Örn: ALMANYA, FRANSA)
+            const finalCountryText = countryNames.join(', ');
+            countryInfoHtml = `<p style="margin: 0 0 8px 0;"><strong>Ülke:</strong> <span style="color: #333;">${finalCountryText}</span></p>`;
+            console.log(`[MAIL-DEBUG-COUNTRY] 5. Üretilen HTML: ${countryInfoHtml}`);
+        } else {
+            console.log(`[MAIL-DEBUG-COUNTRY] 5. Ülke HTML Üretilmedi. Geçerli ülke kodu bulunamadı.`);
+        }
     }
 
     // 🔥 ÇÖZÜM 2: Mailde gösterilecek İşlem (Evrak) Tarihi
@@ -123,6 +200,14 @@ serve(async (req: Request) => {
         }
     }
 
+    // 🔥 YENİ: Yurtdışı Yenileme Uyarı Metni (GÜVENLİ KAPSAM)
+    let extraWarningHtml = "";
+    if (origin !== "TÜRKPATENT" && origin !== "") {
+        extraWarningHtml = `<p style="margin-top: 20px; padding: 12px; background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 5px; color: #856404; font-size: 14px; line-height: 1.5;">
+            <strong>Önemli Not:</strong> Yurtdışı yenileme operasyonlarında belirtilen son tarihten 2 ay öncesine kadar talimatın verilmesi sürecin sorunsuz yönetilmesi ve hak kaybı yaşanmaması için önemlidir.
+        </p>`;
+    }
+
     const emailParams: Record<string, string> = {
         "{{applicationNo}}": appNo,
         "{{markName}}": brandName,
@@ -134,7 +219,9 @@ serve(async (req: Request) => {
         "{{markImageUrl}}": imgUrl,
         "{{itiraz_sahibi}}": itirazSahibi,
         "{{applicationDate}}": applicationDateText,
-        "{{classNumbers}}": classNumbersText
+        "{{classNumbers}}": classNumbersText,
+        "{{countryInfo}}": countryInfoHtml,
+        "{{extraWarning}}": extraWarningHtml
     };
 
     console.log(`[MAIL-DEBUG] Oluşturulan E-posta Parametreleri:`, JSON.stringify(emailParams));
@@ -273,20 +360,57 @@ serve(async (req: Request) => {
             let hasTemplate = false;
 
             if (templateId) {
-                const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body, body1, body2').eq('id', templateId).maybeSingle();
+                // Artık body1, body2 çekmiyoruz, sadece ana body (iskelet) çekiliyor
+                const { data: tmplData } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', templateId).maybeSingle();
+                
                 if (tmplData) {
                     hasTemplate = true;
                     subject = tmplData.mail_subject || tmplData.subject || subject;
                     const recordOwnerType = viewData?.record_owner_type || 'self';
-                    
-                    if (templateId === 'tmpl_50_document') {
-                        if (recordOwnerType === 'third_party' && tmplData.body2) body = tmplData.body2;
-                        else if (recordOwnerType === 'self' && tmplData.body1) body = tmplData.body1;
-                        else body = tmplData.body || body;
-                    } else {
-                        body = tmplData.body || body;
+                    let rawBody = tmplData.body || body;
+
+                    // 1. ANA İŞLEM (PARENT TASK) TESPİTİ
+                    let parentTaskTypeId = null;
+                    if (associatedTxId) {
+                        const { data: currentTx } = await supabaseAdmin.from('transactions').select('parent_id').eq('id', associatedTxId).maybeSingle();
+                        if (currentTx?.parent_id) {
+                            const { data: parentTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', currentTx.parent_id).maybeSingle();
+                            if (parentTx) parentTaskTypeId = String(parentTx.transaction_type_id);
+                        }
+                    }
+                    if (!parentTaskTypeId && record.details?.parent_task_id) {
+                        const { data: parentTask } = await supabaseAdmin.from('tasks').select('task_type_id').eq('id', String(record.details.parent_task_id)).maybeSingle();
+                        if (parentTask) parentTaskTypeId = String(parentTask.task_type_id);
                     }
 
+                    // 2. AKTİF ŞARTLARI (KOŞULLARI) BELİRLE
+                    // Markanın aidiyetine göre şart (Örn: owner_self, owner_third_party)
+                    const activeConditions = [`owner_${recordOwnerType}`]; 
+                    // Ana işleme göre şart (Örn: parent_6, parent_20)
+                    if (parentTaskTypeId) activeConditions.push(`parent_${parentTaskTypeId}`); 
+
+                    // 3. VARYANT (SEÇENEK) TABLOSUNDA BU ŞARTLARI ARA
+                    const { data: variants } = await supabaseAdmin
+                        .from('mail_template_variants')
+                        .select('condition_key, body')
+                        .eq('template_id', templateId)
+                        .in('condition_key', activeConditions);
+
+                    if (variants && variants.length > 0) {
+                        // Öncelik: Eğer ana işleme (parent) özel bir metin yazılmışsa onu al, yoksa marka aidiyetine (owner) özel metni al
+                        const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
+                        const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
+
+                        if (parentVariant) {
+                            rawBody = parentVariant.body;
+                        } else if (ownerVariant) {
+                            rawBody = ownerVariant.body;
+                        }
+                    }
+
+                    body = rawBody; // Seçilen özel metni veya hiçbir şey bulunamazsa ana şablon metnini ata
+
+                    // 4. DEĞİŞKENLERİ ({{...}}) METNİN İÇİNE GÖM
                     for (const [k, v] of Object.entries(emailParams)) {
                         subject = subject.replaceAll(k, String(v));
                         body = body.replaceAll(k, String(v));

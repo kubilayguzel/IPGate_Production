@@ -227,7 +227,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     searchString,
                     dueDateObj: safeDate(task.dueDate),
                     officialDueObj: safeDate(task.officialDueDate),
-                    createdAtObj: safeDate(task.createdAt)
+                    createdAtObj: safeDate(task.created_at || task.createdAt),
+                    updatedAtObj: safeDate(task.updated_at || task.updatedAt) // 🔥 YENİ
                 };
             });
 
@@ -541,40 +542,44 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const dueDateISO = task.dueDateObj ? task.dueDateObj.toISOString().slice(0,10) : '';
                 const officialDueISO = task.officialDueObj ? task.officialDueObj.toISOString().slice(0,10) : '';
                 
+                // 🔥 1) İş ID'si İçin Dinamik Renklendirme Mantığı (Tasarım Diline Uygun)
+                let idColorClass = ""; // Varsayılan (Siyah/Koyu)
+                let idTooltip = "";
+                if (task.client_action_user) {
+                    const isApproved = task.client_action_type === 'client_approval';
+                    idColorClass = isApproved ? 'text-success' : 'text-danger'; // Onay: Yeşil, Red: Kırmızı
+                    idTooltip = `Müvekkil Portalı: ${task.client_action_user} bu işi ${isApproved ? 'ONAYLADI' : 'REDDETTİ'}.`;
+                }
+
+                // Eylem menüsü (Aynen kaldı)
                 const actionMenuHtml = `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
                         </button>
-                        
                         <div class="dropdown-menu dropdown-menu-right shadow-sm border-0 p-2" style="min-width: auto;">
                             <div class="d-flex justify-content-center align-items-center" style="gap: 5px;">
-                                <button class="btn btn-sm btn-light text-primary view-btn action-btn" data-id="${task.id}" data-action="view" title="Görüntüle">
-                                    <i class="fas fa-eye" style="pointer-events: none;"></i>
-                                </button>
-                                <button class="btn btn-sm btn-light text-warning edit-btn action-btn" data-id="${task.id}" data-action="edit" title="Düzenle">
-                                    <i class="fas fa-edit" style="pointer-events: none;"></i>
-                                </button>
-                                <button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata">
-                                    <i class="fas fa-user-plus" style="pointer-events: none;"></i>
-                                </button>
-                                <button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle">
-                                    <i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i>
-                                </button>
+                                <button class="btn btn-sm btn-light text-primary view-btn action-btn" data-id="${task.id}" data-action="view" title="Görüntüle"><i class="fas fa-eye" style="pointer-events: none;"></i></button>
+                                <button class="btn btn-sm btn-light text-warning edit-btn action-btn" data-id="${task.id}" data-action="edit" title="Düzenle"><i class="fas fa-edit" style="pointer-events: none;"></i></button>
+                                <button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata"><i class="fas fa-user-plus" style="pointer-events: none;"></i></button>
+                                <button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle"><i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i></button>
                             </div>
                         </div>
                     </div>
                 `;
 
                 const row = document.createElement('tr');
-                
-                // 🔥 ÇÖZÜM 3: Highlighter'ın tamamlananları atlaması için durum bilgisini satıra gömdük
                 row.className = `task-row ${statusClass}`;
                 row.setAttribute('data-status', task.status || '');
                 
+                // 🔥 2) Tablo Şablonu: "Son İşlem" kaldırıldı, ID renklendirildi
                 row.innerHTML = `
                     <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
-                    <td>${task.id}</td>
+                    <td>
+                        <div class="font-weight-bold ${idColorClass}" style="${idTooltip ? 'cursor:help;' : ''}" title="${idTooltip}">
+                            #${task.id}
+                        </div>
+                    </td>
                     <td>
                         <div class="font-weight-bold text-primary">${task.appNo}</div>
                         <div class="small text-dark">${task.recordTitleDisplay}</div>

@@ -444,15 +444,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const safePriority = (task.priority || 'normal').toString();
                 const priorityClass = `priority-${safePriority.toLowerCase()}`;
 
-                // 🔥 ÇÖZÜM 2a: Undefined hatası giderildi, doğru tarih objeleri kullanıldı
                 const opDueISO = task.operationalDueObj ? task.operationalDueObj.toISOString().slice(0,10) : '';
                 const offDueISO = task.officialDueObj ? task.officialDueObj.toISOString().slice(0,10) : '';
 
-                // 🔥 ÇÖZÜM 2b: <tr> etiketine class ve data-status eklendi ki Highlighter okuyabilsin
+                // 🔥 YENİ: İş ID'si İçin Müvekkil Renklendirme Mantığı (Diğer sayfa ile aynı)
+                let idColorClass = ""; 
+                let idTooltip = "";
+                if (task.client_action_user) {
+                    const isApproved = task.client_action_type === 'client_approval';
+                    idColorClass = isApproved ? 'text-success' : 'text-danger'; // Onay: Yeşil, Red: Kırmızı
+                    idTooltip = `Müvekkil Portalı: ${task.client_action_user} bu işi ${isApproved ? 'ONAYLADI' : 'REDDETTİ'}.`;
+                }
+
                 html += `
                     <tr class="task-row ${statusClass}" data-status="${safeStatus}">
                         <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
-                        <td>${task.id}</td>
+                        
+                        <td>
+                            <div class="font-weight-bold ${idColorClass}" style="${idTooltip ? 'cursor:help;' : ''}" title="${idTooltip}">
+                                #${task.id}
+                            </div>
+                        </td>
+
                         <td>
                             <div class="font-weight-bold text-primary">${task.appNo}</div>
                             <div class="small text-dark">${task.recordTitle}</div>

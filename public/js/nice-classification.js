@@ -262,6 +262,13 @@ class Class35_5Manager {
                     <i class="fas fa-chevron-down nice-icon-chevron"></i>
                 </div>
                 <div class="nice-sub-list" id="c35-sub-${cls.classNumber}">
+                    
+                    <div class="nice-sub-item c35-item-row" data-code="TUM-${cls.classNumber}" data-text="${cls.classNumber}. Sınıftaki malların tamamı" style="background-color: #f0fdf4; border-bottom: 2px solid #d1fae5;">
+                        <input type="checkbox" class="nice-checkbox" id="chk-TUM-${cls.classNumber}" value="TUM-${cls.classNumber}">
+                        <label class="nice-label ml-2" style="color: #166534; font-weight: 600;" for="chk-TUM-${cls.classNumber}">
+                            <i class="fas fa-layer-group" style="color: #22c55e; margin-right: 5px;"></i> ${cls.classNumber}. Sınıftaki malların tamamı
+                        </label>
+                    </div>
                     ${cls.subClasses.map((sub, idx) => {
                         const code = `${cls.classNumber}-${idx + 1}`;
                         return `
@@ -285,6 +292,7 @@ class Class35_5Manager {
             if (target.dataset.action === 'close') return this.close();
             if (target === modal) return this.close();
 
+            // 1. Akordeon (Sınıf Başlığı) Aç/Kapat
             const header = target.closest('.c35-header');
             if (header) {
                 const group = header.parentElement;
@@ -296,19 +304,74 @@ class Class35_5Manager {
                 return;
             }
 
-            const itemRow = target.closest('.c35-item-row');
-            if (itemRow && target.tagName !== 'INPUT' && target.tagName !== 'LABEL') {
-                const checkbox = itemRow.querySelector('input[type="checkbox"]');
-                checkbox.checked = !checkbox.checked;
-                this.toggleItem(checkbox.value, itemRow.dataset.text, checkbox.checked);
-            }
-            
+            // 2. Tıklanan elementi ve checkbox'ı bulma
+            let isCheckboxClick = false;
+            let checkbox = null;
+            let itemRow = null;
+
             if (target.tagName === 'INPUT' && target.type === 'checkbox') {
-                const itemRow = target.closest('.c35-item-row');
-                this.toggleItem(target.value, itemRow.dataset.text, target.checked);
+                checkbox = target;
+                itemRow = target.closest('.c35-item-row');
+                isCheckboxClick = true;
+            } else {
+                itemRow = target.closest('.c35-item-row');
+                if (itemRow && target.tagName !== 'LABEL') {
+                    checkbox = itemRow.querySelector('input[type="checkbox"]');
+                    checkbox.checked = !checkbox.checked; // Satıra tıklanınca kutuyu tetikle
+                    isCheckboxClick = true;
+                }
+            }
+
+            // 3. Checkbox İşlemleri ve Seçim Mantığı
+            if (isCheckboxClick && checkbox && itemRow) {
+                const code = checkbox.value;
+                const isChecked = checkbox.checked;
+
+                if (code.startsWith('TUM-')) {
+                    // 🔥 YENİ: "Sınıfın Tamamı" Seçeneğine Tıklandıysa
+                    const classNum = parseInt(code.replace('TUM-', ''));
+                    const classData = this.modalData.find(c => c.classNumber === classNum);
+                    
+                    if (classData) {
+                        // Sınıfın tüm alt mallarını veritabanından çek ve listeye (gerçek mallar olarak) ekle/kaldır
+                        classData.subClasses.forEach((sub, idx) => {
+                            const subCode = `${classNum}-${idx + 1}`;
+                            if (isChecked) {
+                                this.selectedItems[subCode] = sub.subClassDescription; // Gerçek mal ismini ekle
+                            } else {
+                                delete this.selectedItems[subCode];
+                            }
+                        });
+
+                        // Kullanıcının görebilmesi için o gruba ait diğer tüm alt kutucukları otomatik işaretle/kaldır
+                        const groupContainer = itemRow.closest('.c35-group');
+                        if (groupContainer) {
+                            const subCheckboxes = groupContainer.querySelectorAll('.nice-checkbox:not([value^="TUM-"])');
+                            subCheckboxes.forEach(chk => chk.checked = isChecked);
+                        }
+                        
+                        this.updateSelectedUI(); // Sağ paneli güncelle
+                    }
+                } else {
+                    // Normal tekil mal seçimi
+                    this.toggleItem(code, itemRow.dataset.text, isChecked);
+
+                    // Eğer tüm alt mallar tek tek işaretlendiyse en üstteki "TUM" checkbox'ını da otomatik işaretle
+                    const groupContainer = itemRow.closest('.c35-group');
+                    if (groupContainer) {
+                        const classNum = groupContainer.dataset.class;
+                        const tumCheckbox = groupContainer.querySelector(`#chk-TUM-${classNum}`);
+                        if (tumCheckbox) {
+                            const allSubCheckboxes = groupContainer.querySelectorAll('.nice-checkbox:not([value^="TUM-"])');
+                            const allChecked = Array.from(allSubCheckboxes).every(chk => chk.checked);
+                            tumCheckbox.checked = allChecked; // Biri bile kalkarsa Tümünü Seç tikini kaldırır
+                        }
+                    }
+                }
             }
         });
 
+        // Arama (Filtreleme) Eventi
         document.getElementById('c35-search').addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
             modal.querySelectorAll('.c35-group').forEach(group => {
@@ -333,6 +396,7 @@ class Class35_5Manager {
             });
         });
 
+        // Kaydet Eventi
         document.getElementById('c35-save').addEventListener('click', () => {
             const items = Object.values(this.selectedItems);
             if (items.length === 0) return alert('Lütfen en az bir mal seçin.');
@@ -343,6 +407,7 @@ class Class35_5Manager {
             this.close();
         });
 
+        // Manuel Mal Ekleme
         document.getElementById('c35-add-custom').addEventListener('click', () => {
             const input = document.getElementById('c35-custom-input');
             const val = input.value.trim();
@@ -352,10 +417,11 @@ class Class35_5Manager {
             input.value = '';
         });
 
+        // Temizle Butonu
         document.getElementById('c35-clear').onclick = () => { 
             this.selectedItems = {}; 
             this.updateSelectedUI(); 
-            modal.querySelectorAll('input').forEach(i=>i.checked=false); 
+            modal.querySelectorAll('input').forEach(i => i.checked = false); 
         };
     }
 

@@ -485,11 +485,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const taskId = btn.dataset.id;
                 
                 if (btn.classList.contains('view-btn') || btn.dataset.action === 'view') {
-                    // 🔥 YENİ: taskType kontrolünü kaldırdık. 
-                    // Tüm işleri standart showTaskDetailModal'a gönderiyoruz.
-                    // Çünkü arka plandaki TaskDetailManager, iş tipi '2' ise modalı 
-                    // otomatik olarak genişletip Marka Başvuru Özetini çiziyor!
                     this.showTaskDetailModal(taskId);
+                }
+                // 🔥 YENİ: Kopyala butonuna tıklandığında çalışacak kod
+                else if (btn.classList.contains('copy-btn') || btn.dataset.action === 'copy') {
+                    this.handleDuplicateTask(taskId);
                 }
                 else if (btn.classList.contains('edit-btn') || btn.dataset.action === 'edit') {
                     const task = this.allTasks.find(t => t.id === taskId);
@@ -551,7 +551,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     idTooltip = `Müvekkil Portalı: ${task.client_action_user} bu işi ${isApproved ? 'ONAYLADI' : 'REDDETTİ'}.`;
                 }
 
-                // Eylem menüsü (Aynen kaldı)
+                // Eylem menüsü
                 const actionMenuHtml = `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
@@ -560,6 +560,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div class="dropdown-menu dropdown-menu-right shadow-sm border-0 p-2" style="min-width: auto;">
                             <div class="d-flex justify-content-center align-items-center" style="gap: 5px;">
                                 <button class="btn btn-sm btn-light text-primary view-btn action-btn" data-id="${task.id}" data-action="view" title="Görüntüle"><i class="fas fa-eye" style="pointer-events: none;"></i></button>
+                                
+                                <button class="btn btn-sm btn-light text-secondary copy-btn action-btn" data-id="${task.id}" data-action="copy" title="İşi Kopyala (Taslak Oluştur)"><i class="fas fa-copy" style="pointer-events: none;"></i></button>
+                                
                                 <button class="btn btn-sm btn-light text-warning edit-btn action-btn" data-id="${task.id}" data-action="edit" title="Düzenle"><i class="fas fa-edit" style="pointer-events: none;"></i></button>
                                 <button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata"><i class="fas fa-user-plus" style="pointer-events: none;"></i></button>
                                 <button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle"><i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i></button>
@@ -999,6 +1002,128 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (modalId === 'completeAccrualTaskModal' && this.completeTaskFormManager) {
                 this.completeTaskFormManager.reset();
+            }
+        }
+
+        // 🔥 YENİ VE AKILLI: ID Kısıtlamalarına ve Şemaya Tam Uyumlu Kopyalama Motoru
+        async handleDuplicateTask(taskId) {
+            if (!confirm('Bu işin bir kopyası taslak olarak oluşturulacak. Devam etmek istiyor musunuz?')) return;
+
+            let loader = window.showSimpleLoading ? window.showSimpleLoading('Kopyalanıyor', 'Veriler analiz edilip kopyalanıyor...') : null;
+
+            try {
+                // 1. Asıl işi çek
+                const { data: originalTask, error: fetchErr } = await supabase.from('tasks').select('*').eq('id', String(taskId)).single();
+                if (fetchErr) throw fetchErr;
+
+                // 2. İŞ TİPİNİ ANALİZ ET
+                const tTypeId = String(originalTask.task_type_id || originalTask.taskType);
+                const transactionType = this.allTransactionTypes.find(t => String(t.id) === tTypeId);
+                
+                const isApplication = transactionType && (
+                    String(transactionType.id).includes('application') || 
+                    String(transactionType.name).toLowerCase().includes('başvuru') || 
+                    String(transactionType.alias).toLowerCase().includes('başvuru')
+                );
+
+                let newIpRecordId = null;
+                const oldIpRecordId = originalTask.ip_record_id;
+
+                // 3. BAŞVURU İŞİ İSE: Portföyü Kopyala (Deep Copy)
+                if (isApplication && oldIpRecordId) {
+                    const { data: oldIp } = await supabase.from('ip_records').select('*').eq('id', String(oldIpRecordId)).single();
+                    
+                    if (oldIp) {
+                        const { id, created_at, updated_at, application_number, registration_number, old_transactions, ...ipCopyData } = oldIp;
+                        
+                        // 🔥 ÇÖZÜM 1: Yeni Portföy (IP Record) için zorunlu ID üretiyoruz
+                        const generatedIpRecordId = crypto.randomUUID();
+                        
+                        const { data: newIp, error: newIpErr } = await supabase.from('ip_records').insert([{
+                            ...ipCopyData,
+                            id: generatedIpRecordId, // 🔥 Üretilen ID gönderiliyor
+                            status: 'draft' 
+                        }]).select('id').single();
+                        
+                        if (!newIpErr && newIp) {
+                            newIpRecordId = newIp.id;
+
+                            // 🔥 Alt tablolara da zorunlu (Benzersiz) ID'ler eklenerek kopyalama yapılıyor
+                            // Sınıfları Kopyala
+                            const { data: oldClasses } = await supabase.from('ip_record_classes').select('*').eq('ip_record_id', String(oldIpRecordId));
+                            if (oldClasses && oldClasses.length > 0) {
+                                const newClasses = oldClasses.map(c => { const { id, created_at, ...cData } = c; return { ...cData, id: crypto.randomUUID(), ip_record_id: newIpRecordId }; });
+                                await supabase.from('ip_record_classes').insert(newClasses);
+                            }
+
+                            // Sahipleri Kopyala
+                            const { data: oldApplicants } = await supabase.from('ip_record_applicants').select('*').eq('ip_record_id', String(oldIpRecordId));
+                            if (oldApplicants && oldApplicants.length > 0) {
+                                const newApplicants = oldApplicants.map(a => { const { id, created_at, ...aData } = a; return { ...aData, id: crypto.randomUUID(), ip_record_id: newIpRecordId }; });
+                                await supabase.from('ip_record_applicants').insert(newApplicants);
+                            }
+                            
+                            // Marka Detaylarını Kopyala
+                            const { data: oldDetails } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', String(oldIpRecordId));
+                            if (oldDetails && oldDetails.length > 0) {
+                                const newDetails = oldDetails.map(d => { const { id, created_at, ...dData } = d; return { ...dData, id: crypto.randomUUID(), ip_record_id: newIpRecordId, brand_name: `[KOPYA] ${d.brand_name || ''}` }; });
+                                await supabase.from('ip_record_trademark_details').insert(newDetails);
+                            }
+                        }
+                    }
+                } else {
+                    newIpRecordId = oldIpRecordId;
+                }
+
+                // 4. Görevi (Task) Kopyala
+                const { id, created_at, updated_at, target_accrual_id, status, ...copyData } = originalTask;
+                
+                let newDetailsJson = copyData.details;
+                if (isApplication && typeof newDetailsJson === 'string') {
+                    try {
+                        let pDetails = JSON.parse(newDetailsJson);
+                        if (pDetails.ip_record_id && newIpRecordId) pDetails.ip_record_id = newIpRecordId;
+                        if (pDetails.relatedIpRecordId && newIpRecordId) pDetails.relatedIpRecordId = newIpRecordId;
+                        newDetailsJson = JSON.stringify(pDetails);
+                    } catch(e) {}
+                }
+
+                // 🔥 ÇÖZÜM 2: Sizin Sayaç (Counter) mimarinizi kullanarak yeni Görev (Task) ID'si üretiyoruz!
+                const generatedTaskId = await taskService._getNextTaskId(tTypeId);
+
+                const newTask = {
+                    ...copyData,
+                    id: generatedTaskId, // 🔥 Sayaçtan gelen benzersiz Numara!
+                    title: `[TASLAK] ${originalTask.title || 'Yeni İş'}`,
+                    status: 'pending', 
+                    ip_record_id: newIpRecordId || originalTask.ip_record_id,
+                    details: newDetailsJson
+                };
+
+                const { data: insertedTask, error: insertErr } = await supabase.from('tasks').insert([newTask]).select('id').single();
+                if (insertErr) throw insertErr;
+
+                // 5. İşlem Geçmişini Ekle
+                if (insertedTask) {
+                    await supabase.from('task_history').insert([{
+                        task_id: insertedTask.id,
+                        action: isApplication 
+                            ? `Marka Başvuru işi kopyalandı. Yepyeni bir taslak portföy oluşturuldu.`
+                            : `İş kopyalandı. Orijinal marka portföyüne bağlı kalındı.`,
+                        user_id: this.currentUser?.uid || this.currentUser?.id, 
+                        created_at: new Date().toISOString()
+                    }]);
+                }
+
+                if (loader) loader.hide();
+                showNotification('İş başarıyla kopyalandı! Düzenleme ekranına yönlendiriliyorsunuz...', 'success');
+
+                setTimeout(() => { window.location.href = `task-update.html?id=${insertedTask.id}`; }, 1000);
+
+            } catch (err) {
+                if (loader) loader.hide();
+                console.error("Kopyalama Hatası:", err);
+                showNotification('Kopyalama sırasında hata oluştu: ' + (err.message || ''), 'error');
             }
         }
     }

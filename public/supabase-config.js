@@ -2413,93 +2413,121 @@ export const feeCalculationService = {
     
     /**
      * Görev tipine ve müvekkil bilgisine göre fatura kalemlerini dinamik çeker.
-     * @param {Object} params - { taskTypeId, clientId, recordId, extraParams }
-     * @returns {Promise<Array>} Fatura alt kalemleri listesi
      */
     async calculateAccrualItems({ taskTypeId, clientId, recordId = null, extraParams = {} }) {
         console.log(`[CALCULATION ENGINE] 🚀 Hesaplama Başladı. Görev Tipi: ${taskTypeId}, Müvekkil: ${clientId}`);
         
         try {
             const taskObj = extraParams.task || {};
-            const ipRecord = extraParams.ipRecord || {};
+            let ipRecord = extraParams.ipRecord || {};
+            let actualRecordId = recordId || ipRecord.id;
             
-            // 🔥 1. ADIM EKLENTİSİ: GÖREV TİPİ 53 (TAHAKKUK OLUŞTURMA) İSE ASIL İŞİ BUL
+            // 1. GÖREV TİPİ 53 (TAHAKKUK OLUŞTURMA) İSE ASIL İŞİ VE PORTFÖYÜ BUL
             if (String(taskTypeId) === '53' || (taskObj.title && taskObj.title.toLowerCase().includes('tahakkuk'))) {
                 let detailsObj = typeof taskObj.details === 'string' ? JSON.parse(taskObj.details) : (taskObj.details || {});
                 let parentId = detailsObj.parent_task_id || detailsObj.relatedTaskId || taskObj.relatedTaskId;
 
                 if (parentId) {
-                    const { data: parentTask } = await supabase.from('tasks').select('task_type_id').eq('id', String(parentId)).single();
-                    if (parentTask && parentTask.task_type_id) {
-                        taskTypeId = parentTask.task_type_id; 
-                        console.log(`[CALCULATION ENGINE] ✅ Asıl İş Bulundu! Yeni Görev Tipi: ${taskTypeId}`);
+                    const { data: parentTask } = await supabase.from('tasks').select('task_type_id, ip_record_id').eq('id', String(parentId)).single();
+                    if (parentTask) {
+                        if (parentTask.task_type_id) {
+                            taskTypeId = parentTask.task_type_id; 
+                            console.log(`[CALCULATION ENGINE] ✅ Asıl İş Bulundu! Yeni Görev Tipi: ${taskTypeId}`);
+                        }
+                        if (parentTask.ip_record_id && !actualRecordId) {
+                            actualRecordId = parentTask.ip_record_id; 
+                        }
                     }
                 }
             }
             
             // ---------------------------------------------------------
-            // 1. ZAMAN TESPİTİ (Tarihe Göre Tarife Seçimi)
+            // 2. ZAMAN TESPİTİ (Tarihe Göre Tarife Seçimi)
             // ---------------------------------------------------------
-            let taskDate = new Date(); // Varsayılan olarak bugünü al
-            
-            // Eğer göreve ePATS belgesi eklenmişse onun tarihini (sunulduğu tarihi) baz al
+            let taskDate = new Date(); 
             if (taskObj.epatsDocument && taskObj.epatsDocument.uploadedAt) {
                 taskDate = new Date(taskObj.epatsDocument.uploadedAt);
             } 
-            // Yoksa görevin oluşturulma tarihini al
             else if (taskObj.createdAt || taskObj.created_at) {
                 taskDate = new Date(taskObj.createdAt || taskObj.created_at);
             }
-            console.log(`[CALCULATION ENGINE] 🕒 İşlem Tarihi Olarak Baz Alınan Tarih: ${taskDate.toLocaleDateString('tr-TR')}`);
 
             // ---------------------------------------------------------
-            // 2. SINIF VE CEZALI YENİLEME TESPİTİ
+            // 3. SINIF, CEZALI YENİLEME VE 35.05 TESPİTİ
             // ---------------------------------------------------------
             let isPenalty = false;
             let finalClassCount = extraParams.classCount || 1;
+            let hasRetailClass = false; 
+            let retailCoveredClassCount = 0; // 🔥 YENİ: Kapsam sayısını tutacak değişken
 
-            // Dosyanın sınıf sayısını otomatik bul
-            if (ipRecord.niceClasses && Array.isArray(ipRecord.niceClasses)) {
+            if (actualRecordId) {
+                if (!ipRecord.renewal_date && !ipRecord.renewalDate) {
+                    const { data: recData } = await supabase.from('ip_records').select('renewal_date').eq('id', String(actualRecordId)).maybeSingle();
+                    if (recData) ipRecord.renewal_date = recData.renewal_date;
+                }
+                
+                // Sınıfları ve içindeki mal listesini (items) doğrudan veritabanından çek
+                const { data: classesData } = await supabase.from('ip_record_classes').select('class_no, items').eq('ip_record_id', String(actualRecordId));
+                
+                if (classesData && classesData.length > 0) {
+                    finalClassCount = classesData.length;
+                    
+                    const class35 = classesData.find(c => String(c.class_no) === '35');
+                    if (class35 && Array.isArray(class35.items)) {
+                        for (const item of class35.items) {
+                            const strItem = String(item);
+                            if (strItem.includes('35-5') || strItem.includes('Müşterilerin malları')) {
+                                hasRetailClass = true;
+                                // 🔥 Metin içindeki [KAPSAM: 8] etiketini Regex ile bulup sayıyı alır
+                                const match = strItem.match(/\[KAPSAM:\s*(\d+)\]/i);
+                                if (match && match[1]) {
+                                    retailCoveredClassCount = parseInt(match[1], 10);
+                                }
+                            }
+                        }
+                    }
+                    console.log(`[CALCULATION ENGINE] 🔄 ${finalClassCount} Sınıf | 35.05 Var: ${hasRetailClass} | Perakende Kapsamı: ${retailCoveredClassCount}`);
+                }
+            } else if (ipRecord.niceClasses && Array.isArray(ipRecord.niceClasses)) {
+                // Yedek Okuma (DB erişilemezse front-end datasından oku)
                 finalClassCount = ipRecord.niceClasses.length;
-            }
-
-            // Yenileme tarihi kontrolü (Görev tarihi, yenileme tarihini geçmişse CEZALIDIR)
-            if (ipRecord.renewalDate || ipRecord.renewal_date) {
-                const renDate = new Date(ipRecord.renewalDate || ipRecord.renewal_date);
-                if (taskDate > renDate) {
-                    isPenalty = true;
-                    console.log(`[CALCULATION ENGINE] 🚨 Cezalı Yenileme Tespit Edildi! (İşlem: ${taskDate.toLocaleDateString('tr-TR')} > Bitiş: ${renDate.toLocaleDateString('tr-TR')})`);
+                if (ipRecord.goodsAndServicesByClass && Array.isArray(ipRecord.goodsAndServicesByClass)) {
+                    const class35 = ipRecord.goodsAndServicesByClass.find(c => String(c.classNo) === '35');
+                    if (class35 && Array.isArray(class35.items)) {
+                        for (const item of class35.items) {
+                            const strItem = String(item);
+                            if (strItem.includes('35-5') || strItem.includes('Müşterilerin malları')) {
+                                hasRetailClass = true;
+                                const match = strItem.match(/\[KAPSAM:\s*(\d+)\]/i);
+                                if (match && match[1]) {
+                                    retailCoveredClassCount = parseInt(match[1], 10);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // 3. Haritaları Getir
+            if (ipRecord.renewalDate || ipRecord.renewal_date) {
+                const renDate = new Date(ipRecord.renewalDate || ipRecord.renewal_date);
+                if (taskDate > renDate) isPenalty = true;
+            }
+
+            // 4. Haritaları Getir
             const { data: maps, error: mapErr } = await supabase
                 .from('transaction_fee_maps')
-                .select(`
-                    calculation_rule,
-                    fee_id,
-                    fee_tariffs (*)
-                `)
+                .select(`calculation_rule, fee_id, fee_tariffs (*)`)
                 .eq('transaction_type_id', String(taskTypeId));
 
             if (mapErr) throw mapErr;
-            if (!maps || maps.length === 0) {
-                console.log(`[CALCULATION ENGINE] ℹ️ Bu görev tipi (${taskTypeId}) için tanımlı otomatik ücret haritası bulunamadı.`);
-                return []; 
-            }
+            if (!maps || maps.length === 0) return []; 
 
-            // 4. Müvekkile Özel Fiyatları Çek (Eğer clientId varsa)
+            // 5. Müvekkile Özel Fiyatları Çek 
             let clientCustomFees = {};
             if (clientId) {
-                const { data: customFees } = await supabase
-                    .from('client_fee_tariffs')
-                    .select('*')
-                    .eq('client_id', String(clientId));
-                
+                const { data: customFees } = await supabase.from('client_fee_tariffs').select('*').eq('client_id', String(clientId));
                 if (customFees) {
-                    customFees.forEach(cf => {
-                        clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency };
-                    });
+                    customFees.forEach(cf => { clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency }; });
                 }
             }
 
@@ -2509,79 +2537,77 @@ export const feeCalculationService = {
                 const tariff = map.fee_tariffs;
                 if (!tariff) continue;
 
-                // ---------------------------------------------------------
-                // 🔥 TARİFEYİ ZAMANA GÖRE FİLTRELEME
-                // ---------------------------------------------------------
-                if (tariff.valid_from && new Date(tariff.valid_from) > taskDate) continue; // Tarife henüz başlamamış
-                if (tariff.valid_to && new Date(tariff.valid_to) < taskDate) continue;     // Tarifenin süresi geçmiş (eski tarife)
+                if (tariff.valid_from && new Date(tariff.valid_from) > taskDate) continue; 
+                if (tariff.valid_to && new Date(tariff.valid_to) < taskDate) continue;     
 
-                // --- A. Fiyat Belirleme (Standart vs Özel) ---
                 let unitPrice = clientCustomFees[tariff.id] ? clientCustomFees[tariff.id].amount : tariff.amount;
                 let currency = clientCustomFees[tariff.id] ? (clientCustomFees[tariff.id].currency || tariff.currency) : tariff.currency;
                 let isCustomPrice = !!clientCustomFees[tariff.id];
 
-                // --- B. Miktar (Quantity) Kuralları ---
                 let quantity = 0;
                 const rule = map.calculation_rule;
 
-                switch (rule) {
-                    // --- STANDART KURALLAR ---
-                    case 'fixed': 
-                        quantity = 1; 
-                        break;
-                    case 'per_class': 
-                        quantity = finalClassCount > 0 ? finalClassCount : 1; 
-                        break;
-                    case 'second_class_only': 
-                        quantity = finalClassCount >= 2 ? 1 : 0; 
-                        break;
-                    case 'extra_class_over_2': 
-                        quantity = Math.max(0, finalClassCount - 2); 
-                        break;
-                    case 'extra_class_over_3': 
-                        quantity = Math.max(0, finalClassCount - 3); 
-                        break;
-                    
-                    // --- RÜÇHAN VE 35.05 İSTİSNALARI ---
-                    case 'per_priority': 
-                        quantity = extraParams.priorityCount || 0; 
-                        break;
-                    case 'class_35_retail_over_2': 
-                        quantity = Math.max(0, (extraParams.retailClassCount || 0) - 2); 
-                        break;
-
-                    // --- YENİLEME KURALLARI (Cezalı vs Normal) ---
-                    case 'fixed_normal': 
-                        quantity = !isPenalty ? 1 : 0; 
-                        break;
-                    case 'fixed_penalty': 
-                        quantity = isPenalty ? 1 : 0;  
-                        break;
-                    case 'extra_class_normal': 
-                        quantity = !isPenalty ? Math.max(0, finalClassCount - 2) : 0; 
-                        break;
-                    case 'extra_class_penalty': 
-                        quantity = isPenalty ? Math.max(0, finalClassCount - 2) : 0; 
-                        break;
-
-                    default:
-                        console.warn(`[CALCULATION ENGINE] ⚠️ Bilinmeyen hesaplama kuralı: ${rule}`);
-                        quantity = 1;
-                        break;
+                // 🔥 ÇÖZÜM 2: 42 ID'li kural (35.05 Hizmet Ücreti İstisnası)
+                if (String(tariff.id) === '42' || rule === 'class_35_retail_over_2') {
+                    // Sistem kapsam değerini bulduysa (X - 2) hesaplar. [KAPSAM] etiketi bulunamadıysa (veya sayı 2'den küçükse) 0 kalır.
+                    quantity = hasRetailClass ? Math.max(0, retailCoveredClassCount - 2) : 0;
+                } 
+                else {
+                    switch (rule) {
+                        case 'fixed': 
+                            quantity = 1; 
+                            break;
+                        case 'per_class': 
+                            quantity = finalClassCount > 0 ? finalClassCount : 1; 
+                            break;
+                        case 'extra_class': 
+                            quantity = Math.max(0, finalClassCount - 1);
+                            break;
+                        case 'second_class_only': 
+                            quantity = finalClassCount >= 2 ? 1 : 0; 
+                            break;
+                        case 'extra_class_over_2': 
+                            quantity = Math.max(0, finalClassCount - 2); 
+                            break;
+                        case 'extra_class_over_3': 
+                            quantity = Math.max(0, finalClassCount - 3); 
+                            break;
+                        case 'per_priority': 
+                            quantity = extraParams.priorityCount || 0; 
+                            break;
+                        case 'fixed_normal': 
+                            quantity = !isPenalty ? 1 : 0; 
+                            break;
+                        case 'fixed_penalty': 
+                            quantity = isPenalty ? 1 : 0;  
+                            break;
+                        case 'extra_class_normal': 
+                            quantity = !isPenalty ? Math.max(0, finalClassCount - 1) : 0; 
+                            break;
+                        case 'extra_class_penalty': 
+                            quantity = isPenalty ? Math.max(0, finalClassCount - 1) : 0;  
+                            break;
+                        default:
+                            quantity = 1;
+                            break;
+                    }
                 }
 
-                // --- C. Kalemi Listeye Ekle (Sadece Miktarı 0'dan büyük olanlar yansır) ---
                 if (quantity > 0) {
                     const vatRate = (tariff.fee_type === 'TP Harç') ? 0 : 20;
+                    
+                    // 🔥 ÇÖZÜM 1 (Kuruş Hatası): Kayan nokta matematiğini virgülden sonra 2 haneye sabitledik
+                    const safeUnitPrice = Number(parseFloat(unitPrice).toFixed(2));
+                    const safeTotalAmount = Number((safeUnitPrice * quantity).toFixed(2));
 
                     accrualItems.push({
                         fee_id: tariff.id,
                         fee_type: tariff.fee_type,
                         item_name: tariff.name,
                         quantity: quantity,
-                        unit_price: parseFloat(unitPrice),
+                        unit_price: safeUnitPrice,
                         vat_rate: vatRate,
-                        total_amount: parseFloat(unitPrice) * quantity,
+                        total_amount: safeTotalAmount,
                         currency: currency,
                         is_custom_price: isCustomPrice
                     });

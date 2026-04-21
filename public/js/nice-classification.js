@@ -398,10 +398,20 @@ class Class35_5Manager {
 
         // Kaydet Eventi
         document.getElementById('c35-save').addEventListener('click', () => {
-            const items = Object.values(this.selectedItems);
-            if (items.length === 0) return alert('Lütfen en az bir mal seçin.');
+            const itemKeys = Object.keys(this.selectedItems);
+            const itemValues = Object.values(this.selectedItems);
+            if (itemKeys.length === 0) return alert('Lütfen en az bir mal seçin.');
             
-            const combinedText = `Müşterilerin malları elverişli bir şekilde görüp satın alabilmeleri için ${items.join(', ')} mallarının bir araya getirilmesi hizmetleri (belirtilen hizmetler perakende satış mağazaları, toptan satış mağazaları, elektronik ortamlar, katalog ve benzeri diğer yöntemler ile sağlanabilir)`;
+            // 🔥 ÇÖZÜM: Seçilen malların kaç farklı sınıfa (1-34) ait olduğunu hesapla
+            const coveredClasses = new Set(
+                itemKeys
+                    .map(k => k.replace('TUM-', '').split('-')[0])
+                    .filter(c => !isNaN(c) && parseInt(c) >= 1 && parseInt(c) <= 34)
+            );
+            const coveredClassCount = coveredClasses.size;
+            
+            // Metnin sonuna sistemin okuyabileceği [KAPSAM: X] etiketini ekle
+            const combinedText = `Müşterilerin malları elverişli bir şekilde görüp satın alabilmeleri için ${itemValues.join(', ')} mallarının bir araya getirilmesi hizmetleri (belirtilen hizmetler perakende satış mağazaları, toptan satış mağazaları, elektronik ortamlar, katalog ve benzeri diğer yöntemler ile sağlanabilir) [KAPSAM:${coveredClassCount}]`;
             
             this.parent.addSelection('35-5', '35', combinedText);
             this.close();

@@ -829,8 +829,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         async deleteTask(taskId) {
             // Kullanıcıya nelerin silineceğini anlatan detaylı ve alt alta uyarı mesajı
-            const confirmMessage = `DİKKAT: Bu görevi silmek üzeresiniz!\n\nBu işlem sonucunda aşağıdakiler sistemden KALICI OLARAK silinecektir:\n1. Bu görev ve göreve ait tüm detaylar.\n2. Bu göreve yüklenmiş tüm evraklar (EPATS belgeleri vb.).\n3. Bu göreve bağlı oluşturulmuş tüm "Resmi İşlemler (Transactions)" ve işlem belgeleri.\n4. Bu göreve bağlı kesilmiş tüm "Ek Tahakkuklar" ve fatura/dekont dosyaları.\n5. Göreve ait tüm işlem geçmişi (Loglar).\n\nBunu onaylıyor musunuz? Bu işlem kesinlikle geri alınamaz!`;
-
+            const confirmMessage = `DİKKAT: Bu görevi silmek üzeresiniz!\n\nBu işlem sonucunda aşağıdakiler sistemden KALICI OLARAK silinecektir:\n1. Bu görev ve göreve ait tüm detaylar.\n2. Bu göreve yüklenmiş tüm evraklar (EPATS belgeleri vb.).\n3. Bu göreve bağlı oluşturulmuş tüm "Resmi İşlemler (Transactions)" ve işlem belgeleri.\n4. Bu göreve bağlı kesilmiş tüm "Ek Tahakkuklar" ve fatura/dekont dosyaları.\n\nNot: Güvenlik amacıyla görev silinme logu sistemde tutulacaktır.\n\nBunu onaylıyor musunuz? Bu işlem kesinlikle geri alınamaz!`;
             if (confirm(confirmMessage)) {
                 let loader = window.showSimpleLoading ? window.showSimpleLoading('Sistemden Tamamen Siliniyor...') : null;
                 

@@ -72,7 +72,12 @@ serve(async (req) => {
         const { accrualIds } = body;
         if (!accrualIds || accrualIds.length === 0) throw new Error("Lütfen faturalandırılacak tahakkukları seçin.");
 
-        const { data: accruals, error: accError } = await supabaseClient.from('accruals').select('*').in('id', accrualIds);
+        // 🔥 GÜNCELLEME: Artık tahakkukları çekerken altındaki dinamik kalemleri (accrual_items) de çekiyoruz!
+        const { data: accruals, error: accError } = await supabaseClient
+            .from('accruals')
+            .select('*, accrual_items(*)')
+            .in('id', accrualIds);
+
         if (accError || !accruals || accruals.length === 0) throw new Error("Tahakkuk verileri alınamadı.");
 
         const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
@@ -112,13 +117,12 @@ serve(async (req) => {
         if (clientData.email) associateParams.append("email", clientData.email);
         if (clientData.tax_office) associateParams.append("tax_office", clientData.tax_office);
 
-        // 🔥 YENİ: Gerçek Veritabanı Verileri Kullanılıyor
         const cityName = clientData.province && clientData.province.trim() !== '' ? clientData.province.trim() : "Ankara";
         const districtName = clientData.district && clientData.district.trim() !== '' ? clientData.district.trim() : "Merkez";
 
         associateParams.append("addresses[address]", clientData.address || "Merkez");
         associateParams.append("addresses[city]", cityName);
-        associateParams.append("addresses[district]", districtName); // 🔥 GERÇEK İLÇE
+        associateParams.append("addresses[district]", districtName); 
         associateParams.append("addresses[country]", "Türkiye"); 
         associateParams.append("addresses[address_type]", "invoice");
 
@@ -171,7 +175,7 @@ serve(async (req) => {
             addressParams.append("associate_id", String(kolaybiContactId));
             addressParams.append("address", clientData.address || "Merkez");
             addressParams.append("city", cityName);
-            addressParams.append("district", districtName); // 🔥 GERÇEK İLÇE
+            addressParams.append("district", districtName); 
             addressParams.append("country", "Türkiye");
             addressParams.append("address_type", "invoice");
 
@@ -181,8 +185,8 @@ serve(async (req) => {
         }
         if (!kolaybiAddressId) throw new Error("Cari Adres ID alınamadı.");
 
-        // --- HİZMET VE FATURA ---
-        let productId = 1;
+        // --- HİZMET (ÜRÜN) BİLGİSİ ---
+        let productId = 1; // Varsayılan ürün/hizmet ID'si (KolayBi'deki "Hizmet Bedeli" gibi bir kalemin ID'si)
         const productsReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/products`, { method: 'GET', headers: getHeaders });
         if (productsReq.ok) {
             const productsRes = await productsReq.json();
@@ -198,26 +202,39 @@ serve(async (req) => {
         invoiceParams.append("document_type", "SATIS"); 
         invoiceParams.append("description", "IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.");
         
-        let invoiceCurrency = accruals[0].service_fee_currency || 'TRY';
-        if (invoiceCurrency.toUpperCase() === 'TL') invoiceCurrency = 'TRY';
-        invoiceParams.append("currency", invoiceCurrency.toUpperCase());
-
+        let invoiceCurrency = 'TRY';
         let itemIndex = 0;
+        let calculatedGrandTotal = 0;
+
+        // 🔥 GÜNCELLEME: Yeni accrual_items tablosundaki satırları okuyarak faturaya ekliyoruz
         accruals.forEach((acc) => {
-            const offFee = parseFloat(acc.official_fee_amount || '0');
-            const srvFee = parseFloat(acc.service_fee_amount || '0');
-            const totalLineAmount = offFee + srvFee;
-            if (totalLineAmount > 0) {
-                invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
-                invoiceParams.append(`items[${itemIndex}][quantity]`, "1.00");
-                invoiceParams.append(`items[${itemIndex}][unit_price]`, totalLineAmount.toFixed(2));
-                invoiceParams.append(`items[${itemIndex}][vat_rate]`, String(acc.vat_rate || 20));
-                invoiceParams.append(`items[${itemIndex}][description]`, acc.description || "Danışmanlık ve Hizmet Bedeli");
-                itemIndex++;
+            if (acc.accrual_items && acc.accrual_items.length > 0) {
+                acc.accrual_items.forEach((item: any) => {
+                    if (item.currency) {
+                        invoiceCurrency = item.currency.toUpperCase();
+                        if (invoiceCurrency === 'TL') invoiceCurrency = 'TRY';
+                    }
+
+                    const qty = parseFloat(item.quantity || 1);
+                    const price = parseFloat(item.unit_price || 0);
+                    const vat = parseFloat(item.vat_rate || 0);
+
+                    // KolayBi API'sine faturanın alt kalemlerini gönderiyoruz
+                    invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
+                    invoiceParams.append(`items[${itemIndex}][quantity]`, qty.toFixed(2));
+                    invoiceParams.append(`items[${itemIndex}][unit_price]`, price.toFixed(2));
+                    invoiceParams.append(`items[${itemIndex}][vat_rate]`, vat.toString());
+                    invoiceParams.append(`items[${itemIndex}][description]`, item.item_name || "Danışmanlık ve Hizmet Bedeli");
+                    
+                    calculatedGrandTotal += (qty * price) * (1 + (vat / 100));
+                    itemIndex++;
+                });
             }
         });
 
-        if (itemIndex === 0) throw new Error("Tahakkuk bedelleri toplamı 0 TL olduğu için fatura oluşturulamadı.");
+        invoiceParams.append("currency", invoiceCurrency);
+
+        if (itemIndex === 0) throw new Error("Fatura edilecek herhangi bir kalem (satır) bulunamadı. Lütfen tahakkukun kalemlerini kontrol edin.");
 
         const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, { method: 'POST', headers: apiHeadersForm, body: invoiceParams.toString() });
         const invoiceResText = await invoiceReq.text();
@@ -229,13 +246,13 @@ serve(async (req) => {
         }
         
         const kolaybiInvoiceId = invoiceRes.data?.document_id || invoiceRes.data?.id || invoiceRes.document_id || invoiceRes.id; 
-        const totalAmount = invoiceRes.data?.total_amount || invoiceRes.data?.grand_total || accruals.reduce((s, a) => s + parseFloat(a.service_fee_amount || '0') + parseFloat(a.official_fee_amount || '0'), 0);
-
+        
+        // Supabase Invoices Tablosuna Kayıt
         const { data: newInvoice, error: invError } = await supabaseClient.from('invoices').insert({
             kolaybi_invoice_id: String(kolaybiInvoiceId),
             status: 'draft',
-            total_amount: totalAmount,
-            currency: invoiceCurrency.toUpperCase(),
+            total_amount: calculatedGrandTotal,
+            currency: invoiceCurrency,
             client_id: clientId
         }).select().single();
 

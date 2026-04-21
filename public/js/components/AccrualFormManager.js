@@ -282,7 +282,8 @@ export class AccrualFormManager {
             const vat = parseFloat(tr.querySelector('.item-vat').value) || 0;
             const currency = tr.querySelector('.item-currency').value;
             
-            const total = (qty * price) * (1 + vat / 100);
+            // 🔥 ÇÖZÜM 1: Matematiksel işlemi doğrudan 2 ondalık haneye zorlayıp Sayıya (Number) çeviriyoruz
+            const total = Number(((qty * price) * (1 + vat / 100)).toFixed(2));
             
             tr.querySelector('.item-total').textContent = new Intl.NumberFormat('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits:2}).format(total);
             

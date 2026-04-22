@@ -23,8 +23,7 @@ export class AccrualDataManager {
         try {
             const accPromise = supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').limit(10000).order('created_at', { ascending: false });
             // 🔥 YENİ: Faturaları da çekiyoruz
-            const invPromise = supabase.from('invoices').select('*').limit(5000).order('created_at', { ascending: false });
-
+            const invPromise = supabase.from('invoices').select('*, accruals(*)').limit(5000).order('created_at', { ascending: false });
             const [accRes, invRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
                 invPromise, // 🔥 YENİ
@@ -95,7 +94,8 @@ export class AccrualDataManager {
                 currency: row.currency || 'TRY',
                 clientId: row.client_id,
                 clientName: getPersonName(row.client_id) || 'Bilinmiyor',
-                createdAt: row.created_at ? new Date(row.created_at) : new Date(0)
+                createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
+                accruals: row.accruals || []
             })) : [];
 
             this._buildSearchStrings();

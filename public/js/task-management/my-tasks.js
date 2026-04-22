@@ -493,10 +493,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 else if (btn.classList.contains('edit-btn') || btn.dataset.action === 'edit') {
                     const task = this.allTasks.find(t => t.id === taskId);
-                    if (task && (String(task.taskType) === '53' || task.taskType === 'accrual_creation')) {
+                    if (!task) return;
+
+                    // Eğer Tahakkuk işiyse modalı aç
+                    if (String(task.taskType) === '53' || task.taskType === 'accrual_creation') {
                         this.openCompleteAccrualModal(taskId);
-                    } else {
-                        window.location.href = `task-update.html?id=${taskId}`;
+                    } 
+                    else {
+                        // İş tipini analiz et
+                        const tType = this.allTransactionTypes.find(t => String(t.id) === String(task.taskType));
+                        const isApp = tType && (
+                            String(tType.id).includes('application') || 
+                            String(tType.name).toLowerCase().includes('başvuru') || 
+                            String(tType.alias).toLowerCase().includes('başvuru')
+                        );
+
+                        // 🔥 YENİ MANTIK:
+                        // 1. İş bir 'Başvuru' işi MI?
+                        // 2. İş şu an 'Taslak' (pending) statüsünde MI?
+                        // Sadece bu iki şart birden sağlanıyorsa data-entry.html'e gider.
+                        const isDraft = task.status === 'pending';
+                        const targetPage = (isApp && isDraft) ? 'data-entry.html' : 'task-update.html';
+
+                        window.location.href = `${targetPage}?id=${taskId}`;
                     }
                 }
                 else if (btn.classList.contains('assign-btn')) this.openAssignTaskModal(taskId);
@@ -1118,7 +1137,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (loader) loader.hide();
                 showNotification('İş başarıyla kopyalandı! Düzenleme ekranına yönlendiriliyorsunuz...', 'success');
 
-                setTimeout(() => { window.location.href = `task-update.html?id=${insertedTask.id}`; }, 1000);
+                // 🔥 YENİ: Kopyalanan işin tipine (isApplication) göre doğru sayfaya yönlendir
+                setTimeout(() => { 
+                    const targetPage = isApplication ? 'data-entry.html' : 'task-update.html';
+                    window.location.href = `${targetPage}?id=${insertedTask.id}`; 
+                }, 1000);
 
             } catch (err) {
                 if (loader) loader.hide();

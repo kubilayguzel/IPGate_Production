@@ -83,6 +83,14 @@ serve(async (req) => {
         const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
         if (!clientId) throw new Error("Taraf (Müşteri/Cari) seçilmemiş.");
 
+        // 🔥 YENİ BACKEND KONTROLÜ: Tüm tahakkukların müşterileri aynı mı?
+        for (const acc of accruals) {
+            const currentPartyId = acc.service_invoice_party_id || acc.tp_invoice_party_id;
+            if (currentPartyId !== clientId) {
+                throw new Error("Güvenlik İhlali: Farklı müşterilere ait tahakkuklar tek faturada birleştirilemez!");
+            }
+        }
+
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 

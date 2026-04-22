@@ -86,14 +86,48 @@ class DataEntryModule {
         const formTitle = document.getElementById('formTitle');
         
         if (this.editingRecordId) {
-            if (formTitle) formTitle.textContent = 'Kayıt Düzenle';
+            if (formTitle) formTitle.textContent = 'Kayıt Düzenle / Taslağı Tamamla';
+            
             try {
-                const recordResult = await ipRecordsService.getRecordById(this.editingRecordId);
+                let targetIpRecordId = this.editingRecordId;
+                
+                // 🔥 ÇÖZÜM: URL'deki ID bir Görev (Task) ID'si mi diye kontrol et!
+                // Eğer bir sayaç ID'si (Örn: 1045) veya "T-" ile başlıyorsa bu bir Task'tır.
+                const isTaskId = !this.editingRecordId.includes('-'); // UUID'de tire (-) vardır, sayılarda yoktur. Veya sisteminize özel mantık.
+                
+                // Daha güvenli kontrol: Supabase'den tasks tablosunda var mı diye bak
+                const { data: taskData } = await supabase.from('tasks').select('*').eq('id', String(this.editingRecordId)).maybeSingle();
+
+                if (taskData) {
+                    console.log('📝 Bu bir Task (Görev) ID\'si. Bağlı portföy çekiliyor...', taskData);
+                    targetIpRecordId = taskData.ip_record_id || taskData.relatedIpRecordId;
+                    
+                    // Task'ın başlığından [TASLAK] ibaresini alıp UI'da gösterebiliriz
+                    if (taskData.title && taskData.title.includes('[TASLAK]')) {
+                        if (formTitle) formTitle.innerHTML = `<span class="badge badge-warning mr-2">TASLAK GÖREV</span> Taslağı Tamamla`;
+                    }
+
+                    // İş kopyalandıktan sonra tekrar kaydedildiğinde YENİ BİR KAYITMIŞ GİBİ davranması için ID'yi temizliyoruz.
+                    // Böylece Kaydet butonuna basıldığında updateRecord değil createRecordFromDataEntry çalışacak!
+                    // Ancak bizim senaryomuzda "Deep Copy" yaptığımız için (Yani Portföyü önceden yarattığımız için) 
+                    // Update olarak devam etmesi daha doğru. O yüzden targetIpRecordId ile devam ediyoruz.
+                    this.editingRecordId = targetIpRecordId; 
+                }
+
+                if (!targetIpRecordId) {
+                    console.warn("⚠️ Bu göreve bağlı bir IP Record (Portföy) bulunamadı. Form boş açılacak.");
+                    this.currentIpType = this.ipTypeSelect.value;
+                    this.handleIPTypeChange(this.currentIpType);
+                    return;
+                }
+
+                const recordResult = await ipRecordsService.getRecordById(targetIpRecordId);
+                
                 if (recordResult.success) {
                     this.populateFormFields(recordResult.data);
                 } else {
                     // Belki bir dava dosyasıdır
-                    const { data: suitData } = await supabase.from('suits').select('*').eq('id', this.editingRecordId).single();
+                    const { data: suitData } = await supabase.from('suits').select('*').eq('id', targetIpRecordId).single();
                     if (suitData) this.populateFormFields({ id: suitData.id, ...suitData.details, ...suitData });
                 }
             } catch (error) {

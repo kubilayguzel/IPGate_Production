@@ -630,16 +630,51 @@ document.addEventListener('DOMContentLoaded', async () => {
                 bulkCreateInvoiceBtn.addEventListener('click', async () => {
                     if (this.state.selectedIds.size === 0) return;
 
-                    if (!confirm(`${this.state.selectedIds.size} adet tahakkuk için KolayBi'de e-Fatura oluşturulacak. Onaylıyor musunuz?`)) {
+                    // 1. Seçilen Tahakkuk Objelerini Bul
+                    const selectedAccruals = Array.from(this.state.selectedIds)
+                        .map(id => this.dataManager.allAccruals.find(a => a.id === id))
+                        .filter(Boolean);
+
+                    // 2. KONTROL: Zaten Faturalandırılmış mı?
+                    const alreadyInvoiced = selectedAccruals.some(acc => acc.invoiceId || acc.invoice_id);
+                    if (alreadyInvoiced) {
+                        showNotification('Hata: Seçilen tahakkuklardan bazıları zaten faturalandırılmış!', 'error');
                         return;
                     }
+
+                    // 3. KONTROL: Müşteriler (Cari Hesaplar) Aynı mı?
+                    const getPartyId = (acc) => acc.serviceInvoicePartyId || acc.service_invoice_party_id || acc.tpInvoicePartyId || acc.tp_invoice_party_id;
+                    const firstPartyId = getPartyId(selectedAccruals[0]);
+                    const hasDifferentParties = selectedAccruals.some(acc => getPartyId(acc) !== firstPartyId);
+                    
+                    if (hasDifferentParties) {
+                        showNotification('Hata: Farklı müşterilere ait tahakkukları tek faturada birleştiremezsiniz. Lütfen aynı müşteriye ait işlemleri seçin.', 'error');
+                        return;
+                    }
+
+                    // 4. KONTROL: Döviz Cinsleri Aynı mı? (Opsiyonel ama önerilir)
+                    const getCurrency = (acc) => acc.currency || (acc.officialFee && acc.officialFee.currency) || 'TRY';
+                    const firstCurrency = getCurrency(selectedAccruals[0]);
+                    const hasDifferentCurrencies = selectedAccruals.some(acc => getCurrency(acc) !== firstCurrency);
+
+                    if (hasDifferentCurrencies) {
+                        showNotification('Hata: Farklı döviz cinslerindeki (TL, USD, EUR) tahakkukları tek faturada birleştiremezsiniz.', 'error');
+                        return;
+                    }
+
+                    // ONAY
+                    const msg = this.state.selectedIds.size > 1 
+                        ? `${this.state.selectedIds.size} adet tahakkuk birleştirilerek KolayBi'de TEK BİR e-Fatura oluşturulacak. Onaylıyor musunuz?`
+                        : `Bu tahakkuk için KolayBi'de e-Fatura oluşturulacak. Onaylıyor musunuz?`;
+
+                    if (!confirm(msg)) return;
 
                     this.uiManager.toggleLoading(true);
                     try {
                         const result = await this.dataManager.createKolaybiInvoice(this.state.selectedIds);
                         
                         this.state.selectedIds.clear(); // Seçimleri temizle
-                        this.renderPage(); // Tabloyu yenile
+                        await this.loadData(); // 🔥 TÜM VERİYİ YENİDEN ÇEK (Fatura Sekmesine Düşmesi İçin)
                         
                         showNotification(`Başarılı! KolayBi Faturası oluşturuldu.`, 'success');
                     } catch (error) {

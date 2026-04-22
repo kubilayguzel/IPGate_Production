@@ -207,6 +207,26 @@ export class AccrualUIManager {
                     else if (acc.status === 'sent') { invStatusText = 'Gönderildi'; invStatusClass = 'badge-success'; }
                     else if (acc.status === 'cancelled') { invStatusText = 'İptal Edildi'; invStatusClass = 'badge-danger'; }
 
+                    // 🔥 YENİ: Faturaya Bağlı Tahakkukları Listeleyen Dropdown Buton
+                    let linkedAccrualsHtml = '<span class="text-muted">-</span>';
+                    if (acc.accruals && acc.accruals.length > 0) {
+                        const accList = acc.accruals.map(a => {
+                            const title = a.subject || a.task_title || 'İşlem';
+                            return `<li class="mb-1 border-bottom pb-1"><strong>#${a.id}</strong> - ${title} <br><small class="text-success">${this._formatMoney(a.total_amount || 0, a.currency)}</small></li>`;
+                        }).join('');
+                        
+                        linkedAccrualsHtml = `
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-info dropdown-toggle font-weight-bold" type="button" data-toggle="dropdown">
+                                    <i class="fas fa-layer-group mr-1"></i> ${acc.accruals.length} İşlem
+                                </button>
+                                <div class="dropdown-menu p-3 shadow" style="width: 350px; max-height: 250px; overflow-y: auto; white-space: normal;">
+                                    <h6 class="dropdown-header px-0 text-primary border-bottom mb-2">Fatura İçeriği (Tahakkuklar)</h6>
+                                    <ul class="list-unstyled mb-0" style="font-size: 0.85em;">${accList}</ul>
+                                </div>
+                            </div>`;
+                    }
+
                     const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' 
                         ? `<a href="https://ofis-sandbox.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi'de Aç</a>`
                         : '';
@@ -235,9 +255,11 @@ export class AccrualUIManager {
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td class="font-weight-bold text-muted">${serialNumber}</td>
                         <td>${invDate}</td>
-                        <td>${documentDate}</td>
                         <td><span class="font-weight-bold text-primary">${acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-'}</span></td>
                         <td><span class="font-weight-bold">${acc.clientName}</span></td>
+                        
+                        <td>${linkedAccrualsHtml}</td>
+                        
                         <td><span class="badge ${invStatusClass}">${invStatusText}</span></td>
                         <td><span class="font-weight-bold text-success">${invTotal}</span></td>
                         <td class="text-center">${actionMenuHtml}</td>

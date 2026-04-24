@@ -47,7 +47,8 @@ function removeTurkishSuffixes(word: string) {
 
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
-    let cleaned = String(name).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, '').replace(/\s+/g, ' ').trim();
+    // DİKKAT: Özel karakterleri silme, BOŞLUĞA çevir!
+    let cleaned = String(name).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (removeGenericWords) {
         cleaned = cleaned.split(' ').filter(word => {
             const stemmedWord = removeTurkishSuffixes(word);
@@ -156,6 +157,9 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     if (!s1 || !s2) return { finalScore: 0.0, positionalExactMatchScore: 0.0 }; 
     if (s1 === s2) return { finalScore: 1.0, positionalExactMatchScore: 1.0 }; 
 
+    // 🔥 HEDEFLİ LOG İÇİN KONTROL (Buradaki kelimeleri testinize göre değiştirebilirsiniz)
+    const isDebugHitScore = s1.includes('aos') && s2.includes('raos');
+
     const levenshteinScore = levenshteinSimilarity(s1, s2);
     
     const jaroWinklerScore = (() => {
@@ -224,10 +228,31 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         return 1.0;
     })();
 
+    if (isDebugHitScore) {
+        console.log(`\n--- 📊 SKORLAMA DETAYLARI (${s1} vs ${s2}) ---`);
+        console.log(`   - Levenshtein Skoru: ${levenshteinScore}`);
+        console.log(`   - Jaro-Winkler Skoru: ${jaroWinklerScore}`);
+        console.log(`   - N-Gram Skoru: ${ngramScore}`);
+        console.log(`   - Prefix Skoru: ${prefixScore}`);
+        console.log(`   - Visual Skor: ${visualScore}`);
+        console.log(`   - Max Word Skoru: ${maxWordScore} (Kesişenler: ${maxWordPair})`);
+    }
+
     const exactWordLen = (maxWordPair && maxWordPair[0] === maxWordPair[1]) ? maxWordPair[0].length : 0;
-    if (maxWordScore >= 0.70) {
-        if (maxWordScore === 1.0 && exactWordLen < 2) { } 
-        else { return { finalScore: maxWordScore, positionalExactMatchScore }; }
+    
+    // 🔥 YENİ: Alt Dize (Substring) Bonusu
+    let finalMaxScore = maxWordScore;
+    if (s1.length >= 3 && s2.length >= 3 && (s2.includes(s1) || s1.includes(s2))) {
+        // "aos", "raos" içinde birebir geçiyorsa, skor 0.75 çıksa bile bunu 0.88'e (%88) yükselt
+        finalMaxScore = Math.max(maxWordScore, 0.88); 
+    }
+    
+    if (finalMaxScore >= 0.70) {
+        if (finalMaxScore === 1.0 && exactWordLen < 2) { } 
+        else { 
+            if (isDebugHitScore) console.log(`⚠️ ERKEN DÖNÜŞ (EARLY RETURN) TETİKLENDİ! maxWordScore/finalMaxScore %70'i aştı. Final Skor: ${finalMaxScore}`);
+            return { finalScore: finalMaxScore, positionalExactMatchScore }; 
+        }
     }
 
     const nameSimRaw = (levenshteinScore * 0.30 + jaroWinklerScore * 0.25 + ngramScore * 0.15 + visualScore * 0.15 + prefixScore * 0.10 + maxWordScore * 0.05);
@@ -235,6 +260,12 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     let finalScore = (nameSimRaw * 0.95) + (phonRaw * 0.05);
     finalScore = Math.max(0.0, Math.min(1.0, finalScore));
+
+    if (isDebugHitScore) {
+        console.log(`   - Fonetik Skor: ${phonRaw}`);
+        console.log(`   - AĞIRLIKLI NİHAİ SKOR: ${finalScore}`);
+        console.log(`------------------------------------------------------\n`);
+    }
 
     return { finalScore, positionalExactMatchScore }; 
 }
@@ -278,7 +309,10 @@ serve(async (req) => {
                         ? String(mark.searchMarkName).trim() 
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
-                    let alternatives = Array.isArray(mark.brandTextSearch) ? mark.brandTextSearch : [];
+                    // 🔥 DÜZELTME 1: brand_text_search desteği
+                    const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
+                    let alternatives = Array.isArray(rawBrandText) ? rawBrandText : [];
+                    
                     if (validSearchMarkName && mark.markName) {
                         const exactMarkName = String(mark.markName).trim().toLowerCase();
                         alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
@@ -299,8 +333,9 @@ serve(async (req) => {
                         return [String(val)];
                     };
 
-                    const originalClassesRaw = mark.goodsAndServicesByClass ? makeArray(mark.goodsAndServicesByClass.map((c:any)=>c.classNo||c)) : makeArray(mark.niceClasses);
-                    const watchedClassesRaw = makeArray(mark.niceClassSearch);
+                    // 🔥 DÜZELTME 2: nice_classes ve nice_class_search desteği
+                    const originalClassesRaw = mark.goodsAndServicesByClass ? makeArray(mark.goodsAndServicesByClass.map((c:any)=>c.classNo||c)) : makeArray(mark.niceClasses || mark.nice_classes);
+                    const watchedClassesRaw = makeArray(mark.niceClassSearch || mark.nice_class_search);
 
                     const cleanClass = (c: any) => {
                         const num = parseInt(String(c).replace(/\D/g, ''), 10);
@@ -308,10 +343,12 @@ serve(async (req) => {
                     };
 
                     const greenSet = new Set(originalClassesRaw.map(cleanClass).filter(Boolean));
-                    const orangeSet = new Set(watchedClassesRaw.map(cleanClass).filter(Boolean));
+                    const orangeSet = new Set(watchedClassesRaw.map(cleanClass).filter(Boolean)); // Artık 35'i buradan sorunsuzca alacak!
                     const blueSet = new Set<string>();
 
+                    // Manuel 35 kuralını sildik, sadece dinamik ilişkili sınıflar kaldı
                     greenSet.forEach(c => { if (RELATED_CLASSES_MAP[c]) RELATED_CLASSES_MAP[c].forEach(rel => blueSet.add(rel)); });
+                    
                     const bypassClassFilter = greenSet.size === 0 && orangeSet.size === 0;
 
                     const appDate = mark.applicationDate || mark.application_date || null;
@@ -343,6 +380,13 @@ serve(async (req) => {
                         actualProcessedCount++;
                         const hit = hits[i];
                         currentLastId = hit.id;
+
+                        // 🔥 YENİ EKLENECEK KOD: KESKİN NİŞANCI MODU
+                        // Eğer bültendeki marka "raos" kelimesini İÇERMİYORSA, hiçbir işlem yapmadan anında sonraki markaya geç!
+                        if (!hit.brand_name || !String(hit.brand_name).toLowerCase().includes('raos')) {
+                            continue; 
+                        }
+                        // 🔥 YENİ KOD BİTİŞİ
                         
                         let rawHitClasses: string[] = [];
                         if (Array.isArray(hit.nice_classes)) rawHitClasses = hit.nice_classes.map(String);
@@ -357,13 +401,20 @@ serve(async (req) => {
                         const hitClasses = rawHitClasses.map(cleanClass).filter(Boolean);
                         
                         const rawHitName = String(hit.brand_name || '');
-                        const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, '').replace(/\s+/g, ' ').trim();
-                        const isHitMultiWord = rawHitName.trim().split(/\s+/).length > 1;
-                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
+                        const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
+                        const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord);
 
                         for (const mark of preparedMarks) {
                             const isValidDate = isValidBasedOnDate(hit.application_date, mark.applicationDate);
-                            if (!isValidDate) continue;
+                            
+                            // HEDEFLİ LOG İÇİN KONTROL
+                            const isDebugHit = mark.primaryName.includes('aos') && rawHitName.toLowerCase().includes('raos');
+
+                            if (!isValidDate) {
+                                if (isDebugHit) console.log(`❌ DEBUG: [${mark.primaryName} vs ${rawHitName}] Tarih testinden geçemedi (Hit: ${hit.application_date} vs İzlenen: ${mark.applicationDate}). Marka elendi.`);
+                                continue;
+                            }
 
                             let hasPoolMatch = mark.bypassClassFilter; 
 
@@ -376,13 +427,38 @@ serve(async (req) => {
                             for (const searchItem of mark.searchTerms) {
                                 let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && rawCleanedHitName.includes(searchItem.cleanedSearchName);
 
-                                if (!hasPoolMatch && !isExactPrefixSuffix) continue;
+                                // İÇERME VE SINIF LOGLARI
+                                const isDebugSearchItem = searchItem.term.includes('aos') && rawHitName.toLowerCase().includes('raos');
+                                
+                                if (isDebugSearchItem) {
+                                    console.log(`\n======================================================`);
+                                    console.log(`🔍 DEBUG YAKALANDI: [İzlenen: ${searchItem.term}] vs [Bülten: ${rawHitName}]`);
+                                    console.log(`1. Tarih Geçerli mi? : ${isValidDate}`);
+                                    console.log(`2. Sınıf Eşleşti mi? : ${hasPoolMatch}`);
+                                    console.log(`   -> İzlenen Sınıflar (Mavi Set): [${Array.from(mark.blueSet).join(', ')}]`);
+                                    console.log(`   -> Bülten Sınıfları (Rakip)   : [${hitClasses.join(', ')}]`);
+                                    console.log(`3. İçerme (Prefix/Suffix)    : ${isExactPrefixSuffix}`);
+                                }
+
+                                if (!hasPoolMatch && !isExactPrefixSuffix) {
+                                    if (isDebugSearchItem) console.log(`❌ SONUÇ: Sınıf uyuşmuyor VE kelime içinde geçmiyor. Marka skorlamaya giremeden ÇÖPE ATILDI.`);
+                                    continue;
+                                }
+
+                                if (isDebugSearchItem) console.log(`✅ Duvarı aştı, SKORLAMAYA GİRİYOR...`);
 
                                 const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
                                     searchItem.term, rawHitName, searchItem.cleanedSearchName, cleanedHitName
                                 );
 
-                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) continue;
+                                if (isDebugSearchItem) console.log(`🎯 Fonksiyondan Dönen Nihai Skor: ${finalScore}`);
+
+                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) {
+                                    if (isDebugSearchItem) console.log(`❌ SONUÇ: Skor %50'nin altında kaldı. Veritabanına YAZILMIYOR.`);
+                                    continue;
+                                }
+                                
+                                if (isDebugSearchItem) console.log(`💾 BAŞARILI: Skor kriteri aştı. Veritabanına yazılmak üzere DİZİYE EKLENDİ!`);
 
                                 uiResults.push({
                                     job_id: jobId, 

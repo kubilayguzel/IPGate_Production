@@ -127,7 +127,7 @@ export class AccrualUIManager {
 
                 const tfn = acc.tpeInvoiceNo || '-';
                 const efn = acc.evrekaInvoiceNo || '-';
-                // --- 🔥 YENİ HESAPLAMA MANTIĞI BAŞLANGICI ---
+
                 const items = acc.items || [];
                 
                 // 1. Hizmet Ücreti (Sadece Evreka Hizmeti)
@@ -135,7 +135,8 @@ export class AccrualUIManager {
                 const srvMap = {};
                 srvItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    srvMap[curr] = (srvMap[curr] || 0) + (Number(i.unit_price) * Number(i.quantity));
+                    // 🔥 ÇÖZÜM: unit_price * quantity YERİNE doğrudan total_amount toplanıyor!
+                    srvMap[curr] = (srvMap[curr] || 0) + (Number(i.total_amount) || 0);
                 });
                 const serviceStr = Object.keys(srvMap).length > 0 
                     ? Object.entries(srvMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
@@ -146,12 +147,13 @@ export class AccrualUIManager {
                 const offMap = {};
                 offItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    offMap[curr] = (offMap[curr] || 0) + (Number(i.unit_price) * Number(i.quantity));
+                    // 🔥 ÇÖZÜM: unit_price * quantity YERİNE doğrudan total_amount toplanıyor!
+                    offMap[curr] = (offMap[curr] || 0) + (Number(i.total_amount) || 0);
                 });
                 const officialStr = Object.keys(offMap).length > 0 
                     ? Object.entries(offMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
                     : '-';
-                // --- 🔥 YENİ HESAPLAMA MANTIĞI BİTİŞİ ---
+
                 // Artık ödenmiş olanlar da düzenlenebilecek, o yüzden disabled kilidini kaldırıyoruz
                 const editBtnClass = 'btn btn-sm btn-light text-warning edit-btn action-btn';
                 const editBtnStyle = 'cursor: pointer;';

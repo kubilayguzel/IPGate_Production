@@ -521,11 +521,26 @@ const highlightMatchingSubstrings = (searchArray, targetStr) => {
     return resultHtml;
 };
 
-const createResultRow = (hit, rowIndex) => {
+    const createResultRow = (hit, rowIndex) => {
     // 🔥 YENİ: Şu anki listenin Yurtdışı/Serbest listesi olup olmadığını kontrol et
     const isManualList = document.getElementById('bulletinSelect')?.value === MANUAL_COLLECTION_ID;
 
-    const holders = Array.isArray(hit.holders) ? hit.holders.map(h => h.name || h.id || h).filter(Boolean).join(', ') : (hit.holders || '');
+    // 🔥 ÇÖZÜM: Sahip verisi eğer bir Object (Obje) olarak gelirse onu metne çevirir, [object Object] yazmasını engeller.
+    let rawHolders = hit.holders;
+    if (typeof rawHolders === 'string' && (rawHolders.startsWith('{') || rawHolders.startsWith('['))) {
+        try { rawHolders = JSON.parse(rawHolders); } catch(e) {}
+    }
+    
+    let holders = '-';
+    if (Array.isArray(rawHolders)) {
+        holders = rawHolders.map(h => typeof h === 'object' && h !== null ? (h.name || h.holderName || h.title || Object.values(h).join(' ')) : h).filter(Boolean).join(', ');
+    } else if (typeof rawHolders === 'object' && rawHolders !== null) {
+        holders = rawHolders.name || rawHolders.holderName || rawHolders.title || Object.values(rawHolders).join(' ');
+    } else {
+        holders = rawHolders || '-';
+    }
+    if (String(holders).includes('[object Object]')) holders = 'Bilinmeyen Sahip';
+    
     const monitoredTrademark = monitoringTrademarks.find(tm => tm.id === (hit.monitoredTrademarkId || hit.monitoredMarkId)) || {};
     const resultClasses = normalizeNiceList(hit.niceClasses);
     let goodsAndServicesClasses = normalizeNiceList(getNiceClassNumbers(monitoredTrademark));
@@ -1433,9 +1448,19 @@ const buildReportData = async (results) => {
         const monitoredAppNo = ipData?.application_number || monitoredTm?.applicationNo || "-";
         const monitoredAppDate = _pickAppDate(ipData, monitoredTm);
 
+        // 🔥 ÇÖZÜM: Rapor çıktısında da [object Object] hatasını engelle
+        let parsedReportHolders = hitHolders;
+        if (typeof parsedReportHolders === 'string') { try { parsedReportHolders = JSON.parse(parsedReportHolders); } catch(e) {} }
+        
         let hitOwnerStr = "-";
-        if (Array.isArray(hitHolders) && hitHolders.length > 0) hitOwnerStr = hitHolders.map(h => h.name || h.holderName || h.id || h).filter(Boolean).join(', ');
-        else if (typeof hitHolders === 'string' && hitHolders.trim() !== '') hitOwnerStr = hitHolders;
+        if (Array.isArray(parsedReportHolders)) {
+            hitOwnerStr = parsedReportHolders.map(h => typeof h === 'object' && h !== null ? (h.name || h.holderName || h.title || Object.values(h).join(' ')) : h).filter(Boolean).join(', ');
+        } else if (typeof parsedReportHolders === 'object' && parsedReportHolders !== null) {
+            hitOwnerStr = parsedReportHolders.name || parsedReportHolders.holderName || parsedReportHolders.title || Object.values(parsedReportHolders).join(' ');
+        } else {
+            hitOwnerStr = parsedReportHolders || '-';
+        }
+        if (hitOwnerStr === '[object Object]') hitOwnerStr = '-';
 
         let realBulletinDateDisplay = "-";
         if (realBulletinDateStr) {

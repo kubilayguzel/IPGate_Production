@@ -47,7 +47,6 @@ function removeTurkishSuffixes(word: string) {
 
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
-    // DİKKAT: Özel karakterleri silme, BOŞLUĞA çevir!
     let cleaned = String(name).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (removeGenericWords) {
         cleaned = cleaned.split(' ').filter(word => {
@@ -67,8 +66,8 @@ const visualMap: Record<string, string[]> = {
     "a": ["e", "o"], "b": ["d", "p"], "c": ["ç", "s"], "ç": ["c", "s"], "d": ["b", "p"], "e": ["a", "o"], "f": ["t"],
     "g": ["ğ", "q"], "ğ": ["g", "q"], "h": ["n"], "i": ["l", "j", "ı"], "ı": ["i"], "j": ["i", "y"], "k": ["q", "x"],
     "l": ["i", "1"], "m": ["n"], "n": ["m", "r"], "o": ["a", "0", "ö"], "ö": ["o"], "p": ["b", "q"], "q": ["g", "k"],
-    "r": ["n"], "s": ["ş", "c", "z"], "ş": ["s", "z"], "t": ["f"], "u": ["ü", "v"], "ü": ["u", "v"], "v": ["u", "ü", "w"],
-    "w": ["v"], "x": ["ks"], "y": ["j"], "z": ["s", "ş"], "0": ["o"], "1": ["l", "i"], "ks": ["x"], "Q": ["O","0"],
+    "r": ["n"], "s": ["ş", "c", "z"], "ş": ["s", "z"], "t": ["f"], "u": ["ü", "v"], "ü": ["u", "v"], "v": ["u", "ü", "w", "w"], // w eşleşmesi garantilendi
+    "w": ["v", "u"], "x": ["ks"], "y": ["j"], "z": ["s", "ş"], "0": ["o"], "1": ["l", "i"], "ks": ["x"], "Q": ["O","0"],
     "O": ["Q", "0"], "I": ["l", "1"], "L": ["I", "1"], "Z": ["2"], "S": ["5"], "B": ["8"], "D": ["O"]
 };
 
@@ -100,14 +99,6 @@ function parseDateForValidation(val: any): Date | null {
         if (!isNaN(iso.getTime())) return iso;
     }
     return null;
-}
-
-function isValidBasedOnDate(hitDate: any, monitoredDate: any) {
-    if (!hitDate || !monitoredDate) return true;
-    const hit = parseDateForValidation(hitDate);
-    const mon = parseDateForValidation(monitoredDate);
-    if (!hit || !mon || isNaN(hit.getTime()) || isNaN(mon.getTime())) return true;
-    return hit >= mon;
 }
 
 const v0 = new Int32Array(512);
@@ -156,9 +147,6 @@ function isPhoneticallySimilar(a: string, b: string) {
 function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMarkNameOriginal: string, s1: string, s2: string) {
     if (!s1 || !s2) return { finalScore: 0.0, positionalExactMatchScore: 0.0 }; 
     if (s1 === s2) return { finalScore: 1.0, positionalExactMatchScore: 1.0 }; 
-
-    // 🔥 HEDEFLİ LOG İÇİN KONTROL (Buradaki kelimeleri testinize göre değiştirebilirsiniz)
-    const isDebugHitScore = s1.includes('aos') && s2.includes('raos');
 
     const levenshteinScore = levenshteinSimilarity(s1, s2);
     
@@ -228,31 +216,17 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         return 1.0;
     })();
 
-    if (isDebugHitScore) {
-        console.log(`\n--- 📊 SKORLAMA DETAYLARI (${s1} vs ${s2}) ---`);
-        console.log(`   - Levenshtein Skoru: ${levenshteinScore}`);
-        console.log(`   - Jaro-Winkler Skoru: ${jaroWinklerScore}`);
-        console.log(`   - N-Gram Skoru: ${ngramScore}`);
-        console.log(`   - Prefix Skoru: ${prefixScore}`);
-        console.log(`   - Visual Skor: ${visualScore}`);
-        console.log(`   - Max Word Skoru: ${maxWordScore} (Kesişenler: ${maxWordPair})`);
-    }
-
     const exactWordLen = (maxWordPair && maxWordPair[0] === maxWordPair[1]) ? maxWordPair[0].length : 0;
     
-    // 🔥 YENİ: Alt Dize (Substring) Bonusu
+    // 🔥 OPTİMİZASYON: Alt Dize (Substring) Bonusu
     let finalMaxScore = maxWordScore;
     if (s1.length >= 3 && s2.length >= 3 && (s2.includes(s1) || s1.includes(s2))) {
-        // "aos", "raos" içinde birebir geçiyorsa, skor 0.75 çıksa bile bunu 0.88'e (%88) yükselt
         finalMaxScore = Math.max(maxWordScore, 0.88); 
     }
-    
+
     if (finalMaxScore >= 0.70) {
         if (finalMaxScore === 1.0 && exactWordLen < 2) { } 
-        else { 
-            if (isDebugHitScore) console.log(`⚠️ ERKEN DÖNÜŞ (EARLY RETURN) TETİKLENDİ! maxWordScore/finalMaxScore %70'i aştı. Final Skor: ${finalMaxScore}`);
-            return { finalScore: finalMaxScore, positionalExactMatchScore }; 
-        }
+        else { return { finalScore: finalMaxScore, positionalExactMatchScore }; }
     }
 
     const nameSimRaw = (levenshteinScore * 0.30 + jaroWinklerScore * 0.25 + ngramScore * 0.15 + visualScore * 0.15 + prefixScore * 0.10 + maxWordScore * 0.05);
@@ -260,12 +234,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     let finalScore = (nameSimRaw * 0.95) + (phonRaw * 0.05);
     finalScore = Math.max(0.0, Math.min(1.0, finalScore));
-
-    if (isDebugHitScore) {
-        console.log(`   - Fonetik Skor: ${phonRaw}`);
-        console.log(`   - AĞIRLIKLI NİHAİ SKOR: ${finalScore}`);
-        console.log(`------------------------------------------------------\n`);
-    }
 
     return { finalScore, positionalExactMatchScore }; 
 }
@@ -296,9 +264,8 @@ serve(async (req) => {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                // 🔥 KESİN ÇÖZÜM 1: BATCH_SIZE (Lokma Boyutu) çok küçültüldü. 
-                // Ağır işlemci algoritmalarında tek seferde 250 kayıt çekmek Edge Fonksiyonlarını asla çökertmez.
-                const BATCH_SIZE = 250;
+                // 🔥 OPTİMİZASYON: Timeout / CPU Kill yememek için lokma boyutunu (BATCH_SIZE) düşürdük
+                const BATCH_SIZE = 250; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
                 console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç ID: ${lastId}`);
@@ -309,7 +276,7 @@ serve(async (req) => {
                         ? String(mark.searchMarkName).trim() 
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
-                    // 🔥 DÜZELTME 1: brand_text_search desteği
+                    // 🔥 DÜZELTME: Veritabanındaki snake_case (brand_text_search) okuma sorunu çözüldü
                     const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
                     let alternatives = Array.isArray(rawBrandText) ? rawBrandText : [];
                     
@@ -333,7 +300,7 @@ serve(async (req) => {
                         return [String(val)];
                     };
 
-                    // 🔥 DÜZELTME 2: nice_classes ve nice_class_search desteği
+                    // 🔥 DÜZELTME: Veritabanındaki snake_case (nice_class_search) okuma sorunu çözüldü
                     const originalClassesRaw = mark.goodsAndServicesByClass ? makeArray(mark.goodsAndServicesByClass.map((c:any)=>c.classNo||c)) : makeArray(mark.niceClasses || mark.nice_classes);
                     const watchedClassesRaw = makeArray(mark.niceClassSearch || mark.nice_class_search);
 
@@ -343,17 +310,18 @@ serve(async (req) => {
                     };
 
                     const greenSet = new Set(originalClassesRaw.map(cleanClass).filter(Boolean));
-                    const orangeSet = new Set(watchedClassesRaw.map(cleanClass).filter(Boolean)); // Artık 35'i buradan sorunsuzca alacak!
+                    const orangeSet = new Set(watchedClassesRaw.map(cleanClass).filter(Boolean)); 
                     const blueSet = new Set<string>();
 
-                    // Manuel 35 kuralını sildik, sadece dinamik ilişkili sınıflar kaldı
                     greenSet.forEach(c => { if (RELATED_CLASSES_MAP[c]) RELATED_CLASSES_MAP[c].forEach(rel => blueSet.add(rel)); });
                     
                     const bypassClassFilter = greenSet.size === 0 && orangeSet.size === 0;
 
-                    const appDate = mark.applicationDate || mark.application_date || null;
+                    // 🔥 OPTİMİZASYON: İzlenen markanın başvuru tarihini döngüye girmeden SADECE 1 KERE parse ediyoruz
+                    const appDateRaw = mark.applicationDate || mark.application_date || null;
+                    const parsedAppDate = parseDateForValidation(appDateRaw);
 
-                    return { ...mark, primaryName, searchTerms, applicationDate: appDate, greenSet, orangeSet, blueSet, bypassClassFilter };
+                    return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
                 let currentLastId = lastId;
@@ -361,8 +329,6 @@ serve(async (req) => {
                 const uiResults = [];
                 const permanentRecords = []; 
 
-                // 🔥 KESİN ÇÖZÜM 2: WHİLE DÖNGÜSÜ TAMAMEN SİLİNDİ! 
-                // İşçi uyanır uyanmaz veritabanından sadece 250 kayıt (1 lokma) çeker, işler, kapatır ve bayrağı sıradaki işçiye devreder.
                 const { data: hits, error } = await supabase
                     .from('trademark_bulletin_records')
                     .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
@@ -380,13 +346,9 @@ serve(async (req) => {
                         actualProcessedCount++;
                         const hit = hits[i];
                         currentLastId = hit.id;
-
-                        // 🔥 YENİ EKLENECEK KOD: KESKİN NİŞANCI MODU
-                        // Eğer bültendeki marka "raos" kelimesini İÇERMİYORSA, hiçbir işlem yapmadan anında sonraki markaya geç!
-                        if (!hit.brand_name || !String(hit.brand_name).toLowerCase().includes('raos')) {
-                            continue; 
-                        }
-                        // 🔥 YENİ KOD BİTİŞİ
+                        
+                        // 🔥 OPTİMİZASYON: Rakip markanın tarihini 200 döngüde değil, dışarıda SADECE 1 KERE parse et.
+                        const parsedHitDate = parseDateForValidation(hit.application_date);
                         
                         let rawHitClasses: string[] = [];
                         if (Array.isArray(hit.nice_classes)) rawHitClasses = hit.nice_classes.map(String);
@@ -403,18 +365,16 @@ serve(async (req) => {
                         const rawHitName = String(hit.brand_name || '');
                         const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
                         const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord);
+                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
 
                         for (const mark of preparedMarks) {
-                            const isValidDate = isValidBasedOnDate(hit.application_date, mark.applicationDate);
                             
-                            // HEDEFLİ LOG İÇİN KONTROL
-                            const isDebugHit = mark.primaryName.includes('aos') && rawHitName.toLowerCase().includes('raos');
-
-                            if (!isValidDate) {
-                                if (isDebugHit) console.log(`❌ DEBUG: [${mark.primaryName} vs ${rawHitName}] Tarih testinden geçemedi (Hit: ${hit.application_date} vs İzlenen: ${mark.applicationDate}). Marka elendi.`);
-                                continue;
+                            // 🔥 OPTİMİZASYON: Ağır nesne yaratımını engelleyerek sadece CPU bazlı milisaniyelik zaman kıyası yaptık
+                            let isValidDate = true;
+                            if (parsedHitDate && mark.parsedAppDate && !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime())) {
+                                isValidDate = parsedHitDate >= mark.parsedAppDate;
                             }
+                            if (!isValidDate) continue;
 
                             let hasPoolMatch = mark.bypassClassFilter; 
 
@@ -427,38 +387,13 @@ serve(async (req) => {
                             for (const searchItem of mark.searchTerms) {
                                 let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && rawCleanedHitName.includes(searchItem.cleanedSearchName);
 
-                                // İÇERME VE SINIF LOGLARI
-                                const isDebugSearchItem = searchItem.term.includes('aos') && rawHitName.toLowerCase().includes('raos');
-                                
-                                if (isDebugSearchItem) {
-                                    console.log(`\n======================================================`);
-                                    console.log(`🔍 DEBUG YAKALANDI: [İzlenen: ${searchItem.term}] vs [Bülten: ${rawHitName}]`);
-                                    console.log(`1. Tarih Geçerli mi? : ${isValidDate}`);
-                                    console.log(`2. Sınıf Eşleşti mi? : ${hasPoolMatch}`);
-                                    console.log(`   -> İzlenen Sınıflar (Mavi Set): [${Array.from(mark.blueSet).join(', ')}]`);
-                                    console.log(`   -> Bülten Sınıfları (Rakip)   : [${hitClasses.join(', ')}]`);
-                                    console.log(`3. İçerme (Prefix/Suffix)    : ${isExactPrefixSuffix}`);
-                                }
-
-                                if (!hasPoolMatch && !isExactPrefixSuffix) {
-                                    if (isDebugSearchItem) console.log(`❌ SONUÇ: Sınıf uyuşmuyor VE kelime içinde geçmiyor. Marka skorlamaya giremeden ÇÖPE ATILDI.`);
-                                    continue;
-                                }
-
-                                if (isDebugSearchItem) console.log(`✅ Duvarı aştı, SKORLAMAYA GİRİYOR...`);
+                                if (!hasPoolMatch && !isExactPrefixSuffix) continue;
 
                                 const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
                                     searchItem.term, rawHitName, searchItem.cleanedSearchName, cleanedHitName
                                 );
 
-                                if (isDebugSearchItem) console.log(`🎯 Fonksiyondan Dönen Nihai Skor: ${finalScore}`);
-
-                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) {
-                                    if (isDebugSearchItem) console.log(`❌ SONUÇ: Skor %50'nin altında kaldı. Veritabanına YAZILMIYOR.`);
-                                    continue;
-                                }
-                                
-                                if (isDebugSearchItem) console.log(`💾 BAŞARILI: Skor kriteri aştı. Veritabanına yazılmak üzere DİZİYE EKLENDİ!`);
+                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) continue;
 
                                 uiResults.push({
                                     job_id: jobId, 
@@ -494,7 +429,6 @@ serve(async (req) => {
                 }
 
                 if (uiResults.length > 0) {
-                    console.log(`[Worker ${workerId}] 💾 DB YAZIMI | ${uiResults.length} adet benzerlik sonucu bulundu ve kaydediliyor...`);
                     const CHUNK_SIZE = 1000;
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
                         await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
@@ -511,7 +445,7 @@ serve(async (req) => {
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
                 if (hasMoreRecords) {
-                    console.log(`[Worker ${workerId}] 🔄 DEVAM EDİYOR | Toplam İşlenen: ${newProcessedCount}/${totalBulletinRecords} (%${progressPercent}) | Sonraki (Bayrak Devredilen) ID: ${currentLastId}`);
+                    console.log(`[Worker ${workerId}] 🔄 DEVAM EDİYOR | İşlenen: ${newProcessedCount}/${totalBulletinRecords} (%${progressPercent})`);
                     
                     EdgeRuntime.waitUntil(
                         supabase.functions.invoke('perform-trademark-similarity-search', {
@@ -519,16 +453,16 @@ serve(async (req) => {
                             headers: { Authorization: `Bearer ${supabaseKey}` }
                         }).then(async (res) => {
                             if (res.error) {
-                                console.error(`[Worker ${workerId}] 🚨 Zincirleme API Çağrı Hatası:`, res.error);
+                                console.error(`[Worker ${workerId}] 🚨 API Çağrı Hatası:`, res.error);
                                 await markWorkerStatus(supabase, jobId, workerId, 'failed');
                             }
                         }).catch(async (err) => {
-                            console.error(`[Worker ${workerId}] 🚨 Zincirleme Ağ/İletişim Hatası:`, err);
+                            console.error(`[Worker ${workerId}] 🚨 Ağ Hatası:`, err);
                             await markWorkerStatus(supabase, jobId, workerId, 'failed');
                         })
                     );
                 } else {
-                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Tüm bülten başarıyla tarandı ve işçi kapandı. Toplam İşlenen: ${newProcessedCount}`);
+                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Tüm bülten tarandı.`);
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                 }
 
@@ -542,7 +476,7 @@ serve(async (req) => {
         }
 
         // =========================================================================
-        // BAŞLANGIÇ MODU (Aramayı Başlatan İlk Tetik)
+        // BAŞLANGIÇ MODU
         // =========================================================================
         const { monitoredMarks, selectedBulletinId } = body;
         if (!monitoredMarks || !selectedBulletinId) throw new Error("Eksik parametre.");

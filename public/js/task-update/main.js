@@ -105,7 +105,8 @@ class TaskUpdateController {
 
         this.selectedIpRecordId = this.taskData.relatedIpRecordId || this.taskData.related_ip_record_id || null;
         
-        let ownerId = this.taskData.relatedPartyId || this.taskData.related_party_id || this.taskData.opponentId || this.taskData.opponent_id;
+        // 🔥 ÇÖZÜM: İlgili Taraf tespiti (task_owner_id birinci öncelik)
+        let ownerId = this.taskData.task_owner_id || this.taskData.taskOwnerId || this.taskData.relatedPartyId || this.taskData.related_party_id || this.taskData.opponentId || this.taskData.opponent_id;
         
         if (!ownerId) {
             let owners = this.taskData.task_owner || this.taskData.taskOwner;
@@ -116,10 +117,14 @@ class TaskUpdateController {
         }
         this.selectedPersonId = ownerId || null;
 
+        // Standart UI Doldurma İşlemleri
         this.uiManager.fillForm(this.taskData, this.masterData.users);
         this.uiManager.renderDocuments(this.currentDocuments);
         this.renderAccruals();
         
+        // --- PORTFÖY (MARKA) VARLIĞI VE DAVA KARTI (TİP 49) ÇİZİMİ ---
+        const typeStr = String(this.taskData.taskType || this.taskData.task_type_id);
+
         if (this.selectedIpRecordId) {
             let rec = this.masterData.ipRecords.find(r => String(r.id) === String(this.selectedIpRecordId));
             if (!rec) {
@@ -130,8 +135,19 @@ class TaskUpdateController {
                 };
             }
             this.uiManager.renderSelectedIpRecord(rec);
+
+            // Görev tipi 49 ise Dava kartını marka verisiyle çiz
+            if (typeStr === '49') {
+                this.uiManager.buildYidkSuitForm(this.taskData, rec);
+            }
+        } else {
+            // Marka verisi yoksa bile Görev tipi 49 ise Dava kartını boş çiz
+            if (typeStr === '49') {
+                this.uiManager.buildYidkSuitForm(this.taskData, null);
+            }
         }
-        
+
+        // --- İLGİLİ TARAF (PERSON) ÇİZİMİ ---
         if (this.selectedPersonId) {
             let p = this.masterData.persons.find(x => String(x.id) === String(this.selectedPersonId));
             if (!p) {
@@ -691,6 +707,65 @@ class TaskUpdateController {
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
             epatsDocumentDateForDB = evrakDate; 
         }
+
+        const taskTypeStr = String(this.taskData.taskType || this.taskData.task_type_id);
+        const newStatus = document.getElementById('taskStatus')?.value;
+
+        if (taskTypeStr === '49' && newStatus === 'completed') {
+            const courtName = document.getElementById('suitCourtName')?.value;
+            const fileNo = document.getElementById('suitFileNo')?.value;
+            const opposingParty = document.getElementById('suitOpposingParty')?.value;
+            const openingDate = document.getElementById('suitOpeningDate')?.value; // 🔥 Yeni alan
+            
+            if (!courtName || !fileNo || !opposingParty || !openingDate) {
+                return showNotification('Lütfen Dava Açılış Bilgilerini (Mahkeme, Esas No, Dava Tarihi, Karşı Taraf) eksiksiz doldurunuz.', 'warning');
+            }
+            if (epatsDocIndex === -1) {
+                return showNotification('Dava Dilekçesi ve Tevzi Formu (Evrak) yüklenmesi zorunludur.', 'warning');
+            }
+            
+            const suitPayload = {
+                ip_record_id: this.selectedIpRecordId,
+                client_id: this.selectedPersonId,
+                task_id: this.taskId,
+                transaction_type_id: taskTypeStr,
+                suit_type: 'YİDK Kararı İptali',
+                court_name: courtName,
+                file_no: fileNo,
+                opposing_party: opposingParty,
+                client_role: 'Davacı',
+                title: `YİDK Kararı İptal Davası`,
+                status: 'continue',
+                opening_date: openingDate // 🔥 Dava Tarihi DB'ye gidiyor
+            };
+
+            const suitRes = await this.dataManager.createSuitRecord(suitPayload);
+            if (!suitRes.success) {
+                return showNotification('Dava dosyası açılamadı: ' + suitRes.error, 'error');
+            }
+
+            // 3. Transaction Geçmişine Yaz
+            await this.dataManager.logTransaction({
+                ip_record_id: this.selectedIpRecordId,
+                task_id: this.taskId,
+                transaction_type_id: taskTypeStr,
+                description: `YİDK Kararı İptali davası açıldı. Mahkeme: ${courtName}, Esas No: ${fileNo}`,
+                user_id: (await authService.getCurrentSession())?.user?.id,
+                transaction_date: new Date().toISOString()
+            });
+
+            // 4. Dilekçeyi Davanın Evraklarına da Ekle
+            const epatsDoc = this.currentDocuments[epatsDocIndex];
+            if (epatsDoc && suitRes.data?.id) {
+                await supabase.from('suit_documents').insert({
+                    suit_id: suitRes.data.id,
+                    document_name: epatsDoc.name,
+                    document_url: epatsDoc.url,
+                    document_type: 'dava_dilekcesi'
+                });
+            }
+        }
+        // 🔥 YİDK KANCASI BİTİŞİ
 
         try {
             // 🔥 ÖLÜMCÜL HATA ÇÖZÜMÜ: Eski veriyi ezmemek için önce veritabanındaki en güncel JSON'u çekiyoruz

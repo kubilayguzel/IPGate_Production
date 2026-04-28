@@ -1,4 +1,4 @@
-import { formatFileSize, TASK_STATUSES } from '../../utils.js';
+import { formatFileSize, TASK_STATUSES, COURTS_LIST } from '../../utils.js';
 
 export class TaskUpdateUIManager {
     constructor() {
@@ -67,6 +67,94 @@ export class TaskUpdateUIManager {
 
         // Durum dropdown'ını doldur
         this.populateStatusDropdown(task.status);
+    }
+
+    // 🔥 GÜNCEL VE NOKTA ATIŞI: Görev Tipi 49 için Dava Açılış Kartı Düzenleyici
+    buildYidkSuitForm(task, ipRecord) {
+        console.log("🔥 Dava kartı düzenleme ve metin değişimleri tetiklendi!");
+
+        // 1. Kart Başlığını ve Yükleme Alanı Metnini Değiştir
+        const epatsArea = document.getElementById('epatsFileUploadArea');
+        if (epatsArea) {
+            // A) Kart Başlığını Değiştir (Resmi Kurum (EPATS) Evrakı -> YİDK İptal Davası Açılış Bilgileri)
+            const epatsCard = epatsArea.closest('.card');
+            if (epatsCard) {
+                const header = epatsCard.querySelector('.card-header h6, .card-header .m-0');
+                if (header) header.innerHTML = '<i class="fas fa-gavel mr-2"></i>YİDK İptal Davası Açılış Bilgileri';
+            }
+
+            // B) Yükleme Alanı İçindeki Metni Değiştir (EPATS Evrakı Yükle -> Dava Dilekçesi ve Tevzi Formu)
+            // Genellikle bir <p> veya <span> içindedir
+            const uploadLabel = epatsArea.querySelector('p, span, .upload-text');
+            if (uploadLabel) {
+                uploadLabel.textContent = 'Dava Dilekçesi ve Tevzi Formu';
+            }
+        }
+
+        // 2. TürkPatent Evrak No ve Evrak Tarihi (EPATS) inputlarını gizle
+        const evrakNoInput = document.getElementById('turkpatentEvrakNo');
+        const evrakDateInput = document.getElementById('epatsDocumentDate');
+        
+        [evrakNoInput, evrakDateInput].forEach(input => {
+            if (input) {
+                const wrapper = input.closest('.form-group, .col-md-6, .col-12') || input.parentElement;
+                if (wrapper) wrapper.style.setProperty('display', 'none', 'important');
+            }
+        });
+
+        // 3. Ankara Mahkemelerini Filtrele
+        let courtOptions = '<option value="">Seçiniz...</option>';
+        const ankaraGroup = COURTS_LIST?.find(c => c.label === 'Ankara');
+        if (ankaraGroup) {
+            courtOptions += ankaraGroup.options.map(c => `<option value="${c.value}">${c.text}</option>`).join('');
+        }
+
+        const brandDisplay = ipRecord ? `${ipRecord.brand_name || ipRecord.brandName || ipRecord.title} (${ipRecord.application_number || ipRecord.applicationNumber || '-'})` : 'Bilinmiyor';
+
+        // 4. Yeni Dava Alanlarını Hazırla
+        const suitFieldsHtml = `
+            <div id="yidkSpecificFields" class="mt-3 pt-3 border-top w-100">
+                <div class="row m-0">
+                    <div class="col-md-12 mb-3 px-1">
+                        <label class="font-weight-bold text-muted small">Dava Konusu (Portföy Varlığı)</label>
+                        <input type="text" class="form-control bg-white font-weight-bold" value="${brandDisplay}" readonly disabled>
+                    </div>
+                    <div class="col-md-6 mb-3 px-1">
+                        <label for="suitCourtName" class="font-weight-bold small">Mahkeme Adı <span class="text-danger">*</span></label>
+                        <select id="suitCourtName" class="form-control select2" required>
+                            ${courtOptions}
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3 px-1">
+                        <label for="suitFileNo" class="font-weight-bold small">Esas Numarası <span class="text-danger">*</span></label>
+                        <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" required>
+                    </div>
+                    <div class="col-md-6 mb-3 px-1">
+                        <label for="suitOpeningDate" class="font-weight-bold small">Dava Tarihi <span class="text-danger">*</span></label>
+                        <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" required>
+                    </div>
+                    <div class="col-md-6 mb-3 px-1">
+                        <label for="suitOpposingParty" class="font-weight-bold small">Karşı Taraf (Davalı) <span class="text-danger">*</span></label>
+                        <input type="text" id="suitOpposingParty" class="form-control" placeholder="Örn: TÜRKPATENT ve Karşı Firma" required>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // 5. Alanları enjekte et
+        if (epatsArea && !document.getElementById('yidkSpecificFields')) {
+            epatsArea.insertAdjacentHTML('beforebegin', suitFieldsHtml);
+        }
+
+        // 6. Tarih ve Select2 kütüphanelerini başlat
+        setTimeout(() => {
+            if (window.$ && $.fn.select2) $('#suitCourtName').select2({ theme: 'bootstrap4', width: '100%' });
+            if (window.flatpickr) {
+                window.flatpickr('#suitOpeningDate', {
+                    dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "tr", defaultDate: new Date()
+                });
+            }
+        }, 100);
     }
     
     // Zaman dilimi sapmalarını önlemek için güvenli formatlayıcı

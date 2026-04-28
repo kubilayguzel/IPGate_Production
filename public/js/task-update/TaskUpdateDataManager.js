@@ -85,4 +85,28 @@ export class TaskUpdateDataManager {
             return false;
         }
     }
+
+    // 🔥 YENİ: Dava Kaydı (Suit) Oluşturma Metodu
+    async createSuitRecord(suitData) {
+        try {
+            const { data, error } = await supabase.from('suits').insert([suitData]).select('id').single();
+            if (error) throw error;
+            return { success: true, data };
+        } catch (error) {
+            console.error("Dava kayıt hatası:", error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔥 YENİ: İşlem Geçmişi (Transaction) Loglama Metodu
+    async logTransaction(transactionData) {
+        try {
+            const { error } = await supabase.from('transactions').insert([transactionData]);
+            if (error) throw error;
+            return { success: true };
+        } catch (error) {
+            console.error("Transaction log hatası:", error);
+            return { success: false, error: error.message };
+        }
+    }
 }

@@ -230,7 +230,7 @@ export class AccrualUIManager {
                     }
 
                     const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' 
-                        ? `<a href="https://ofis-sandbox.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi'de Aç</a>`
+                        ? `<a href="https://ofis.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi'de Aç</a>`
                         : '';
                         
                     const cancelBtn = acc.status === 'draft'

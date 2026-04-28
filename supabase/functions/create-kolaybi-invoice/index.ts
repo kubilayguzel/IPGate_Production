@@ -6,7 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const KOLAYBI_BASE_URL = "https://ofis-sandbox-api.kolaybi.com"; 
+// 🔥 CANLI ORTAM URL'Sİ (Sandbox kaldırıldı)
+const KOLAYBI_BASE_URL = "https://ofis-api.kolaybi.com"; 
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -21,8 +22,8 @@ serve(async (req) => {
       global: { headers: { Authorization: req.headers.get('Authorization')! } }
     });
 
-    const apiKey = Deno.env.get('KOLAYBI_API_KEY') ?? 'b9de5d0f-a1f1-49c8-8f3c-af2a1ddb9158'; 
-    const channel = Deno.env.get('KOLAYBI_CHANNEL') ?? 'evrekapatent';
+    const apiKey = 'e95988f7-52d0-44ac-85ab-d40f8c6e27d4'; 
+    const channel = 'evrekapatent';
 
     const getKolaybiToken = async () => {
         const authReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/access_token`, {
@@ -72,7 +73,6 @@ serve(async (req) => {
         const { accrualIds } = body;
         if (!accrualIds || accrualIds.length === 0) throw new Error("Lütfen faturalandırılacak tahakkukları seçin.");
 
-        // 🔥 GÜNCELLEME: Artık tahakkukları çekerken altındaki dinamik kalemleri (accrual_items) de çekiyoruz!
         const { data: accruals, error: accError } = await supabaseClient
             .from('accruals')
             .select('*, accrual_items(*)')
@@ -83,7 +83,6 @@ serve(async (req) => {
         const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
         if (!clientId) throw new Error("Taraf (Müşteri/Cari) seçilmemiş.");
 
-        // 🔥 YENİ BACKEND KONTROLÜ: Tüm tahakkukların müşterileri aynı mı?
         for (const acc of accruals) {
             const currentPartyId = acc.service_invoice_party_id || acc.tp_invoice_party_id;
             if (currentPartyId !== clientId) {
@@ -95,7 +94,7 @@ serve(async (req) => {
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 
         const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
-        console.log("=== YENİ KOLAYBİ FATURA OLUŞTURMA İŞLEMİ BAŞLADI ===");
+        console.log("=== YENİ CANLI (LIVE) KOLAYBİ FATURA OLUŞTURMA İŞLEMİ BAŞLADI ===");
 
         const accessToken = await getKolaybiToken();
 
@@ -194,7 +193,7 @@ serve(async (req) => {
         if (!kolaybiAddressId) throw new Error("Cari Adres ID alınamadı.");
 
         // --- HİZMET (ÜRÜN) BİLGİSİ ---
-        let productId = 1; // Varsayılan ürün/hizmet ID'si (KolayBi'deki "Hizmet Bedeli" gibi bir kalemin ID'si)
+        let productId = 1; 
         const productsReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/products`, { method: 'GET', headers: getHeaders });
         if (productsReq.ok) {
             const productsRes = await productsReq.json();
@@ -214,7 +213,6 @@ serve(async (req) => {
         let itemIndex = 0;
         let calculatedGrandTotal = 0;
 
-        // 🔥 GÜNCELLEME: Yeni accrual_items tablosundaki satırları okuyarak faturaya ekliyoruz
         accruals.forEach((acc) => {
             if (acc.accrual_items && acc.accrual_items.length > 0) {
                 acc.accrual_items.forEach((item: any) => {
@@ -227,7 +225,6 @@ serve(async (req) => {
                     const price = parseFloat(item.unit_price || 0);
                     const vat = parseFloat(item.vat_rate || 0);
 
-                    // KolayBi API'sine faturanın alt kalemlerini gönderiyoruz
                     invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
                     invoiceParams.append(`items[${itemIndex}][quantity]`, qty.toFixed(2));
                     invoiceParams.append(`items[${itemIndex}][unit_price]`, price.toFixed(2));

@@ -225,11 +225,16 @@ serve(async (req) => {
                     const price = parseFloat(item.unit_price || 0);
                     const vat = parseFloat(item.vat_rate || 0);
 
+                    // 🔥 İstenen Formatı Birleştiriyoruz
+                    const combinedName = `${item.fee_type} - ${item.item_name}`;
+
                     invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
                     invoiceParams.append(`items[${itemIndex}][quantity]`, qty.toFixed(2));
                     invoiceParams.append(`items[${itemIndex}][unit_price]`, price.toFixed(2));
                     invoiceParams.append(`items[${itemIndex}][vat_rate]`, vat.toString());
-                    invoiceParams.append(`items[${itemIndex}][description]`, item.item_name || "Danışmanlık ve Hizmet Bedeli");
+                    
+                    // 🔥 DÜZELTME: API'nin kabul ettiği tek metin alanı olan 'description'a basıyoruz!
+                    invoiceParams.append(`items[${itemIndex}][description]`, combinedName);
                     
                     calculatedGrandTotal += (qty * price) * (1 + (vat / 100));
                     itemIndex++;

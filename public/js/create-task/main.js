@@ -777,14 +777,21 @@ class CreateTaskController {
         const lowerTerm = term.toLowerCase();
         
         return this.state.allIpRecords.filter(r => {
-            const ownerType = String(r.recordOwnerType || 'self').toLowerCase();
-            if (isThirdPartyOnly) { if (ownerType !== 'third_party') return false; }
-            else if (!allowThirdPartyMixed) { if (ownerType === 'third_party') return false; }
+            // 🔥 ÇÖZÜM 1 & 2: Hem camelCase hem snake_case okunur. Tireler alt çizgiye çevrilir (third-party -> third_party)
+            const rawOwnerType = String(r.recordOwnerType || r.record_owner_type || 'self').toLowerCase().replace('-', '_');
             
-            return (
-                (r.title || '').toLowerCase().includes(lowerTerm) || (r.markName || '').toLowerCase().includes(lowerTerm) ||
-                (r.applicationNumber || '').includes(term) || (r.applicationNo || '').includes(term)
-            );
+            if (isThirdPartyOnly) { 
+                if (rawOwnerType !== 'third_party') return false; 
+            }
+            else if (!allowThirdPartyMixed) { 
+                if (rawOwnerType === 'third_party') return false; 
+            }
+            
+            // 🔥 ÇÖZÜM 3: Arama yaparken Supabase'in gönderdiği snake_case (brand_name, application_number) alanları da dahil edildi
+            const titleMatch = (r.title || r.brand_name || r.brandName || r.markName || '').toLowerCase().includes(lowerTerm);
+            const appNoMatch = (r.application_number || r.applicationNumber || r.applicationNo || '').includes(term);
+            
+            return titleMatch || appNoMatch;
         }).slice(0, 20);
     }
 

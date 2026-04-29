@@ -59,7 +59,7 @@
                 <li class="nav-item"><a class="nav-link active" data-cat="all" href="#"><i class="fas fa-list mr-1"></i> Gelen Kutusu <span class="badge badge-light" id="count-all">0</span></a></li>
                 <li class="nav-item"><a class="nav-link" data-cat="task" href="#"><i class="fas fa-tasks mr-1"></i> İşler <span class="badge badge-light" id="count-task">0</span></a></li>
                 <li class="nav-item"><a class="nav-link" data-cat="doc" href="#"><i class="fas fa-file-contract mr-1"></i> Evraklar <span class="badge badge-light" id="count-doc">0</span></a></li>
-                <li class="nav-item"><a class="nav-link" data-cat="monitoring" href="#"><i class="fas fa-eye mr-1"></i> İzleme <span class="badge badge-light" id="count-monitoring">0</span></a></li>
+                <li class="nav-item d-none" id="monitoringTabItem"><a class="nav-link" data-cat="monitoring" href="#"><i class="fas fa-eye mr-1"></i> İzleme <span class="badge badge-light" id="count-monitoring">0</span></a></li>
                 <li class="nav-item"><a class="nav-link" data-cat="manual" href="#"><i class="fas fa-sticky-note mr-1"></i> Notlar <span class="badge badge-light" id="count-manual">0</span></a></li>
                 <li class="nav-item ml-auto"><a class="nav-link" data-cat="archive" href="#"><i class="fas fa-archive mr-1"></i> Arşiv</a></li>
             </ul>
@@ -90,7 +90,10 @@
     <div class="modal fade" id="reminderModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow">
-                <div class="modal-header bg-primary text-white"><h5 class="modal-title font-weight-bold">Yeni Not Ekle</h5><button type="button" class="close text-white" id="closeReminderModal">&times;</button></div>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title font-weight-bold">Yeni Not Ekle</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">&times;</button>
+                </div>
                 <form id="reminderForm" class="p-4">
                     <div class="form-group mb-3"><label class="small font-weight-bold">Başlık</label><input type="text" id="reminderTitle" class="form-control" required></div>
                     <div class="form-row mb-3">
@@ -98,13 +101,19 @@
                         <div class="form-group col-md-6"><label class="small font-weight-bold">Tarih</label><input type="text" id="reminderDueDate" class="form-control" placeholder="gg.aa.yyyy" data-datepicker required></div>
                     </div>
                     <div class="form-group mb-4"><label class="small font-weight-bold">Açıklama</label><textarea id="reminderDescription" class="form-control" rows="3"></textarea></div>
-                    <div class="text-right border-top pt-3"><button type="button" class="btn btn-secondary mr-2" id="cancelReminderBtn">Vazgeç</button><button type="submit" class="btn btn-primary px-4 font-weight-bold">Kaydet</button></div>
+                    <div class="text-right border-top pt-3">
+                        <button type="button" class="btn btn-secondary mr-2" data-dismiss="modal">Vazgeç</button>
+                        <button type="submit" class="btn btn-primary px-4 font-weight-bold">Kaydet</button>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
 
-<script type="module">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+
+    <script type="module">
         import { supabase, authService, adminService, reminderService } from './supabase-config.js';
         import { showNotification, formatToTRDate } from './utils.js';
         import { loadSharedLayout } from './js/layout-loader.js';
@@ -123,6 +132,26 @@
                 const session = await authService.getCurrentSession();
                 if (!session) return window.location.replace('index.html');
                 this.currentUser = session.user;
+                
+                // 🔥 SÜPER ADMİN KONTROLÜ VE İZLEME SEKMESİNİ AÇMA
+                try {
+                    const { data: userProfile } = await supabase
+                        .from('users')
+                        .select('role')
+                        .eq('id', this.currentUser.id)
+                        .single();
+
+                    if (userProfile) {
+                        this.currentUserRole = userProfile.role; // Rolü diğer fonksiyonlar için kaydet
+
+                        if (userProfile.role === 'super_admin' || userProfile.role === 'superadmin') {
+                            const monitorTab = document.getElementById('monitoringTabItem');
+                            if(monitorTab) monitorTab.classList.remove('d-none');
+                        }
+                    }
+                } catch (error) {
+                    console.warn("Kullanıcı rolü kontrol edilemedi:", error);
+                }
                 
                 this.loadPendingUsers();
                 await this.loadAllSources();
@@ -217,37 +246,46 @@
                         });
                     });
 
-                    // 3. İzleme Hatırlatmaları (Monitoring) 
-                    rawIpRecords.forEach(r => {
-                        const isSelf = String(r.record_owner_type || '').toLowerCase() === 'self';
-                        const isTrademark = String(r.ip_type || '').toLowerCase() === 'trademark' || String(r.ip_type || '').toLowerCase() === 'marka';
-                        
-                        const originStr = String(r.origin || '').toUpperCase();
-                        const countryStr = String(r.country_code || '').toUpperCase();
-                        const isTurkey = originStr === 'TURKEY' || originStr === 'TR' || originStr.includes('TÜRKPATENT') || originStr.includes('TURKPATENT') || countryStr === 'TR';
-                        
-                        if (monitoredIds.includes(String(r.id))) return;
-                        if (!isSelf || !isTurkey || !isTrademark || this.isArchived('monitoring', r.id)) return;
-                        
-                        // 🔥 ÇÖZÜM: View üzerinden doğrudan gelen brand_name kullanılıyor
-                        const brand = r.brand_name || 'İsimsiz Marka';
-                        
-                        tempArr.push({
-                            id: `monitoring_${r.id}_1`, realId: r.id, type: 'monitoring', threshold: 1,
-                            title: `İzleme Listesine Ekle: ${brand}`, dueDate: r.created_at, diff: 0,
-                            message: `<b>${r.application_number || '-'}</b> başvuru numaralı öz markanız portföye eklendi. İzleme (Monitoring) listesine dahil etmeniz önerilir.`,
-                            status: 'active', isRead: this.isRead('monitoring', r.id, 1),
-                            link: `portfolio-detail.html?id=${r.id}`
+                    // 3. İzleme Hatırlatmaları (Monitoring)
+                    const isSuperAdmin = (this.currentUserRole === 'super_admin' || this.currentUserRole === 'superadmin');
+
+                    if (isSuperAdmin) {
+                        rawIpRecords.forEach(r => {
+                            const isSelf = String(r.record_owner_type || '').toLowerCase() === 'self';
+                            const isTrademark = String(r.ip_type || '').toLowerCase() === 'trademark' || String(r.ip_type || '').toLowerCase() === 'marka';
+                            
+                            const originStr = String(r.origin || '').toUpperCase();
+                            const countryStr = String(r.country_code || '').toUpperCase();
+                            const isTurkey = originStr === 'TURKEY' || originStr === 'TR' || originStr.includes('TÜRKPATENT') || originStr.includes('TURKPATENT') || countryStr === 'TR';
+                            
+                            if (monitoredIds.includes(String(r.id))) return;
+                            if (!isSelf || !isTurkey || !isTrademark || this.isArchived('monitoring', r.id)) return;
+                            
+                            const brand = r.brand_name || 'İsimsiz Marka';
+                            
+                            tempArr.push({
+                                id: `monitoring_${r.id}_1`, realId: r.id, type: 'monitoring', threshold: 1,
+                                title: `İzleme Listesine Ekle: ${brand}`, dueDate: r.created_at, diff: 0,
+                                message: `<b>${r.application_number || '-'}</b> başvuru numaralı öz markanız portföye eklendi. İzleme (Monitoring) listesine dahil etmeniz önerilir.`,
+                                status: 'active', isRead: this.isRead('monitoring', r.id, 1),
+                                link: `portfolio-detail.html?id=${r.id}`
+                            });
                         });
-                    });
+                    }
 
                     // 4. Notlar (Manual)
                     rawManual.forEach(r => {
-                        if (r.userId !== userId || !r.dueDate) return;
-                        const diff = this.getDayDiff(r.dueDate);
+                        const rDueDate = r.due_date || r.dueDate;
+
+                        // Tarih alanı boşsa atla (Servis zaten sadece kullanıcının kendi notlarını getiriyor)
+                        if (!rDueDate) return;
+
+                        const diff = this.getDayDiff(rDueDate);
                         const threshold = this.getThreshold(diff, 'manual'); 
                         
                         let dbStatus = r.status || 'active';
+                        
+                        // Geçmiş tarihli bir notsa tamamlandı olarak işaretle
                         if (threshold === 'expired' && dbStatus !== 'completed') {
                             dbStatus = 'completed'; reminderService.updateReminder(r.id, { status: 'completed' }).catch(()=>{});
                         }
@@ -255,7 +293,7 @@
 
                         tempArr.push({
                             id: `manual_${r.id}_${threshold}`, realId: r.id, type: 'manual', threshold,
-                            title: r.title, dueDate: r.dueDate, diff, message: r.description || r.title,
+                            title: r.title, dueDate: rDueDate, diff, message: r.description || r.title,
                             status: archive ? 'completed' : 'active', 
                             isRead: archive ? true : this.isRead('manual', r.id, threshold),
                             link: '#'

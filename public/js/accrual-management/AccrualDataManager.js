@@ -61,6 +61,7 @@ export class AccrualDataManager {
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     description: row.description || d.description || '', 
                     items: row.accrual_items || d.items || [],
+                    sentToAdvisor: row.sent_to_advisor || false,
                     
                     // 🔥 ÇÖZÜM 2: Gelen belgeler (documents) UI'ın anladığı 'files' dizisine dönüştürülüyor
                     files: row.accrual_documents && row.accrual_documents.length > 0 
@@ -517,6 +518,17 @@ export class AccrualDataManager {
         // Tahakkuku DB'den sil
         await supabase.from('accruals').delete().eq('id', id);
         await this.fetchAllData();
+    }
+
+    // 🔥 YENİ: Müşavire gönderim durumunu güncelleme
+    async markAsSentToAdvisor(accrualIds) {
+        if (!accrualIds || accrualIds.length === 0) return;
+        
+        const promises = accrualIds.map(id => 
+            supabase.from('accruals').update({ sent_to_advisor: true }).eq('id', String(id))
+        );
+        
+        await Promise.all(promises);
     }
 
     async createKolaybiInvoice(selectedIds) {

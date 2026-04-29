@@ -287,7 +287,7 @@ export class AccrualUIManager {
                         <td>${remainingHtml}</td>
                         <td class="text-center">${actionMenuHtml}</td>
                     </tr>`;
-                } else {
+                    } else {
                     // Yurtdışı (Foreign) Sekmesi İçin Çizim
                     let paymentParty = acc.serviceInvoiceParty?.name || '-';
                     let documentHtml = '-';
@@ -297,16 +297,98 @@ export class AccrualUIManager {
                         documentHtml = `<a href="${link}" target="_blank" class="text-secondary" title="${lastFile.name}"><i class="fas fa-file-contract fa-lg hover-primary"></i></a>`;
                     }
 
+                    let advisorStatusHtml = acc.sentToAdvisor 
+                        ? '<span class="badge badge-success">Evet</span>' 
+                        : '<span class="badge badge-secondary">Hayır</span>';
+
+                    // 🔥 YURTDIŞI ÖDEMEYE ÖZEL DURUM VE KALAN TUTAR HESAPLAMASI
+                    let expectedForeignTotals = {}; 
+                    let remainingForeignTotals = {};
+                    let isFullyPaidForeign = true;
+                    let hasAnyForeignDebt = false;
+
+                    // 1. KURAL: Doğrudan "Yurtdışı Maliyet" türündeki kalemleri ara
+                    let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
+                    
+                    // 2. KURAL: Eğer "Yurtdışı Maliyet" yoksa, SADECE "Hizmet" olmayan kalemleri topla (Para birimi ne olursa olsun)
+                    if (foreignItems.length === 0) {
+                        foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
+                    }
+                    
+                    if (foreignItems.length > 0) {
+                        // 3. Bu kalemleri kendi para birimlerine göre topla
+                        foreignItems.forEach(i => {
+                            const c = i.currency || 'EUR';
+                            const amt = Number(i.total_amount) || 0;
+                            const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
+                            expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + (amt * vatMult);
+                        });
+                    } else {
+                        // Geriye dönük uyumluluk: Çok eski kayıtlarda items yoksa resmi ücreti baz al
+                        const c = acc.officialFee?.currency || 'EUR';
+                        const amt = parseFloat(acc.officialFee?.amount) || 0;
+                        const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
+                        if(amt > 0) expectedForeignTotals[c] = amt * vatMult;
+                    }
+
+                    // 4. Beklenen yurt dışı ödemeleri ile güncel kalan bakiyeyi kıyasla
+                    Object.keys(expectedForeignTotals).forEach(curr => {
+                        const expAmt = expectedForeignTotals[curr];
+                        let remAmt = 0;
+
+                        if (acc.status === 'unpaid') {
+                            remAmt = expAmt; // Hiç ödenmediyse tamamı duruyor
+                        } else if (acc.status === 'paid') {
+                            remAmt = 0; // Tamamı ödendiyse 0
+                        } else if (acc.status === 'partially_paid') {
+                            // Kısmen ödendiyse, genel kalanın içinden bu dövize ait olanı bul
+                            const remObj = Array.isArray(acc.remainingAmount) ? acc.remainingAmount.find(r => r.currency === curr) : null;
+                            remAmt = remObj ? parseFloat(remObj.amount) : 0;
+                            if (remAmt > expAmt) remAmt = expAmt;
+                        }
+
+                        remainingForeignTotals[curr] = remAmt;
+                        if (remAmt > 0.01) {
+                            isFullyPaidForeign = false;
+                            hasAnyForeignDebt = true;
+                        }
+                    });
+
+                    // 5. Saf Yurtdışı Statüsü
+                    let fStatusTxt = 'Ödenmedi';
+                    let fStatusCls = 'status-unpaid bg-danger text-white';
+                    
+                    if (acc.status === 'paid' || (Object.keys(expectedForeignTotals).length > 0 && isFullyPaidForeign)) {
+                        fStatusTxt = 'Ödendi';
+                        fStatusCls = 'status-paid bg-success text-white';
+                    } else if (acc.status === 'partially_paid' || (hasAnyForeignDebt && Object.keys(expectedForeignTotals).some(c => remainingForeignTotals[c] < expectedForeignTotals[c]))) {
+                        fStatusTxt = 'K.Ödendi';
+                        fStatusCls = 'status-partially-paid bg-warning text-dark';
+                    }
+
+                    const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
+                    
+                    // 6. Saf Kalan Tutar HTML'i
+                    const remTexts = [];
+                    Object.entries(remainingForeignTotals).forEach(([c, a]) => {
+                        if (a > 0.01) remTexts.push(this._formatMoney(a, c)); // Örn: 150 EUR + 2720 TRY
+                    });
+
+                    const foreignRemainingHtml = remTexts.length === 0
+                        ? `<span class="text-success font-weight-bold">Tamamlandı</span>` 
+                        : `<span class="text-danger font-weight-bold">${remTexts.join(' + ')}</span>`;
+
                     return `
                     <tr>
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td>${acc.id}</td>
-                        <td><span class="badge ${sCls}">${sTxt}</span></td>
+                        <td>${foreignStatusHtml}</td>
                         <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>
                         <td>${paymentParty}</td>
                         <td>${officialStr}</td>
-                        <td>${remainingHtml}</td>
+                        <td>${foreignRemainingHtml}</td>
                         <td>${documentHtml}</td>
+                        <td class="text-center">${advisorStatusHtml}</td>
                     </tr>`;
                 }
 

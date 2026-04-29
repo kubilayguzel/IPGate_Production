@@ -483,11 +483,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             $('a[data-toggle="tab"]').on('shown.bs.tab', (e) => {
                 const targetHref = $(e.target).attr("href");
-                if (targetHref === '#content-foreign') this.state.activeTab = 'foreign';
-                else if (targetHref === '#content-invoices') this.state.activeTab = 'invoices';
-                else this.state.activeTab = 'main';
+                const sendAdvisorBtn = document.getElementById('bulkSendAdvisorBtn');
+
+                if (targetHref === '#content-foreign') {
+                    this.state.activeTab = 'foreign';
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'inline-block'; // Butonu Göster
+                }
+                else if (targetHref === '#content-invoices') {
+                    this.state.activeTab = 'invoices';
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none'; // Gizle
+                }
+                else {
+                    this.state.activeTab = 'main';
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none'; // Gizle
+                }
                 
-                this.state.selectedIds.clear(); // Sekme değişince seçimleri temizlemek iyi bir pratiktir
+                this.state.selectedIds.clear(); 
                 this.renderPage();
             });
 
@@ -679,6 +690,144 @@ document.addEventListener('DOMContentLoaded', async () => {
                         showNotification(`Başarılı! KolayBi Faturası oluşturuldu.`, 'success');
                     } catch (error) {
                         showNotification(`Hata: ${error.message}`, 'error');
+                    } finally {
+                        this.uiManager.toggleLoading(false);
+                    }
+                });
+            }
+
+            // 🔥 YENİ: ZIP OLUŞTURMA, İNDİRME VE MÜŞAVİRE MAİL GÖNDERME
+            const bulkSendAdvisorBtn = document.getElementById('bulkSendAdvisorBtn');
+            if (bulkSendAdvisorBtn) {
+                bulkSendAdvisorBtn.addEventListener('click', async () => {
+                    if (this.state.selectedIds.size === 0) return;
+
+                    // 1. Seçilen tahakkukları filtrele (Belgesi olan Yurtdışı Ödemeleri)
+                    const selectedAccruals = Array.from(this.state.selectedIds)
+                        .map(id => this.dataManager.allAccruals.find(a => a.id === id))
+                        .filter(a => a && a.isForeignTransaction && a.files && a.files.length > 0);
+
+                    if (selectedAccruals.length === 0) {
+                        showNotification('Seçilen ödemelerde ekli "Ödeme Belgesi/Dekont" bulunmamaktadır!', 'warning');
+                        return;
+                    }
+
+                    if (!confirm(`${selectedAccruals.length} adet dekont ZIP olarak bilgisayarınıza indirilecek ve Mali Müşavire e-posta olarak gönderilecektir. Onaylıyor musunuz?`)) return;
+
+                    this.uiManager.toggleLoading(true);
+                    try {
+                        const { supabase } = await import('../../supabase-config.js');
+
+                        // 2. Kütüphaneleri Dinamik Yükle
+                        const loadScript = (src) => new Promise((resolve, reject) => {
+                            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+                            const script = document.createElement('script'); script.src = src; script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
+                        });
+                        
+                        if (!window.JSZip) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+                        if (!window.saveAs) await loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
+
+                        const zip = new window.JSZip();
+                        let addedCount = 0;
+
+                        // 3. Dosyaları Fetch ile Çek ve ZIP'e Ekle
+                        for (const acc of selectedAccruals) {
+                            const file = acc.files[acc.files.length - 1]; // Son eklenen belgeyi al
+                            const url = file.url || file.content;
+                            
+                            try {
+                                const response = await fetch(url);
+                                const blob = await response.blob();
+                                
+                                const ext = file.name.split('.').pop() || 'pdf';
+                                const safeName = (acc.serviceInvoiceParty?.name || 'Cari').replace(/[^a-zA-Z0-9]/g, '_');
+                                const fileName = `Tahakkuk_${acc.id}_${safeName}.${ext}`;
+                                
+                                zip.file(fileName, blob);
+                                addedCount++;
+                            } catch (err) {
+                                console.error(`Dosya indirilemedi (Tahakkuk: ${acc.id}):`, url);
+                            }
+                        }
+
+                        if (addedCount === 0) throw new Error("Hiçbir dosya sunucudan çekilemedi.");
+
+                        // 4. ZIP'i Oluştur
+                        const zipContent = await zip.generateAsync({ type: 'blob' });
+                        const zipFileName = `Yurtdisi_Odeme_Dekontlari_${new Date().toLocaleDateString('tr-TR').replace(/\./g, '_')}.zip`;
+                        
+                        // A) Bilgisayara İndir
+                        window.saveAs(zipContent, zipFileName);
+
+                        // B) Supabase Storage'a Yükle (Mail Linki İçin)
+                        const storagePath = `advisor_exports/${Date.now()}_${zipFileName}`;
+                        const { error: uploadError } = await supabase.storage.from('documents').upload(storagePath, zipContent, { contentType: 'application/zip' });
+                        if (uploadError) throw uploadError;
+
+                        const { data: publicUrlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
+                        const publicZipUrl = publicUrlData.publicUrl;
+
+                        // 5. E-Postayı mail_notifications Tablosuna Yaz ve Edge Function ile ANINDA GÖNDER
+                        const advisorEmail = 'uslumusavirlik@hotmail.com'; // TO (Müşavirin maili)
+                        const ccEmails = ['belirguven@evrekagroup.com', 'kubilayguzel@evrekagroup.com', 'alikucuksahin@evrekagroup.com']; // CC (Bilgi verilecek mailler, virgülle çoğaltabilirsiniz)
+                        
+                        const mailHtml = `
+                            <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                                <h3 style="color: #1e3c72;">Yurtdışı Ödemeleri Dekont Raporu</h3>
+                                <p>Merhaba,</p>
+                                <p>Ekteki bağlantıda şirketimizin yurtdışı ödemelerine ait <strong>${addedCount} adet</strong> dekont (alış faturası) bulunmaktadır.</p>
+                                <p>Tüm dekontları tek bir paket (ZIP) halinde indirmek için aşağıdaki butona tıklayabilirsiniz:</p>
+                                <br>
+                                <a href="${publicZipUrl}" style="background-color:#17a2b8; color:white; padding:12px 20px; text-decoration:none; border-radius:6px; font-weight:bold;">Tüm Dekontları İndir (ZIP)</a>
+                                <br><br>
+                                <p>Söz konusu belgelerin <strong>muhasebe kayıtlarına işlenmesini</strong> ve bu e-postanın tarafınıza ulaştığına dair <strong>teyit dönüşü yapmanızı</strong> rica ederiz.</p>
+                                <p>İyi çalışmalar.</p>
+                            </div>
+                        `;
+
+                        // 🔥 ÇÖZÜM: Yeni ve benzersiz bir ID oluşturuluyor
+                        const newNotificationId = crypto.randomUUID ? crypto.randomUUID() : 'mail-' + Math.random().toString(36).substr(2, 9);
+
+                        // a) Kaydı mail_notifications tablosuna taslak OLMAYACAK şekilde ekle
+                        const { data: newNotif, error: notifErr } = await supabase.from('mail_notifications').insert({
+                            id: newNotificationId, // 🔥 ID veritabanına zorunlu olarak iletiliyor
+                            to_list: [advisorEmail],
+                            cc_list: ccEmails,
+                            subject: 'Yeni Yurtdışı Ödeme Dekontları',
+                            body: mailHtml,
+                            status: 'pending',
+                            is_draft: false, // Taslak değil, gönderime hazır
+                            notification_type: 'advisor_export',
+                            source: 'accruals'
+                        }).select().single();
+
+                        if (notifErr) throw notifErr;
+
+                        // b) Kayıt başarılıysa, mail gönderme motorunu (Edge Function) otomatik tetikle
+                        if (newNotif) {
+                            try {
+                                await supabase.functions.invoke('process-mail-notification', {
+                                    body: { notificationId: newNotif.id, action: 'send' }
+                                });
+                                // Gönderim Edge Function'a iletildikten sonra statüyü manuel olarak 'sent' yapıyoruz
+                                await supabase.from('mail_notifications')
+                                    .update({ status: 'sent', sent_at: new Date().toISOString() })
+                                    .eq('id', newNotif.id);
+                            } catch (err) {
+                                console.warn("Mail gönderim motoru (Edge Function) tetiklenemedi:", err);
+                            }
+                        }
+
+                        // 6. DB Durumunu "Evet" (sent_to_advisor: true) Yap
+                        await this.dataManager.markAsSentToAdvisor(selectedAccruals.map(a => a.id));
+
+                        this.state.selectedIds.clear();
+                        await this.loadData();
+                        showNotification(`Başarılı! ${addedCount} belge ZIP yapıldı, indirildi ve mali müşavire mail olarak gönderildi.`, 'success');
+
+                    } catch (error) {
+                        console.error("Müşavir Rapor Hatası:", error);
+                        showNotification(`İşlem sırasında hata: ${error.message}`, 'error');
                     } finally {
                         this.uiManager.toggleLoading(false);
                     }

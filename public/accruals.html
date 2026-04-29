@@ -243,6 +243,10 @@
             <div class="accruals-container">
                 <div class="accruals-header">
                     <div id="bulkActions" class="d-flex align-items-center ml-auto" style="display: none !important; gap: 10px;">
+                        <button id="bulkSendAdvisorBtn" class="action-btn" style="background-color: #6f42c1; display: none;">
+                            <i class="fas fa-file-archive mr-1"></i> Müşavire Gönder (ZIP)
+                        </button>
+
                         <button id="bulkCreateInvoiceBtn" class="action-btn" style="background-color: #17a2b8;">
                             <i class="fas fa-file-invoice-dollar mr-1"></i> KolayBi Fatura Kes
                         </button>
@@ -304,7 +308,7 @@
 
                     <div class="tab-pane fade" id="content-foreign" role="tabpanel">
                         <div class="table-container">
-                             <table class="accruals-table">
+                            <table class="accruals-table">
                                 <thead>
                                     <tr>
                                         <th style="width: 40px;"><input type="checkbox" id="selectAllCheckboxForeign"></th>
@@ -315,10 +319,11 @@
                                         <th class="sortable" data-sort="officialFee">Toplam Tutar <i class="fas fa-sort sort-icon"></i></th>
                                         <th class="sortable" data-sort="remainingAmount">Kalan Tutar <i class="fas fa-sort sort-icon"></i></th>
                                         <th>Ödeme Belgesi</th>
+                                        <th>Müşavire Gönderildi mi?</th>
                                     </tr>
-                                 </thead>
-                                 <tbody id="foreignTableBody"></tbody>
-                             </table>
+                                </thead>
+                                <tbody id="foreignTableBody"></tbody>
+                            </table>
                         </div>
                     </div>
                     <div class="tab-pane fade" id="content-invoices" role="tabpanel">

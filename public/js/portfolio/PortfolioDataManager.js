@@ -191,7 +191,39 @@ export class PortfolioDataManager {
         try {
             const result = await suitService.getSuits();
             if (result.success) {
-                this.litigationRows = result.data;
+                const rawSuits = result.data || [];
+                
+                this.litigationRows = rawSuits.map(row => {
+                    // 1. Müvekkil ID'sini İsme Çevir
+                    let cName = '-';
+                    if (row.client_id && this.personsMap.has(row.client_id)) {
+                        cName = this.personsMap.get(row.client_id).name;
+                    }
+                    
+                    // 2. Varlık (Marka) ID'sini İsme Çevir
+                    let assetName = '-';
+                    if (row.ip_record_id) {
+                        const asset = this.getRecordById(row.ip_record_id);
+                        if (asset) {
+                            assetName = asset.title || asset.brandText || asset.brand_name || asset.applicationNumber || '-';
+                        }
+                    }
+
+                    // 3. Veritabanı (snake_case) verilerini Arayüz (camelCase) verilerine eşle
+                    return {
+                        ...row, 
+                        title: row.title || '-',
+                        assetName: assetName,
+                        suitType: row.suit_type || '-',
+                        caseNo: row.file_no || '-',
+                        court: row.court_name || '-',
+                        clientName: cName,
+                        client: { name: cName }, // Arama çubuğunun (filterRecords) bozulmaması için gerekli
+                        opposingParty: row.opposing_party || '-',
+                        openedDate: row.opening_date || row.created_at
+                    };
+                });
+
                 this.litigationRows.sort((a, b) => this._parseDate(b.openedDate) - this._parseDate(a.openedDate));
             } else {
                 this.litigationRows = [];

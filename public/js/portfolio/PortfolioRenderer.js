@@ -198,6 +198,7 @@ export class PortfolioRenderer {
     renderLitigationRow(row, index) {
         const tr = document.createElement('tr');
         tr.dataset.id = row.id;
+        
         const suitTypeStr = String(row.suitType || '');
         if (suitTypeStr.includes('İptal')) tr.style.backgroundColor = '#ffebee';
         else if (suitTypeStr.includes('Tecavüz')) tr.style.backgroundColor = '#fff3e0';
@@ -211,12 +212,12 @@ export class PortfolioRenderer {
 
         tr.innerHTML = `
             <td><strong>${index}</strong></td>
-            <td title="${row.title || ''}">${row.title || '-'}</td>
-            <td title="${row.suitType || ''}">${row.suitType || '-'}</td>
-            <td title="${row.caseNo || ''}">${row.caseNo || '-'}</td>
-            <td title="${row.court || ''}">${row.court || '-'}</td>
-            <td title="${row.client || ''}">${row.client || '-'}</td>
-            <td title="${row.opposingParty || ''}">${row.opposingParty || '-'}</td>
+            <td title="${row.title}">${row.title}<br><small class="text-muted" title="Varlık: ${row.assetName}"><i class="fas fa-layer-group mr-1"></i> ${row.assetName}</small></td>
+            <td title="${row.suitType}">${row.suitType}</td>
+            <td title="${row.caseNo}">${row.caseNo}</td>
+            <td title="${row.court}">${row.court}</td>
+            <td title="${row.clientName}">${row.clientName}</td>
+            <td title="${row.opposingParty}">${row.opposingParty}</td>
             <td>${this.formatDate(row.openedDate)}</td>
             <td>${statusBadge}</td>
             <td>${actions}</td>`;

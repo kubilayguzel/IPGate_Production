@@ -300,6 +300,104 @@
                         });
                     });
 
+                    // 5. YİDK Kontrol Hatırlatmaları (Yayına İtiraz Kararları)
+                    try {
+                        
+                        const seventyDaysAgo = new Date();
+                        seventyDaysAgo.setDate(seventyDaysAgo.getDate() - 70);
+                        seventyDaysAgo.setHours(23, 59, 59, 999); // O günün sonuna kadar olanları kapsasın
+                        const dateLimit = seventyDaysAgo.toISOString();
+
+                        // KURAL 1 & 2: İşlem tarihi 70 günden eski olan 50 ve 51 tipli işlemleri çek
+                        const { data: yidkDecisions, error: yidkErr } = await supabase
+                            .from('transactions')
+                            .select(`
+                                id,
+                                transaction_date,
+                                task_id,
+                                tasks!inner (
+                                    id, title, ip_record_id, task_owner_id, created_by, assigned_to, task_type_id
+                                )
+                            `)
+                            .in('transaction_type_id', ['50', '51']) 
+                            .lte('transaction_date', dateLimit);
+
+                        if (yidkErr) console.error("Veritabanı Çekme Hatası (Transactions):", yidkErr);
+                        
+                        if (yidkDecisions && yidkDecisions.length > 0) {
+                            
+                            const ipRecordIds = [...new Set(yidkDecisions.map(d => d.tasks?.ip_record_id).filter(Boolean))];                          
+                            // 🔥 GÜNCELLEME: SQL'deki null kayıt silinmelerine karşı tümünü çekip JS'de süzüyoruz
+                            const { data: targetIpRecords } = await supabase
+                                .from('ip_records')
+                                .select('id, record_owner_type')
+                                .in('id', ipRecordIds);
+
+                            // SADECE 'self' OLMAYANLARI al (Üçüncü taraf, boş veya rakip olanları)
+                            const thirdPartyIpIds = (targetIpRecords || [])
+                                .filter(r => String(r.record_owner_type).toLowerCase() !== 'self')
+                                .map(r => r.id);
+
+                            if (thirdPartyIpIds.length > 0) {
+                                
+                                // KURAL 4: Type 19 var mı kontrolü
+                                const { data: existingType19Tasks } = await supabase
+                                    .from('tasks')
+                                    .select('ip_record_id')
+                                    .eq('task_type_id', '19')
+                                    .in('ip_record_id', thirdPartyIpIds);
+                                    
+                                const type19IpIds = (existingType19Tasks || []).map(t => t.ip_record_id);
+                                yidkDecisions.forEach(decision => {
+                                    const task = decision.tasks;
+                                    
+                                    // Tip numarası String/Integer fark etmesin diye String'e çevirdik
+                                    if (!task || String(task.task_type_id) !== '20') {
+                                        return; 
+                                    }
+                                    
+                                    if (!thirdPartyIpIds.includes(task.ip_record_id)) {
+                                        return;
+                                    }
+                                    
+                                    if (type19IpIds.includes(task.ip_record_id)) {
+                                        return;
+                                    }
+
+                                    // 🔥 GÜNCELLEME: Eğer kişi Süper Admin ise kendi üzerinde olmasa da görebilsin
+                                    const isSuperAdmin = (this.currentUserRole === 'super_admin' || this.currentUserRole === 'superadmin');
+                                    const isOwner = (task.created_by === userId) || (task.assigned_to && String(task.assigned_to).includes(userId)) || (task.task_owner_id === userId);
+                                    
+                                    if (!isOwner && !isSuperAdmin) {
+                                        return;
+                                    }
+
+                                    const diff = 0; 
+                                    const threshold = this.getThreshold(diff, 'task');
+                                    const archive = this.isArchived('task', 'yidk_' + task.id);
+
+                                    tempArr.push({
+                                        id: `task_yidk_${task.id}_${threshold}`, 
+                                        realId: 'yidk_' + task.id, 
+                                        type: 'task', 
+                                        threshold, 
+                                        title: `Kritik Kontrol: ${task.title || 'Yayına İtiraz'}`, 
+                                        dueDate: decision.transaction_date, 
+                                        diff,
+                                        message: `<b>Başvuru sahibinin YİDK'ya itirazda bulunup bulunmadığına dair veri kontrolü yapılmalı.</b> (Karar tebliğinin üzerinden 70 gün geçti)`,
+                                        status: archive ? 'completed' : 'active', 
+                                        isRead: archive ? true : this.isRead('task', 'yidk_' + task.id, threshold),
+                                        link: `task-update.html?id=${task.id}`
+                                    });
+                                });
+                            } else {
+                                console.log("=> İncelenen kararların hepsi Öz Marka (Self) dosyasına ait, işlem yapılmadı.");
+                            }
+                        }
+                    } catch (err) {
+                        console.error("YİDK kontrolü sırasında kritik kod hatası:", err);
+                    }
+
                     this.combinedData = tempArr.sort((a,b) => new Date(this.formatIsoDate(b.dueDate)) - new Date(this.formatIsoDate(a.dueDate)));
                     this.updateCounts();
                     this.render();

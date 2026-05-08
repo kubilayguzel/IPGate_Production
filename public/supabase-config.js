@@ -2527,12 +2527,24 @@ export const feeCalculationService = {
             if (mapErr) throw mapErr;
             if (!maps || maps.length === 0) return []; 
 
-            // 5. Müvekkile Özel Fiyatları Çek 
+            // 5. Müvekkile Özel Fiyatları ve İskonto Oranını Çek 
             let clientCustomFees = {};
+            let clientDiscountRate = 0; // % bazında
+
             if (clientId) {
-                const { data: customFees } = await supabase.from('client_fee_tariffs').select('*').eq('client_id', String(clientId));
-                if (customFees) {
-                    customFees.forEach(cf => { clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency }; });
+                const [customFeesRes, discountRes] = await Promise.all([
+                    supabase.from('client_fee_tariffs').select('*').eq('client_id', String(clientId)),
+                    supabase.from('client_discounts').select('discount_rate').eq('client_id', String(clientId)).maybeSingle()
+                ]);
+
+                if (customFeesRes.data) {
+                    customFeesRes.data.forEach(cf => { 
+                        clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency }; 
+                    });
+                }
+                
+                if (discountRes.data) {
+                    clientDiscountRate = parseFloat(discountRes.data.discount_rate) || 0;
                 }
             }
 
@@ -2542,12 +2554,29 @@ export const feeCalculationService = {
                 const tariff = map.fee_tariffs;
                 if (!tariff) continue;
 
+                // Geçerlilik tarihi kontrolleri...
                 if (tariff.valid_from && new Date(tariff.valid_from) > taskDate) continue; 
                 if (tariff.valid_to && new Date(tariff.valid_to) < taskDate) continue;     
 
-                let unitPrice = clientCustomFees[tariff.id] ? clientCustomFees[tariff.id].amount : tariff.amount;
-                let currency = clientCustomFees[tariff.id] ? (clientCustomFees[tariff.id].currency || tariff.currency) : tariff.currency;
-                let isCustomPrice = !!clientCustomFees[tariff.id];
+                let unitPrice = tariff.amount;
+                let currency = tariff.currency;
+                let isCustomPrice = false;
+
+                // --- HESAPLAMA HİYERARŞİSİ ---
+                if (clientCustomFees[tariff.id]) {
+                    // 1. Müvekkile özel bir kalem fiyatı (sabit fiyat) tanımlanmışsa onu kullan
+                    unitPrice = clientCustomFees[tariff.id].amount;
+                    currency = clientCustomFees[tariff.id].currency || tariff.currency;
+                    isCustomPrice = true;
+                } else if (clientDiscountRate > 0) {
+                    // 2. Özel fiyat yoksa ve bir iskonto tanımlıysa kontrol et:
+                    // 🔥 YENİ KURAL: Kalem tipi "TP Harç" veya "TP Hizmet" DEĞİLSE iskontoyu uygula
+                    const fType = String(tariff.fee_type).trim();
+                    if (fType !== 'TP Harç' && fType !== 'TP Hizmet') {
+                        unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
+                    }
+                }
+                // 3. Hiçbiri yoksa varsayılan liste fiyatı 'tariff.amount' olarak kalır.
 
                 let quantity = 0;
                 const rule = map.calculation_rule;

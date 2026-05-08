@@ -324,7 +324,7 @@ serve(async (req: Request) => {
     let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
     let templateId = null;
 
-    // 🔥 1. ÖNCE ANA İŞLEM TİPİNİ BUL (Parent Task Type ID) - Hiyerarşiyi taslaktan önce çözüyoruz!
+    // 🔥 1. ANA İŞLEM TİPİNİ BUL (Parent Task Type ID - Aşağıdaki Varyantlar için lazım olacak)
     let parentTaskTypeId = null;
     if (transactionData && transactionData.parent_id) {
         const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
@@ -333,41 +333,13 @@ serve(async (req: Request) => {
         }
     }
 
-    // 🔥 2. DOĞRU TASLAĞI (TEMPLATE) BULMAK İÇİN YENİ KURAL SORGUSU
-    let ruleQuery = supabaseAdmin.from('template_rules')
+    // 🔥 2. KURALI DOĞRUDAN ALT İŞLEME (27) GÖRE BUL (Genel Taslağı Çek)
+    const { data: rule } = await supabaseAdmin.from('template_rules')
         .select('template_id')
         .eq('source_type', 'document')
-        .eq('sub_process_type', txTypeId);
-        
-    let rule = null;
-
-    // A) Eğer bir ana işlem (parent) varsa, önce ona özel (main_process_type) kuralı ara
-    if (parentTaskTypeId) {
-        const { data: specificRule } = await ruleQuery.eq('main_process_type', parentTaskTypeId).maybeSingle();
-        rule = specificRule;
-    }
-
-    // B) Spesifik eşleşme bulunamazsa, main_process_type'ı null olan genel kuralı ara
-    if (!rule) {
-        const { data: generalRule } = await supabaseAdmin.from('template_rules')
-            .select('template_id')
-            .eq('source_type', 'document')
-            .eq('sub_process_type', txTypeId)
-            .is('main_process_type', null)
-            .maybeSingle();
-        rule = generalRule;
-    }
-
-    // C) Hala bulunamadıysa (Sistemin çökmemesi için), bulduğun ilk kuralı getir
-    if (!rule) {
-        const { data: fallbackRule } = await supabaseAdmin.from('template_rules')
-            .select('template_id')
-            .eq('source_type', 'document')
-            .eq('sub_process_type', txTypeId)
-            .limit(1)
-            .maybeSingle();
-        rule = fallbackRule;
-    }
+        .eq('sub_process_type', txTypeId)
+        .limit(1)
+        .maybeSingle();
 
     if (rule && rule.template_id) {
         templateId = rule.template_id;
@@ -380,7 +352,11 @@ serve(async (req: Request) => {
             // 🔥 3. AKTİF ŞARTLARI BELİRLE (Varyantlar için parentTaskTypeId'yi yukarıda zaten bulduk)
             const recordOwnerType = isPortfolio ? 'self' : 'third_party';
             const activeConditions = [`owner_${recordOwnerType}`];
-            if (parentTaskTypeId) activeConditions.push(`parent_${parentTaskTypeId}`);
+            if (parentTaskTypeId) {
+                activeConditions.push(`parent_${parentTaskTypeId}`);
+                // 🔥 Yeni: Daha spesifik anahtar (Örn: parent_20_self)
+                activeConditions.push(`parent_${parentTaskTypeId}_${recordOwnerType}`); 
+            }
 
             console.log(`[HANDLE_INDEXED_VARIANT] 🔍 Şablon: ${templateId}, Şartlar:`, activeConditions);
 
@@ -392,16 +368,19 @@ serve(async (req: Request) => {
                 .in('condition_key', activeConditions);
 
             if (variants && variants.length > 0) {
+                // Öncelik: Spesifik Ebeveyn (parent_20_self) > Genel Ebeveyn (parent_20) > Sahip Tipi (owner_self)
+                const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
                 const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
                 const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
 
-                if (parentVariant) {
+                if (specParentVariant) {
+                    rawBody = specParentVariant.body;
+                } else if (parentVariant) {
                     rawBody = parentVariant.body;
-                    console.log(`[HANDLE_INDEXED_VARIANT] 🎯 SEÇİLEN: Parent Varyantı (parent_${parentTaskTypeId})`);
                 } else if (ownerVariant) {
                     rawBody = ownerVariant.body;
-                    console.log(`[HANDLE_INDEXED_VARIANT] 🎯 SEÇİLEN: Owner Varyantı (owner_${recordOwnerType})`);
                 }
+            }
             } else {
                 console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
             }

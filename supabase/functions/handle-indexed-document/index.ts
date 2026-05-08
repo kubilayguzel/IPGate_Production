@@ -368,22 +368,22 @@ serve(async (req: Request) => {
                 .in('condition_key', activeConditions);
 
             if (variants && variants.length > 0) {
-                // Öncelik: Spesifik Ebeveyn (parent_20_self) > Genel Ebeveyn (parent_20) > Sahip Tipi (owner_self)
-                const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
-                const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
-                const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
+                // Öncelik: Spesifik Ebeveyn (parent_20_self) > Genel Ebeveyn (parent_20) > Sahip Tipi (owner_self)
+                const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
+                const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
+                const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
 
-                if (specParentVariant) {
-                    rawBody = specParentVariant.body;
-                } else if (parentVariant) {
-                    rawBody = parentVariant.body;
-                } else if (ownerVariant) {
-                    rawBody = ownerVariant.body;
-                }
-            }
-            } else {
-                console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
-            }
+                if (specParentVariant) {
+                    rawBody = specParentVariant.body;
+                } else if (parentVariant) {
+                    rawBody = parentVariant.body;
+                } else if (ownerVariant) {
+                    rawBody = ownerVariant.body;
+                }
+            } else { 
+                // 🔥 DÜZELTİLDİ: Yukarıdaki fazladan "}" silindi, doğrudan "} else {" yapıldı.
+                console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
+            }
 
             const placeholders: Record<string, string> = {
                 "{{applicationNo}}": appNo,

@@ -199,7 +199,37 @@ export class PortfolioRenderer {
         const tr = document.createElement('tr');
         tr.dataset.id = row.id;
         
-        const suitTypeStr = String(row.suitType || '');
+        // --- 1. VERİLERİ DOĞRUDAN RAW JSON'DAN GÜVENLE AL ---
+        // Veritabanı isimlerini (suit_type) ana öncelik yapıyoruz.
+        const suitType = row.suit_type || row.suitType || '-';
+        const caseNo = row.file_no || row.caseNo || '-';
+        const court = row.court_name || row.court || '-';
+        const opposingParty = row.opposing_party || row.opposingParty || '-';
+        const title = row.title || '-';
+        const openedDate = row.opening_date || row.openedDate || row.created_at;
+
+        // --- 2. MÜVEKKİL (CLIENT) İSMİNİ BUL ---
+        let clientName = '-';
+        if (row.client_id && this.dataManager && this.dataManager.personsMap) {
+            const person = this.dataManager.personsMap.get(row.client_id);
+            if (person) clientName = person.name;
+        } else if (row.clientName) {
+            clientName = row.clientName;
+        }
+
+        // --- 3. VARLIK (IP RECORD / MARKA) İSMİNİ BUL ---
+        let assetName = '-';
+        if (row.ip_record_id && this.dataManager) {
+            const asset = this.dataManager.getRecordById(row.ip_record_id);
+            if (asset) {
+                assetName = asset.title || asset.brandText || asset.brand_name || asset.applicationNumber || '-';
+            }
+        } else if (row.assetName) {
+            assetName = row.assetName;
+        }
+
+        // --- 4. RENKLENDİRME VE BUTONLAR ---
+        const suitTypeStr = String(suitType);
         if (suitTypeStr.includes('İptal')) tr.style.backgroundColor = '#ffebee';
         else if (suitTypeStr.includes('Tecavüz')) tr.style.backgroundColor = '#fff3e0';
         
@@ -208,19 +238,26 @@ export class PortfolioRenderer {
                 <button class="action-btn view-btn btn btn-sm btn-info" data-id="${row.id}" title="Görüntüle"><i class="fas fa-eye"></i></button>
                 <button class="action-btn edit-btn btn btn-sm btn-warning" data-id="${row.id}" title="Düzenle"><i class="fas fa-edit"></i></button>
             </div>`;
+            
         const statusBadge = this.getStatusBadge(row);
 
+        // --- 5. TABLO HÜCRELERİNİ ÇİZ ---
         tr.innerHTML = `
             <td><strong>${index}</strong></td>
-            <td title="${row.title}">${row.title}<br><small class="text-muted" title="Varlık: ${row.assetName}"><i class="fas fa-layer-group mr-1"></i> ${row.assetName}</small></td>
-            <td title="${row.suitType}">${row.suitType}</td>
-            <td title="${row.caseNo}">${row.caseNo}</td>
-            <td title="${row.court}">${row.court}</td>
-            <td title="${row.clientName}">${row.clientName}</td>
-            <td title="${row.opposingParty}">${row.opposingParty}</td>
-            <td>${this.formatDate(row.openedDate)}</td>
+            <td title="${title}">
+                ${title}
+                <br>
+                <small class="text-muted" title="Varlık: ${assetName}"><i class="fas fa-layer-group mr-1"></i> ${assetName}</small>
+            </td>
+            <td title="${suitType}">${suitType}</td>
+            <td title="${caseNo}">${caseNo}</td>
+            <td title="${court}">${court}</td>
+            <td title="${clientName}">${clientName}</td>
+            <td title="${opposingParty}">${opposingParty}</td>
+            <td>${this.formatDate(openedDate)}</td>
             <td>${statusBadge}</td>
             <td>${actions}</td>`;
+            
         return tr;
     }
 

@@ -1262,16 +1262,21 @@ export const suitService = {
         }
         
         const mappedData = data.map(s => ({
+            // 1. Veritabanından gelen tüm orijinal kolonları (client_id, ip_record_id vb.) koru
+            ...s, 
             id: s.id,
-            ...s.details, // Esnek json verilerini dışarı aç
             type: 'litigation',
             status: s.status,
-            suitType: s.details?.suitType || '-',
-            caseNo: s.file_no || '-',
-            court: s.court_name || '-',
-            client: { name: s.details?.client?.name || '-' },
-            opposingParty: s.defendant || s.details?.opposingParty || '-',
-            openedDate: s.created_at
+            // 2. Eksik ve hatalı eşleşmeleri doğrudan ana kolonlardan alacak şekilde düzelt
+            title: s.title || s.details?.title || '-',
+            suitType: s.suit_type || s.details?.suitType || '-',
+            caseNo: s.file_no || s.details?.caseNo || '-',
+            court: s.court_name || s.details?.court || '-',
+            opposingParty: s.opposing_party || s.opposing_counsel || s.defendant || s.details?.opposingParty || '-',
+            openedDate: s.opening_date || s.created_at,
+            // 3. ID'lerin arayüze kesin olarak ulaşmasını sağla
+            client_id: s.client_id,
+            ip_record_id: s.ip_record_id
         }));
 
         return { success: true, data: mappedData };

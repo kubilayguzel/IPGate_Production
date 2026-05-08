@@ -194,33 +194,37 @@ export class PortfolioDataManager {
                 const rawSuits = result.data || [];
                 
                 this.litigationRows = rawSuits.map(row => {
-                    // 1. Müvekkil ID'sini İsme Çevir
+                    // 1. Müvekkil ID'sini İsme Çevir (Hem clientId hem client_id hem de obje gelme ihtimaline karşı)
+                    const cId = row.clientId || row.client_id || row.client;
                     let cName = '-';
-                    if (row.client_id && this.personsMap.has(row.client_id)) {
-                        cName = this.personsMap.get(row.client_id).name;
+                    if (cId && typeof cId === 'string' && this.personsMap.has(cId)) {
+                        cName = this.personsMap.get(cId).name;
+                    } else if (cId && typeof cId === 'object' && cId.name) {
+                        cName = cId.name;
                     }
-                    
-                    // 2. Varlık (Marka) ID'sini İsme Çevir
+
+                    // 2. Varlık (Marka/Patent) ID'sini İsme Çevir
+                    const ipId = row.ipRecordId || row.ip_record_id;
                     let assetName = '-';
-                    if (row.ip_record_id) {
-                        const asset = this.getRecordById(row.ip_record_id);
+                    if (ipId) {
+                        const asset = this.getRecordById(ipId);
                         if (asset) {
                             assetName = asset.title || asset.brandText || asset.brand_name || asset.applicationNumber || '-';
                         }
                     }
 
-                    // 3. Veritabanı (snake_case) verilerini Arayüz (camelCase) verilerine eşle
+                    // 3. Fallback (Yedekli) Eşleştirme: Servisten ne gelirse gelsin veriyi yakala!
                     return {
-                        ...row, 
+                        ...row, // Diğer tüm statü, ID gibi bilgileri olduğu gibi koru
                         title: row.title || '-',
                         assetName: assetName,
-                        suitType: row.suit_type || '-',
-                        caseNo: row.file_no || '-',
-                        court: row.court_name || '-',
+                        suitType: row.suitType || row.suit_type || '-',
+                        caseNo: row.caseNo || row.file_no || '-',
+                        court: row.court || row.court_name || '-',
                         clientName: cName,
-                        client: { name: cName }, // Arama çubuğunun (filterRecords) bozulmaması için gerekli
-                        opposingParty: row.opposing_party || '-',
-                        openedDate: row.opening_date || row.created_at
+                        client: { name: cName }, // Arama (Search) fonksiyonu item.client.name aradığı için objeye çevirdik
+                        opposingParty: row.opposingParty || row.opposing_party || row.opposing_counsel || '-',
+                        openedDate: row.openedDate || row.opening_date || row.created_at
                     };
                 });
 

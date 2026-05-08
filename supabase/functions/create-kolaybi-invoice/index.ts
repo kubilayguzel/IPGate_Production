@@ -73,21 +73,22 @@ serve(async (req) => {
         const { accrualIds } = body;
         if (!accrualIds || accrualIds.length === 0) throw new Error("Lütfen faturalandırılacak tahakkukları seçin.");
 
+        // 🔥 1. ADIM: Sadece tahakkukları yalın olarak çekiyoruz (Join hatasını tamamen önlüyoruz)
         const { data: accruals, error: accError } = await supabaseClient
             .from('accruals')
             .select('*, accrual_items(*)')
             .in('id', accrualIds);
 
-        if (accError || !accruals || accruals.length === 0) throw new Error("Tahakkuk verileri alınamadı.");
+        if (accError || !accruals || accruals.length === 0) {
+            throw new Error("Tahakkuk Çekme Hatası: " + (accError ? JSON.stringify(accError) : "Veri bulunamadı."));
+        }
 
         const clientId = accruals[0].service_invoice_party_id || accruals[0].tp_invoice_party_id;
         if (!clientId) throw new Error("Taraf (Müşteri/Cari) seçilmemiş.");
 
         for (const acc of accruals) {
             const currentPartyId = acc.service_invoice_party_id || acc.tp_invoice_party_id;
-            if (currentPartyId !== clientId) {
-                throw new Error("Güvenlik İhlali: Farklı müşterilere ait tahakkuklar tek faturada birleştirilemez!");
-            }
+            if (currentPartyId !== clientId) throw new Error("Güvenlik İhlali: Farklı müşterilere ait tahakkuklar tek faturada birleştirilemez!");
         }
 
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
@@ -96,13 +97,48 @@ serve(async (req) => {
         const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
         console.log("=== YENİ CANLI (LIVE) KOLAYBİ FATURA OLUŞTURMA İŞLEMİ BAŞLADI ===");
 
-        const accessToken = await getKolaybiToken();
+        // 🔥 2. ADIM: İş (Task), Dava ve Marka detaylarını manuel (ilişki hatasına düşmeden) çekip haritalıyoruz
+        const taskIds = accruals.map(a => a.task_id).filter(Boolean);
+        let tasksMap: any = {};
 
-        const apiHeadersForm = {
-            'Authorization': `Bearer ${accessToken}`,
-            'Channel': channel,
-            'Content-Type': 'application/x-www-form-urlencoded' 
-        };
+        if (taskIds.length > 0) {
+            // İlgili görevleri çek
+            const { data: tasksData } = await supabaseClient.from('tasks').select('id, title, ip_record_id').in('id', taskIds);
+            
+            if (tasksData && tasksData.length > 0) {
+                const ipRecordIds = tasksData.map(t => t.ip_record_id).filter(Boolean);
+                let ipRecords = [], tmDetails = [], suits = [];
+                
+                // Görevlere bağlı IP, Marka veya Dava varsa, Promise.all ile ışık hızında paralel çek
+                if (ipRecordIds.length > 0) {
+                    const [ipRes, tmRes, suitRes] = await Promise.all([
+                        supabaseClient.from('ip_records').select('id, origin, application_number').in('id', ipRecordIds),
+                        supabaseClient.from('ip_record_trademark_details').select('ip_record_id, brand_name').in('ip_record_id', ipRecordIds),
+                        supabaseClient.from('suits').select('id, court_name, file_no').in('id', ipRecordIds)
+                    ]);
+                    if (ipRes.data) ipRecords = ipRes.data;
+                    if (tmRes.data) tmDetails = tmRes.data;
+                    if (suitRes.data) suits = suitRes.data;
+                }
+
+                // Ekrana basılacak formatta verileri birleştir
+                tasksData.forEach(t => {
+                    const ipRec = ipRecords.find(ip => ip.id === t.ip_record_id);
+                    const suit = suits.find(s => s.id === t.ip_record_id);
+                    const tmDet = tmDetails.find(tm => tm.ip_record_id === t.ip_record_id);
+                    
+                    tasksMap[t.id] = {
+                        title: t.title || "",
+                        origin: ipRec?.origin || suit?.court_name || "TÜRKPATENT",
+                        refNo: ipRec?.application_number || suit?.file_no || "",
+                        brand: tmDet?.brand_name || ""
+                    };
+                });
+            }
+        }
+
+        const accessToken = await getKolaybiToken();
+        const apiHeadersForm = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel, 'Content-Type': 'application/x-www-form-urlencoded' };
         const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
 
         // --- CARİ PARAMETRELERİ ---
@@ -146,10 +182,7 @@ serve(async (req) => {
         if (foundAssociate && foundAssociate.id) {
             kolaybiContactId = foundAssociate.id;
             console.log(`Cari mevcut (ID: ${kolaybiContactId}). Bilgileri güncelleniyor...`);
-            
-            await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates/${kolaybiContactId}`, { 
-                method: 'PUT', headers: apiHeadersForm, body: associateParams.toString() 
-            });
+            await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates/${kolaybiContactId}`, { method: 'PUT', headers: apiHeadersForm, body: associateParams.toString() });
 
             const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates/${kolaybiContactId}`, { method: 'GET', headers: getHeaders });
             if (detailReq.ok) {
@@ -159,16 +192,11 @@ serve(async (req) => {
             }
         } else {
             console.log(`Cari bulunamadı. Yeni kayıt oluşturuluyor...`);
-            const associateReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates`, {
-                method: 'POST', headers: apiHeadersForm, body: associateParams.toString()
-            });
+            const associateReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/associates`, { method: 'POST', headers: apiHeadersForm, body: associateParams.toString() });
             const associateResText = await associateReq.text();
             let associateRes;
             try { associateRes = JSON.parse(associateResText); } catch(e) { throw new Error(`API Yanıtı Okunamadı`); }
-
-            if (!associateReq.ok || associateRes.success === false) {
-                throw new Error(`Cari Kayıt Hatası: ${associateRes.message}`);
-            }
+            if (!associateReq.ok || associateRes.success === false) throw new Error(`Cari Kayıt Hatası: ${associateRes.message}`);
 
             const dataObj = associateRes.data || associateRes;
             kolaybiContactId = dataObj.id;
@@ -192,13 +220,24 @@ serve(async (req) => {
         }
         if (!kolaybiAddressId) throw new Error("Cari Adres ID alınamadı.");
 
-        // --- HİZMET (ÜRÜN) BİLGİSİ ---
         let productId = 1; 
         const productsReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/products`, { method: 'GET', headers: getHeaders });
         if (productsReq.ok) {
             const productsRes = await productsReq.json();
             if (productsRes.data && productsRes.data.length > 0) productId = productsRes.data[0].id; 
         }
+
+        // 🔥 3. ADIM: Daha önce haritaladığımız verilerle Dipnotu (İş Detayı) basıyoruz
+        let jobDetailsLines: string[] = [];
+        accruals.forEach(acc => {
+            if (acc.task_id && tasksMap[acc.task_id]) {
+                const t = tasksMap[acc.task_id];
+                const line = `${t.origin} ${t.refNo} ${t.brand} ${t.title} (${acc.task_id})`.replace(/\s+/g, ' ').trim();
+                if (!jobDetailsLines.includes(line)) jobDetailsLines.push(line);
+            }
+        });
+
+        const finalInvoiceNote = `İş Detayı:\n${jobDetailsLines.join('\n')}\n\nTahakkuk No: ${accrualIds.join(', ')}\n\nNot: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`;
 
         const invoiceParams = new URLSearchParams();
         invoiceParams.append("contact_id", String(kolaybiContactId));
@@ -207,7 +246,7 @@ serve(async (req) => {
         invoiceParams.append("type", "sale_invoice"); 
         invoiceParams.append("document_scenario", identityNo.length === 10 ? "TICARIFATURA" : "EARSIV"); 
         invoiceParams.append("document_type", "SATIS"); 
-        invoiceParams.append("description", "IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.");
+        invoiceParams.append("description", finalInvoiceNote);
         
         let invoiceCurrency = 'TRY';
         let itemIndex = 0;
@@ -225,15 +264,23 @@ serve(async (req) => {
                     const price = parseFloat(item.unit_price || 0);
                     const vat = parseFloat(item.vat_rate || 0);
 
-                    // 🔥 İstenen Formatı Birleştiriyoruz
-                    const combinedName = `${item.fee_type} - ${item.item_name}`;
+                    let feeTypeDisplay = item.fee_type || "";
+                    const typeLower = feeTypeDisplay.toLowerCase().trim();
+
+                    if (typeLower === 'tp harç' || typeLower === 'harç') feeTypeDisplay = 'TÜRKPATENT Harç';
+                    else if (typeLower === 'tp hizmet') feeTypeDisplay = 'TÜRKPATENT Hizmet';
+                    else if (typeLower === 'hizmet') feeTypeDisplay = 'EVREKA Hizmet';
+
+                    const cleanItemName = (item.item_name || "")
+                        .replace(/\s*-\s*(Harç|Hizmet Bedeli|Hizmet Ücreti|Hizmet)\s*$/i, "")
+                        .trim();
+
+                    const combinedName = `${feeTypeDisplay} - ${cleanItemName}`;
 
                     invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
                     invoiceParams.append(`items[${itemIndex}][quantity]`, qty.toFixed(2));
                     invoiceParams.append(`items[${itemIndex}][unit_price]`, price.toFixed(2));
                     invoiceParams.append(`items[${itemIndex}][vat_rate]`, vat.toString());
-                    
-                    // 🔥 DÜZELTME: API'nin kabul ettiği tek metin alanı olan 'description'a basıyoruz!
                     invoiceParams.append(`items[${itemIndex}][description]`, combinedName);
                     
                     calculatedGrandTotal += (qty * price) * (1 + (vat / 100));
@@ -251,13 +298,10 @@ serve(async (req) => {
         let invoiceRes;
         try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Fatura API Yanıtı Okunamadı`); }
 
-        if (!invoiceReq.ok || invoiceRes.success === false) {
-            throw new Error(`Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)}`);
-        }
+        if (!invoiceReq.ok || invoiceRes.success === false) throw new Error(`Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)}`);
         
         const kolaybiInvoiceId = invoiceRes.data?.document_id || invoiceRes.data?.id || invoiceRes.document_id || invoiceRes.id; 
         
-        // Supabase Invoices Tablosuna Kayıt
         const { data: newInvoice, error: invError } = await supabaseClient.from('invoices').insert({
             kolaybi_invoice_id: String(kolaybiInvoiceId),
             status: 'draft',

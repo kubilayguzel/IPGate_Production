@@ -965,6 +965,9 @@ class ClientPortalController {
         $('#invoiceDurumFilter').on('change', () => this.filterInvoices());
         $('#invoiceSearchText').on('keyup', () => this.filterInvoices());
         $('#contractsSearchText').on('keyup', () => this.filterContracts());
+        $('#taskSearchText').on('keyup', () => this.filterTasks());
+        $('#taskStatusFilter').on('change', () => this.filterTasks());
+        $('#applyTaskFilters').on('click', (e) => { e.preventDefault(); this.filterTasks(); });
 
         $('.task-card-link').click((e) => {
             const el = e.currentTarget;

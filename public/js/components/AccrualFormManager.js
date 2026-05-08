@@ -247,7 +247,9 @@ export class AccrualFormManager {
                     <option value="TRY" ${item.currency === 'TRY' ? 'selected' : ''}>TRY</option>
                     <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option>
                     <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                    <option value="CHF" ${item.currency === 'CHF' ? 'selected' : ''}>CHF</option>
                     <option value="GBP" ${item.currency === 'GBP' ? 'selected' : ''}>GBP</option>
+                    
                 </select>
             </td>
             <td class="font-weight-bold text-right item-total align-middle text-dark">0.00</td>

@@ -324,7 +324,50 @@ serve(async (req: Request) => {
     let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
     let templateId = null;
 
-    const { data: rule } = await supabaseAdmin.from('template_rules').select('template_id').eq('source_type', 'document').eq('sub_process_type', txTypeId).maybeSingle();
+    // 🔥 1. ÖNCE ANA İŞLEM TİPİNİ BUL (Parent Task Type ID) - Hiyerarşiyi taslaktan önce çözüyoruz!
+    let parentTaskTypeId = null;
+    if (transactionData && transactionData.parent_id) {
+        const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
+        if (pTx && pTx.transaction_type_id) {
+            parentTaskTypeId = String(pTx.transaction_type_id);
+        }
+    }
+
+    // 🔥 2. DOĞRU TASLAĞI (TEMPLATE) BULMAK İÇİN YENİ KURAL SORGUSU
+    let ruleQuery = supabaseAdmin.from('template_rules')
+        .select('template_id')
+        .eq('source_type', 'document')
+        .eq('sub_process_type', txTypeId);
+        
+    let rule = null;
+
+    // A) Eğer bir ana işlem (parent) varsa, önce ona özel (main_process_type) kuralı ara
+    if (parentTaskTypeId) {
+        const { data: specificRule } = await ruleQuery.eq('main_process_type', parentTaskTypeId).maybeSingle();
+        rule = specificRule;
+    }
+
+    // B) Spesifik eşleşme bulunamazsa, main_process_type'ı null olan genel kuralı ara
+    if (!rule) {
+        const { data: generalRule } = await supabaseAdmin.from('template_rules')
+            .select('template_id')
+            .eq('source_type', 'document')
+            .eq('sub_process_type', txTypeId)
+            .is('main_process_type', null)
+            .maybeSingle();
+        rule = generalRule;
+    }
+
+    // C) Hala bulunamadıysa (Sistemin çökmemesi için), bulduğun ilk kuralı getir
+    if (!rule) {
+        const { data: fallbackRule } = await supabaseAdmin.from('template_rules')
+            .select('template_id')
+            .eq('source_type', 'document')
+            .eq('sub_process_type', txTypeId)
+            .limit(1)
+            .maybeSingle();
+        rule = fallbackRule;
+    }
 
     if (rule && rule.template_id) {
         templateId = rule.template_id;
@@ -334,16 +377,7 @@ serve(async (req: Request) => {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
 
-            // 🔥 1. ANA İŞLEM TİPİNİ BUL (Parent Task Type ID)
-            let parentTaskTypeId = null;
-            if (transactionData && transactionData.parent_id) {
-                const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
-                if (pTx && pTx.transaction_type_id) {
-                    parentTaskTypeId = String(pTx.transaction_type_id);
-                }
-            }
-
-            // 🔥 2. AKTİF ŞARTLARI BELİRLE
+            // 🔥 3. AKTİF ŞARTLARI BELİRLE (Varyantlar için parentTaskTypeId'yi yukarıda zaten bulduk)
             const recordOwnerType = isPortfolio ? 'self' : 'third_party';
             const activeConditions = [`owner_${recordOwnerType}`];
             if (parentTaskTypeId) activeConditions.push(`parent_${parentTaskTypeId}`);

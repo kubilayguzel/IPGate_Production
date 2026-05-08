@@ -1094,6 +1094,7 @@ export class ManuelPdfTransactionManager {
             if (txResult && txResult.success) {
                 const newTransactionId = txResult.id;
                 
+                // Sadece GERÇEK bir dosya yüklendiyse evrak tablosuna ekle
                 if (uploadedDocuments.length > 0) {
                     for (const doc of uploadedDocuments) {
                         await supabase.from(INCOMING_DOCS_COLLECTION).insert({
@@ -1111,21 +1112,23 @@ export class ManuelPdfTransactionManager {
                             indexed_at: new Date().toISOString()
                         });
                     }
-                } else {
-                    await supabase.from(INCOMING_DOCS_COLLECTION).insert({
-                        id: generateUUID(),
-                        file_name: typeObj ? typeObj.name : 'Sisteme manuel işlem girildi',
-                        document_source: 'manual_entry',
-                        status: 'indexed',
-                        teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
-                        ip_record_id: this.selectedRecordManual.id,
-                        created_transaction_id: newTransactionId,
-                        transaction_type_id: targetTypeId,
-                        user_id: this.currentUser.id,
-                        indexed_at: new Date().toISOString()
-                    });
                 }
+                // 🔥 DÜZELTME: Buradaki "else" bloğunu ve içindeki "Sisteme manuel işlem girildi" 
+                // şeklindeki sahte evrak oluşturma kodunu tamamen SİLDİK. 
+                // Artık dosya yoksa evrak tablosuna hiçbir şey yazılmayacak, 
+                // böylece arka plandaki mail tetikleyicisi (trigger) boş yere çalışmayacak!
             }
+
+            // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
+            if (renewalUpdateData.shouldUpdate && renewalUpdateData.newDate) {
+                await supabase
+                    .from('ip_records')
+                    .update({ renewal_date: renewalUpdateData.newDate, updated_at: new Date().toISOString() })
+                    .eq('id', this.selectedRecordManual.id);
+            }
+
+            showNotification('İşlem başarıyla kaydedildi!', 'success');
+            this.resetForm();
 
             // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
             if (renewalUpdateData.shouldUpdate && renewalUpdateData.newDate) {

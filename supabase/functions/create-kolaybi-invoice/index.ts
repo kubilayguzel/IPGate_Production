@@ -290,37 +290,16 @@ serve(async (req) => {
                 invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
 
                 if (docType === 'TEVKIFAT') {
-                    // 🔥 KolayBi'nin kabul edebileceği tüm olası tevkifat parametrelerini (Alias) gönderiyoruz. 
-                    // API kendi tanıdığını alıp diğerlerini yok sayacak. %90 tevkifat oranını temsil eder (9/10).
-                    
-                    // Standart isimlendirmeler
-                    invoiceParams.append(`items[${itemIndex}][withholding_tax_code]`, "624");
-                    invoiceParams.append(`items[${itemIndex}][withholding_tax_rate]`, "90");
-                    
-                    // KDV Tevkifatı (VAT Withholding) isimlendirmeleri
-                    invoiceParams.append(`items[${itemIndex}][vat_withholding_code]`, "624");
-                    invoiceParams.append(`items[${itemIndex}][vat_withholding_rate]`, "90");
-                    
-                    // Stopaj isimlendirmeleri
-                    invoiceParams.append(`items[${itemIndex}][stoppage_code]`, "624");
-                    invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "90");
-                    
-                    // Kısa isimlendirmeler
-                    invoiceParams.append(`items[${itemIndex}][withholding_code]`, "624");
-                    invoiceParams.append(`items[${itemIndex}][withholding_rate]`, "90");
-
-                    // KolayBi Yerel / Türkçe isimlendirme olasılıkları
-                    invoiceParams.append(`items[${itemIndex}][tevkifat_kodu]`, "624");
-                    invoiceParams.append(`items[${itemIndex}][tevkifat_orani]`, "90");
-                    
-                    // Opsiyonel kesirli varyasyonları da yedek olarak ekliyoruz (90 yerine 9/10 formatı)
-                    invoiceParams.append(`items[${itemIndex}][withholding_tax_rate_str]`, "9/10");
-                    invoiceParams.append(`items[${itemIndex}][stoppage_rate_str]`, "9/10");
+                    // 🔥 KolayBi API Ekibinin Belirttiği Resmi Tevkifat Parametreleri
+                    invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
+                    invoiceParams.append(`items[${itemIndex}][withholding_value]`, "90");
+                    invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
 
                     // 10.000 TL * %20 KDV'nin 9/10'u tevkif edilir, satıcıya KDV'nin 1/10'u (%2) ödenir. 
-                    // (10.000 * 1.02)
+                    // (Tutar * 1.02)
                     calculatedGrandTotal += (item.qty * item.price) * 1.02; 
                 } else {
+                    // Normal (%0, %20 vb) tevkifatsız hesaplama
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (item.vat / 100));
                 }
                 itemIndex++;
@@ -354,10 +333,6 @@ serve(async (req) => {
                 total: calculatedGrandTotal
             };
         };
-
-        // Gruplanmış Listeleri Faturala
-        const satisResult = await createInvoiceInKolaybi(satisItemsList, "SATIS");
-        const tevkifatResult = await createInvoiceInKolaybi(tevkifatItemsList, "TEVKIFAT");
 
         // 🔥 FATURALAMA VE ROLLBACK (GERİ ALMA) İŞLEMİ
         let satisResult: any = null;

@@ -21,12 +21,16 @@ export class AccrualDataManager {
 
     async fetchAllData() {
         try {
+            // SADECE accrual ve kalemlerini çekiyoruz.
             const accPromise = supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').limit(10000).order('created_at', { ascending: false });
-            // 🔥 YENİ: Faturaları da çekiyoruz
-            const invPromise = supabase.from('invoices').select('*, accruals(*)').limit(5000).order('created_at', { ascending: false });
+            
+            // 🔥 ÇÖZÜM: 'accruals(*)' İLİŞKİSİNİ SİLDİK (Ambiguous Join hatasını engellemek için)
+            // Faturaları yalın halde çekiyoruz.
+            const invPromise = supabase.from('invoices').select('*').limit(5000).order('created_at', { ascending: false });
+            
             const [accRes, invRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
-                invPromise, // 🔥 YENİ
+                invPromise,
                 taskService.getAllUsers(),
                 transactionTypeService.getTransactionTypes(),
                 personService.getPersons() 
@@ -59,12 +63,16 @@ export class AccrualDataManager {
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
-                    orderCode: row.order_code || d.orderCode || null, // 🔥 YENİ
+                    orderCode: row.order_code || d.orderCode || null,
                     description: row.description || d.description || '', 
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
                     
-                    // 🔥 ÇÖZÜM 2: Gelen belgeler (documents) UI'ın anladığı 'files' dizisine dönüştürülüyor
+                    // 🔥 EŞLEŞTİRME İÇİN EKLENEN KISIM: Her iki Fatura ID'sini de JS objesine alıyoruz
+                    invoiceId: row.invoice_id || null,
+                    invoiceId2: row.invoice_id_2 || null,
+                    subject: row.subject || d.subject || '',
+
                     files: row.accrual_documents && row.accrual_documents.length > 0 
                         ? row.accrual_documents.map(doc => ({
                             id: doc.id, name: doc.document_name, url: doc.document_url, type: doc.document_type
@@ -86,7 +94,7 @@ export class AccrualDataManager {
             await this._fetchTasksInBatches();
             await this._fetchIpRecordsInBatches();
 
-            // 🔥 YENİ: Faturaları (Invoices) kullanılabilir formata dönüştür
+            // 🔥 FATURALARI VE TAHAKKUKLARI JAVASCRIPT İLE BİRLEŞTİRİYORUZ
             this.allInvoices = invRes.data ? invRes.data.map(row => ({
                 id: String(row.id),
                 kolaybiInvoiceId: row.kolaybi_invoice_id,
@@ -97,7 +105,11 @@ export class AccrualDataManager {
                 clientId: row.client_id,
                 clientName: getPersonName(row.client_id) || 'Bilinmiyor',
                 createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
-                accruals: row.accruals || []
+                
+                // İki ID'den herhangi biri eşleşiyorsa bu faturanın tahakkukudur
+                accruals: this.allAccruals
+                    .filter(a => String(a.invoiceId) === String(row.id) || String(a.invoiceId2) === String(row.id))
+                    .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
             })) : [];
 
             this._buildSearchStrings();

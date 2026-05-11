@@ -26,7 +26,7 @@ export class PersonModalManager {
     ensureModalMarkup() {
         if (document.getElementById('personModal')) return;
 
-        // Modal HTML'i (Aynı bıraktım, arayüzünüz bozulmasın)
+    // Modal HTML'i (Aynı bıraktım, arayüzünüz bozulmasın)
         const modalHtml = `
         <div id="personModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
             <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
@@ -95,13 +95,22 @@ export class PersonModalManager {
                                             <label class="small font-weight-bold text-muted">E-POSTA</label>
                                             <input type="email" id="personEmail" class="form-control rounded-lg border-2">
                                         </div>
+                                        
                                         <div class="bg-light p-3 rounded border">
                                             <div class="custom-control custom-switch">
                                                 <input type="checkbox" class="custom-control-input" id="is_evaluation_required">
                                                 <label class="custom-control-label font-weight-bold text-dark" for="is_evaluation_required">Değerlendirme İşlemi Gerekli (ID 66)</label>
                                             </div>
+                                            <div class="custom-control custom-switch mt-3">
+                                                <input type="checkbox" class="custom-control-input" id="person-has-tevkifat">
+                                                <label class="custom-control-label font-weight-bold text-dark" for="person-has-tevkifat">Tevkifat Uygulansın mı?</label>
+                                            </div>
+                                            <div class="custom-control custom-switch mt-3">
+                                                <input type="checkbox" class="custom-control-input" id="person-requires-sas">
+                                                <label class="custom-control-label font-weight-bold text-dark" for="person-requires-sas">SAS (Sipariş) Kodu Zorunlu mu?</label>
+                                            </div>
                                         </div>
-                                    </div>
+                                        </div>
                                 </div>
                             </div>
 
@@ -433,6 +442,8 @@ export class PersonModalManager {
                             : document.getElementById('districtSelect').value,
                 
                 is_evaluation_required: document.getElementById('is_evaluation_required').checked,
+                has_tevkifat: document.getElementById('person-has-tevkifat')?.checked || false,
+                requires_sas_code: document.getElementById('person-requires-sas')?.checked || false,
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
             };
@@ -847,6 +858,8 @@ export class PersonModalManager {
         document.getElementById('personPhone').value = p.phone || '';
         document.getElementById('personAddress').value = p.address || '';
         document.getElementById('is_evaluation_required').checked = !!p.is_evaluation_required;
+        if(document.getElementById('person-has-tevkifat')) document.getElementById('person-has-tevkifat').checked = !!p.has_tevkifat;
+        if(document.getElementById('person-requires-sas')) document.getElementById('person-requires-sas').checked = !!p.requires_sas_code;
 
         const countrySelect = document.getElementById('countrySelect');
         if (p.countryCode && countrySelect) {

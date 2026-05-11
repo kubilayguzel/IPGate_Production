@@ -64,6 +64,9 @@
         ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
 
         @media (max-width: 1200px) { .charts-grid, .lists-grid { grid-template-columns: 1fr; } }
+
+        /* 🔥 FİNANSAL MODÜLLER VARSAYILAN OLARAK GİZLİDİR */
+        .financial-module { display: none; }
     </style>
 </head>
 <body>
@@ -80,7 +83,7 @@
             </div>
 
             <div class="kpi-grid">
-                <div class="kpi-card success">
+                <div class="kpi-card success financial-module">
                     <div class="kpi-title">Tahsilat Performansı</div>
                     <div class="kpi-value" id="kpiCollectionRate">%0</div>
                     <div class="kpi-subtext">
@@ -89,13 +92,13 @@
                     </div>
                 </div>
 
-                <div class="kpi-card primary">
+                <div class="kpi-card primary financial-module">
                     <div class="kpi-title">Hizmet Karlılık Oranı</div>
                     <div class="kpi-value" id="kpiProfitMargin">%0</div>
                     <div class="kpi-subtext">Cironun ne kadarı size (Hizmet Bedeli) kalıyor?</div>
                 </div>
 
-                <div class="kpi-card danger">
+                <div class="kpi-card danger financial-module">
                     <div class="kpi-title">Bekleyen Toplam Alacak (Risk)</div>
                     <div class="kpi-value" id="kpiTotalUnpaid">0 TL</div>
                     <div class="kpi-subtext">
@@ -114,8 +117,8 @@
                 </div>
             </div>
 
-            <div class="charts-grid">
-                <div class="chart-card">
+            <div class="charts-grid" id="mainChartsGrid">
+                <div class="chart-card financial-module">
                     <div class="chart-header">
                         <div class="chart-title">Aylık Tahsilat ve Alacak Trendi (Son 6 Ay)</div>
                     </div>
@@ -130,15 +133,15 @@
                 </div>
             </div>
 
-            <div class="lists-grid">
-                <div class="list-card">
+            <div class="lists-grid" id="mainListsGrid">
+                <div class="list-card financial-module">
                     <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Açık Bakiyeler</div>
                     <ul class="intelligence-list" id="topDebtorsList">
                         <li>Yükleniyor...</li>
                     </ul>
                 </div>
 
-                <div class="list-card">
+                <div class="list-card financial-module">
                     <div class="list-title"><i class="fas fa-coins text-warning"></i> Bekleyen Alacaklar (Döviz Bazlı)</div>
                     <ul class="intelligence-list" id="currencyRiskList">
                         <li>Yükleniyor...</li>
@@ -158,7 +161,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script type="module">
-        import { waitForAuthUser, ipRecordsService, accrualService } from './supabase-config.js';
+        import { waitForAuthUser, ipRecordsService, accrualService, supabase } from './supabase-config.js';
         import { showNotification } from './utils.js';
         import { loadSharedLayout } from './js/layout-loader.js';
 
@@ -166,49 +169,74 @@
             constructor() {
                 this.financialTrendChart = null;
                 this.portfolioChart = null;
+                this.isSuperAdmin = false;
             }
 
             async init(user) {
                 document.getElementById('currentDate').textContent = new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                
+                try {
+                    const { data: dbUser, error } = await supabase
+                        .from('users')
+                        .select('role')
+                        .eq('id', user.id)
+                        .single();
+
+                    if (error) throw error;
+                    this.isSuperAdmin = (dbUser?.role === 'superadmin'); 
+                } catch (err) {
+                    console.error('Kullanıcı rolü çekilirken hata oluştu:', err);
+                    this.isSuperAdmin = false;
+                }
+
+                // 🔥 KESİN ÇÖZÜM BURADA:
+                if (this.isSuperAdmin) {
+                    // Eğer kullanıcı yetkiliyse, CSS ile gizlenmiş kartları görünür yap (GÖSTER)
+                    document.querySelectorAll('.financial-module').forEach(el => el.style.display = 'block');
+                } else {
+                    // Yetkisi yoksa kartlar zaten CSS sayesinde hiç görünmedi!
+                    // Biz sadece grid (ızgara) yapısındaki kalan boşlukları tam ekrana yayıyoruz
+                    const chartsGrid = document.getElementById('mainChartsGrid');
+                    const listsGrid = document.getElementById('mainListsGrid');
+                    if(chartsGrid) chartsGrid.style.gridTemplateColumns = '1fr';
+                    if(listsGrid) listsGrid.style.gridTemplateColumns = '1fr';
+                }
+
                 await this.loadData();
             }
 
             async loadData() {
-                const [ipRecordsResult, accrualsResult] = await Promise.all([
-                    ipRecordsService.getRecords(),
-                    accrualService.getAccruals()
-                ]);
+                const promises = [ipRecordsService.getRecords()];
+                
+                // Finansal veriler sadece yetki varsa çekilir
+                if (this.isSuperAdmin) {
+                    promises.push(accrualService.getAccruals());
+                }
 
+                const results = await Promise.all(promises);
+                
                 let records = [];
                 let accruals = [];
 
-                if (ipRecordsResult.success) {
-                    records = ipRecordsResult.data.map(r => ({ ...r, ...(r.details || {}) }));
-                }
-
-                if (accrualsResult.success) {
-                    accruals = accrualsResult.data.map(r => ({ ...r, ...(r.details || {}) }));
-                }
+                if (results[0].success) records = results[0].data.map(r => ({ ...r, ...(r.details || {}) }));
+                if (this.isSuperAdmin && results[1] && results[1].success) accruals = results[1].data.map(r => ({ ...r, ...(r.details || {}) }));
 
                 this.processExecutiveMetrics(records, accruals);
             }
 
-            // Mükemmel Para Birimi Formatlayıcı
             formatMoney(amount, currency = 'TRY') {
                 return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
             }
 
             processExecutiveMetrics(records, accruals) {
-                // --- 1. FİNANSAL HESAPLAMALAR ---
                 let totalBilledTRY = 0, totalPaidTRY = 0, totalUnpaidTRY = 0;
                 let totalOfficialFeeTRY = 0, totalServiceFeeTRY = 0;
                 let unpaidCount = 0;
                 
                 const currencyRisk = { 'TRY': 0, 'USD': 0, 'EUR': 0, 'GBP': 0, 'CHF': 0 };
                 const debtors = {};
-                const monthlyTrend = {}; // YYYY-MM formatında
+                const monthlyTrend = {}; 
                 
-                // Son 6 ayın aylarını oluştur
                 for(let i=5; i>=0; i--) {
                     let d = new Date(); d.setMonth(d.getMonth() - i);
                     monthlyTrend[d.toISOString().slice(0,7)] = { paid: 0, unpaid: 0 };
@@ -219,29 +247,20 @@
                     const createdAt = acc.created_at || acc.createdAt || new Date().toISOString();
                     const monthKey = createdAt.slice(0, 7);
 
-                    // Toplam Tutar ve Para Birimi Ayrıştırma
                     let totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{ amount: acc.totalAmount || 0, currency: 'TRY' }];
                     let remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{ amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY' }]);
 
                     let accTotalTRY = 0, accRemTRY = 0, accPaidTRY = 0;
-
-                    // Basit TRY'ye çevrim (Sadece oransal analizler için varsayılan kurlar)
                     const rates = { 'TRY': 1, 'USD': 35, 'EUR': 38, 'GBP': 44, 'CHF': 39 };
 
-                    totalArr.forEach(t => { 
-                        let curr = t.currency || 'TRY';
-                        accTotalTRY += (t.amount || 0) * (rates[curr] || 1); 
-                    });
-
+                    totalArr.forEach(t => { accTotalTRY += (t.amount || 0) * (rates[t.currency || 'TRY'] || 1); });
                     remArr.forEach(r => { 
-                        let curr = r.currency || 'TRY';
                         let amt = r.amount || 0;
-                        accRemTRY += amt * (rates[curr] || 1); 
-                        currencyRisk[curr] = (currencyRisk[curr] || 0) + amt; // Gerçek döviz riskini topla
+                        accRemTRY += amt * (rates[r.currency || 'TRY'] || 1); 
+                        currencyRisk[r.currency || 'TRY'] = (currencyRisk[r.currency || 'TRY'] || 0) + amt; 
                     });
 
                     accPaidTRY = accTotalTRY - accRemTRY;
-
                     totalBilledTRY += accTotalTRY;
                     totalPaidTRY += accPaidTRY;
                     totalUnpaidTRY += accRemTRY;
@@ -251,23 +270,18 @@
                         debtors[clientName] = (debtors[clientName] || 0) + accRemTRY;
                     }
 
-                    // Karlılık Analizi (Service vs Official) - Oranlama için TRY bazında
-                    const offAmt = acc.officialFee?.amount || 0;
-                    const offCur = acc.officialFee?.currency || 'TRY';
-                    const srvAmt = acc.serviceFee?.amount || 0;
-                    const srvCur = acc.serviceFee?.currency || 'TRY';
+                    const offAmt = acc.officialFee?.amount || 0; const offCur = acc.officialFee?.currency || 'TRY';
+                    const srvAmt = acc.serviceFee?.amount || 0; const srvCur = acc.serviceFee?.currency || 'TRY';
                     
                     totalOfficialFeeTRY += offAmt * (rates[offCur] || 1);
                     totalServiceFeeTRY += srvAmt * (rates[srvCur] || 1);
 
-                    // Trend Verisi
                     if (monthlyTrend[monthKey]) {
                         monthlyTrend[monthKey].paid += accPaidTRY;
                         monthlyTrend[monthKey].unpaid += accRemTRY;
                     }
                 });
 
-                // --- 2. OPERASYONEL HESAPLAMALAR ---
                 const activeStatus = ['filed', 'published', 'registered', 'partially_registered'];
                 const activeRecords = records.filter(r => activeStatus.includes(r.status || r.portfoyStatus));
                 
@@ -282,11 +296,8 @@
                     if(typeCount[type] !== undefined) typeCount[type]++;
                     
                     const origin = r.origin || r.countryCode;
-                    if(origin === 'WIPO' || origin === 'ARIPO' || origin === 'FOREIGN_NATIONAL' || (origin && origin !== 'TR' && origin !== 'TÜRKPATENT')) {
-                        foreignCount++;
-                    }
+                    if(origin === 'WIPO' || origin === 'ARIPO' || origin === 'FOREIGN_NATIONAL' || (origin && origin !== 'TR' && origin !== 'TÜRKPATENT')) foreignCount++;
 
-                    // Yenileme Radarı
                     if(r.renewalDate && r.status !== 'dead' && r.status !== 'rejected') {
                         const rDate = new Date(r.renewalDate);
                         if(rDate >= today && rDate <= next90Days) {
@@ -302,71 +313,43 @@
 
                 // --- 3. ARAYÜZ (UI) GÜNCELLEMELERİ ---
                 
-                // KPI 1: Tahsilat Performansı
-                const collectionRate = totalBilledTRY > 0 ? (totalPaidTRY / totalBilledTRY) * 100 : 0;
-                document.getElementById('kpiCollectionRate').textContent = `%${collectionRate.toFixed(1)}`;
-                document.getElementById('kpiTotalPaid').textContent = this.formatMoney(totalPaidTRY);
+                // FİNANSAL ARAYÜZ GÜNCELLEMELERİ (Sadece Superadmin için)
+                if (this.isSuperAdmin) {
+                    const collectionRate = totalBilledTRY > 0 ? (totalPaidTRY / totalBilledTRY) * 100 : 0;
+                    document.getElementById('kpiCollectionRate').textContent = `%${collectionRate.toFixed(1)}`;
+                    document.getElementById('kpiTotalPaid').textContent = this.formatMoney(totalPaidTRY);
 
-                // KPI 2: Karlılık
-                const totalBase = totalOfficialFeeTRY + totalServiceFeeTRY;
-                const profitMargin = totalBase > 0 ? (totalServiceFeeTRY / totalBase) * 100 : 0;
-                document.getElementById('kpiProfitMargin').textContent = `%${profitMargin.toFixed(1)}`;
+                    const totalBase = totalOfficialFeeTRY + totalServiceFeeTRY;
+                    const profitMargin = totalBase > 0 ? (totalServiceFeeTRY / totalBase) * 100 : 0;
+                    document.getElementById('kpiProfitMargin').textContent = `%${profitMargin.toFixed(1)}`;
 
-                // KPI 3: Açık Bakiye
-                document.getElementById('kpiTotalUnpaid').textContent = this.formatMoney(totalUnpaidTRY);
-                document.getElementById('kpiUnpaidCount').textContent = `${unpaidCount} Fatura`;
+                    document.getElementById('kpiTotalUnpaid').textContent = this.formatMoney(totalUnpaidTRY);
+                    document.getElementById('kpiUnpaidCount').textContent = `${unpaidCount} Fatura`;
 
-                // KPI 4: Portföy
+                    const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
+                    document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `<li><div class="item-main">${d[0]}</div><div class="item-value">${this.formatMoney(d[1])}</div></li>`).join('') : '<li>Tebrikler, bekleyen yüksek riskli bakiye yok.</li>';
+
+                    const activeCurrencies = Object.entries(currencyRisk).filter(c => c[1] > 0).sort((a,b) => b[1] - a[1]);
+                    document.getElementById('currencyRiskList').innerHTML = activeCurrencies.length > 0 ? activeCurrencies.map(c => `<li><div class="item-main">Açık Bakiye (${c[0]})</div><div class="item-value" style="background:#fff3cd; color:#856404;">${this.formatMoney(c[1], c[0])}</div></li>`).join('') : '<li>Döviz bazlı alacak bulunmuyor.</li>';
+
+                    this.renderTrendChart(monthlyTrend);
+                }
+
+                // GENEL ARAYÜZ GÜNCELLEMELERİ (Herkes Görür)
                 document.getElementById('kpiTotalPortfolio').textContent = records.length;
                 const foreignRatio = records.length > 0 ? (foreignCount / records.length) * 100 : 0;
                 document.getElementById('kpiForeignRatio').textContent = `%${foreignRatio.toFixed(1)} Yurtdışı`;
 
-                // --- 4. LİSTELERİ DOLDURMA ---
-                
-                // Borçlular Listesi
-                const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
-                const debtorsHtml = topDebtors.length > 0 ? topDebtors.map(d => `
-                    <li><div class="item-main">${d[0]}</div><div class="item-value">${this.formatMoney(d[1])}</div></li>
-                `).join('') : '<li>Tebrikler, bekleyen yüksek riskli bakiye yok.</li>';
-                document.getElementById('topDebtorsList').innerHTML = debtorsHtml;
-
-                // Döviz Listesi
-                const activeCurrencies = Object.entries(currencyRisk).filter(c => c[1] > 0).sort((a,b) => b[1] - a[1]);
-                const currencyHtml = activeCurrencies.length > 0 ? activeCurrencies.map(c => `
-                    <li>
-                        <div class="item-main">Açık Bakiye (${c[0]})</div>
-                        <div class="item-value" style="background:#fff3cd; color:#856404;">${this.formatMoney(c[1], c[0])}</div>
-                    </li>
-                `).join('') : '<li>Döviz bazlı alacak bulunmuyor.</li>';
-                document.getElementById('currencyRiskList').innerHTML = currencyHtml;
-
-                // Yenileme Listesi
                 upcomingRenewals.sort((a,b) => a.date - b.date);
-                const renewalsHtml = upcomingRenewals.length > 0 ? upcomingRenewals.slice(0,6).map(r => `
-                    <li>
-                        <div>
-                            <div class="item-main">${r.title || 'İsimsiz'}</div>
-                            <div class="item-sub">${r.date.toLocaleDateString('tr-TR')}</div>
-                        </div>
-                        <div class="item-value-green">${r.daysLeft} Gün Kaldı</div>
-                    </li>
-                `).join('') : '<li>Yakın zamanda yenileme işlemi bulunmuyor.</li>';
-                document.getElementById('upcomingRenewalsList').innerHTML = renewalsHtml;
+                document.getElementById('upcomingRenewalsList').innerHTML = upcomingRenewals.length > 0 ? upcomingRenewals.slice(0,6).map(r => `<li><div><div class="item-main">${r.title || 'İsimsiz'}</div><div class="item-sub">${r.date.toLocaleDateString('tr-TR')}</div></div><div class="item-value-green">${r.daysLeft} Gün Kaldı</div></li>`).join('') : '<li>Yakın zamanda yenileme işlemi bulunmuyor.</li>';
 
-                // --- 5. GRAFİKLERİ ÇİZ ---
-                this.renderTrendChart(monthlyTrend);
                 this.renderPortfolioChart(typeCount);
             }
 
             renderTrendChart(monthlyTrend) {
                 const ctx = document.getElementById('financialTrendChart').getContext('2d');
                 const labels = Object.keys(monthlyTrend).sort();
-                
-                const monthNames = labels.map(l => {
-                    const d = new Date(l + '-01');
-                    return d.toLocaleDateString('tr-TR', { month: 'short', year:'numeric' });
-                });
-
+                const monthNames = labels.map(l => new Date(l + '-01').toLocaleDateString('tr-TR', { month: 'short', year:'numeric' }));
                 const paidData = labels.map(l => monthlyTrend[l].paid);
                 const unpaidData = labels.map(l => monthlyTrend[l].unpaid);
 

@@ -290,12 +290,36 @@ serve(async (req) => {
                 invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
 
                 if (docType === 'TEVKIFAT') {
-                    // 🔥 KolayBi API'nin satırı tevkifatlı algılaması için Oran (Rate) parametresi ZORUNLUDUR!
-                    // 90 değeri %90'ı temsil eder (Yani 9/10 oranı)
-                    invoiceParams.append(`items[${itemIndex}][withholding_tax_rate]`, "90");
-                    invoiceParams.append(`items[${itemIndex}][withholding_tax_code]`, "624");
+                    // 🔥 KolayBi'nin kabul edebileceği tüm olası tevkifat parametrelerini (Alias) gönderiyoruz. 
+                    // API kendi tanıdığını alıp diğerlerini yok sayacak. %90 tevkifat oranını temsil eder (9/10).
                     
-                    calculatedGrandTotal += (item.qty * item.price) * 1.02; // %20'nin 1/10'u tahsil edilir
+                    // Standart isimlendirmeler
+                    invoiceParams.append(`items[${itemIndex}][withholding_tax_code]`, "624");
+                    invoiceParams.append(`items[${itemIndex}][withholding_tax_rate]`, "90");
+                    
+                    // KDV Tevkifatı (VAT Withholding) isimlendirmeleri
+                    invoiceParams.append(`items[${itemIndex}][vat_withholding_code]`, "624");
+                    invoiceParams.append(`items[${itemIndex}][vat_withholding_rate]`, "90");
+                    
+                    // Stopaj isimlendirmeleri
+                    invoiceParams.append(`items[${itemIndex}][stoppage_code]`, "624");
+                    invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "90");
+                    
+                    // Kısa isimlendirmeler
+                    invoiceParams.append(`items[${itemIndex}][withholding_code]`, "624");
+                    invoiceParams.append(`items[${itemIndex}][withholding_rate]`, "90");
+
+                    // KolayBi Yerel / Türkçe isimlendirme olasılıkları
+                    invoiceParams.append(`items[${itemIndex}][tevkifat_kodu]`, "624");
+                    invoiceParams.append(`items[${itemIndex}][tevkifat_orani]`, "90");
+                    
+                    // Opsiyonel kesirli varyasyonları da yedek olarak ekliyoruz (90 yerine 9/10 formatı)
+                    invoiceParams.append(`items[${itemIndex}][withholding_tax_rate_str]`, "9/10");
+                    invoiceParams.append(`items[${itemIndex}][stoppage_rate_str]`, "9/10");
+
+                    // 10.000 TL * %20 KDV'nin 9/10'u tevkif edilir, satıcıya KDV'nin 1/10'u (%2) ödenir. 
+                    // (10.000 * 1.02)
+                    calculatedGrandTotal += (item.qty * item.price) * 1.02; 
                 } else {
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (item.vat / 100));
                 }
@@ -304,13 +328,25 @@ serve(async (req) => {
 
             invoiceParams.append("currency", invoiceCurrency);
 
-            const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, { method: 'POST', headers: apiHeadersForm, body: invoiceParams.toString() });
+            const requestBodyString = invoiceParams.toString();
+            const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, { method: 'POST', headers: apiHeadersForm, body: requestBodyString });
             const invoiceResText = await invoiceReq.text();
             let invoiceRes;
             try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Fatura API Yanıtı Okunamadı`); }
 
             if (!invoiceReq.ok || invoiceRes.success === false) {
-                throw new Error(`[${docType}] Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)}`);
+                // KolayBi ekibinin rahatça okuyabilmesi için URL-Encoded metni temiz ve alt alta okunabilir formata çeviriyoruz
+                const decodedRequest = decodeURIComponent(requestBodyString).replace(/&/g, '\n');
+                
+                // Supabase Loglarına da düşmesi için ekliyoruz
+                console.error("=== KOLAYBİ DESTEK İÇİN DEBUG ÇIKTISI ===");
+                console.error("GİDEN İSTEK (REQUEST):", decodedRequest);
+                console.error("GELEN YANIT (RESPONSE):", invoiceResText);
+
+                // Tarayıcı konsolunda (veya arayüzde) anında görebilmen için hata mesajına ekliyoruz
+                const debugMessage = `[${docType}] Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)} \n\n--- KOLAYBI DESTEK İÇİN PAYLAŞILACAK BİLGİLER ---\n\n📌 GİDEN İSTEK (REQUEST):\n${decodedRequest}\n\n📌 GELEN YANIT (RESPONSE):\n${invoiceResText}`;
+                
+                throw new Error(debugMessage);
             }
             
             return {
@@ -323,39 +359,78 @@ serve(async (req) => {
         const satisResult = await createInvoiceInKolaybi(satisItemsList, "SATIS");
         const tevkifatResult = await createInvoiceInKolaybi(tevkifatItemsList, "TEVKIFAT");
 
-        if (!satisResult && !tevkifatResult) throw new Error("Fatura edilecek herhangi bir kalem bulunamadı.");
+        // 🔥 FATURALAMA VE ROLLBACK (GERİ ALMA) İŞLEMİ
+        let satisResult: any = null;
+        let tevkifatResult: any = null;
+        let createdKolaybiDocIds: string[] = []; // Başarıyla KolayBi'ye iletilen fatura ID'lerini burada tutacağız
 
-        // Yerel Veritabanına (invoices) Kayıt İşlemleri
-        let primaryInvoiceId = null;
-        let secondaryInvoiceId = null;
+        try {
+            // 1. Satış (Harç) faturasını KolayBi'ye gönder
+            if (satisItemsList.length > 0) {
+                satisResult = await createInvoiceInKolaybi(satisItemsList, "SATIS");
+                if (satisResult && satisResult.kolaybiId) createdKolaybiDocIds.push(String(satisResult.kolaybiId));
+            }
 
-        if (satisResult) {
-            const { data: inv1 } = await supabaseClient.from('invoices').insert({
-                kolaybi_invoice_id: String(satisResult.kolaybiId), status: 'draft', total_amount: satisResult.total, currency: invoiceCurrency, client_id: clientId
-            }).select().single();
-            primaryInvoiceId = inv1.id;
-        }
+            // 2. Tevkifat (Hizmet) faturasını KolayBi'ye gönder
+            if (tevkifatItemsList.length > 0) {
+                tevkifatResult = await createInvoiceInKolaybi(tevkifatItemsList, "TEVKIFAT");
+                if (tevkifatResult && tevkifatResult.kolaybiId) createdKolaybiDocIds.push(String(tevkifatResult.kolaybiId));
+            }
 
-        if (tevkifatResult) {
-            const { data: inv2 } = await supabaseClient.from('invoices').insert({
-                kolaybi_invoice_id: String(tevkifatResult.kolaybiId), status: 'draft', total_amount: tevkifatResult.total, currency: invoiceCurrency, client_id: clientId
-            }).select().single();
+            if (!satisResult && !tevkifatResult) throw new Error("Fatura edilecek herhangi bir kalem bulunamadı.");
+
+            // 3. Her şey başarılıysa Yerel Veritabanına (invoices tablosuna) Kayıt İşlemlerini yap
+            let primaryInvoiceId = null;
+            let secondaryInvoiceId = null;
+
+            if (satisResult) {
+                const { data: inv1 } = await supabaseClient.from('invoices').insert({
+                    kolaybi_invoice_id: String(satisResult.kolaybiId), status: 'draft', total_amount: satisResult.total, currency: invoiceCurrency, client_id: clientId
+                }).select().single();
+                primaryInvoiceId = inv1.id;
+            }
+
+            if (tevkifatResult) {
+                const { data: inv2 } = await supabaseClient.from('invoices').insert({
+                    kolaybi_invoice_id: String(tevkifatResult.kolaybiId), status: 'draft', total_amount: tevkifatResult.total, currency: invoiceCurrency, client_id: clientId
+                }).select().single();
+                
+                if (!primaryInvoiceId) primaryInvoiceId = inv2.id;
+                else secondaryInvoiceId = inv2.id;
+            }
+
+            // Tahakkuku Faturalarla Eşleştir
+            const updatePayload: any = { invoice_id: primaryInvoiceId };
+            if (secondaryInvoiceId) updatePayload.invoice_id_2 = secondaryInvoiceId;
+
+            await supabaseClient.from('accruals').update(updatePayload).in('id', accrualIds);
+
+            return new Response(JSON.stringify({ 
+                success: true, 
+                message: secondaryInvoiceId ? "Otomatik Parçalama Başarılı: Sistem harçlar ve hizmetler için iki ayrı e-Fatura oluşturdu." : "Fatura başarıyla KolayBi'ye iletildi.", 
+                invoiceId: primaryInvoiceId 
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        } catch (invoiceError: any) {
+            // 🔥 ROLLBACK: Eğer tevkifat faturası API'ye takılırsa, daha önce oluşturulmuş Satış faturasını anında sil!
+            if (createdKolaybiDocIds.length > 0) {
+                console.warn("⚠️ İşlem yarıda kesildi! Oluşturulan kısmi faturalar KolayBi'den geri siliniyor (Rollback)...");
+                for (const kId of createdKolaybiDocIds) {
+                    try {
+                        await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${kId}`, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel }
+                        });
+                        console.log(`🧹 KolayBi Fatura (ID: ${kId}) başarıyla iptal edildi.`);
+                    } catch (e) {
+                        console.error(`KolayBi Fatura (ID: ${kId}) silinemedi:`, e);
+                    }
+                }
+            }
             
-            if (!primaryInvoiceId) primaryInvoiceId = inv2.id;
-            else secondaryInvoiceId = inv2.id;
+            // Orijinal hatayı kullanıcıya gösterilmesi için yeniden fırlatıyoruz
+            throw invoiceError;
         }
-
-        // Tahakkuku Faturalarla Eşleştir
-        const updatePayload: any = { invoice_id: primaryInvoiceId };
-        if (secondaryInvoiceId) updatePayload.invoice_id_2 = secondaryInvoiceId;
-
-        await supabaseClient.from('accruals').update(updatePayload).in('id', accrualIds);
-
-        return new Response(JSON.stringify({ 
-            success: true, 
-            message: secondaryInvoiceId ? "Otomatik Parçalama Başarılı: Sistem harçlar ve hizmetler için iki ayrı e-Fatura oluşturdu." : "Fatura başarıyla KolayBi'ye iletildi.", 
-            invoiceId: primaryInvoiceId 
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
   } catch (error: any) {

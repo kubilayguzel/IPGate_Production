@@ -197,8 +197,9 @@ export const personService = {
             countryCode: p.country_code, 
             province: p.province,
             district: p.district,
-            is_evaluation_required: p.is_evaluation_required
-            // NOT: 'documents' ve 'details' yeni şemada kaldırıldığı için çıkarıldı.
+            is_evaluation_required: p.is_evaluation_required,
+            has_tevkifat: p.has_tevkifat,
+            requires_sas_code: p.requires_sas_code
         }));
         return { success: true, data: mappedData };
     },
@@ -243,6 +244,8 @@ export const personService = {
             province: data.province,
             district: data.district,
             is_evaluation_required: data.is_evaluation_required,
+            has_tevkifat: data.has_tevkifat,
+            requires_sas_code: data.requires_sas_code,
             documents: mappedDocuments // 🔥 Belgeleri arayüze iletiyoruz
         };
         return { success: true, data: mappedData };
@@ -267,7 +270,9 @@ export const personService = {
             country_code: personData.countryCode || null, 
             province: personData.province || null,
             district: personData.district || null,
-            is_evaluation_required: personData.is_evaluation_required || false
+            is_evaluation_required: personData.is_evaluation_required || false,
+            has_tevkifat: personData.has_tevkifat || false,
+            requires_sas_code: personData.requires_sas_code || false
         };
 
         // 1. Önce Kişiyi Kaydet
@@ -308,6 +313,8 @@ export const personService = {
             province: personData.province || null,
             district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false,
+            has_tevkifat: personData.has_tevkifat || false,
+            requires_sas_code: personData.requires_sas_code || false,
             updated_at: new Date().toISOString()
         };
         

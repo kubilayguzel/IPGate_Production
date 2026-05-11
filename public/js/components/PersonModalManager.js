@@ -105,6 +105,14 @@ export class PersonModalManager {
                                                 <input type="checkbox" class="custom-control-input" id="person-has-tevkifat">
                                                 <label class="custom-control-label font-weight-bold text-dark" for="person-has-tevkifat">Tevkifat Uygulansın mı?</label>
                                             </div>
+                                            <div class="form-group mt-2 pl-4" id="tevkifat-rate-group" style="display: none;">
+                                                <label class="small font-weight-bold text-muted">TEVKİFAT ORANI *</label>
+                                                <select id="person-tevkifat-rate" class="form-control form-control-sm border-2">
+                                                    <option value="9/10">9/10 (Danışmanlık / Hizmet)</option>
+                                                    <option value="5/10">5/10</option>
+                                                    <option value="7/10">7/10</option>
+                                                </select>
+                                            </div>
                                             <div class="custom-control custom-switch mt-3">
                                                 <input type="checkbox" class="custom-control-input" id="person-requires-sas">
                                                 <label class="custom-control-label font-weight-bold text-dark" for="person-requires-sas">SAS (Sipariş) Kodu Zorunlu mu?</label>

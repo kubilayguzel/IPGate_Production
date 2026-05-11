@@ -59,6 +59,7 @@ export class AccrualDataManager {
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
+                    orderCode: row.order_code || d.orderCode || null, // 🔥 YENİ
                     description: row.description || d.description || '', 
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
@@ -333,6 +334,7 @@ export class AccrualDataManager {
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
+            order_code: formData.orderCode || null, // 🔥 YENİ
         };
 
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
@@ -409,6 +411,7 @@ export class AccrualDataManager {
             ...formData,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
+            order_code: formData.orderCode || null,
             totalAmount: newTotalArray,
             // Eğer statü 'unpaid' (ödenmedi) ise Kalan Tutar, Toplam Tutar'a eşittir.
             // Eğer 'paid' (ödendi) ise Kalan Tutar boş dizi [] olmalıdır.

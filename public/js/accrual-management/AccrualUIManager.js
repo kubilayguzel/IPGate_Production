@@ -529,6 +529,7 @@ export class AccrualUIManager {
         const tfn = accrual.tpeInvoiceNo || '-';
         const efn = accrual.evrekaInvoiceNo || '-';
         const description = accrual.description || '-';
+        const orderCode = accrual.orderCode || '-'; // 🔥 YENİ
         const tpParty = accrual.tpInvoiceParty?.name || '-';
         const foreignParty = accrual.serviceInvoiceParty?.name || '-';
         const applyVatToOfficial = accrual.applyVatToOfficialFee ? 'Evet' : 'Hayır';
@@ -594,8 +595,9 @@ export class AccrualUIManager {
                                 <p class="mb-3"><strong>Müvekkil/TP Kişisi:</strong> <span class="ml-2">${tpParty}</span></p>
                                 ${accrual.isForeignTransaction ? `<p class="mb-3"><strong>Yurtdışı Ödeme Tarafı:</strong> <span class="ml-2 text-primary font-weight-bold">${foreignParty}</span></p>` : ''}
                                 <div class="row border-top pt-3 mt-1">
-                                    <div class="col-6"><p class="mb-0"><strong>TPE Fatura No:</strong> ${tfn}</p></div>
-                                    <div class="col-6"><p class="mb-0"><strong>EVREKA Fatura No:</strong> ${efn}</p></div>
+                                    <div class="col-4"><p class="mb-0"><strong>Sipariş No/SAS:</strong> ${orderCode}</p></div>
+                                    <div class="col-4"><p class="mb-0"><strong>TPE Fatura No:</strong> ${tfn}</p></div>
+                                    <div class="col-4"><p class="mb-0"><strong>EVREKA Fatura:</strong> ${efn}</p></div>
                                 </div>
                             </div>
                         </div>

@@ -134,6 +134,18 @@ export class AccrualFormManager {
                     </div>
                 </div>
             </div>
+
+            <div class="row mt-2" id="${p}OrderCodeContainer" style="display:none;">
+                <div class="col-md-12">
+                    <div class="form-group mb-0 p-3 bg-white border border-info rounded shadow-sm">
+                        <label class="font-weight-bold text-info" style="font-size:0.9rem;">
+                            <i class="fas fa-shopping-cart mr-2"></i>Sipariş Kodu / SAS No
+                        </label>
+                        <input type="text" id="${p}OrderCode" class="form-control border-info" placeholder="Müvekkilden gelen sipariş numarasını buraya girebilirsiniz..." style="${inputHeightStyle}">
+                        <small class="text-muted italic">Bu müvekkil için fatura aşamasında SAS kodu istenmektedir.</small>
+                    </div>
+                </div>
+            </div>
             
             <div id="${p}TotalAmountDisplay" class="d-flex justify-content-between align-items-center" 
                  style="font-size: 1.1em; font-weight: bold; color: #1e3c72; margin-top: 15px; padding: 15px 20px; background-color: #e3f2fd; border: 1px solid #90caf9; border-radius: 10px;">
@@ -197,8 +209,36 @@ export class AccrualFormManager {
             });
         }
 
-        this.setupSearch(`${p}TpInvoiceParty`, (person) => { this.selectedTpParty = person; });
+        this.setupSearch(`${p}TpInvoiceParty`, (person) => { 
+            this.selectedTpParty = person; 
+            this.checkSasRequirement(person); // 🔥 YENİ
+        });
         this.setupSearch(`${p}ForeignPaymentParty`, (person) => { this.selectedForeignParty = person; });
+    }
+
+    // 🔥 GÜNCELLENEN: Müvekkil için SAS Kodu Gereksinimini Kontrol Et (Hem ana kolon hem detay kontrolü)
+    checkSasRequirement(person) {
+        const container = document.getElementById(`${this.prefix}OrderCodeContainer`);
+        if (!container) return;
+
+        if (person) {
+            // Detay alanını güvenli bir şekilde objeye çevir
+            let pDetails = {};
+            if (person.details) {
+                pDetails = typeof person.details === 'string' ? JSON.parse(person.details) : person.details;
+            }
+
+            // Kontrol: Hem doğrudan kolona (person.requires_sas_code) hem de detay JSON'una bakıyoruz
+            const requiresSAS = 
+                person.requires_sas_code === true || 
+                pDetails?.requires_sas_code === true || 
+                pDetails?.sas_check === 'yes' || 
+                pDetails?.sas_check === true;
+            
+            container.style.display = requiresSAS ? 'block' : 'none';
+        } else {
+            container.style.display = 'none';
+        }
     }
 
     setCalculatedItems(items) {
@@ -422,7 +462,9 @@ export class AccrualFormManager {
 
         document.getElementById(`${p}TpeInvoiceNo`).value = '';
         document.getElementById(`${p}EvrekaInvoiceNo`).value = '';
-
+        if (document.getElementById(`${p}OrderCode`)) document.getElementById(`${p}OrderCode`).value = '';
+        if (document.getElementById(`${p}OrderCodeContainer`)) document.getElementById(`${p}OrderCodeContainer`).style.display = 'none';
+        
         if (document.getElementById(`${p}AccrualDescription`)) document.getElementById(`${p}AccrualDescription`).value = '';
         
         this.selectedTpParty = null;
@@ -458,6 +500,7 @@ export class AccrualFormManager {
 
         document.getElementById(`${p}TpeInvoiceNo`).value = data.tpeInvoiceNo || '';
         document.getElementById(`${p}EvrekaInvoiceNo`).value = data.evrekaInvoiceNo || '';
+        if (document.getElementById(`${p}OrderCode`)) document.getElementById(`${p}OrderCode`).value = data.orderCode || data.order_code || '';
 
         const descInput = document.getElementById(`${p}AccrualDescription`);
         if (descInput) descInput.value = data.description || data.foreignDescription || '';
@@ -506,6 +549,9 @@ export class AccrualFormManager {
         if (data.tpInvoiceParty) {
             this.selectedTpParty = data.tpInvoiceParty;
             this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);
+            // 🔥 YENİ: Düzenleme modunda müvekkil SAS alanını göster/gizle
+            const fullPerson = this.allPersons.find(p => String(p.id) === String(data.tpInvoiceParty.id));
+            this.checkSasRequirement(fullPerson || data.tpInvoiceParty);
         }
         
         let isForeign = false;
@@ -561,6 +607,7 @@ export class AccrualFormManager {
 
         const tpeInvoiceNo = document.getElementById(`${p}TpeInvoiceNo`).value.trim();
         const evrekaInvoiceNo = document.getElementById(`${p}EvrekaInvoiceNo`).value.trim();
+        const orderCode = document.getElementById(`${p}OrderCode`)?.value.trim() || null;
 
         const items = [];
         let fallbackOffAmount = 0; 
@@ -636,6 +683,7 @@ export class AccrualFormManager {
                 isForeignTransaction: isForeign,
                 tpeInvoiceNo: tpeInvoiceNo,
                 evrekaInvoiceNo: evrekaInvoiceNo,
+                orderCode: orderCode,
                 description: accrualDesc,           
                 foreignInvoiceFile: foreignFile,    
                 files: files                        
@@ -649,7 +697,7 @@ export class AccrualFormManager {
         const elementsToToggle = [
             `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`,
             `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, `${p}ForeignInvoiceFile`,
-            `${p}AddLineItemBtn`, `${p}AutoCalcBtn`
+            `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode` // 🔥 YENİ EKLENDİ
         ];
 
         elementsToToggle.forEach(id => {

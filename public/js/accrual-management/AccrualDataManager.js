@@ -99,6 +99,9 @@ export class AccrualDataManager {
                 id: String(row.id),
                 kolaybiInvoiceId: row.kolaybi_invoice_id,
                 invoiceNo: row.invoice_no || '-',
+                invoiceDate: row.invoice_date || null, // YENİ
+                kolaybiStatus: row.kolaybi_status || null, // YENİ
+                kolaybiUuid: row.kolaybi_uuid || null, // YENİ
                 status: row.status || 'draft',
                 totalAmount: row.total_amount || 0,
                 currency: row.currency || 'TRY',
@@ -106,7 +109,6 @@ export class AccrualDataManager {
                 clientName: getPersonName(row.client_id) || 'Bilinmiyor',
                 createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
                 
-                // İki ID'den herhangi biri eşleşiyorsa bu faturanın tahakkukudur
                 accruals: this.allAccruals
                     .filter(a => String(a.invoiceId) === String(row.id) || String(a.invoiceId2) === String(row.id))
                     .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
@@ -572,5 +574,48 @@ export class AccrualDataManager {
             console.error("KolayBi Fatura Hatası:", error);
             throw error;
         }
+    }
+
+    async syncKolaybiInvoice(invoiceId) {
+        const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+            body: { action: 'sync', invoiceId }
+        });
+        if (error || !data.success) throw new Error(error?.message || data?.error || data?.message || "Senkronizasyon başarısız.");
+        return data;
+    }
+
+    async viewKolaybiInvoice(invoiceId) {
+        const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+            body: { action: 'view', invoiceId }
+        });
+        if (error || !data.success) throw new Error(error?.message || data?.error || data?.message || "Görüntüleme başarısız.");
+        return data;
+    }
+
+    async syncBulkKolaybiInvoices(invoiceIds) {
+        const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+            body: { action: 'sync_bulk', invoiceIds }
+        });
+        if (error || !data.success) throw new Error(error?.message || data?.error || "Toplu senkronizasyon başarısız.");
+        return data;
+    }
+
+    async autoSyncPendingInvoices() {
+        // ETTN (UUID) numarası henüz alınmamış veya taslak olan faturaların ID'lerini bul
+        const pendingIds = this.allInvoices
+            .filter(inv => inv.kolaybiInvoiceId && inv.kolaybiInvoiceId !== 'undefined' && (!inv.kolaybiUuid || inv.status === 'draft'))
+            .map(inv => inv.id);
+
+        if (pendingIds.length > 0) {
+            console.log(`[OTO-SYNC] ${pendingIds.length} adet bekleyen fatura bulundu, arka planda güncelleniyor...`);
+            try {
+                await this.syncBulkKolaybiInvoices(pendingIds);
+                await this.fetchAllData(); // Arka planda sessizce verileri tazele
+                return true; // Tablonun yenilenmesi için true dönüyoruz
+            } catch (e) {
+                console.error("[OTO-SYNC] Otomatik güncelleme hatası:", e);
+            }
+        }
+        return false;
     }
 }

@@ -558,8 +558,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 const opDate = formatToTRDate(task.dueDateObj);
                 const offDate = formatToTRDate(task.officialDueObj);
-                const dueDateISO = task.dueDateObj ? task.dueDateObj.toISOString().slice(0,10) : '';
-                const officialDueISO = task.officialDueObj ? task.officialDueObj.toISOString().slice(0,10) : '';
+                
+                // 🔥 KESİN ÇÖZÜM: toISOString() kullanmak saati UTC'ye çevirip 1 gün geri atar.
+                // Bunun yerine yerel saati baz alarak YYYY-MM-DD üretiyoruz.
+                const toLocalISOString = (d) => {
+                    if (!d) return '';
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${day}`;
+                };
+
+                const dueDateISO = toLocalISOString(task.dueDateObj);
+                const officialDueISO = toLocalISOString(task.officialDueObj);
                 
                 // 🔥 1) İş ID'si İçin Dinamik Renklendirme Mantığı (Tasarım Diline Uygun)
                 let idColorClass = ""; // Varsayılan (Siyah/Koyu)

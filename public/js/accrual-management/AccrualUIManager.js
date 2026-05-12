@@ -51,8 +51,10 @@ export class AccrualUIManager {
             }
         };
 
+        // 🔥 HATA BURADAYDI: Event listener eklerken parantez ile (e) gönderilmiş olabilir. Doğrusu budur:
         if (this.tableBody) this.tableBody.addEventListener('click', handleTableClick);
         if (this.foreignTableBody) this.foreignTableBody.addEventListener('click', handleTableClick);
+        if (this.invoicesTableBody) this.invoicesTableBody.addEventListener('click', handleTableClick);
     }
 
     renderTable(data, lookups, activeTab = 'main') {
@@ -199,69 +201,53 @@ export class AccrualUIManager {
                 }
 
                 if (activeTab === 'invoices') {
-                    // FATURALAR SEKMESİ İÇİN ÇİZİM
                     const invDate = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
                     const documentDate = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : invDate; 
                     const invTotal = this._formatMoney(acc.totalAmount, acc.currency);
                     
-                    let invStatusText = 'Taslak', invStatusClass = 'badge-secondary';
-                    if (acc.status === 'draft') { invStatusText = 'Taslak'; invStatusClass = 'badge-warning text-dark'; }
-                    else if (acc.status === 'sent') { invStatusText = 'Gönderildi'; invStatusClass = 'badge-success'; }
+                    let invStatusText = acc.kolaybiStatus || (acc.status === 'draft' ? 'Taslak' : (acc.status === 'sent' ? 'Gönderildi' : 'Bilinmiyor'));
+                    let invStatusClass = 'badge-secondary';
+                    if (acc.status === 'draft') { invStatusClass = 'badge-warning text-dark'; }
+                    else if (acc.status === 'sent') { invStatusClass = 'badge-success'; }
                     else if (acc.status === 'cancelled') { invStatusText = 'İptal Edildi'; invStatusClass = 'badge-danger'; }
 
-                    // 🔥 YENİ: Faturaya Bağlı Tahakkukları Listeleyen Dropdown Buton
                     let linkedAccrualsHtml = '<span class="text-muted">-</span>';
                     if (acc.accruals && acc.accruals.length > 0) {
-                        const accList = acc.accruals.map(a => {
-                            const title = a.subject || a.task_title || 'İşlem';
-                            return `<li class="mb-1 border-bottom pb-1"><strong>#${a.id}</strong> - ${title} <br><small class="text-success">${this._formatMoney(a.total_amount || 0, a.currency)}</small></li>`;
-                        }).join('');
-                        
-                        linkedAccrualsHtml = `
-                            <div class="dropdown">
-                                <button class="btn btn-sm btn-outline-info dropdown-toggle font-weight-bold" type="button" data-toggle="dropdown">
-                                    <i class="fas fa-layer-group mr-1"></i> ${acc.accruals.length} İşlem
-                                </button>
-                                <div class="dropdown-menu p-3 shadow" style="width: 350px; max-height: 250px; overflow-y: auto; white-space: normal;">
-                                    <h6 class="dropdown-header px-0 text-primary border-bottom mb-2">Fatura İçeriği (Tahakkuklar)</h6>
-                                    <ul class="list-unstyled mb-0" style="font-size: 0.85em;">${accList}</ul>
-                                </div>
-                            </div>`;
+                        const accList = acc.accruals.map(a => `<li class="mb-1 border-bottom pb-1"><strong>#${a.id}</strong> - ${a.task_title} <br><small class="text-success">${this._formatMoney(a.total_amount || 0, a.currency)}</small></li>`).join('');
+                        linkedAccrualsHtml = `<div class="dropdown"><button class="btn btn-sm btn-outline-info dropdown-toggle font-weight-bold" type="button" data-toggle="dropdown"><i class="fas fa-layer-group mr-1"></i> ${acc.accruals.length} İşlem</button><div class="dropdown-menu p-3 shadow" style="width: 350px; max-height: 250px; overflow-y: auto; white-space: normal;"><h6 class="dropdown-header px-0 text-primary border-bottom mb-2">Fatura İçeriği</h6><ul class="list-unstyled mb-0" style="font-size: 0.85em;">${accList}</ul></div></div>`;
                     }
 
+                    // Görüntüle butonunu (viewDocBtn) menüden tamamen sildik
                     const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' 
-                        ? `<a href="https://ofis.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi'de Aç</a>`
-                        : '';
+                        ? `<a href="https://ofis.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi Panelinde Aç</a>` : '';
+                    
+                    const syncBtn = `<a href="#" class="dropdown-item text-primary sync-invoice-btn" data-id="${acc.id}"><i class="fas fa-sync-alt mr-2"></i> Durumu Güncelle (Senkronize Et)</a>`;
                         
                     const cancelBtn = acc.status === 'draft'
                         ? `<a href="#" class="dropdown-item text-danger cancel-invoice-btn" data-id="${acc.id}"><i class="fas fa-trash-alt mr-2"></i> Faturayı Sil / İptal Et</a>`
                         : `<span class="dropdown-item text-muted" title="Sadece taslak faturalar silinebilir"><i class="fas fa-trash-alt mr-2"></i> Silinemez</span>`;
 
-                    const actionMenuHtml = `
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-right shadow-sm border-0">
-                            ${viewKolaybiBtn}
-                            ${viewKolaybiBtn ? '<div class="dropdown-divider"></div>' : ''}
-                            ${cancelBtn}
-                        </div>
-                    </div>
-                    `;
+                    // Menünün içinden viewDocBtn'yi çıkardık
+                    const actionMenuHtml = `<div class="dropdown"><button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-ellipsis-v" style="pointer-events: none;"></i></button><div class="dropdown-menu dropdown-menu-right shadow-sm border-0">${viewKolaybiBtn}${syncBtn}<div class="dropdown-divider"></div>${cancelBtn}</div></div>`;
 
                     const serialNumber = index + 1;
+                    const displayInvoiceNo = acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
+
+                    // 🔥 YENİ: Fatura numarası link haline getiriliyor (Eğer resmileştiyse ve UUID varsa)
+                    let invoiceNoHtml = `<span class="font-weight-bold text-primary">${displayInvoiceNo}</span>`;
+                    if (acc.kolaybiUuid) {
+                        // view-invoice-btn sınıfını buraya verdik. Tıklandığında main.js bunu otomatik yakalayacak!
+                        invoiceNoHtml = `<a href="#" class="font-weight-bold text-success view-invoice-btn" data-id="${acc.id}" title="Resmi Faturayı Görüntüle" style="text-decoration: underline;">${displayInvoiceNo} <i class="fas fa-external-link-alt ml-1" style="font-size: 0.8em;"></i></a>`;
+                    }
 
                     return `
                     <tr>
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td class="font-weight-bold text-muted">${serialNumber}</td>
-                        <td>${invDate}</td>
-                        <td><span class="font-weight-bold text-primary">${acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-'}</span></td>
+                        <td>${documentDate}</td>
+                        <td>${invoiceNoHtml}</td> 
                         <td><span class="font-weight-bold">${acc.clientName}</span></td>
-                        
                         <td>${linkedAccrualsHtml}</td>
-                        
                         <td><span class="badge ${invStatusClass}">${invStatusText}</span></td>
                         <td><span class="font-weight-bold text-success">${invTotal}</span></td>
                         <td class="text-center">${actionMenuHtml}</td>

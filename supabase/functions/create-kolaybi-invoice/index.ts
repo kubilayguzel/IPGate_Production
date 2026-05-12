@@ -80,6 +80,125 @@ serve(async (req) => {
     }
 
     // ==============================================================================
+    // İŞLEM 3: FATURA SENKRONİZASYONU (SYNC)
+    // ==============================================================================
+    if (action === 'sync') {
+        const { invoiceId } = body;
+        if (!invoiceId) throw new Error("Fatura ID (invoiceId) gerekli.");
+
+        const { data: inv } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
+        if (!inv || !inv.kolaybi_invoice_id) throw new Error("KolayBi Fatura ID bulunamadı.");
+
+        const accessToken = await getKolaybiToken();
+        const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
+
+        const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+        const detailResText = await detailReq.text();
+        let detailRes;
+        try { detailRes = JSON.parse(detailResText); } catch(e) { throw new Error("Fatura detayı API yanıtı okunamadı."); }
+
+        if (!detailReq.ok || detailRes.success === false) throw new Error(`Fatura detayı alınamadı: ${detailRes.message || JSON.stringify(detailRes)}`);
+
+        const docData = detailRes.data || detailRes;
+        
+        const serialNo = docData.serial_no || docData.invoice_no || null;
+        const issueDate = docData.issue_date || docData.order_date || null;
+        const kStatus = docData.e_document_status || docData.status || null;
+        const uuid = docData.uuid || docData.e_document_uuid || null;
+
+        const updates: any = {};
+        if (serialNo) updates.invoice_no = serialNo;
+        if (issueDate) updates.invoice_date = issueDate;
+        if (kStatus) updates.kolaybi_status = kStatus;
+        if (uuid) updates.kolaybi_uuid = uuid;
+        
+        if (uuid && inv.status === 'draft') updates.status = 'sent';
+
+        if (Object.keys(updates).length > 0) {
+            await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
+        }
+
+        return new Response(JSON.stringify({ success: true, message: "Fatura durumu başarıyla senkronize edildi.", data: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    // ==============================================================================
+    // İŞLEM 5: TOPLU SENKRONİZASYON (SYNC BULK)
+    // ==============================================================================
+    if (action === 'sync_bulk') {
+        const { invoiceIds } = body;
+        if (!invoiceIds || !Array.isArray(invoiceIds)) throw new Error("Fatura ID listesi gerekli.");
+
+        const { data: invoices } = await supabaseClient.from('invoices').select('*').in('id', invoiceIds);
+        if (!invoices || invoices.length === 0) return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const accessToken = await getKolaybiToken();
+        const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
+
+        let successCount = 0;
+        for (const inv of invoices) {
+            if (!inv.kolaybi_invoice_id || inv.kolaybi_invoice_id === 'undefined') continue;
+            
+            try {
+                const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+                if (!detailReq.ok) continue;
+                
+                const detailResText = await detailReq.text();
+                const detailRes = JSON.parse(detailResText);
+                if (detailRes.success === false) continue;
+
+                const docData = detailRes.data || detailRes;
+                
+                const serialNo = docData.serial_no || docData.invoice_no || null;
+                const issueDate = docData.issue_date || docData.order_date || null;
+                const kStatus = docData.e_document_status || docData.status || null;
+                const uuid = docData.uuid || docData.e_document_uuid || null;
+
+                const updates: any = {};
+                if (serialNo) updates.invoice_no = serialNo;
+                if (issueDate) updates.invoice_date = issueDate;
+                if (kStatus) updates.kolaybi_status = kStatus;
+                if (uuid) updates.kolaybi_uuid = uuid;
+
+                if (uuid && inv.status === 'draft') updates.status = 'sent';
+
+                if (Object.keys(updates).length > 0) {
+                    await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
+                    successCount++;
+                }
+            } catch (e) {
+                console.error(`Fatura senkronize edilemedi (ID: ${inv.id}):`, e);
+            }
+        }
+
+        return new Response(JSON.stringify({ success: true, message: `${successCount} adet fatura başarıyla güncellendi.` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // ==============================================================================
+    // İŞLEM 4: FATURA GÖRÜNTÜLEME (VIEW)
+    // ==============================================================================
+    if (action === 'view') {
+        const { invoiceId } = body;
+        if (!invoiceId) throw new Error("Fatura ID gerekli.");
+
+        const { data: inv } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
+        if (!inv || !inv.kolaybi_uuid) throw new Error("Faturanın ETTN (UUID) numarası yok. Lütfen faturanın resmileştiğinden emin olun ve önce 'Durumu Güncelle' butonuna basın.");
+
+        const accessToken = await getKolaybiToken();
+        const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
+
+        const viewReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/e-document/view?uuid=${inv.kolaybi_uuid}`, { method: 'GET', headers: getHeaders });
+        const viewResText = await viewReq.text();
+        
+        let viewRes;
+        try { viewRes = JSON.parse(viewResText); } catch(e) {}
+
+        if (!viewReq.ok || (viewRes && viewRes.success === false)) {
+            throw new Error(`Görüntüleme Hatası: ${viewRes?.message || viewResText}`);
+        }
+
+        return new Response(JSON.stringify({ success: true, data: viewRes || viewResText }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // ==============================================================================
     // İŞLEM 2: FATURA OLUŞTURMA (CREATE) - OTOMATİK PARÇALAYICI
     // ==============================================================================
     if (action === 'create') {
@@ -233,14 +352,23 @@ serve(async (req) => {
             }
         });
 
-        // 🔥 YENİ: SİPARİŞ NUMARASINI FATURA AÇIKLAMASINA YAPIŞTIRMA
-        let finalInvoiceNote = `İş Detayı:\n${jobDetailsLines.join('\n')}\n\nTahakkuk No: ${accrualIds.join(', ')}`;
+        // 🔥 YENİ: FATURA AÇIKLAMA BÖLÜMÜNÜN İSTENEN FORMATTA TASARLANMASI
+        let noteLines: string[] = [];
+        noteLines.push("FATURA AÇIKLAMALARI:");
         
         if (orderCodes.length > 0) {
-            finalInvoiceNote += `\nSipariş No: ${orderCodes.join(', ')}`;
+            noteLines.push(`Sipariş No (SAS): ${orderCodes.join(', ')}`);
         }
         
-        finalInvoiceNote += `\n\nNot: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`;
+        if (jobDetailsLines.length > 0) {
+            // İş detaylarını alt alta değil, yan yana (virgül ile ayrılarak) yazdırıyoruz
+            noteLines.push(`İş Detayı: ${jobDetailsLines.join(', ')}`);
+        }
+        
+        noteLines.push(`Tahakkuk No: ${accrualIds.join(', ')}`);
+        noteLines.push(`Not: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`);
+
+        const finalInvoiceNote = noteLines.join('\n');
         const isTevkifatli = clientData.has_tevkifat === true;
 
         // 🔥 GÜNCELLEME: AKILLI GRUPLAMA (SATIŞ vs TEVKİFAT)

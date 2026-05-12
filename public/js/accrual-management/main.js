@@ -918,7 +918,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 document.getElementById('cancelFreestyleAccrualBtn').addEventListener('click', () => modalFreestyle.classList.remove('show'));
                 document.getElementById('closeFreestyleAccrualModal').addEventListener('click', () => modalFreestyle.classList.remove('show'));
-
                 document.getElementById('saveFreestyleAccrualBtn').addEventListener('click', async () => {
                     const formResult = this.freestyleFormManager.getData();
                     if (!formResult.success) { showNotification(formResult.error, 'error'); return; }
@@ -934,8 +933,86 @@ document.addEventListener('DOMContentLoaded', async () => {
                     } catch (e) { showNotification('Tahakkuk kaydedilemedi: ' + e.message, 'error'); } 
                     finally { this.uiManager.toggleLoading(false); }
                 });
+            } // <-- Bu parantez if (btnFreestyle && modalFreestyle) bloğunu kapatıyor
+
+            // --- FATURA SENKRONİZE VE GÖRÜNTÜLEME EVENTLERİ ---
+            document.addEventListener('invoice-sync-request', async (e) => {
+                try {
+                    this.uiManager.toggleLoading(true);
+                    await this.dataManager.syncKolaybiInvoice(e.detail.id);
+                    showNotification("Fatura başarıyla senkronize edildi!", "success");
+                    await this.loadData(); // Tabloyu yeniler
+                } catch (err) {
+                    showNotification("Senkronizasyon Hatası: " + err.message, "error");
+                } finally {
+                    this.uiManager.toggleLoading(false);
+                }
+            });
+
+            document.addEventListener('invoice-view-request', async (e) => {
+                try {
+                    this.uiManager.toggleLoading(true);
+                    const res = await this.dataManager.viewKolaybiInvoice(e.detail.id);
+                    
+                    const payload = res.data;
+                    if (typeof payload === 'string' && payload.toLowerCase().includes('<html')) {
+                        const win = window.open('', '_blank');
+                        win.document.write(payload);
+                    } else if (payload && payload.data && payload.data.content) {
+                        const pdfWindow = window.open("");
+                        pdfWindow.document.write("<iframe width='100%' height='100%' src='data:application/pdf;base64, " + encodeURIComponent(payload.data.content) + "'></iframe>");
+                    } else if (payload && payload.data && payload.data.url) {
+                        window.open(payload.data.url, '_blank');
+                    } else {
+                        const win = window.open('', '_blank');
+                        win.document.write(typeof payload === 'string' ? payload : JSON.stringify(payload));
+                    }
+                } catch (err) {
+                    showNotification("Görüntüleme Hatası: " + err.message, "error");
+                } finally {
+                    this.uiManager.toggleLoading(false);
+                }
+            });
+
+            // --- MANUEL TOPLU SENKRONİZASYON BUTONU ---
+            const btnSyncAllInvoices = document.getElementById('btnSyncAllInvoices');
+            if (btnSyncAllInvoices) {
+                btnSyncAllInvoices.addEventListener('click', async () => {
+                    try {
+                        this.uiManager.toggleLoading(true);
+                        const pendingIds = this.dataManager.allInvoices
+                            .filter(inv => inv.kolaybiInvoiceId && (!inv.kolaybiUuid || inv.status === 'draft'))
+                            .map(inv => inv.id);
+                        
+                        if(pendingIds.length === 0) {
+                            showNotification("Mevcut durumda ETTN bekleyen veya güncellenecek fatura bulunmuyor.", "warning");
+                            return;
+                        }
+                        
+                        await this.dataManager.syncBulkKolaybiInvoices(pendingIds);
+                        await this.loadData(); 
+                        showNotification(`${pendingIds.length} adet bekleyen faturanın durumu başarıyla güncellendi!`, "success");
+                    } catch (err) {
+                        showNotification("Toplu Senkronizasyon Hatası: " + err.message, "error");
+                    } finally {
+                        this.uiManager.toggleLoading(false);
+                    }
+                });
             }
-        }
+
+            // --- ARKA PLAN AJANI (OTO-SYNC) ---
+            // Sayfa yüklendikten 1 saniye sonra arkadan kontrol eder
+            setTimeout(async () => {
+                if (this.dataManager && typeof this.dataManager.autoSyncPendingInvoices === 'function') {
+                    const hasUpdates = await this.dataManager.autoSyncPendingInvoices();
+                    if (hasUpdates) {
+                        await this.loadData(); 
+                        console.log("[OTO-SYNC] Arka plan taraması tamamlandı, arayüz güncellendi.");
+                    }
+                }
+            }, 1000);
+
+        } // <--- İŞTE BU PARANTEZ 'setupEventListeners' FONKSİYONUNUN GERÇEK KAPANIŞIDIR
 
         async openTaskDetail(taskId) {
             this.uiManager.taskDetailModal.classList.add('show');
@@ -955,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 this.uiManager.taskDetailManager.showError('İş detayı yüklenemedi.');
             }
         }
-    }
+    } // <--- Bu parantez 'AccrualsController' sınıfını kapatıyor
 
     new AccrualsController().init();
-});
+}); // <--- Bu parantez 'DOMContentLoaded' olayını kapatıyor

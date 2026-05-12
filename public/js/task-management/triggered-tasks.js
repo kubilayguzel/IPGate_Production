@@ -328,8 +328,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const opDate = formatToTRDate(task.operationalDueObj);
                 const offDate = formatToTRDate(task.officialDueObj);
 
-                const opISO = task.operationalDueObj ? task.operationalDueObj.toISOString().slice(0,10) : '';
-                const offISO = task.officialDueObj ? task.officialDueObj.toISOString().slice(0,10) : '';
+                // 🔥 KESİN ÇÖZÜM: Timezone kaymasını engellemek için yerel tarih üretici
+                const toLocalISOString = (d) => {
+                    if (!d) return '';
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${day}`;
+                };
+
+                const opISO = toLocalISOString(task.operationalDueObj);
+                const offISO = toLocalISOString(task.officialDueObj);
                 const actionMenuHtml = `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">

@@ -330,10 +330,30 @@
                         "is_nullable": "YES",
                         "column_default": "false",
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "uuid",
+                        "column_name": "invoice_id_2",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "order_code",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",
                 "foreign_keys": [
+                    {
+                        "column_name": "invoice_id_2",
+                        "constraint_name": "accruals_invoice_id_2_fkey",
+                        "foreign_table_name": "invoices",
+                        "foreign_column_name": "id"
+                    },
                     {
                         "column_name": "invoice_id",
                         "constraint_name": "accruals_invoice_id_fkey",

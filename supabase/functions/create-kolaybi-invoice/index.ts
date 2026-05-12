@@ -102,9 +102,6 @@ serve(async (req) => {
         }
 
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
-        if (clientError || !clientData) throw new Error("Müşteri bilgileri bulunamadı.");
-
-        const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 
         // 🔥 YENİ: SAS / SİPARİŞ KODU KONTROLÜ VE TOPLANMASI
@@ -236,15 +233,6 @@ serve(async (req) => {
             }
         });
 
-        let jobDetailsLines: string[] = [];
-        accruals.forEach(acc => {
-            if (acc.task_id && tasksMap[acc.task_id]) {
-                const t = tasksMap[acc.task_id];
-                const line = `${t.origin} ${t.refNo} ${t.brand} ${t.title} (${acc.task_id})`.replace(/\s+/g, ' ').trim();
-                if (!jobDetailsLines.includes(line)) jobDetailsLines.push(line);
-            }
-        });
-
         // 🔥 YENİ: SİPARİŞ NUMARASINI FATURA AÇIKLAMASINA YAPIŞTIRMA
         let finalInvoiceNote = `İş Detayı:\n${jobDetailsLines.join('\n')}\n\nTahakkuk No: ${accrualIds.join(', ')}`;
         
@@ -342,12 +330,6 @@ serve(async (req) => {
                 // KolayBi ekibinin rahatça okuyabilmesi için URL-Encoded metni temiz ve alt alta okunabilir formata çeviriyoruz
                 const decodedRequest = decodeURIComponent(requestBodyString).replace(/&/g, '\n');
                 
-                // Supabase Loglarına da düşmesi için ekliyoruz
-                console.error("=== KOLAYBİ DESTEK İÇİN DEBUG ÇIKTISI ===");
-                console.error("GİDEN İSTEK (REQUEST):", decodedRequest);
-                console.error("GELEN YANIT (RESPONSE):", invoiceResText);
-
-                // Tarayıcı konsolunda (veya arayüzde) anında görebilmen için hata mesajına ekliyoruz
                 const debugMessage = `[${docType}] Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)} \n\n--- KOLAYBI DESTEK İÇİN PAYLAŞILACAK BİLGİLER ---\n\n📌 GİDEN İSTEK (REQUEST):\n${decodedRequest}\n\n📌 GELEN YANIT (RESPONSE):\n${invoiceResText}`;
                 
                 throw new Error(debugMessage);

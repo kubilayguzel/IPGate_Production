@@ -104,7 +104,16 @@ serve(async (req) => {
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri bulunamadı.");
 
+        const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
+        if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
+
+        // 🔥 YENİ: SAS / SİPARİŞ KODU KONTROLÜ VE TOPLANMASI
         const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
+        const orderCodes = [...new Set(accruals.map((a: any) => a.order_code).filter(Boolean))];
+        
+        if (clientData.requires_sas_code === true && orderCodes.length === 0) {
+            throw new Error(`[SAS ZORUNLU] Bu müvekkil (${clientData.name}) için Sipariş (SAS) Kodu girmek zorunludur! Lütfen fatura oluşturmadan önce tahakkukları düzenleyerek kodları ekleyin.`);
+        }
         
         // İş (Task) detaylarını çekip hazırlıyoruz
         const taskIds = accruals.map(a => a.task_id).filter(Boolean);
@@ -227,7 +236,23 @@ serve(async (req) => {
             }
         });
 
-        const finalInvoiceNote = `İş Detayı:\n${jobDetailsLines.join('\n')}\n\nTahakkuk No: ${accrualIds.join(', ')}\n\nNot: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`;
+        let jobDetailsLines: string[] = [];
+        accruals.forEach(acc => {
+            if (acc.task_id && tasksMap[acc.task_id]) {
+                const t = tasksMap[acc.task_id];
+                const line = `${t.origin} ${t.refNo} ${t.brand} ${t.title} (${acc.task_id})`.replace(/\s+/g, ' ').trim();
+                if (!jobDetailsLines.includes(line)) jobDetailsLines.push(line);
+            }
+        });
+
+        // 🔥 YENİ: SİPARİŞ NUMARASINI FATURA AÇIKLAMASINA YAPIŞTIRMA
+        let finalInvoiceNote = `İş Detayı:\n${jobDetailsLines.join('\n')}\n\nTahakkuk No: ${accrualIds.join(', ')}`;
+        
+        if (orderCodes.length > 0) {
+            finalInvoiceNote += `\nSipariş No: ${orderCodes.join(', ')}`;
+        }
+        
+        finalInvoiceNote += `\n\nNot: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`;
         const isTevkifatli = clientData.has_tevkifat === true;
 
         // 🔥 GÜNCELLEME: AKILLI GRUPLAMA (SATIŞ vs TEVKİFAT)

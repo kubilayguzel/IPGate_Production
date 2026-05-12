@@ -127,8 +127,12 @@ export class AccrualUIManager {
                 let shortPartyName = fullPartyName.length > 18 ? fullPartyName.substring(0, 18) + '..' : fullPartyName;
                 const partyHtml = `<span title="${fullPartyName}" style="cursor:help;">${shortPartyName}</span>`;
 
-                const tfn = acc.tpeInvoiceNo || '-';
-                const efn = acc.evrekaInvoiceNo || '-';
+                // 🔥 KESİN ÇÖZÜM: Değişkenler tablonun en başında, doğru yerde tanımlanıyor
+                let tfn = acc.tpeInvoiceNo || '-';
+                if (tfn.length > 15) tfn = tfn.substring(0, 12) + '...';
+
+                let efn = acc.evrekaInvoiceNo || '-';
+                if (efn.length > 35) efn = efn.substring(0, 32) + '...';
 
                 const items = acc.items || [];
                 

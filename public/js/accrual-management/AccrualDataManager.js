@@ -114,6 +114,25 @@ export class AccrualDataManager {
                     .filter(a => String(a.invoiceId) === String(row.id) || String(a.invoiceId2) === String(row.id))
                     .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
             })) : [];
+            // 🔥 KESİN ÇÖZÜM: Tahakkuka bağlı olan tüm faturaları (invoice_id ve invoice_id_2) bul ve numaralarını birleştir
+            this.allAccruals.forEach(acc => {
+                const linkedInvoices = this.allInvoices.filter(inv => 
+                    inv.id === String(acc.invoiceId) || inv.id === String(acc.invoiceId2)
+                );
+
+                if (linkedInvoices.length > 0) {
+                    // Tüm bağlı faturaların numaralarını topla (GIB No varsa onu al, yoksa sistem no'yu al)
+                    const nos = linkedInvoices.map(inv => {
+                        // 🔥 GÜNCELLEME: Sadece resmî "invoiceNo" verisini (Örn: GİB...) alıyoruz
+                        return (inv.invoiceNo && inv.invoiceNo !== '-') ? inv.invoiceNo : null;
+                    }).filter(Boolean); // Boş veya null olanları temizle
+
+                    if (nos.length > 0) {
+                        // Numaraları virgül ile birleştirerek tabloya gönder (Örn: GIB...12, GIB...13)
+                        acc.evrekaInvoiceNo = nos.join(', '); 
+                    }
+                }
+            });
 
             this._buildSearchStrings();
             this.processedData = [...this.allAccruals];

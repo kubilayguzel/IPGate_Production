@@ -113,12 +113,19 @@ serve(async (req) => {
         if (uuid) updates.kolaybi_uuid = uuid;
         
         if (uuid && inv.status === 'draft') updates.status = 'sent';
-
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
+            
+            // 🔥 YENİ: KolayBi'den resmi fatura no (serialNo) geldiyse, bağlı tahakkukların "evreka_invoice_no" kolonunu da veritabanında kalıcı olarak güncelle!
+            if (serialNo) {
+                await supabaseClient.from('accruals')
+                    .update({ evreka_invoice_no: serialNo })
+                    .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
+            }
         }
 
         return new Response(JSON.stringify({ success: true, message: "Fatura durumu başarıyla senkronize edildi.", data: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
     }
     // ==============================================================================
     // İŞLEM 5: TOPLU SENKRONİZASYON (SYNC BULK)
@@ -162,6 +169,13 @@ serve(async (req) => {
 
                 if (Object.keys(updates).length > 0) {
                     await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
+                    
+                    // 🔥 YENİ: Toplu senkronizasyonda da tahakkukların "evreka_invoice_no" kolonunu veritabanında kalıcı olarak güncelle!
+                    if (serialNo) {
+                        await supabaseClient.from('accruals')
+                            .update({ evreka_invoice_no: serialNo })
+                            .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
+                    }
                     successCount++;
                 }
             } catch (e) {

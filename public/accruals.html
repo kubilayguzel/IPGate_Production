@@ -334,15 +334,18 @@
                              <table class="accruals-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckboxInvoices"></th>
-                                        <th>#</th> <th class="sortable" data-sort="createdAt">Kesim Tarihi <i class="fas fa-sort sort-icon"></i></th>
-                                        <th>Fatura Tarihi</th> <th>KolayBi Fatura ID</th>
-                                        <th class="sortable" data-sort="clientName">Fatura Edilen Cari <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="status">Durum <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="totalAmount">Fatura Tutarı <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="text-center">İşlemler</th>
+                                        <th style="width: 40px;"><input type="checkbox" id="selectAllInvoicesCheckbox"></th>
+                                        <th style="width: 50px;">#</th>
+                                        <th data-sort="createdAt">Kesim Tarihi</th>
+                                        <th data-sort="invoiceDate">Fatura Tarihi</th>
+                                        <th>Fatura No</th>
+                                        <th data-sort="clientName">Fatura Edilen Cari</th>
+                                        <th>İlişkili Tahakkuklar</th>
+                                        <th data-sort="status">Durum</th>
+                                        <th data-sort="totalAmount">Fatura Tutarı</th>
+                                        <th class="text-center" style="width: 80px;">İşlemler</th>
                                     </tr>
-                                 </thead>
+                                </thead>
                                  <tbody id="invoicesTableBody"></tbody>
                              </table>
                         </div>

@@ -949,26 +949,51 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
 
+            // --- FATURA GÖRÜNTÜLEME EVENTİ (GÜNCELLENDİ) ---
             document.addEventListener('invoice-view-request', async (e) => {
+                const viewerWindow = window.open('', '_blank');
+                viewerWindow.document.write("<div style='font-family:sans-serif; padding: 20px; text-align:center;'><h3>Fatura Hazırlanıyor...</h3><p>Lütfen bekleyiniz, belge oluşturuluyor.</p></div>");
+
                 try {
                     this.uiManager.toggleLoading(true);
                     const res = await this.dataManager.viewKolaybiInvoice(e.detail.id);
                     
-                    const payload = res.data;
+                    const payload = res.data; // Fonksiyondan dönen veri
+                    
+                    // 1. Durum: Doğrudan HTML gelmişse (E-Arşiv Görünümü)
                     if (typeof payload === 'string' && payload.toLowerCase().includes('<html')) {
-                        const win = window.open('', '_blank');
-                        win.document.write(payload);
-                    } else if (payload && payload.data && payload.data.content) {
-                        const pdfWindow = window.open("");
-                        pdfWindow.document.write("<iframe width='100%' height='100%' src='data:application/pdf;base64, " + encodeURIComponent(payload.data.content) + "'></iframe>");
-                    } else if (payload && payload.data && payload.data.url) {
-                        window.open(payload.data.url, '_blank');
-                    } else {
-                        const win = window.open('', '_blank');
-                        win.document.write(typeof payload === 'string' ? payload : JSON.stringify(payload));
+                        viewerWindow.document.open();
+                        viewerWindow.document.write(payload);
+                        viewerWindow.document.close();
+                    } 
+                    // 2. Durum: Base64 PDF verisi gelmişse (data.src veya data.content içinde)
+                    else if (payload && payload.data && (payload.data.src || payload.data.content)) {
+                        const base64Data = payload.data.src || payload.data.content;
+                        viewerWindow.document.open();
+                        viewerWindow.document.write(`
+                            <title>Fatura Görüntüle</title>
+                            <body style="margin:0; padding:0; overflow:hidden;">
+                                <iframe width="100%" height="100%" style="border:none;" 
+                                    src="data:application/pdf;base64,${base64Data}">
+                                </iframe>
+                            </body>
+                        `);
+                        viewerWindow.document.close();
+                    } 
+                    // 3. Durum: Doğrudan bir URL gelmişse
+                    else if (payload && payload.data && payload.data.url) {
+                        viewerWindow.location.href = payload.data.url;
+                    } 
+                    // 4. Durum: Diğer (Hata Payı Bırakıyoruz)
+                    else {
+                        viewerWindow.document.open();
+                        viewerWindow.document.write(`<div style="padding:20px;"><h3>Belge Formatı Tanınamadı</h3><pre>${JSON.stringify(payload)}</pre></div>`);
+                        viewerWindow.document.close();
                     }
                 } catch (err) {
-                    showNotification("Görüntüleme Hatası: " + err.message, "error");
+                    viewerWindow.document.open();
+                    viewerWindow.document.write(`<div style="font-family:sans-serif; color:red; padding:20px; text-align:center;"><h3>Hata:</h3><p>${err.message}</p></div>`);
+                    viewerWindow.document.close();
                 } finally {
                     this.uiManager.toggleLoading(false);
                 }

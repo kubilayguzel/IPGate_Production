@@ -36,6 +36,24 @@ export class AccrualUIManager {
                 return;
             }
 
+            // 🔥 YENİ: Fatura Numarasına Tıklanınca Resmi Belgeyi Aç
+            const viewInvoiceBtn = e.target.closest('.view-invoice-btn');
+            if (viewInvoiceBtn) {
+                e.preventDefault();
+                const id = viewInvoiceBtn.dataset.id; // Fatura UUID'si
+                document.dispatchEvent(new CustomEvent('invoice-view-request', { detail: { id } }));
+                return;
+            }
+
+            // 🔥 YENİ: Fatura Senkronizasyon (Sync) Butonu
+            const syncBtn = e.target.closest('.sync-invoice-btn');
+            if (syncBtn) {
+                e.preventDefault();
+                const id = syncBtn.dataset.id;
+                document.dispatchEvent(new CustomEvent('invoice-sync-request', { detail: { id } }));
+                return;
+            }
+
             const editBtn = e.target.closest('.edit-btn');
             if (editBtn && !editBtn.classList.contains('disabled')) {
                 const id = editBtn.dataset.id;
@@ -51,7 +69,6 @@ export class AccrualUIManager {
             }
         };
 
-        // 🔥 HATA BURADAYDI: Event listener eklerken parantez ile (e) gönderilmiş olabilir. Doğrusu budur:
         if (this.tableBody) this.tableBody.addEventListener('click', handleTableClick);
         if (this.foreignTableBody) this.foreignTableBody.addEventListener('click', handleTableClick);
         if (this.invoicesTableBody) this.invoicesTableBody.addEventListener('click', handleTableClick);
@@ -205,56 +222,55 @@ export class AccrualUIManager {
                 }
 
                 if (activeTab === 'invoices') {
-                    const invDate = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
-                    const documentDate = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : invDate; 
+                    // 🔥 ÇÖZÜM 1: Kesim Tarihi (Sisteme kayıt) ve Fatura Tarihi (Resmi) olarak 2'ye ayrıldı
+                    const kesimTarihi = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
+                    const faturaTarihi = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : '-'; 
                     const invTotal = this._formatMoney(acc.totalAmount, acc.currency);
                     
+                    // Fatura No'yu belirle
+                    const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
+                    
+                    // Durum Belirleme
                     let invStatusText = acc.kolaybiStatus || (acc.status === 'draft' ? 'Taslak' : (acc.status === 'sent' ? 'Gönderildi' : 'Bilinmiyor'));
                     let invStatusClass = 'badge-secondary';
-                    if (acc.status === 'draft') { invStatusClass = 'badge-warning text-dark'; }
-                    else if (acc.status === 'sent') { invStatusClass = 'badge-success'; }
+                    if (acc.status === 'draft') invStatusClass = 'badge-warning text-dark';
+                    else if (acc.status === 'sent') invStatusClass = 'badge-success';
                     else if (acc.status === 'cancelled') { invStatusText = 'İptal Edildi'; invStatusClass = 'badge-danger'; }
 
-                    let linkedAccrualsHtml = '<span class="text-muted">-</span>';
-                    if (acc.accruals && acc.accruals.length > 0) {
-                        const accList = acc.accruals.map(a => `<li class="mb-1 border-bottom pb-1"><strong>#${a.id}</strong> - ${a.task_title} <br><small class="text-success">${this._formatMoney(a.total_amount || 0, a.currency)}</small></li>`).join('');
-                        linkedAccrualsHtml = `<div class="dropdown"><button class="btn btn-sm btn-outline-info dropdown-toggle font-weight-bold" type="button" data-toggle="dropdown"><i class="fas fa-layer-group mr-1"></i> ${acc.accruals.length} İşlem</button><div class="dropdown-menu p-3 shadow" style="width: 350px; max-height: 250px; overflow-y: auto; white-space: normal;"><h6 class="dropdown-header px-0 text-primary border-bottom mb-2">Fatura İçeriği</h6><ul class="list-unstyled mb-0" style="font-size: 0.85em;">${accList}</ul></div></div>`;
-                    }
-
-                    // Görüntüle butonunu (viewDocBtn) menüden tamamen sildik
-                    const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' 
-                        ? `<a href="https://ofis.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi Panelinde Aç</a>` : '';
-                    
-                    const syncBtn = `<a href="#" class="dropdown-item text-primary sync-invoice-btn" data-id="${acc.id}"><i class="fas fa-sync-alt mr-2"></i> Durumu Güncelle (Senkronize Et)</a>`;
-                        
-                    const cancelBtn = acc.status === 'draft'
-                        ? `<a href="#" class="dropdown-item text-danger cancel-invoice-btn" data-id="${acc.id}"><i class="fas fa-trash-alt mr-2"></i> Faturayı Sil / İptal Et</a>`
-                        : `<span class="dropdown-item text-muted" title="Sadece taslak faturalar silinebilir"><i class="fas fa-trash-alt mr-2"></i> Silinemez</span>`;
-
-                    // Menünün içinden viewDocBtn'yi çıkardık
-                    const actionMenuHtml = `<div class="dropdown"><button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-ellipsis-v" style="pointer-events: none;"></i></button><div class="dropdown-menu dropdown-menu-right shadow-sm border-0">${viewKolaybiBtn}${syncBtn}<div class="dropdown-divider"></div>${cancelBtn}</div></div>`;
-
-                    const serialNumber = index + 1;
-                    const displayInvoiceNo = acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
-
-                    // 🔥 YENİ: Fatura numarası link haline getiriliyor (Eğer resmileştiyse ve UUID varsa)
+                    // Fatura No Linki (Tıklanabilir olması için view-invoice-btn sınıfı var)
                     let invoiceNoHtml = `<span class="font-weight-bold text-primary">${displayInvoiceNo}</span>`;
                     if (acc.kolaybiUuid) {
-                        // view-invoice-btn sınıfını buraya verdik. Tıklandığında main.js bunu otomatik yakalayacak!
                         invoiceNoHtml = `<a href="#" class="font-weight-bold text-success view-invoice-btn" data-id="${acc.id}" title="Resmi Faturayı Görüntüle" style="text-decoration: underline;">${displayInvoiceNo} <i class="fas fa-external-link-alt ml-1" style="font-size: 0.8em;"></i></a>`;
                     }
 
+                    // Tahakkuk İçeriği (İlişkili Tahakkuklar)
+                    let linkedAccrualsHtml = '<span class="text-muted">-</span>';
+                    if (acc.accruals && acc.accruals.length > 0) {
+                        const accList = acc.accruals.map(a => `<li class="mb-1 border-bottom pb-1"><strong>#${a.id}</strong> - ${a.task_title || a.subject || 'İşlem'} <br><small class="text-success">${this._formatMoney(a.total_amount || 0, a.currency)}</small></li>`).join('');
+                        linkedAccrualsHtml = `<div class="dropdown"><button class="btn btn-sm btn-outline-info dropdown-toggle font-weight-bold" type="button" data-toggle="dropdown"><i class="fas fa-layer-group mr-1"></i> ${acc.accruals.length} İşlem</button><div class="dropdown-menu p-3 shadow" style="min-width: 300px; max-height: 250px; overflow-y: auto; white-space: normal;"><h6 class="dropdown-header px-0 text-primary border-bottom mb-2">Fatura İçeriği</h6><ul class="list-unstyled mb-0" style="font-size: 0.85em;">${accList}</ul></div></div>`;
+                    }
+
+                    // İşlem Menüsü
+                    const viewKolaybiBtn = acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? `<a href="https://ofis.kolaybi.com/sales/invoices/sale_invoice/edit/${acc.kolaybiInvoiceId}" target="_blank" class="dropdown-item text-info"><i class="fas fa-external-link-alt mr-2"></i> KolayBi Panelinde Aç</a>` : '';
+                    const syncBtn = `<a href="#" class="dropdown-item text-primary sync-invoice-btn" data-id="${acc.id}"><i class="fas fa-sync-alt mr-2"></i> Durumu Güncelle (Sync)</a>`;
+                    const cancelBtn = acc.status === 'draft' ? `<a href="#" class="dropdown-item text-danger cancel-invoice-btn" data-id="${acc.id}"><i class="fas fa-trash-alt mr-2"></i> Faturayı Sil / İptal Et</a>` : `<span class="dropdown-item text-muted"><i class="fas fa-lock mr-2"></i> Sadece Taslaklar Silinebilir</span>`;
+                    const actionMenuHtml = `<div class="dropdown"><button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button><div class="dropdown-menu dropdown-menu-right shadow-sm border-0">${viewKolaybiBtn}${syncBtn}<div class="dropdown-divider"></div>${cancelBtn}</div></div>`;
+
+                    const serialNumber = index + 1;
+
+                    // 🔥 ÇÖZÜM 2: HTML Tablosundaki 10 başlığa denk gelecek 10 adet <td> hücresi eklendi!
                     return `
                     <tr>
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td class="font-weight-bold text-muted">${serialNumber}</td>
-                        <td>${documentDate}</td>
+                        <td>${kesimTarihi}</td>
+                        <td>${faturaTarihi}</td>
                         <td>${invoiceNoHtml}</td> 
                         <td><span class="font-weight-bold">${acc.clientName}</span></td>
                         <td>${linkedAccrualsHtml}</td>
                         <td><span class="badge ${invStatusClass}">${invStatusText}</span></td>
                         <td><span class="font-weight-bold text-success">${invTotal}</span></td>
-                        <td class="text-center">${actionMenuHtml}</td>
+                        <td class="text-center" style="overflow:visible;">${actionMenuHtml}</td>
                     </tr>`;
                 }
                 else if (activeTab === 'main') {

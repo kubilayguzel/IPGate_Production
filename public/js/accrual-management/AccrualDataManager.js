@@ -17,6 +17,7 @@ export class AccrualDataManager {
         this.allUsers = [];
         this.allTransactionTypes = [];
         this.processedData = [];
+        this.allInvoices = [];
     }
 
     async fetchAllData() {
@@ -601,6 +602,9 @@ export class AccrualDataManager {
     }
 
     async autoSyncPendingInvoices() {
+        // 🔥 YENİ EKLENDİ: Eğer veri henüz gelmediyse veya boşsa işlem yapmadan çık (Hata vermesini engeller)
+        if (!this.allInvoices || this.allInvoices.length === 0) return false;
+
         // ETTN (UUID) numarası henüz alınmamış veya taslak olan faturaların ID'lerini bul
         const pendingIds = this.allInvoices
             .filter(inv => inv.kolaybiInvoiceId && inv.kolaybiInvoiceId !== 'undefined' && (!inv.kolaybiUuid || inv.status === 'draft'))

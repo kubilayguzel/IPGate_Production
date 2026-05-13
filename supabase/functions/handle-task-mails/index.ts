@@ -383,11 +383,30 @@ serve(async (req: Request) => {
                         if (parentTask) parentTaskTypeId = String(parentTask.task_type_id);
                     }
 
+                    // =========================================================================
+                    // 🔥 DEBUG (HATA AYIKLAMA) VE VARYANT TESPİTİ
+                    // =========================================================================
+                    console.log(`\n[DEBUG-MAIL-VARIANT] Görev ID: ${record.id}, Tipi: ${taskTypeId}`);
+                    console.log(`[DEBUG-MAIL-VARIANT] Tespit Edilen Parent Tipi: ${parentTaskTypeId}`);
+                    console.log(`[DEBUG-MAIL-VARIANT] Marka Aidiyeti (recordOwnerType): ${recordOwnerType}`);
+
                     // 2. AKTİF ŞARTLARI (KOŞULLARI) BELİRLE
-                    // Markanın aidiyetine göre şart (Örn: owner_self, owner_third_party)
                     const activeConditions = [`owner_${recordOwnerType}`]; 
-                    // Ana işleme göre şart (Örn: parent_6, parent_20)
-                    if (parentTaskTypeId) activeConditions.push(`parent_${parentTaskTypeId}`); 
+                    
+                    if (parentTaskTypeId) {
+                        if (taskTypeId === '27' && parentTaskTypeId === '20') {
+                            // Eğer İtiraz Bildirimi (27) ise ve Parent Yayına İtiraz (20) ise
+                            // markanın aidiyetine göre 'parent_20_self' veya 'parent_20_third_party' şartını ara
+                            const specificCondition = `parent_20_${recordOwnerType}`;
+                            activeConditions.push(specificCondition);
+                            console.log(`[DEBUG-MAIL-VARIANT] Tip 27 -> Özel Şart Eklendi: ${specificCondition}`);
+                        } else {
+                            activeConditions.push(`parent_${parentTaskTypeId}`); 
+                            console.log(`[DEBUG-MAIL-VARIANT] Standart Şart Eklendi: parent_${parentTaskTypeId}`);
+                        }
+                    }
+
+                    console.log(`[DEBUG-MAIL-VARIANT] Veritabanında Aranacak Şartlar: `, activeConditions);
 
                     // 3. VARYANT (SEÇENEK) TABLOSUNDA BU ŞARTLARI ARA
                     const { data: variants } = await supabaseAdmin
@@ -396,17 +415,24 @@ serve(async (req: Request) => {
                         .eq('template_id', templateId)
                         .in('condition_key', activeConditions);
 
+                    console.log(`[DEBUG-MAIL-VARIANT] Veritabanından Dönen Eşleşmeler: `, variants?.map((v: any) => v.condition_key));
+
                     if (variants && variants.length > 0) {
-                        // Öncelik: Eğer ana işleme (parent) özel bir metin yazılmışsa onu al, yoksa marka aidiyetine (owner) özel metni al
-                        const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
+                        // Özel parent şartını önceliklendir (örn: parent_20_self, parent_2 vb.)
+                        const parentVariant = variants.find((v: any) => v.condition_key.startsWith('parent_'));
                         const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
 
                         if (parentVariant) {
                             rawBody = parentVariant.body;
+                            console.log(`[DEBUG-MAIL-VARIANT] ✅ Parent Varyantı Seçildi: ${parentVariant.condition_key}`);
                         } else if (ownerVariant) {
                             rawBody = ownerVariant.body;
+                            console.log(`[DEBUG-MAIL-VARIANT] ✅ Owner Varyantı Seçildi: ${ownerVariant.condition_key}`);
                         }
+                    } else {
+                        console.log(`[DEBUG-MAIL-VARIANT] ⚠️ Hiçbir varyant eşleşmedi, ana şablon gövdesi kullanılacak.`);
                     }
+                    // =========================================================================
 
                     body = rawBody; // Seçilen özel metni veya hiçbir şey bulunamazsa ana şablon metnini ata
 

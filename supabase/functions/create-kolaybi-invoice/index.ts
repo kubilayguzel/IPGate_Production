@@ -317,11 +317,15 @@ serve(async (req) => {
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 
-        const { data: financePersons } = await supabaseClient
+        // 🔥 LOGLU VE FİLTRELİ: FİNANS İLETİŞİM KİŞİLERİNİ (MAİLLERİ) TOPLA
+        const { data: financePersons, error: financeErr } = await supabaseClient
             .from('persons_related')
             .select('email')
             .eq('person_id', clientId)
             .or('notify_finance_to.eq.true,notify_finance_cc.eq.true');
+
+        console.log(`[KOLAYBI-DEBUG] Fatura Kesilecek Cari ID: ${clientId}`);
+        if (financeErr) console.error(`[KOLAYBI-DEBUG] Finans Kişileri Çekme Hatası:`, financeErr);
 
         let emailList: string[] = [];
         
@@ -331,11 +335,14 @@ serve(async (req) => {
             });
         }
 
-        if (clientData.email && clientData.email.trim() !== '') {
-            emailList.push(clientData.email.trim());
-        }
-
-        const finalEmailsString = [...new Set(emailList)].join(',');
+        const uniqueEmails = [...new Set(emailList)];
+        
+        // 🔥 ÇÖZÜM: KolayBi tekil mail formatı (Regex) zorunluluğu tuttuğu için listeyi virgülle birleştirmek yerine SADECE İLK MAİLİ alıyoruz!
+        const finalEmail = uniqueEmails.length > 0 ? uniqueEmails[0] : "";
+        
+        console.log(`[KOLAYBI-DEBUG] Şirket Ana Maili (Listeye EKLENMEDİ): "${clientData.email}"`);
+        console.log(`[KOLAYBI-DEBUG] Bulunan Tüm Finans Mailleri:`, uniqueEmails);
+        console.log(`[KOLAYBI-DEBUG] KolayBi'ye Gönderilecek TEK Kesin Mail: "${finalEmail}"`);
 
         const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
         const orderCodes = [...new Set(accruals.map((a: any) => a.order_code).filter(Boolean))];
@@ -392,7 +399,9 @@ serve(async (req) => {
         }
 
         associateParams.append("identity_no", identityNo);
-        if (finalEmailsString) associateParams.append("email", finalEmailsString);
+        
+        // 🔥 HAFIZA TEMİZLİĞİ: finalEmailsString boş dahi olsa ("") KolayBi'ye gönderilir ve eski maili ezer geçer!
+        associateParams.append("email", finalEmail || "");
         if (clientData.tax_office) associateParams.append("tax_office", clientData.tax_office);
 
         const cityName = clientData.province && clientData.province.trim() !== '' ? clientData.province.trim() : "Ankara";

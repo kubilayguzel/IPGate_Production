@@ -568,14 +568,14 @@ export class AccrualDataManager {
         await Promise.all(promises);
     }
 
-    async createKolaybiInvoice(selectedIds) {
+// 🔥 GÜNCEL: mergeStrategy parametresi eklendi ve "Karar Bekleniyor" durumu hatadan muaf tutuldu
+    async createKolaybiInvoice(selectedIds, mergeStrategy = null) {
         const ids = Array.from(selectedIds);
         if (ids.length === 0) throw new Error("Fatura kesmek için tahakkuk seçmelisiniz.");
 
         try {
-            // 🔥 BURASI GÜNCELLENDİ (action parametresi eklendi)
             const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
-                body: { action: 'create', accrualIds: ids }
+                body: { action: 'create', accrualIds: ids, mergeStrategy }
             });
 
             if (error) {
@@ -583,11 +583,12 @@ export class AccrualDataManager {
                 throw new Error(error.message || "Fatura oluşturulurken bir hata oluştu.");
             }
 
-            if (!data.success) {
+            // Eğer success false ise ama sebebi Karar Beklenmesi ise HATA FIRLATMA!
+            if (!data.success && !data.requireMergeDecision) {
                 throw new Error(data.error || data.message || "Beklenmeyen bir hata oluştu.");
             }
 
-            await this.fetchAllData();
+            // Verileri tazelemeyi şimdilik atlıyoruz, main.js'de başarılı olunca tazeleyeceğiz
             return data;
 
         } catch (error) {

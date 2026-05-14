@@ -349,41 +349,58 @@ serve(async (req: Request) => {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
 
-            // 🔥 3. AKTİF ŞARTLARI BELİRLE (Varyantlar için parentTaskTypeId'yi yukarıda zaten bulduk)
+            // 🔥 3. AKTİF ŞARTLARI BELİRLE (Varyantlar için)
             const recordOwnerType = isPortfolio ? 'self' : 'third_party';
             const activeConditions = [`owner_${recordOwnerType}`];
+            
             if (parentTaskTypeId) {
+                // Standart Ebeveyn Kuralı
                 activeConditions.push(`parent_${parentTaskTypeId}`);
-                // 🔥 Yeni: Daha spesifik anahtar (Örn: parent_20_self)
-                activeConditions.push(`parent_${parentTaskTypeId}_${recordOwnerType}`); 
+                
+                // 🚀 ÖZEL DURUM (İTİRAZ BİLDİRİMİ İÇİN): 
+                // Eğer indekslenen evrak tipi 27 (İtiraz Bildirimi) ve Ana İşlem 20 (Yayına İtiraz) ise
+                if (txTypeId === '27' && parentTaskTypeId === '20') {
+                    // İtirazın kime karşı olduğuna karar ver (marka bizimse self, rakipse third_party)
+                    const specCondition = `parent_20_${recordOwnerType}`;
+                    activeConditions.push(specCondition);
+                    console.log(`[HANDLE_INDEXED_VARIANT] 🚀 ÖZEL YİDK TESPİTİ YAPILDI: Şartlara '${specCondition}' eklendi!`);
+                }
             }
 
-            console.log(`[HANDLE_INDEXED_VARIANT] 🔍 Şablon: ${templateId}, Şartlar:`, activeConditions);
+            console.log(`[HANDLE_INDEXED_VARIANT] 🔍 Şablon: ${templateId}, Aranacak Şartlar:`, activeConditions);
 
-            // 🔥 3. VARYANT TABLOSUNDA ARA
+            // 🔥 4. VARYANT TABLOSUNDA ARA
             const { data: variants } = await supabaseAdmin
                 .from('mail_template_variants')
                 .select('condition_key, body')
                 .eq('template_id', templateId)
                 .in('condition_key', activeConditions);
 
-            if (variants && variants.length > 0) {
-                // Öncelik: Spesifik Ebeveyn (parent_20_self) > Genel Ebeveyn (parent_20) > Sahip Tipi (owner_self)
-                const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
-                const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
-                const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
+            console.log(`[HANDLE_INDEXED_VARIANT] 🎯 Veritabanından Dönen Eşleşmeler: `, variants?.map((v: any) => v.condition_key));
 
-                if (specParentVariant) {
-                    rawBody = specParentVariant.body;
-                } else if (parentVariant) {
-                    rawBody = parentVariant.body;
-                } else if (ownerVariant) {
-                    rawBody = ownerVariant.body;
-                }
-            } else { 
-                // 🔥 DÜZELTİLDİ: Yukarıdaki fazladan "}" silindi, doğrudan "} else {" yapıldı.
-                console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
-            }
+            if (variants && variants.length > 0) {
+                // Öncelik Sıralaması:
+                // 1. En Spesifik Ebeveyn (Örn: parent_20_self)
+                // 2. Standart Ebeveyn (Örn: parent_2)
+                // 3. Aidiyet (owner_self)
+                
+                const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
+                const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
+                const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
+
+                if (specParentVariant) {
+                    rawBody = specParentVariant.body;
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ En Spesifik Varyant Seçildi: ${specParentVariant.condition_key}`);
+                } else if (parentVariant) {
+                    rawBody = parentVariant.body;
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Standart Parent Varyant Seçildi: ${parentVariant.condition_key}`);
+                } else if (ownerVariant) {
+                    rawBody = ownerVariant.body;
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Owner Varyant Seçildi: ${ownerVariant.condition_key}`);
+                }
+            } else { 
+                console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
+            }
 
             const placeholders: Record<string, string> = {
                 "{{applicationNo}}": appNo,

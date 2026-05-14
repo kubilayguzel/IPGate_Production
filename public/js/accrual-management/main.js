@@ -682,12 +682,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     this.uiManager.toggleLoading(true);
                     try {
-                        const result = await this.dataManager.createKolaybiInvoice(this.state.selectedIds);
+                        let response = await this.dataManager.createKolaybiInvoice(this.state.selectedIds);
                         
-                        this.state.selectedIds.clear(); // Seçimleri temizle
-                        await this.loadData(); // 🔥 TÜM VERİYİ YENİDEN ÇEK (Fatura Sekmesine Düşmesi İçin)
-                        
-                        showNotification(`Başarılı! KolayBi Faturası oluşturuldu.`, 'success');
+                        // 🔥 YENİ: Backend "Kararsız Kaldım, Kullanıcıya Sor" Derse
+                        if (response.requireMergeDecision) {
+                            this.uiManager.toggleLoading(false); // Bekleme ekranını kaldır ki popup görünsün
+                            
+                            const userChoice = await Swal.fire({
+                                title: 'Farklı Döviz Kurları Tespit Edildi!',
+                                html: `Seçtiğiniz tahakkuklarda <b>${response.currencies.join(' ve ')}</b> kalemleri karışık olarak bulunuyor.<br><br>Bu faturaları KolayBi'ye nasıl göndermek istersiniz?`,
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonText: '<i class="fas fa-compress-arrows-alt"></i> Hepsini TRY Yap (TCMB Satış Kuru)',
+                                cancelButtonText: '<i class="fas fa-layer-group"></i> Ayrı Döviz Faturaları Kes',
+                                confirmButtonColor: '#3085d6',
+                                cancelButtonColor: '#28a745',
+                                width: '35em',
+                                allowOutsideClick: false
+                            });
+
+                            if (userChoice.isConfirmed) {
+                                // Kullanıcı TRY istedi
+                                this.uiManager.toggleLoading(true);
+                                response = await this.dataManager.createKolaybiInvoice(this.state.selectedIds, 'merge_try');
+                            } else if (userChoice.dismiss === Swal.DismissReason.cancel) {
+                                // Kullanıcı ayrı ayrı döviz faturası kesilsin istedi
+                                this.uiManager.toggleLoading(true);
+                                response = await this.dataManager.createKolaybiInvoice(this.state.selectedIds, 'separate');
+                            } else {
+                                // İptal'e basıldı
+                                return;
+                            }
+                        }
+
+                        // İşlem tamamsa ve başarılıysa
+                        if (response.success) {
+                            this.state.selectedIds.clear(); 
+                            await this.loadData(); 
+                            showNotification(response.message || `Başarılı! KolayBi Faturası oluşturuldu.`, 'success');
+                        } else {
+                            throw new Error(response.error || response.message || "Beklenmeyen bir hata oluştu.");
+                        }
+
                     } catch (error) {
                         showNotification(`Hata: ${error.message}`, 'error');
                     } finally {

@@ -15,7 +15,7 @@ export class PriceListDataManager {
                 supabase.from('price_lists').select('*').order('name'),
                 supabase.from('price_list_items').select('*'),
                 supabase.from('persons').select('id, name, type, price_list_id').order('name'),
-                supabase.from('fee_tariffs').select('id, name, alias')
+                supabase.from('fee_tariffs').select('id, name, fee_type, amount, currency')
             ]);
 
             this.allFeeTariffs = feeRes.data || [];

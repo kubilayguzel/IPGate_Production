@@ -199,7 +199,8 @@ export const personService = {
             district: p.district,
             is_evaluation_required: p.is_evaluation_required,
             has_tevkifat: p.has_tevkifat,
-            requires_sas_code: p.requires_sas_code
+            requires_sas_code: p.requires_sas_code,
+            priceListId: p.price_list_id
         }));
         return { success: true, data: mappedData };
     },
@@ -246,6 +247,7 @@ export const personService = {
             is_evaluation_required: data.is_evaluation_required,
             has_tevkifat: data.has_tevkifat,
             requires_sas_code: data.requires_sas_code,
+            priceListId: data.price_list_id,
             documents: mappedDocuments // 🔥 Belgeleri arayüze iletiyoruz
         };
         return { success: true, data: mappedData };
@@ -272,7 +274,9 @@ export const personService = {
             district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false,
             has_tevkifat: personData.has_tevkifat || false,
-            requires_sas_code: personData.requires_sas_code || false
+            requires_sas_code: personData.requires_sas_code || false,
+            price_list_id: personData.priceListId || null
+
         };
 
         // 1. Önce Kişiyi Kaydet
@@ -315,6 +319,7 @@ export const personService = {
             is_evaluation_required: personData.is_evaluation_required || false,
             has_tevkifat: personData.has_tevkifat || false,
             requires_sas_code: personData.requires_sas_code || false,
+            price_list_id: personData.priceListId || null,
             updated_at: new Date().toISOString()
         };
         
@@ -2537,24 +2542,46 @@ export const feeCalculationService = {
             if (mapErr) throw mapErr;
             if (!maps || maps.length === 0) return []; 
 
-            // 5. Müvekkile Özel Fiyatları ve İskonto Oranını Çek 
+            // 5. Müvekkile Özel Fiyat Listesini (Tarifeyi) ve İskonto Oranını Çek 
             let clientCustomFees = {};
-            let clientDiscountRate = 0; // % bazında
+            let clientDiscountRate = 0; 
+            let activePriceListId = null;
 
             if (clientId) {
-                const [customFeesRes, discountRes] = await Promise.all([
-                    supabase.from('client_fee_tariffs').select('*').eq('client_id', String(clientId)),
-                    supabase.from('client_discounts').select('discount_rate').eq('client_id', String(clientId)).maybeSingle()
-                ]);
+                // 5.1 Önce müvekkilin bir price_list_id'si veya discount_rate'i var mı ona bak
+                const { data: personData } = await supabase.from('persons')
+                    .select('price_list_id')
+                    .eq('id', String(clientId))
+                    .maybeSingle();
 
-                if (customFeesRes.data) {
-                    customFeesRes.data.forEach(cf => { 
-                        clientCustomFees[cf.fee_id] = { amount: cf.custom_amount, currency: cf.custom_currency }; 
-                    });
+                if (personData && personData.price_list_id) {
+                    activePriceListId = personData.price_list_id;
                 }
+
+                // 5.2 İskonto oranını çek
+                const { data: discountRes } = await supabase.from('client_discounts')
+                    .select('discount_rate')
+                    .eq('client_id', String(clientId))
+                    .maybeSingle();
                 
-                if (discountRes.data) {
-                    clientDiscountRate = parseFloat(discountRes.data.discount_rate) || 0;
+                if (discountRes) {
+                    clientDiscountRate = parseFloat(discountRes.discount_rate) || 0;
+                }
+
+                // 5.3 Eğer müvekkilin özel bir fiyat listesi (tarifesi) varsa, o listedeki kalemleri getir
+                if (activePriceListId) {
+                    const { data: tariffItems } = await supabase.from('price_list_items')
+                        .select('*')
+                        .eq('price_list_id', activePriceListId);
+
+                    if (tariffItems) {
+                        // Sadece "katalogdaki değeri ezen (fee_id dolu)" kalemleri sözlüğe ekle
+                        tariffItems.forEach(cf => { 
+                            if (cf.fee_id) {
+                                clientCustomFees[cf.fee_id] = { amount: cf.amount, currency: cf.currency }; 
+                            }
+                        });
+                    }
                 }
             }
 

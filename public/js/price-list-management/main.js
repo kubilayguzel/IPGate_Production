@@ -5,7 +5,7 @@ import { loadSharedLayout } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Sayfa iskeletini ve shared layout'u yükle
+    // Sayfa iskeletini ve sol menüyü yükle
     await loadSharedLayout({ activeMenuLink: 'price-lists.html' });
     
     // Yüklenen arayüze active sınıfı ver ki sekmeler ve scriptler çalışsın

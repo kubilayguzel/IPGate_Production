@@ -21,7 +21,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             uiManager.renderPriceLists(dataManager.allPriceLists);
             uiManager.renderAssignments(dataManager.allPersons, dataManager.allPriceLists);
             
-            // 🔥 YENİ: Klonlama ve Kalem Seçim Listelerini Doldur
             uiManager.populateCopyDropdown(dataManager.allPriceLists);
             uiManager.populateFeeDropdown(dataManager.allFeeTariffs);
         } catch (e) {
@@ -31,6 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // TAB 1: STANDART FİYAT GÜNCELLEME
     document.getElementById('standardTariffsTableBody')?.addEventListener('click', async (e) => {
         const btnSave = e.target.closest('.save-std-fee-btn');
         if (btnSave) {
@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // TAB 3: MÜVEKKİL İSKONTO VE ŞABLON ATAMA
     document.getElementById('assignmentsTableBody')?.addEventListener('click', async (e) => {
         const btnSave = e.target.closest('.save-person-settings-btn');
         if (btnSave) {
@@ -66,16 +67,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // YENİ ŞABLON MODALI
     document.getElementById('btnCreatePriceList')?.addEventListener('click', () => {
         document.getElementById('priceListForm').reset();
         $('#priceListModal').modal('show');
     });
 
-    // 🔥 YENİ: Kopyalama Seçeneğini (plCopyFrom) Okuyup Backende Gönderme
     document.getElementById('btnSavePriceList')?.addEventListener('click', async () => {
         const name = document.getElementById('plName').value.trim();
         const desc = document.getElementById('plDescription').value.trim();
-        const copyFrom = document.getElementById('plCopyFrom').value; // Seçili Kopyalama Değeri
+        const copyFrom = document.getElementById('plCopyFrom').value; 
         
         if (!name) { showNotification("Şablon adı zorunludur.", "warning"); return; }
 
@@ -89,18 +90,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // 🔥 YENİ: TABLO İÇİNDEKİ YÖNET BUTONUNA BASINCA LİSTEYİ GİZLE, DETAYI AÇ
     document.getElementById('priceListsTableBody')?.addEventListener('click', async (e) => {
         const btnManage = e.target.closest('.manage-items-btn');
         if (btnManage) {
             const id = btnManage.dataset.id;
             document.getElementById('currentPriceListId').value = id;
-            document.getElementById('tariffModalTitle').innerHTML = `<i class="fas fa-tags mr-2"></i> ${btnManage.dataset.name}`;
+            
+            // UI Manager ile geçişi yapıyoruz
+            uiManager.toggleTemplateView(true, btnManage.dataset.name);
             
             uiManager.toggleLoading(true);
             const items = await dataManager.fetchItemsForList(id);
             uiManager.renderTariffItems(items, dataManager.allFeeTariffs);
             uiManager.toggleLoading(false);
-            $('#tariffItemsModal').modal('show');
         }
 
         const btnDelete = e.target.closest('.delete-list-btn');
@@ -111,6 +114,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // 🔥 YENİ: DETAY GÖRÜNÜMÜNDEN "LİSTEYE DÖN" BUTONU
+    document.getElementById('btnBackToTemplates')?.addEventListener('click', async () => {
+        uiManager.toggleTemplateView(false);
+        await loadAndRender(); // Belki fiyat/kalem ekledik, şablon listesindeki kalem sayısı güncellensin
+    });
+
+
+    // ŞABLON İÇİNE ÖZEL FİYAT KALEMİ EKLEME
     document.getElementById('itemFeeId')?.addEventListener('change', (e) => {
         const customNameContainer = document.getElementById('customNameContainer');
         if (e.target.value !== "") { customNameContainer.style.display = 'none'; document.getElementById('itemCustomName').value = ""; } 
@@ -139,7 +150,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // 🔥 YENİ: ŞABLON İÇİNDEKİ ÖZEL FİYATI DOĞRUDAN GÜNCELLEME VE SİLME
     document.getElementById('tariffItemsTableBody')?.addEventListener('click', async (e) => {
+        
+        // GÜNCELLEME
+        const btnUpdate = e.target.closest('.update-custom-fee-btn');
+        if (btnUpdate) {
+            const itemId = btnUpdate.dataset.id;
+            const inputEl = document.querySelector(`.custom-fee-input[data-id="${itemId}"]`);
+            if (inputEl) {
+                uiManager.toggleLoading(true);
+                const { error } = await dataManager.updatePriceListItem(itemId, inputEl.value);
+                uiManager.toggleLoading(false);
+                if (error) showNotification("Fiyat güncellenemedi.", "error");
+                else showNotification("Özel fiyat başarıyla güncellendi!", "success");
+            }
+            return;
+        }
+
+        // SİLME
         const btnDelete = e.target.closest('.delete-item-btn');
         if (btnDelete) {
             uiManager.toggleLoading(true);

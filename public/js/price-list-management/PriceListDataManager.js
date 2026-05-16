@@ -46,15 +46,12 @@ export class PriceListDataManager {
         return await supabase.from('fee_tariffs').update({ amount: parseFloat(newAmount) }).eq('id', feeId);
     }
 
-    // 🔥 YENİ: KOPYALAMA (CLONE) ÖZELLİKLİ TARİFE OLUŞTURMA
     async createPriceList(name, description, copyFromValue) {
-        // 1. Önce şablonun başlığını veritabanına ekle
         const { data: newList, error: createErr } = await supabase.from('price_lists').insert({ name, description }).select().single();
         if (createErr || !newList) return { error: createErr || new Error("Şablon oluşturulamadı.") };
 
         const newListId = newList.id;
 
-        // 2. Eğer kopyalama seçeneği STANDART KATALOG seçildiyse:
         if (copyFromValue === 'standard') {
             const { data: stdFees } = await supabase.from('fee_tariffs').select('*');
             if (stdFees && stdFees.length > 0) {
@@ -68,7 +65,6 @@ export class PriceListDataManager {
                 await supabase.from('price_list_items').insert(inserts);
             }
         } 
-        // 3. Eğer kopyalama seçeneği BAŞKA BİR ÖZEL ŞABLON seçildiyse:
         else if (copyFromValue && copyFromValue !== '') {
             const { data: existingItems } = await supabase.from('price_list_items').select('*').eq('price_list_id', copyFromValue);
             if (existingItems && existingItems.length > 0) {
@@ -92,7 +88,7 @@ export class PriceListDataManager {
     }
 
     async fetchItemsForList(priceListId) {
-        const { data } = await supabase.from('price_list_items').select('*').eq('price_list_id', priceListId);
+        const { data } = await supabase.from('price_list_items').select('*').eq('price_list_id', priceListId).order('created_at');
         return data || [];
     }
 
@@ -106,6 +102,11 @@ export class PriceListDataManager {
             currency: currency
         };
         return await supabase.from('price_list_items').insert(payload);
+    }
+
+    // 🔥 YENİ: ŞABLON İÇİNDEKİ ÖZEL FİYATI GÜNCELLEME
+    async updatePriceListItem(itemId, newAmount) {
+        return await supabase.from('price_list_items').update({ amount: parseFloat(newAmount) }).eq('id', itemId);
     }
 
     async deletePriceListItem(itemId) {

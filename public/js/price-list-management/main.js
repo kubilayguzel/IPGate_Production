@@ -1,17 +1,13 @@
-// public/js/price-list-management/main.js
 import { PriceListDataManager } from './PriceListDataManager.js';
 import { PriceListUIManager } from './PriceListUIManager.js';
 import { loadSharedLayout } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Sayfa iskeletini ve sol menüyü yükle
     await loadSharedLayout({ activeMenuLink: 'price-lists.html' });
     
-    // Yüklenen arayüze active sınıfı ver ki sekmeler ve scriptler çalışsın
     $('a[data-toggle="tab"]').on('click', function (e) {
-        e.preventDefault();
-        $(this).tab('show');
+        e.preventDefault(); $(this).tab('show');
     });
 
     const dataManager = new PriceListDataManager();
@@ -21,8 +17,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         uiManager.toggleLoading(true);
         try {
             await dataManager.fetchAllData();
+            uiManager.renderStandardTariffs(dataManager.allFeeTariffs);
             uiManager.renderPriceLists(dataManager.allPriceLists);
             uiManager.renderAssignments(dataManager.allPersons, dataManager.allPriceLists);
+            
+            // 🔥 YENİ: Klonlama ve Kalem Seçim Listelerini Doldur
+            uiManager.populateCopyDropdown(dataManager.allPriceLists);
             uiManager.populateFeeDropdown(dataManager.allFeeTariffs);
         } catch (e) {
             showNotification("Veriler yüklenirken hata oluştu.", "error");
@@ -31,63 +31,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // --- ELEMENT OLAYLARI VE TETİKLEYİCİLER ---
-    
+    document.getElementById('standardTariffsTableBody')?.addEventListener('click', async (e) => {
+        const btnSave = e.target.closest('.save-std-fee-btn');
+        if (btnSave) {
+            const feeId = btnSave.dataset.id;
+            const inputEl = document.querySelector(`.std-fee-input[data-id="${feeId}"]`);
+            if (inputEl) {
+                uiManager.toggleLoading(true);
+                const { error } = await dataManager.updateStandardFee(feeId, inputEl.value);
+                uiManager.toggleLoading(false);
+                if (error) showNotification("Fiyat güncellenemedi.", "error");
+                else showNotification("Standart fiyat başarıyla güncellendi!", "success");
+            }
+        }
+    });
+
+    document.getElementById('assignmentsTableBody')?.addEventListener('click', async (e) => {
+        const btnSave = e.target.closest('.save-person-settings-btn');
+        if (btnSave) {
+            const personId = btnSave.dataset.personId;
+            const discountInput = document.querySelector(`.discount-input[data-person-id="${personId}"]`);
+            const selectList = document.querySelector(`.assign-list-select[data-person-id="${personId}"]`);
+            
+            uiManager.toggleLoading(true);
+            const { error } = await dataManager.assignPersonSettings(personId, selectList.value, discountInput.value);
+            
+            if (error) {
+                showNotification("Ayarlar kaydedilemedi.", "error");
+                uiManager.toggleLoading(false);
+            } else {
+                showNotification("Müvekkil finans ayarları güncellendi!", "success");
+                await loadAndRender(); 
+            }
+        }
+    });
+
     document.getElementById('btnCreatePriceList')?.addEventListener('click', () => {
         document.getElementById('priceListForm').reset();
         $('#priceListModal').modal('show');
     });
 
+    // 🔥 YENİ: Kopyalama Seçeneğini (plCopyFrom) Okuyup Backende Gönderme
     document.getElementById('btnSavePriceList')?.addEventListener('click', async () => {
         const name = document.getElementById('plName').value.trim();
         const desc = document.getElementById('plDescription').value.trim();
-        if (!name) { showNotification("Lütfen tarife adı giriniz.", "warning"); return; }
+        const copyFrom = document.getElementById('plCopyFrom').value; // Seçili Kopyalama Değeri
+        
+        if (!name) { showNotification("Şablon adı zorunludur.", "warning"); return; }
 
         uiManager.toggleLoading(true);
-        const { error } = await dataManager.createPriceList(name, desc);
-        uiManager.toggleLoading(false);
-
-        if (error) { showNotification("Tarife oluşturulamadı.", "error"); }
+        const { error } = await dataManager.createPriceList(name, desc, copyFrom);
+        if (error) { showNotification("Oluşturulamadı.", "error"); uiManager.toggleLoading(false); }
         else {
-            showNotification("Tarife başarıyla oluşturuldu.", "success");
+            showNotification(copyFrom ? "Şablon kopyalanarak oluşturuldu." : "Şablon oluşturuldu.", "success");
             $('#priceListModal').modal('hide');
             await loadAndRender();
-        }
-    });
-
-    document.getElementById('itemFeeId')?.addEventListener('change', (e) => {
-        const customNameContainer = document.getElementById('customNameContainer');
-        if (e.target.value !== "") {
-            customNameContainer.style.display = 'none';
-            document.getElementById('itemCustomName').value = "";
-        } else {
-            customNameContainer.style.display = 'block';
-        }
-    });
-
-    document.getElementById('btnAddItemToTemplate')?.addEventListener('click', async () => {
-        const priceListId = document.getElementById('currentPriceListId').value;
-        const feeId = document.getElementById('itemFeeId').value;
-        const customName = document.getElementById('itemCustomName').value.trim();
-        const feeType = document.getElementById('itemFeeType').value;
-        const amount = document.getElementById('itemAmount').value;
-        const currency = document.getElementById('itemCurrency').value;
-
-        if (!feeId && !customName) { showNotification("Lütfen bir hizmet seçin veya özel isim girin.", "warning"); return; }
-        if (!amount) { showNotification("Lütfen anlaşılan fiyatı girin.", "warning"); return; }
-
-        uiManager.toggleLoading(true);
-        const { error } = await dataManager.addPriceListItem(priceListId, feeId, customName, feeType, amount, currency);
-        
-        if (error) {
-            showNotification("Bu kalem tarifede zaten ekli olabilir.", "error");
-            uiManager.toggleLoading(false);
-        } else {
-            showNotification("Kalem tarifeye eklendi.", "success");
-            document.getElementById('itemAmount').value = "";
-            const freshItems = await dataManager.fetchItemsForList(priceListId);
-            uiManager.renderTariffItems(freshItems, dataManager.allFeeTariffs);
-            uiManager.toggleLoading(false);
         }
     });
 
@@ -95,74 +93,64 @@ document.addEventListener('DOMContentLoaded', async () => {
         const btnManage = e.target.closest('.manage-items-btn');
         if (btnManage) {
             const id = btnManage.dataset.id;
-            const name = btnManage.dataset.name;
             document.getElementById('currentPriceListId').value = id;
-            document.getElementById('tariffModalTitle').innerHTML = `<i class="fas fa-tags mr-2"></i> ${name} - Fiyat Düzenleme`;
+            document.getElementById('tariffModalTitle').innerHTML = `<i class="fas fa-tags mr-2"></i> ${btnManage.dataset.name}`;
             
             uiManager.toggleLoading(true);
             const items = await dataManager.fetchItemsForList(id);
             uiManager.renderTariffItems(items, dataManager.allFeeTariffs);
             uiManager.toggleLoading(false);
-            
             $('#tariffItemsModal').modal('show');
-            return;
         }
 
         const btnDelete = e.target.closest('.delete-list-btn');
-        if (btnDelete) {
-            if (confirm("Bu tarife şablonunu silmek istediğinize emin misiniz? (Bu tarifeyi kullanan tüm müvekkiller standart genel tarifeye geri dönecektir!)")) {
-                uiManager.toggleLoading(true);
-                await dataManager.deletePriceList(btnDelete.dataset.id);
-                await loadAndRender();
-            }
+        if (btnDelete && confirm("Şablonu silmek istediğinize emin misiniz?")) {
+            uiManager.toggleLoading(true);
+            await dataManager.deletePriceList(btnDelete.dataset.id);
+            await loadAndRender();
+        }
+    });
+
+    document.getElementById('itemFeeId')?.addEventListener('change', (e) => {
+        const customNameContainer = document.getElementById('customNameContainer');
+        if (e.target.value !== "") { customNameContainer.style.display = 'none'; document.getElementById('itemCustomName').value = ""; } 
+        else { customNameContainer.style.display = 'block'; }
+    });
+
+    document.getElementById('btnAddItemToTemplate')?.addEventListener('click', async () => {
+        const listId = document.getElementById('currentPriceListId').value;
+        const feeId = document.getElementById('itemFeeId').value;
+        const customName = document.getElementById('itemCustomName').value.trim();
+        const type = document.getElementById('itemFeeType').value;
+        const amount = document.getElementById('itemAmount').value;
+        const cur = document.getElementById('itemCurrency').value;
+
+        if (!feeId && !customName) { showNotification("Hizmet seçin veya isim girin.", "warning"); return; }
+        if (!amount) { showNotification("Fiyat girin.", "warning"); return; }
+
+        uiManager.toggleLoading(true);
+        const { error } = await dataManager.addPriceListItem(listId, feeId, customName, type, amount, cur);
+        if (error) { showNotification("Bu kalem zaten ekli olabilir.", "error"); uiManager.toggleLoading(false); } 
+        else {
+            document.getElementById('itemAmount').value = "";
+            const items = await dataManager.fetchItemsForList(listId);
+            uiManager.renderTariffItems(items, dataManager.allFeeTariffs);
+            uiManager.toggleLoading(false);
         }
     });
 
     document.getElementById('tariffItemsTableBody')?.addEventListener('click', async (e) => {
-        const btnDeleteItem = e.target.closest('.delete-item-btn');
-        if (btnDeleteItem) {
-            const itemId = btnDeleteItem.dataset.id;
-            const priceListId = document.getElementById('currentPriceListId').value;
-            
+        const btnDelete = e.target.closest('.delete-item-btn');
+        if (btnDelete) {
             uiManager.toggleLoading(true);
-            await dataManager.deletePriceListItem(itemId);
-            const freshItems = await dataManager.fetchItemsForList(priceListId);
-            uiManager.renderTariffItems(freshItems, dataManager.allFeeTariffs);
+            await dataManager.deletePriceListItem(btnDelete.dataset.id);
+            const items = await dataManager.fetchItemsForList(document.getElementById('currentPriceListId').value);
+            uiManager.renderTariffItems(items, dataManager.allFeeTariffs);
             uiManager.toggleLoading(false);
-            showNotification("Kalem şablondan silindi.", "success");
         }
     });
 
-    document.getElementById('assignmentsTableBody')?.addEventListener('change', async (e) => {
-        const select = e.target.closest('.assign-list-select');
-        if (select) {
-            const personId = select.dataset.personId;
-            const priceListId = select.value;
-
-            uiManager.toggleLoading(true);
-            const { error } = await dataManager.assignPriceListToPerson(personId, priceListId);
-            uiManager.toggleLoading(false);
-
-            if (error) {
-                showNotification("Atama gerçekleştirilemedi.", "error");
-            } else {
-                showNotification("Müvekkil tarifesi başarıyla güncellendi.", "success");
-                const badge = document.getElementById(`badge-p-${personId}`);
-                if (badge) {
-                    const selectedText = select.options[select.selectedIndex].text;
-                    badge.innerHTML = priceListId ? selectedText : '<i class="fas fa-globe mr-1"></i> Standart Genel Tarife';
-                    badge.className = priceListId ? 'badge badge-primary px-3 py-2 shadow-sm' : 'badge badge-light border text-secondary px-3 py-2';
-                }
-            }
-        }
-    });
-
-    document.querySelectorAll('.close-modal-btn').forEach(b => {
-        b.addEventListener('click', e => {
-            const modal = e.target.closest('.modal');
-            if (modal) $(modal).modal('hide');
-        });
-    });
+    document.querySelectorAll('.close-modal-btn').forEach(b => b.addEventListener('click', e => $(e.target.closest('.modal')).modal('hide')));
 
     await loadAndRender();
 });

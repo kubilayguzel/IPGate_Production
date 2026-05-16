@@ -1,4 +1,3 @@
-// public/js/price-list-management/PriceListDataManager.js
 import { supabase } from '../../supabase-config.js';
 
 export class PriceListDataManager {
@@ -11,23 +10,30 @@ export class PriceListDataManager {
 
     async fetchAllData() {
         try {
-            const [plRes, itemRes, personRes, feeRes] = await Promise.all([
+            const [plRes, itemRes, personRes, feeRes, discRes] = await Promise.all([
                 supabase.from('price_lists').select('*').order('name'),
                 supabase.from('price_list_items').select('*'),
                 supabase.from('persons').select('id, name, type, price_list_id').order('name'),
-                supabase.from('fee_tariffs').select('id, name, fee_type, amount, currency')
+                supabase.from('fee_tariffs').select('*').order('id'),
+                supabase.from('client_discounts').select('*')
             ]);
 
             this.allFeeTariffs = feeRes.data || [];
-            this.allPersons = personRes.data || [];
             
             const items = itemRes.data || [];
-
             this.allPriceLists = (plRes.data || []).map(list => ({
                 ...list,
-                itemCount: items.filter(i => i.price_list_id === list.id).length,
-                items: items.filter(i => i.price_list_id === list.id)
+                itemCount: items.filter(i => i.price_list_id === list.id).length
             }));
+
+            const discounts = discRes.data || [];
+            this.allPersons = (personRes.data || []).map(p => {
+                const clientDiscount = discounts.find(d => d.client_id === p.id);
+                return {
+                    ...p,
+                    discount_rate: clientDiscount ? parseFloat(clientDiscount.discount_rate) : 0
+                };
+            });
 
             return true;
         } catch (error) {
@@ -36,8 +42,49 @@ export class PriceListDataManager {
         }
     }
 
-    async createPriceList(name, description) {
-        return await supabase.from('price_lists').insert({ name, description });
+    async updateStandardFee(feeId, newAmount) {
+        return await supabase.from('fee_tariffs').update({ amount: parseFloat(newAmount) }).eq('id', feeId);
+    }
+
+    // 🔥 YENİ: KOPYALAMA (CLONE) ÖZELLİKLİ TARİFE OLUŞTURMA
+    async createPriceList(name, description, copyFromValue) {
+        // 1. Önce şablonun başlığını veritabanına ekle
+        const { data: newList, error: createErr } = await supabase.from('price_lists').insert({ name, description }).select().single();
+        if (createErr || !newList) return { error: createErr || new Error("Şablon oluşturulamadı.") };
+
+        const newListId = newList.id;
+
+        // 2. Eğer kopyalama seçeneği STANDART KATALOG seçildiyse:
+        if (copyFromValue === 'standard') {
+            const { data: stdFees } = await supabase.from('fee_tariffs').select('*');
+            if (stdFees && stdFees.length > 0) {
+                const inserts = stdFees.map(f => ({
+                    price_list_id: newListId,
+                    fee_id: f.id,
+                    fee_type: f.fee_type,
+                    amount: f.amount,
+                    currency: f.currency
+                }));
+                await supabase.from('price_list_items').insert(inserts);
+            }
+        } 
+        // 3. Eğer kopyalama seçeneği BAŞKA BİR ÖZEL ŞABLON seçildiyse:
+        else if (copyFromValue && copyFromValue !== '') {
+            const { data: existingItems } = await supabase.from('price_list_items').select('*').eq('price_list_id', copyFromValue);
+            if (existingItems && existingItems.length > 0) {
+                const inserts = existingItems.map(item => ({
+                    price_list_id: newListId,
+                    fee_id: item.fee_id,
+                    custom_item_name: item.custom_item_name,
+                    fee_type: item.fee_type,
+                    amount: item.amount,
+                    currency: item.currency
+                }));
+                await supabase.from('price_list_items').insert(inserts);
+            }
+        }
+
+        return { error: null, id: newListId };
     }
 
     async deletePriceList(id) {
@@ -46,8 +93,7 @@ export class PriceListDataManager {
 
     async fetchItemsForList(priceListId) {
         const { data } = await supabase.from('price_list_items').select('*').eq('price_list_id', priceListId);
-        this.currentTemplateItems = data || [];
-        return this.currentTemplateItems;
+        return data || [];
     }
 
     async addPriceListItem(priceListId, feeId, customName, feeType, amount, currency) {
@@ -66,9 +112,20 @@ export class PriceListDataManager {
         return await supabase.from('price_list_items').delete().eq('id', itemId);
     }
 
-    async assignPriceListToPerson(personId, priceListId) {
-        return await supabase.from('persons')
+    async assignPersonSettings(personId, priceListId, discountRate) {
+        const { error: pErr } = await supabase.from('persons')
             .update({ price_list_id: priceListId || null })
             .eq('id', personId);
+        if (pErr) return { error: pErr };
+
+        await supabase.from('client_discounts').delete().eq('client_id', personId);
+        
+        if (parseFloat(discountRate) > 0) {
+            const { error: dErr } = await supabase.from('client_discounts')
+                .insert({ client_id: personId, discount_rate: parseFloat(discountRate) });
+            if (dErr) return { error: dErr };
+        }
+
+        return { error: null };
     }
 }

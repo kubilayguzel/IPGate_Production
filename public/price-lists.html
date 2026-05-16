@@ -17,38 +17,62 @@
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h1 class="h3 mb-0 text-gray-800 font-weight-bold">Finansal Ücret Tarifeleri</h1>
-                    <p class="text-muted small mb-0">Müvekkillere ve gruplara özel tarife fiyat listelerinin yönetimi</p>
+                    <p class="text-muted small mb-0">Standart fiyat kataloğu, iskontolar ve özel tarife yönetim merkezi</p>
                 </div>
                 <div>
                     <button id="btnCreatePriceList" class="btn btn-primary shadow-sm font-weight-bold">
-                        <i class="fas fa-plus-circle mr-2"></i> Yeni Tarife Şablonu Oluştur
+                        <i class="fas fa-plus-circle mr-2"></i> Yeni Özel Tarife Şablonu
                     </button>
                 </div>
             </div>
 
             <ul class="nav nav-tabs mb-3 border-bottom-0" id="priceListsTabs" role="tablist">
                 <li class="nav-item">
-                    <a class="nav-link active font-weight-bold" data-toggle="tab" href="#content-tariffs" style="border-radius: 8px 8px 0 0;">
-                        <i class="fas fa-list-alt mr-2"></i> Tarife Şablonları
+                    <a class="nav-link active font-weight-bold" data-toggle="tab" href="#content-standard" style="border-radius: 8px 8px 0 0;">
+                        <i class="fas fa-book-open mr-2 text-primary"></i> Standart Fiyat Kataloğu
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link font-weight-bold text-secondary" data-toggle="tab" href="#content-templates" style="border-radius: 8px 8px 0 0;">
+                        <i class="fas fa-list-alt mr-2"></i> Özel Tarife Şablonları
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link font-weight-bold text-secondary" data-toggle="tab" href="#content-assignments" style="border-radius: 8px 8px 0 0;">
-                        <i class="fas fa-user-check mr-2"></i> Müvekkil Atamaları
+                        <i class="fas fa-user-check mr-2"></i> Müvekkil Atamaları (İskonto & Tarife)
                     </a>
                 </li>
             </ul>
 
             <div class="tab-content card shadow-sm border-0 bg-white rounded-lg" style="border-top-left-radius: 0 !important;">
-                <div class="tab-pane fade show active p-0" id="content-tariffs">
+                
+                <div class="tab-pane fade show active p-0" id="content-standard">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light text-secondary">
+                                <tr>
+                                    <th class="border-top-0 border-bottom">ID</th>
+                                    <th class="border-top-0 border-bottom">Hizmet / Harç Adı</th>
+                                    <th class="border-top-0 border-bottom">Tür</th>
+                                    <th class="border-top-0 border-bottom">Standart Fiyat</th>
+                                    <th class="text-center border-top-0 border-bottom">İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="standardTariffsTableBody">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade p-0" id="content-templates">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
                             <thead class="bg-light text-secondary">
                                 <tr>
                                     <th style="width: 5%" class="border-top-0 border-bottom">#</th>
-                                    <th style="width: 25%" class="border-top-0 border-bottom">Tarife Adı</th>
+                                    <th style="width: 25%" class="border-top-0 border-bottom">Şablon Adı</th>
                                     <th style="width: 40%" class="border-top-0 border-bottom">Açıklama</th>
-                                    <th style="width: 15%" class="text-center border-top-0 border-bottom">Kalem Sayısı</th>
+                                    <th style="width: 15%" class="text-center border-top-0 border-bottom">Özel Fiyat Sayısı</th>
                                     <th style="width: 15%" class="text-center border-top-0 border-bottom">İşlemler</th>
                                 </tr>
                             </thead>
@@ -64,8 +88,9 @@
                             <thead class="bg-light text-secondary">
                                 <tr>
                                     <th class="border-top-0 border-bottom">Müvekkil / Cari Adı</th>
-                                    <th class="border-top-0 border-bottom">Mevcut Atanmış Tarife</th>
-                                    <th class="text-center border-top-0 border-bottom" style="width: 25%">Tarife Değiştir / Ata</th>
+                                    <th class="text-center border-top-0 border-bottom" style="width: 130px;">İskonto (%)</th>
+                                    <th class="text-center border-top-0 border-bottom" style="width: 260px;">Özel Tarife Şablonu</th>
+                                    <th class="text-center border-top-0 border-bottom" style="width: 100px;">Kaydet</th>
                                 </tr>
                             </thead>
                             <tbody id="assignmentsTableBody">
@@ -73,6 +98,7 @@
                         </table>
                     </div>
                 </div>
+
             </div>
         </div>
     </main>
@@ -87,12 +113,20 @@
                 <div class="modal-body pt-2 pb-4">
                     <form id="priceListForm">
                         <div class="form-group">
-                            <label class="font-weight-bold text-dark small">Tarife Adı <span class="text-danger">*</span></label>
-                            <input type="text" id="plName" class="form-control bg-light border-0" placeholder="Örn: VIP Müvekkil Tarifesi" required>
+                            <label class="font-weight-bold text-dark small">Şablon Adı <span class="text-danger">*</span></label>
+                            <input type="text" id="plName" class="form-control bg-light border-0" placeholder="Örn: Evreka VIP Listesi" required>
                         </div>
+                        
+                        <div class="form-group">
+                            <label class="font-weight-bold text-dark small text-primary"><i class="fas fa-copy mr-1"></i> Şablonu Kopyala (İsteğe Bağlı)</label>
+                            <select id="plCopyFrom" class="form-control bg-light border-0 font-weight-bold">
+                                </select>
+                            <small class="text-muted mt-1 d-block" style="font-size: 0.75rem;">Hızlı başlamak için mevcut standart fiyatları veya başka bir tarifeyi klonlayabilirsiniz.</small>
+                        </div>
+
                         <div class="form-group mb-0">
                             <label class="font-weight-bold text-dark small">Açıklama</label>
-                            <textarea id="plDescription" class="form-control bg-light border-0" rows="3" placeholder="Bu tarifenin kullanım detayları..."></textarea>
+                            <textarea id="plDescription" class="form-control bg-light border-0" rows="2"></textarea>
                         </div>
                     </form>
                 </div>
@@ -108,28 +142,22 @@
         <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
             <div class="modal-content border-0 shadow-lg" style="border-radius: 12px; overflow: hidden;">
                 <div class="modal-header bg-dark text-white py-3 border-0">
-                    <h5 class="modal-title font-weight-bold" id="tariffModalTitle">Tarife Kalemleri</h5>
-                    <button type="button" class="close text-white close-modal-btn" data-dismiss="modal" style="opacity: 0.8;">&times;</button>
+                    <h5 class="modal-title font-weight-bold" id="tariffModalTitle">Şablon Fiyatları</h5>
+                    <button type="button" class="close text-white close-modal-btn" data-dismiss="modal">&times;</button>
                 </div>
                 <div class="modal-body p-0 bg-light">
                     <div class="row no-gutters">
                         <div class="col-md-4 p-4 border-right bg-white">
                             <h6 class="font-weight-bold text-primary mb-4"><i class="fas fa-plus-circle mr-2"></i>Yeni Fiyat Ekle</h6>
                             <input type="hidden" id="currentPriceListId">
-                            
                             <div class="form-group">
                                 <label class="font-weight-bold small text-dark">Katalog Seçimi</label>
-                                <select id="itemFeeId" class="form-control bg-light border-0">
-                                    <option value="">-- Katalog Dışı (Özel İsim Belirle) --</option>
-                                </select>
-                                <small class="text-muted mt-1 d-block" style="font-size: 0.75rem;">Standart hizmet kataloğundaki bir fiyatı ezmek için seçin.</small>
+                                <select id="itemFeeId" class="form-control bg-light border-0"><option value="">-- Katalog Dışı Özel İsim --</option></select>
                             </div>
-                            
                             <div class="form-group" id="customNameContainer">
-                                <label class="font-weight-bold small text-dark">Özel Kalem/Hizmet Adı <span class="text-danger">*</span></label>
-                                <input type="text" id="itemCustomName" class="form-control bg-light border-0" placeholder="Örn: Özel Yıllık Danışmanlık">
+                                <label class="font-weight-bold small text-dark">Özel İsim <span class="text-danger">*</span></label>
+                                <input type="text" id="itemCustomName" class="form-control bg-light border-0" placeholder="Örn: Özel Danışmanlık">
                             </div>
-                            
                             <div class="form-group">
                                 <label class="font-weight-bold small text-dark">Hizmet Türü</label>
                                 <select id="itemFeeType" class="form-control bg-light border-0">
@@ -137,43 +165,35 @@
                                     <option value="Harç">TÜRKPATENT Resmi Harç</option>
                                 </select>
                             </div>
-                            
                             <div class="form-row">
                                 <div class="form-group col-md-7">
                                     <label class="font-weight-bold small text-dark">Anlaşılan Fiyat <span class="text-danger">*</span></label>
-                                    <input type="number" id="itemAmount" class="form-control bg-light border-0 font-weight-bold text-success" step="0.01" placeholder="0.00" required>
+                                    <input type="number" id="itemAmount" class="form-control bg-light border-0 font-weight-bold text-success" step="0.01" required>
                                 </div>
                                 <div class="form-group col-md-5">
-                                    <label class="font-weight-bold small text-dark">Para Birimi</label>
+                                    <label class="font-weight-bold small text-dark">Kur</label>
                                     <select id="itemCurrency" class="form-control bg-light border-0">
-                                        <option value="TRY">TRY (₺)</option>
-                                        <option value="EUR">EUR (€)</option>
-                                        <option value="USD">USD ($)</option>
+                                        <option value="TRY">TRY (₺)</option><option value="EUR">EUR (€)</option><option value="USD">USD ($)</option>
                                     </select>
                                 </div>
                             </div>
-                            
-                            <button type="button" id="btnAddItemToTemplate" class="btn btn-primary btn-block font-weight-bold mt-3 shadow-sm py-2">
-                                <i class="fas fa-check mr-2"></i> Şablona Ekle
-                            </button>
+                            <button type="button" id="btnAddItemToTemplate" class="btn btn-primary btn-block font-weight-bold mt-3 py-2"><i class="fas fa-check mr-2"></i> Şablona Ekle</button>
                         </div>
-
                         <div class="col-md-8 p-0 bg-light d-flex flex-column">
-                            <div class="p-3 border-bottom bg-white d-flex justify-content-between align-items-center">
+                            <div class="p-3 border-bottom bg-white">
                                 <h6 class="font-weight-bold text-secondary mb-0"><i class="fas fa-tags mr-2"></i>Bu Şablona Eklenen Özel Fiyatlar</h6>
                             </div>
                             <div class="flex-grow-1" style="max-height: 500px; overflow-y: auto;">
                                 <table class="table table-hover align-middle mb-0 bg-white">
                                     <thead class="thead-light sticky-top" style="z-index: 1;">
                                         <tr>
-                                            <th class="border-top-0 border-bottom">Hizmet / İşlem Kalemi</th>
+                                            <th class="border-top-0 border-bottom">Kalem</th>
                                             <th class="border-top-0 border-bottom">Tür</th>
-                                            <th class="text-right border-top-0 border-bottom" style="width: 25%">Özel Fiyat</th>
-                                            <th class="text-center border-top-0 border-bottom" style="width: 10%">Sil</th>
+                                            <th class="text-right border-top-0 border-bottom">Özel Fiyat</th>
+                                            <th class="text-center border-top-0 border-bottom">Sil</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="tariffItemsTableBody">
-                                        </tbody>
+                                    <tbody id="tariffItemsTableBody"></tbody>
                                 </table>
                             </div>
                         </div>
@@ -186,7 +206,6 @@
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-    
     <script type="module" src="js/price-list-management/main.js"></script>
 </body>
 </html>

@@ -31,13 +31,12 @@ export class PriceListUIManager {
             titleEl.innerHTML = `<i class="fas fa-tags mr-2 text-primary"></i> ${title} <span class="text-muted ml-2" style="font-size: 1rem;">(Düzenleme Modu)</span>`;
         } else {
             listContainer.classList.remove('d-none');
-            // Listeyi tam sayfaya yaymak için w-100 sınıfını garanti altına alıyoruz
             listContainer.classList.add('w-100'); 
             detailContainer.classList.add('d-none');
         }
     }
 
-    // TAB 1: STANDART FİYATLAR (YAYVAN HÜCRELER)
+    // TAB 1: STANDART FİYATLAR
     renderStandardTariffs(tariffs) {
         if (!this.standardTariffsTableBody) return;
         this.standardTariffsTableBody.innerHTML = tariffs.map(t => `
@@ -51,14 +50,14 @@ export class PriceListUIManager {
                         <div class="input-group-append"><span class="input-group-text">${t.currency}</span></div>
                     </div>
                 </td>
-                <td class="text-center px-4" style="width: 120px;">
+                <td class="text-center px-4" style="width: 120px; min-width: 120px;">
                     <button class="btn btn-sm btn-primary save-std-fee-btn shadow-sm font-weight-bold w-100" data-id="${t.id}">Güncelle</button>
                 </td>
             </tr>
         `).join('');
     }
 
-    // TAB 2: ŞABLON LİSTESİ (YAYVAN HÜCRELER)
+    // TAB 2: ŞABLON ANA LİSTESİ (FLEX KUTUSU İLE YAN YANA SABİTLENDİ)
     renderPriceLists(lists) {
         if (!this.priceListsTableBody) return;
         if (lists.length === 0) {
@@ -71,15 +70,22 @@ export class PriceListUIManager {
                 <td class="px-4"><span class="font-weight-bold text-primary">${list.name}</span></td>
                 <td class="px-4"><span class="text-muted small">${list.description || '-'}</span></td>
                 <td class="text-center px-4"><span class="badge badge-light border text-info px-3 py-2 font-weight-bold shadow-sm">${list.itemCount} Özel Kalem</span></td>
-                <td class="text-center px-4">
-                    <button class="btn btn-sm btn-outline-primary manage-items-btn shadow-sm font-weight-bold" data-id="${list.id}" data-name="${list.name}"><i class="fas fa-edit mr-1"></i> Yönet</button>
-                    <button class="btn btn-sm btn-light text-danger delete-list-btn border ml-1" data-id="${list.id}"><i class="fas fa-trash-alt"></i></button>
+                
+                <td class="px-4" style="width: 180px; min-width: 180px;">
+                    <div class="d-flex flex-nowrap justify-content-center align-items-center">
+                        <button class="btn btn-sm btn-outline-primary manage-items-btn shadow-sm font-weight-bold" data-id="${list.id}" data-name="${list.name}">
+                            <i class="fas fa-edit mr-1"></i> Yönet
+                        </button>
+                        <button class="btn btn-sm btn-light text-danger delete-list-btn border ml-2" data-id="${list.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
                 </td>
             </tr>
         `).join('');
     }
 
-    // TAB 3: MÜVEKKİL ATAMALARI (YAYVAN HÜCRELER)
+    // TAB 3: MÜVEKKİL ATAMALARI
     renderAssignments(persons, priceLists) {
         if (!this.assignmentsTableBody) return;
 
@@ -110,7 +116,7 @@ export class PriceListUIManager {
                             ${priceLists.map(pl => `<option value="${pl.id}" ${p.price_list_id === pl.id ? 'selected' : ''}>${pl.name}</option>`).join('')}
                         </select>
                     </td>
-                    <td class="text-center px-4">
+                    <td class="text-center px-4" style="width: 120px; min-width: 120px;">
                         <button class="btn btn-sm btn-success save-person-settings-btn shadow-sm font-weight-bold w-100" data-person-id="${p.id}">Kaydet</button>
                     </td>
                 </tr>
@@ -118,7 +124,7 @@ export class PriceListUIManager {
         }).join('');
     }
 
-    // MODAL/DETAY İÇİ: ŞABLON KALEMLERİ (YAYVAN HÜCRELER)
+    // ŞABLON İÇİ: ÖZEL FİYAT SATIRLARI (FLEX KUTUSU İLE YAN YANA SABİTLENDİ)
     renderTariffItems(items, feeTariffs) {
         if (!this.tariffItemsTableBody) return;
         if(items.length === 0) {
@@ -142,9 +148,12 @@ export class PriceListUIManager {
                             <div class="input-group-append"><span class="input-group-text">${item.currency}</span></div>
                         </div>
                     </td>
-                    <td class="text-center px-4">
-                        <button class="btn btn-sm btn-primary update-custom-fee-btn shadow-sm font-weight-bold" data-id="${item.id}">Güncelle</button>
-                        <button class="btn btn-sm btn-light text-danger delete-item-btn border ml-1" data-id="${item.id}" title="Sil"><i class="fas fa-trash-alt"></i></button>
+                    
+                    <td class="px-4" style="width: 180px; min-width: 180px;">
+                        <div class="d-flex flex-nowrap justify-content-center align-items-center">
+                            <button class="btn btn-sm btn-primary update-custom-fee-btn shadow-sm font-weight-bold" data-id="${item.id}">Güncelle</button>
+                            <button class="btn btn-sm btn-light text-danger delete-item-btn border ml-2" data-id="${item.id}" title="Sil"><i class="fas fa-trash-alt"></i></button>
+                        </div>
                     </td>
                 </tr>
             `;

@@ -85,7 +85,7 @@ export class PriceListUIManager {
         `).join('');
     }
 
-    // 🔥 TAB 3: MÜVEKKİL ATAMALARI (Dar kolonlar ve uzun isimler için güncellendi)
+    // 🔥 TAB 3: MÜVEKKİL ATAMALARI (Genişlikler HTML ile uyumlu hale getirildi)
     renderAssignments(persons, priceLists) {
         if (!this.assignmentsTableBody) return;
 
@@ -103,19 +103,19 @@ export class PriceListUIManager {
                     <td class="px-4 client-name-td">
                         <span class="font-weight-bold text-dark">${p.name}</span> ${badgeHtml}
                     </td>
-                    <td class="px-4" style="width: 100px; min-width: 100px;">
+                    <td class="px-4" style="width: 130px; min-width: 130px;">
                         <div class="input-group input-group-sm">
                             <input type="number" class="form-control text-center font-weight-bold discount-input px-1" data-person-id="${p.id}" value="${p.discount_rate || 0}">
                             <div class="input-group-append"><span class="input-group-text px-1">%</span></div>
                         </div>
                     </td>
-                    <td class="px-4" style="width: 250px; min-width: 250px;">
+                    <td class="px-4" style="width: 300px; min-width: 300px;">
                         <select class="form-control form-control-sm bg-white font-weight-bold assign-list-select" data-person-id="${p.id}">
                             <option value="" ${!p.price_list_id ? 'selected' : ''}>-- Standart Katalog --</option>
                             ${priceLists.map(pl => `<option value="${pl.id}" ${p.price_list_id === pl.id ? 'selected' : ''}>${pl.name}</option>`).join('')}
                         </select>
                     </td>
-                    <td class="text-center px-4" style="width: 90px; min-width: 90px;">
+                    <td class="text-center px-4" style="width: 110px; min-width: 110px;">
                         <button class="btn btn-sm btn-outline-success save-person-settings-btn shadow-sm font-weight-bold w-100 px-1" data-person-id="${p.id}">Kaydet</button>
                     </td>
                 </tr>

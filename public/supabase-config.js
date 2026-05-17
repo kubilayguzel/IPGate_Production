@@ -1945,6 +1945,7 @@ export const accrualService = {
                     task_id: accrualData.taskId ? String(accrualData.taskId) : null,
                     status: accrualData.status || 'unpaid',
                     accrual_type: accrualData.accrualType || accrualData.type || null,
+                    department: accrualData.department || 'EVREKA',
                     payment_date: accrualData.paymentDate || null,
                     evreka_invoice_no: accrualData.evrekaInvoiceNo || null,
                     tpe_invoice_no: accrualData.tpeInvoiceNo || null,
@@ -1995,6 +1996,7 @@ export const accrualService = {
             const payload = {
                 status: updateData.status,
                 accrual_type: updateData.accrualType || updateData.type,
+                department: updateData.department,
                 payment_date: updateData.paymentDate,
                 evreka_invoice_no: updateData.evrekaInvoiceNo,
                 tpe_invoice_no: updateData.tpeInvoiceNo,
@@ -2072,12 +2074,10 @@ export const accrualService = {
             status: acc.status,
             accrualType: acc.accrual_type,
             type: acc.accrual_type,
+            department: acc.department || 'EVREKA',
             totalAmount: acc.total_amount,
             remainingAmount: acc.remaining_amount,
-            
-            // 🔥 YENİ: Kalemler Eklendi
             items: acc.accrual_items || [], 
-
             officialFeeAmount: acc.official_fee_amount,
             officialFeeCurrency: acc.official_fee_currency,
             officialFee: { amount: acc.official_fee_amount, currency: acc.official_fee_currency },

@@ -877,9 +877,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 try {
                     await this.dataManager.updateAccrual(document.getElementById('editAccrualId').value, formResult.data, (formResult.data.files||[])[0]);
                     this.uiManager.closeModal('editAccrualModal');
-                    this.renderPage();
+                    await this.loadData(); // 🔥 YENİ: Veritabanından departman güncellemelerini de tazeleyerek çek
                     showNotification('Güncellendi', 'success');
-                } catch (e) { showNotification(e.message, 'error'); } 
+                }
+                catch (e) { showNotification(e.message, 'error'); } 
                 finally { this.uiManager.toggleLoading(false); }
             });
 
@@ -964,9 +965,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const fileToUpload = (newAccrualData.files || [])[0];
                         await this.dataManager.createFreestyleAccrual(newAccrualData, fileToUpload);
                         modalFreestyle.classList.remove('show');
-                        this.renderPage(); 
+                        await this.loadData(); // 🔥 YENİ: Yeni oluşturulan veriyi ekrana çek
                         showNotification('Serbest tahakkuk başarıyla oluşturuldu!', 'success');
-                    } catch (e) { showNotification('Tahakkuk kaydedilemedi: ' + e.message, 'error'); } 
+                    }
+                    catch (e) { showNotification('Tahakkuk kaydedilemedi: ' + e.message, 'error'); } 
                     finally { this.uiManager.toggleLoading(false); }
                 });
             } // <-- Bu parantez if (btnFreestyle && modalFreestyle) bloğunu kapatıyor

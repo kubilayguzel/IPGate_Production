@@ -58,6 +58,7 @@ export class AccrualDataManager {
                     taskId: row.task_id || d.taskId,
                     taskTitle: row.task_title || d.taskTitle,
                     type: row.accrual_type || row.type || d.type,
+                    department: row.department || 'EVREKA', // 🔥 YENİ EKLENDİ (Önyüzün rozeti doğru görebilmesi için)
                     status: row.status || d.status,
                     createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
                     updatedAt: row.updated_at || d.updatedAt,

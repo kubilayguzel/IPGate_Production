@@ -194,6 +194,8 @@ export class AccrualFormManager {
 
     setupListeners() {
 
+        const p = this.prefix; // 🔥 EN ÜSTE ALINDI (Hata Çözüldü)
+
         // 🔥 YENİ: Departman Seçimi Değiştikçe Kalem Seçeneklerini Güncelle
         const deptEl = document.getElementById(`${p}Department`);
         if (deptEl) {
@@ -201,8 +203,6 @@ export class AccrualFormManager {
                 this.updateLineItemTypes(e.target.value);
             });
         }
-
-        const p = this.prefix;
         document.getElementById(`${p}IsForeignTransaction`)?.addEventListener('change', () => this.handleForeignToggle());
         document.getElementById(`${p}ForeignInvoiceFile`)?.addEventListener('change', (e) => {
             const nameEl = document.getElementById(`${p}ForeignInvoiceFileName`);

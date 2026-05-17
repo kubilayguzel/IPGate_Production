@@ -46,7 +46,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // TAB 3: MÜVEKKİL İSKONTO VE ŞABLON ATAMA
+    // 🔥 YENİ: ARAMA MOTORU (Hızlı Filtreleme)
+    document.getElementById('searchClientInput')?.addEventListener('keyup', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('#assignmentsTableBody .assignment-row');
+        
+        rows.forEach(row => {
+            const clientName = row.querySelector('.client-name-td').textContent.toLowerCase();
+            if (clientName.includes(searchTerm)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+
+    // 🔥 YENİ: TOPLU KAYDET BUTONU
+    document.getElementById('btnBulkSaveAssignments')?.addEventListener('click', async () => {
+        const rows = document.querySelectorAll('#assignmentsTableBody .assignment-row');
+        const assignmentsToUpdate = [];
+
+        // Tablodaki tüm satırları gezip sadece veritabanından farklı (değiştirilmiş) olanları topluyoruz
+        rows.forEach(row => {
+            const personId = row.querySelector('.save-person-settings-btn').dataset.personId;
+            const discount = parseFloat(row.querySelector('.discount-input').value) || 0;
+            const priceListId = row.querySelector('.assign-list-select').value || null;
+
+            const originalPerson = dataManager.allPersons.find(p => p.id === personId);
+            if (originalPerson) {
+                const originalDiscount = originalPerson.discount_rate || 0;
+                const originalPriceListId = originalPerson.price_list_id || null;
+
+                if (discount !== originalDiscount || priceListId !== originalPriceListId) {
+                    assignmentsToUpdate.push({ personId, priceListId, discountRate: discount });
+                }
+            }
+        });
+
+        if (assignmentsToUpdate.length === 0) {
+            showNotification("Kaydedilecek yeni bir değişiklik bulunamadı.", "warning");
+            return;
+        }
+
+        uiManager.toggleLoading(true);
+        const { error } = await dataManager.bulkAssignPersonSettings(assignmentsToUpdate);
+        
+        if (error) {
+            showNotification("Bazı ayarlar kaydedilirken hata oluştu.", "error");
+            uiManager.toggleLoading(false);
+        } else {
+            showNotification(`${assignmentsToUpdate.length} müvekkilin ayarları başarıyla güncellendi!`, "success");
+            // Arama çubuğunu temizle ve ekranı yenile
+            document.getElementById('searchClientInput').value = "";
+            await loadAndRender(); 
+        }
+    });
+
+    // TEKİL MÜVEKKİL ATAMA KAYDET BUTONU
     document.getElementById('assignmentsTableBody')?.addEventListener('click', async (e) => {
         const btnSave = e.target.closest('.save-person-settings-btn');
         if (btnSave) {
@@ -62,12 +118,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 uiManager.toggleLoading(false);
             } else {
                 showNotification("Müvekkil finans ayarları güncellendi!", "success");
+                // Ekranı temizlemek yerine sadece veriyi tazele ve arama filtresini bozma!
+                const searchVal = document.getElementById('searchClientInput').value;
                 await loadAndRender(); 
+                if(searchVal) {
+                    document.getElementById('searchClientInput').value = searchVal;
+                    document.getElementById('searchClientInput').dispatchEvent(new Event('keyup'));
+                }
             }
         }
     });
 
-    // YENİ ŞABLON MODALI
     document.getElementById('btnCreatePriceList')?.addEventListener('click', () => {
         document.getElementById('priceListForm').reset();
         $('#priceListModal').modal('show');
@@ -90,14 +151,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 🔥 YENİ: TABLO İÇİNDEKİ YÖNET BUTONUNA BASINCA LİSTEYİ GİZLE, DETAYI AÇ
     document.getElementById('priceListsTableBody')?.addEventListener('click', async (e) => {
         const btnManage = e.target.closest('.manage-items-btn');
         if (btnManage) {
             const id = btnManage.dataset.id;
             document.getElementById('currentPriceListId').value = id;
-            
-            // UI Manager ile geçişi yapıyoruz
             uiManager.toggleTemplateView(true, btnManage.dataset.name);
             
             uiManager.toggleLoading(true);
@@ -114,14 +172,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 🔥 YENİ: DETAY GÖRÜNÜMÜNDEN "LİSTEYE DÖN" BUTONU
     document.getElementById('btnBackToTemplates')?.addEventListener('click', async () => {
         uiManager.toggleTemplateView(false);
-        await loadAndRender(); // Belki fiyat/kalem ekledik, şablon listesindeki kalem sayısı güncellensin
+        await loadAndRender(); 
     });
 
 
-    // ŞABLON İÇİNE ÖZEL FİYAT KALEMİ EKLEME
     document.getElementById('itemFeeId')?.addEventListener('change', (e) => {
         const customNameContainer = document.getElementById('customNameContainer');
         if (e.target.value !== "") { customNameContainer.style.display = 'none'; document.getElementById('itemCustomName').value = ""; } 
@@ -150,10 +206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 🔥 YENİ: ŞABLON İÇİNDEKİ ÖZEL FİYATI DOĞRUDAN GÜNCELLEME VE SİLME
     document.getElementById('tariffItemsTableBody')?.addEventListener('click', async (e) => {
-        
-        // GÜNCELLEME
         const btnUpdate = e.target.closest('.update-custom-fee-btn');
         if (btnUpdate) {
             const itemId = btnUpdate.dataset.id;
@@ -168,7 +221,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // SİLME
         const btnDelete = e.target.closest('.delete-item-btn');
         if (btnDelete) {
             uiManager.toggleLoading(true);

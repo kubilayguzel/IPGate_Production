@@ -11,7 +11,6 @@
     <style>
         .align-bottom-row .form-group { margin-bottom: 0; }
         .full-width-tabs .tab-content { padding: 0 !important; }
-        /* Tabloların zorla %100 genişliğe yayılmasını sağlar */
         .force-full-width { table-layout: fixed; width: 100% !important; }
     </style>
 </head>
@@ -71,7 +70,6 @@
                 </div>
 
                 <div class="tab-pane fade p-0 w-100" id="content-templates">
-                    
                     <div id="templatesListContainer" class="w-100">
                         <div class="table-responsive w-100">
                             <table class="table table-hover align-middle mb-0 force-full-width">
@@ -163,14 +161,27 @@
                 </div>
 
                 <div class="tab-pane fade p-0 w-100" id="content-assignments">
+                    
+                    <div class="d-flex justify-content-between align-items-center mb-0 px-4 pt-3 pb-3 border-bottom bg-light">
+                        <div class="input-group" style="max-width: 400px;">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text bg-white border-right-0"><i class="fas fa-search text-muted"></i></span>
+                            </div>
+                            <input type="text" id="searchClientInput" class="form-control border-left-0" placeholder="Müvekkil veya Cari Adı Ara...">
+                        </div>
+                        <button id="btnBulkSaveAssignments" class="btn btn-success shadow-sm font-weight-bold">
+                            <i class="fas fa-save mr-2"></i> Tüm Değişiklikleri Kaydet
+                        </button>
+                    </div>
+
                     <div class="table-responsive w-100">
                         <table class="table table-hover align-middle mb-0 force-full-width">
-                            <thead class="bg-light text-secondary">
+                            <thead class="bg-white text-secondary sticky-top" style="z-index: 1;">
                                 <tr>
-                                    <th class="border-top-0 border-bottom px-4" style="width: 45%">Müvekkil / Cari Adı</th>
-                                    <th class="text-center border-top-0 border-bottom px-4" style="width: 15%">İskonto (%)</th>
-                                    <th class="border-top-0 border-bottom px-4" style="width: 25%">Özel Tarife Seçimi</th>
-                                    <th class="text-center border-top-0 border-bottom px-4" style="width: 15%">Kaydet</th>
+                                    <th class="border-top-0 border-bottom px-4">Müvekkil / Cari Adı</th>
+                                    <th class="text-center border-top-0 border-bottom px-4" style="width: 100px;">İskonto</th>
+                                    <th class="border-top-0 border-bottom px-4" style="width: 250px;">Özel Tarife Seçimi</th>
+                                    <th class="text-center border-top-0 border-bottom px-4" style="width: 90px;">İşlem</th>
                                 </tr>
                             </thead>
                             <tbody id="assignmentsTableBody">

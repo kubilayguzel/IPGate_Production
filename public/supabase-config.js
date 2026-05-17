@@ -2599,21 +2599,30 @@ export const feeCalculationService = {
                 let currency = tariff.currency;
                 let isCustomPrice = false;
 
-                // --- HESAPLAMA HİYERARŞİSİ ---
-                if (clientCustomFees[tariff.id]) {
-                    // 1. Müvekkile özel bir kalem fiyatı (sabit fiyat) tanımlanmışsa onu kullan
-                    unitPrice = clientCustomFees[tariff.id].amount;
-                    currency = clientCustomFees[tariff.id].currency || tariff.currency;
-                    isCustomPrice = true;
-                } else if (clientDiscountRate > 0) {
-                    // 2. Özel fiyat yoksa ve bir iskonto tanımlıysa kontrol et:
-                    // 🔥 YENİ KURAL: Kalem tipi "TP Harç" veya "TP Hizmet" DEĞİLSE iskontoyu uygula
-                    const fType = String(tariff.fee_type).trim();
-                    if (fType !== 'TP Harç' && fType !== 'TP Hizmet') {
-                        unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
+                // --- HESAPLAMA HİYERARŞİSİ (AKILLI MOTOR - GÜNCELLENDİ) ---
+                const fType = String(tariff.fee_type).trim();
+                const isService = fType !== 'TP Harç' && fType !== 'TP Hizmet';
+
+                if (isService) {
+                    if (clientCustomFees[tariff.id]) {
+                        // KURAL 1: Müvekkile özel tarife listesinde bu hizmet tanımlanmışsa onu kullan (İskonto YOK)
+                        unitPrice = clientCustomFees[tariff.id].amount;
+                        currency = clientCustomFees[tariff.id].currency || tariff.currency;
+                        isCustomPrice = true;
+                    } else {
+                        // KURAL 2: Kalem özel tarife listesinde YOK.
+                        if (activePriceListId) {
+                            // Müvekkile özel tarife atanmış ama bu hizmet o listede tanımlanmamış.
+                            // KURAL: İskonto UYGULANMAZ, standart fiyat geçerli olur. (unitPrice zaten tariff.amount)
+                        } else if (clientDiscountRate > 0) {
+                            // Müvekkilin özel tarifesi HİÇ YOK. O zaman (varsa) genel iskonto uygulanır.
+                            unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
+                        }
                     }
+                } else {
+                    // KURAL 3: Bu bir "Harç" ise özel tarife ve iskontolar KESİNLİKLE YOK SAYILIR.
+                    // unitPrice zaten tariff.amount olarak kalır.
                 }
-                // 3. Hiçbiri yoksa varsayılan liste fiyatı 'tariff.amount' olarak kalır.
 
                 let quantity = 0;
                 const rule = map.calculation_rule;

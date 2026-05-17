@@ -104,7 +104,6 @@ export class PriceListDataManager {
         return await supabase.from('price_list_items').insert(payload);
     }
 
-    // 🔥 YENİ: ŞABLON İÇİNDEKİ ÖZEL FİYATI GÜNCELLEME
     async updatePriceListItem(itemId, newAmount) {
         return await supabase.from('price_list_items').update({ amount: parseFloat(newAmount) }).eq('id', itemId);
     }
@@ -128,5 +127,18 @@ export class PriceListDataManager {
         }
 
         return { error: null };
+    }
+
+    // 🔥 YENİ: Toplu Atama ve Kaydetme Motoru
+    async bulkAssignPersonSettings(assignmentsArray) {
+        try {
+            // Paralel (hızlı) kayıt işlemi
+            const promises = assignmentsArray.map(a => this.assignPersonSettings(a.personId, a.priceListId, a.discountRate));
+            await Promise.all(promises);
+            return { error: null };
+        } catch (error) {
+            console.error("Toplu kayıt hatası:", error);
+            return { error: error };
+        }
     }
 }

@@ -52,7 +52,16 @@ export class AccrualFormManager {
 
         const html = `
             <div class="row mb-3">
-                <div class="col-md-6">
+                <div class="col-md-4">
+                    <div class="form-group mb-0 p-2 bg-light border rounded">
+                        <label class="font-weight-bold text-primary mb-1">Tahakkuk Birimi</label>
+                        <select id="${p}Department" class="form-control" style="font-weight: 600; border-color: #1e3c72; height: 50px !important; padding: 0 15px !important;">
+                            <option value="EVREKA" selected>EVREKA (Marka/Patent)</option>
+                            <option value="HUKUK">HUKUK Departmanı</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
                     <div class="form-group mb-0 p-2 bg-light border rounded">
                         <label class="font-weight-bold text-primary mb-1">Tahakkuk Türü</label>
                         <select id="${p}AccrualType" class="form-control" style="font-weight: 600; border-color: #1e3c72; height: 50px !important; padding: 0 15px !important;">
@@ -60,7 +69,7 @@ export class AccrualFormManager {
                         </select>
                     </div>
                 </div>
-                <div class="col-md-6 d-flex align-items-center">
+                <div class="col-md-4 d-flex align-items-center">
                     <div class="form-group mb-0 p-2 w-100">
                         <label class="checkbox-label mb-0 font-weight-bold text-primary" style="cursor:pointer; display:flex; align-items:center;">
                             <input type="checkbox" id="${p}IsForeignTransaction" style="width:18px; height:18px; margin-right:10px;"> Yurtdışı İşlem
@@ -455,6 +464,12 @@ export class AccrualFormManager {
         });
         
         document.getElementById(`${p}AccrualType`).value = this.isFreestyle ? 'Masraf' : 'Hizmet';
+        
+        // 🔥 YENİ 1D: Form temizlenince departmanı varsayılan olarak EVREKA'ya çek
+        if (document.getElementById(`${p}Department`)) {
+            document.getElementById(`${p}Department`).value = 'EVREKA';
+        }
+
         if (this.isFreestyle && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = '';
 
         document.getElementById(`${p}LineItemsBody`).innerHTML = ''; // Tabloyu temizle
@@ -496,6 +511,12 @@ export class AccrualFormManager {
 
         this.originalRemainingAmount = data.remainingAmount || null;
         document.getElementById(`${p}AccrualType`).value = data.type || data.accrualType || (this.isFreestyle ? 'Masraf' : 'Hizmet');
+        
+        // 🔥 YENİ 1C: Departman verisini ekrana basıyoruz
+        if (document.getElementById(`${p}Department`)) {
+            document.getElementById(`${p}Department`).value = data.department || 'EVREKA';
+        }
+
         if (this.isFreestyle && data.subject && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = data.subject;
 
         document.getElementById(`${p}TpeInvoiceNo`).value = data.tpeInvoiceNo || '';
@@ -597,6 +618,7 @@ export class AccrualFormManager {
         const p = this.prefix;
         
         const accrualType = document.getElementById(`${p}AccrualType`).value;
+        const department = document.getElementById(`${p}Department`)?.value || 'EVREKA';
         let subjectText = '';
 
         if (this.isFreestyle) {
@@ -663,6 +685,7 @@ export class AccrualFormManager {
             data: {
                 type: accrualType, 
                 accrualType: accrualType, 
+                department: department,
                 subject: subjectText, 
                 isFreestyle: this.isFreestyle, 
                 
@@ -695,6 +718,7 @@ export class AccrualFormManager {
         const p = this.prefix;
         
         const elementsToToggle = [
+            `${p}Department`, // 🔥 YENİ 1E: Departman alanını da kilitleme listesine al
             `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`,
             `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, `${p}ForeignInvoiceFile`,
             `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode` // 🔥 YENİ EKLENDİ

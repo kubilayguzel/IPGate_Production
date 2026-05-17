@@ -108,7 +108,14 @@ export class AccrualUIManager {
                 else if (accType === 'Resmi Ücret Farkı') typeBadgeClass = 'badge-danger';
                 else if (accType === 'SWIFT Maliyeti') typeBadgeClass = 'badge-secondary';
                 else if (accType === 'Diğer') typeBadgeClass = 'badge-dark';
-                const typeHtml = `<span class="badge ${typeBadgeClass}">${accType}</span>`;
+
+                // 🔥 YENİ: Departman Rozetini Oluştur
+                const deptBadge = acc.department === 'HUKUK' 
+                    ? `<span class="badge badge-dark mt-1 shadow-sm"><i class="fas fa-balance-scale mr-1"></i> HUKUK</span>` 
+                    : `<span class="badge badge-primary mt-1 shadow-sm"><i class="fas fa-trademark mr-1"></i> EVREKA</span>`;
+
+                // İkisini alt alta birleştir
+                const typeHtml = `<span class="badge ${typeBadgeClass}">${accType}</span><br>${deptBadge}`;
 
                 let taskDisplay = '-', relatedFileDisplay = '-', fieldDisplay = '-', fullSubject = '-';
                 const task = tasks[String(acc.taskId)];

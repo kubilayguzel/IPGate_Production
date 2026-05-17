@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.freestyleFormManager = null;
             this.state = {
                 activeTab: 'main',       
-                filters: { startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' },
+                // 🔥 NEW: Added department and type to the initial state
+                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' },
                 sort: { column: 'createdAt', direction: 'desc' },
                 selectedIds: new Set(),
                 itemsPerPage: 50 
@@ -403,8 +404,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         setupEventListeners() {
-            const filterInputs = ['filterStartDate', 'filterEndDate', 'filterStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask'];
+            const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask'];
             const handleFilterChange = () => {
+                this.state.filters.department = document.getElementById('filterDepartment').value;
+                this.state.filters.type = document.getElementById('filterType').value;
                 this.state.filters.startDate = document.getElementById('filterStartDate').value;
                 this.state.filters.endDate = document.getElementById('filterEndDate').value;
                 this.state.filters.status = document.getElementById('filterStatus').value;
@@ -427,7 +430,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const el = document.getElementById(id);
                     if (el) { if(el.tagName === 'SELECT') el.value = (id === 'filterStatus' ? 'all' : ''); else el.value = ''; }
                 });
-                this.state.filters = { startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' };
+                // 🔥 NEW: Added department and type to the default empty state
+                this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' };
                 this.renderPage();
             });
 

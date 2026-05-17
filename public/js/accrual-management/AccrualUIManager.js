@@ -155,8 +155,31 @@ export class AccrualUIManager {
                 let tfn = acc.tpeInvoiceNo || '-';
                 if (tfn.length > 15) tfn = tfn.substring(0, 12) + '...';
 
-                let efn = acc.evrekaInvoiceNo || '-';
-                if (efn.length > 35) efn = efn.substring(0, 32) + '...';
+                // 🔥 YENİ: EFN (Evreka Fatura No) için Akıllı Link Oluşturucu
+                let efnHtml = '-';
+                if (acc.evrekaInvoiceNo && acc.evrekaInvoiceNo !== '-') {
+                    let invoiceLink = acc.invoice_url || acc.invoiceUrl || (acc.details && acc.details.kolaybi_pdf_url) || null;
+                    
+                    if (!invoiceLink && acc.files && acc.files.length > 0) {
+                        const invoiceFile = acc.files.find(f => 
+                            (f.type && f.type.toLowerCase().includes('invoice')) || 
+                            (f.name && f.name.toLowerCase().includes('fatura')) ||
+                            (f.type && f.type === 'official_invoice')
+                        );
+                        if (invoiceFile) invoiceLink = invoiceFile.url || invoiceFile.downloadURL;
+                    }
+
+                    let displayEfn = acc.evrekaInvoiceNo;
+                    if (displayEfn.length > 35) displayEfn = displayEfn.substring(0, 32) + '...';
+
+                    if (invoiceLink) {
+                        efnHtml = `<a href="${invoiceLink}" target="_blank" class="badge badge-success p-2 shadow-sm text-white" style="text-decoration: none;" title="Faturayı Görüntüle">
+                                      <i class="fas fa-file-invoice mr-1"></i> ${displayEfn}
+                                   </a>`;
+                    } else {
+                        efnHtml = `<span class="badge badge-secondary p-2 shadow-sm">${displayEfn}</span>`;
+                    }
+                }
 
                 const items = acc.items || [];
                 
@@ -293,7 +316,7 @@ export class AccrualUIManager {
                         <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>
                         <td>${partyHtml}</td>
                         <td><span class="text-muted font-weight-bold">${tfn}</span></td>
-                        <td><span class="text-muted font-weight-bold">${efn}</span></td>
+                        <td>${efnHtml}</td>
                         <td>${officialStr}</td>
                         <td>${serviceStr}</td>
                         <td>${this._formatMoney(acc.totalAmount)}</td>

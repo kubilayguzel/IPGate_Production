@@ -251,6 +251,18 @@ export class AccrualDataManager {
                 const endTime = end.getTime();
                 data = data.filter(item => { const itemDate = item.createdAt ? new Date(item.createdAt).getTime() : 0; return itemDate <= endTime; });
             }
+            // 🔥 YENİ: Departman Filtresi
+            if (filters.department && filters.department !== '') {
+                data = data.filter(item => (item.department || 'EVREKA') === filters.department);
+            }
+            
+            // 🔥 YENİ: Tür Filtresi
+            if (filters.type && filters.type !== '') {
+                data = data.filter(item => {
+                    const currentType = item.type || item.accrualType || 'Hizmet';
+                    return currentType === filters.type;
+                });
+            }
             if (filters.status && filters.status !== 'all') {
                 data = data.filter(item => item.status === filters.status);
             }

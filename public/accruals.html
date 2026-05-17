@@ -182,8 +182,30 @@
                 </div>
             </section>
 
-            <div class="filter-section">
+                <div class="filter-section">
                 <div class="filter-controls">
+                    <div class="filter-group">
+                        <label class="filter-label">Birim</label>
+                        <select id="filterDepartment" class="filter-select" style="min-width: 120px;">
+                            <option value="">Tümü</option>
+                            <option value="EVREKA">Evreka</option>
+                            <option value="HUKUK">Hukuk</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label class="filter-label">Tür</label>
+                        <select id="filterType" class="filter-select" style="min-width: 140px;">
+                            <option value="">Tümü</option>
+                            <option value="Hizmet">Hizmet</option>
+                            <option value="Hukuk Danışmanlık">Hukuk Danışmanlık</option>
+                            <option value="Masraf">Masraf / Gider</option>
+                            <option value="Kur Farkı">Kur Farkı</option>
+                            <option value="TP Harç">TP Harç</option>
+                            <option value="TP Hizmet">TP Hizmet</option>
+                        </select>
+                    </div>
+                    
                     <div class="filter-group">
                         <label class="filter-label">Başlangıç Tarihi</label>
                         <input type="text" id="filterStartDate" class="filter-input" placeholder="gg.aa.yyyy" data-datepicker>

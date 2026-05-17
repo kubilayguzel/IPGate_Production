@@ -193,17 +193,23 @@ export class AccrualFormManager {
     }
 
     setupListeners() {
+
+        // 🔥 YENİ: Departman Seçimi Değiştikçe Kalem Seçeneklerini Güncelle
+        const deptEl = document.getElementById(`${p}Department`);
+        if (deptEl) {
+            deptEl.addEventListener('change', (e) => {
+                this.updateLineItemTypes(e.target.value);
+            });
+        }
+
         const p = this.prefix;
-
         document.getElementById(`${p}IsForeignTransaction`)?.addEventListener('change', () => this.handleForeignToggle());
-
         document.getElementById(`${p}ForeignInvoiceFile`)?.addEventListener('change', (e) => {
             const nameEl = document.getElementById(`${p}ForeignInvoiceFileName`);
             if (nameEl) nameEl.textContent = e.target.files[0] ? e.target.files[0].name : '';
         });
 
         document.getElementById(`${p}AddLineItemBtn`)?.addEventListener('click', () => this.addLineItem());
-
         const autoCalcBtn = document.getElementById(`${p}AutoCalcBtn`);
         if (autoCalcBtn) {
             autoCalcBtn.addEventListener('click', () => {
@@ -223,6 +229,36 @@ export class AccrualFormManager {
             this.checkSasRequirement(person); // 🔥 YENİ
         });
         this.setupSearch(`${p}ForeignPaymentParty`, (person) => { this.selectedForeignParty = person; });
+    }
+
+    // 🔥 YENİ: Departmana Göre Tüm Satırlardaki Kalem Türlerini Dinamik Değiştiren Motor
+    updateLineItemTypes(department) {
+        const p = this.prefix;
+        const tbody = document.getElementById(`${p}LineItemsBody`);
+        if (!tbody) return;
+
+        let optionsHtml = '';
+        if (department === 'HUKUK') {
+            optionsHtml = `
+                <option value="Hukuk Danışmanlık">Hukuk Danışmanlık Bedeli</option>
+                <option value="Masraf">Masraf / Gider</option>
+                <option value="Kur Farkı">Kur Farkı</option>
+            `;
+        } else {
+            optionsHtml = `
+                <option value="Hizmet">EVREKA Hizmeti</option>
+                <option value="TP Harç">TP Harç</option>
+                <option value="TP Hizmet">TP Hizmet</option>
+                <option value="Masraf">Masraf / Diğer</option>
+                <option value="Yurtdışı Maliyet">Yurtdışı Maliyet</option>
+            `;
+        }
+
+        // Mevcut tüm satırlardaki seçenekleri güncelle
+        tbody.querySelectorAll('.item-type').forEach(selectEl => {
+            selectEl.innerHTML = optionsHtml;
+            selectEl.dispatchEvent(new Event('change')); // Renklerin güncellenmesi için tetikle
+        });
     }
 
     // 🔥 GÜNCELLENEN: Müvekkil için SAS Kodu Gereksinimini Kontrol Et (Hem ana kolon hem detay kontrolü)
@@ -272,11 +308,20 @@ export class AccrualFormManager {
         tr.innerHTML = `
             <td>
                 <select class="form-control form-control-sm item-type font-weight-bold border-0 bg-transparent" style="height: 35px !important; padding: 4px 8px !important; font-size: 0.9rem;">
-                    <option value="Hizmet" ${item.fee_type === 'Hizmet' ? 'selected' : ''}>EVREKA Hizmeti</option>
-                    <option value="TP Harç" ${item.fee_type === 'TP Harç' ? 'selected' : ''}>TP Harç</option>
-                    <option value="TP Hizmet" ${item.fee_type === 'TP Hizmet' ? 'selected' : ''}>TP Hizmet</option>
-                    <option value="Masraf" ${item.fee_type === 'Masraf' ? 'selected' : ''}>Masraf/Diğer</option>
-                    <option value="Yurtdışı Maliyet" ${item.fee_type === 'Yurtdışı Maliyet' ? 'selected' : ''}>Yurtdışı Maliyet</option>
+                    ${(document.getElementById(`${this.prefix}Department`)?.value === 'HUKUK') 
+                        ? `
+                            <option value="Hukuk Danışmanlık" ${item.fee_type === 'Hukuk Danışmanlık' ? 'selected' : ''}>Hukuk Danışmanlık Bedeli</option>
+                            <option value="Masraf" ${item.fee_type === 'Masraf' ? 'selected' : ''}>Masraf / Gider</option>
+                            <option value="Kur Farkı" ${item.fee_type === 'Kur Farkı' ? 'selected' : ''}>Kur Farkı</option>
+                        ` 
+                        : `
+                            <option value="Hizmet" ${item.fee_type === 'Hizmet' ? 'selected' : ''}>EVREKA Hizmeti</option>
+                            <option value="TP Harç" ${item.fee_type === 'TP Harç' ? 'selected' : ''}>TP Harç</option>
+                            <option value="TP Hizmet" ${item.fee_type === 'TP Hizmet' ? 'selected' : ''}>TP Hizmet</option>
+                            <option value="Masraf" ${item.fee_type === 'Masraf' ? 'selected' : ''}>Masraf/Diğer</option>
+                            <option value="Yurtdışı Maliyet" ${item.fee_type === 'Yurtdışı Maliyet' ? 'selected' : ''}>Yurtdışı Maliyet</option>
+                        `
+                    }
                 </select>
             </td>
             <td>
@@ -311,10 +356,11 @@ export class AccrualFormManager {
 
         const updateRowStyle = () => {
             const type = tr.querySelector('.item-type').value;
-            if (type === 'Hizmet') {
+            if (type === 'Hizmet' || type === 'Hukuk Danışmanlık') {
                 tr.style.backgroundColor = '#f0fff4'; 
                 tr.querySelector('.item-type').style.color = '#276749';
-            } else if (type === 'TP Harç' || type === 'TP Hizmet') {
+            }
+            else if (type === 'TP Harç' || type === 'TP Hizmet') {
                 tr.style.backgroundColor = '#ebf8ff'; 
                 tr.querySelector('.item-type').style.color = '#2b6cb0';
             } else if (type === 'Yurtdışı Maliyet') {
@@ -465,9 +511,9 @@ export class AccrualFormManager {
         
         document.getElementById(`${p}AccrualType`).value = this.isFreestyle ? 'Masraf' : 'Hizmet';
         
-        // 🔥 YENİ 1D: Form temizlenince departmanı varsayılan olarak EVREKA'ya çek
         if (document.getElementById(`${p}Department`)) {
             document.getElementById(`${p}Department`).value = 'EVREKA';
+            this.updateLineItemTypes('EVREKA'); // 🔥 YENİ EKLENDİ
         }
 
         if (this.isFreestyle && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = '';
@@ -512,9 +558,10 @@ export class AccrualFormManager {
         this.originalRemainingAmount = data.remainingAmount || null;
         document.getElementById(`${p}AccrualType`).value = data.type || data.accrualType || (this.isFreestyle ? 'Masraf' : 'Hizmet');
         
-        // 🔥 YENİ 1C: Departman verisini ekrana basıyoruz
         if (document.getElementById(`${p}Department`)) {
-            document.getElementById(`${p}Department`).value = data.department || 'EVREKA';
+            const dept = data.department || 'EVREKA';
+            document.getElementById(`${p}Department`).value = dept;
+            this.updateLineItemTypes(dept); // 🔥 YENİ EKLENDİ
         }
 
         if (this.isFreestyle && data.subject && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = data.subject;

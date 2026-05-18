@@ -29,7 +29,8 @@ export class AccrualFormManager {
         const inputHeightStyle = "height: 50px !important;";
 
         const typeOptions = this.isFreestyle ? `
-            <option value="Masraf" selected>Masraf</option>
+            <option value="Hizmet" selected>Hizmet</option>
+            <option value="Masraf">Masraf</option>
             <option value="Kur Farkı">Kur Farkı</option>
             <option value="Resmi Ücret Farkı">Resmi Ücret Farkı</option>
             <option value="SWIFT Maliyeti">SWIFT Maliyeti</option>

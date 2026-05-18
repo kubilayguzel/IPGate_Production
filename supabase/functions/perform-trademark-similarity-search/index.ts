@@ -148,67 +148,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     if (!s1 || !s2) return { finalScore: 0.0, positionalExactMatchScore: 0.0 }; 
     if (s1 === s2) return { finalScore: 1.0, positionalExactMatchScore: 1.0 }; 
 
-    const levenshteinScore = levenshteinSimilarity(s1, s2);
-    
-    const jaroWinklerScore = (() => {
-        let m = 0; const s1_len = s1.length, s2_len = s2.length;
-        const range = Math.floor(Math.max(s1_len, s2_len) / 2) - 1;
-        const s1_matches = new Array(s1_len).fill(false), s2_matches = new Array(s2_len).fill(false);
-        for (let i = 0; i < s1_len; i++) {
-            for (let j = Math.max(0, i - range); j < Math.min(s2_len, i + range + 1); j++) {
-                if (s1[i] === s2[j] && !s2_matches[j]) { s1_matches[i] = true; s2_matches[j] = true; m++; break; }
-            }
-        }
-        if (m === 0) return 0.0;
-        let k = 0, t = 0;
-        for (let i = 0; i < s1_len; i++) {
-            if (s1_matches[i]) {
-                let j; for (j = k; j < s2_len; j++) { if (s2_matches[j]) { k = j + 1; break; } }
-                if (s1[i] !== s2[j]) t++;
-            }
-        }
-        t /= 2;
-        const jaro_score = (m / s1_len + m / s2_len + (m - t) / m) / 3;
-        let l = 0;
-        for (let i = 0; i < Math.min(s1_len, s2_len, 4); i++) { if (s1[i] === s2[i]) l++; else break; }
-        return jaro_score + l * 0.1 * (1 - jaro_score);
-    })();
-
-    const ngramScore = (() => {
-        const getNGrams = (s: string) => { const n = new Set<string>(); for (let i = 0; i <= s.length - 2; i++) n.add(s.substring(i, i + 2)); return n; };
-        const ng1 = getNGrams(s1), ng2 = getNGrams(s2);
-        if (ng1.size === 0 && ng2.size === 0) return 1.0;
-        if (ng1.size === 0 || ng2.size === 0) return 0.0;
-        let common = 0; ng1.forEach(ng => { if (ng2.has(ng)) common++; });
-        return common / Math.min(ng1.size, ng2.size);
-    })();
-
-    const prefixScore = (() => {
-        const p1 = s1.substring(0, Math.min(s1.length, 3)), p2 = s2.substring(0, Math.min(s2.length, 3));
-        if (p1 === p2) return 1.0; if (p1.length === 0 && p2.length === 0) return 1.0;
-        return levenshteinSimilarity(p1, p2);
-    })();
-
-    const visualScore = (() => {
-        const penalty = visualMismatchPenalty(s1, s2);
-        const maxP = Math.max(s1.length, s2.length) * 1.0;
-        return maxP === 0 ? 1.0 : (1.0 - (penalty / maxP));
-    })();
-
-    const { maxWordScore, maxWordPair } = (() => {
-        const w1 = s1.split(' ').filter(w => w.length > 0), w2 = s2.split(' ').filter(w => w.length > 0);
-        if (w1.length === 0 && w2.length === 0) return { maxWordScore: 1.0, maxWordPair: null };
-        if (w1.length === 0 || w2.length === 0) return { maxWordScore: 0.0, maxWordPair: null };
-        let maxSim = 0.0; let pair: [string, string] | null = null;
-        for (const a of w1) {
-            for (const b of w2) {
-                const sim = levenshteinSimilarity(a, b);
-                if (sim > maxSim) { maxSim = sim; pair = [a, b]; }
-            }
-        }
-        return { maxWordScore: maxSim, maxWordPair: pair };
-    })();
-
     const positionalExactMatchScore = (() => {
         const len = Math.min(s1.length, s2.length, 3);
         if (len === 0) return 0.0;
@@ -216,23 +155,122 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         return 1.0;
     })();
 
-    const exactWordLen = (maxWordPair && maxWordPair[0] === maxWordPair[1]) ? maxWordPair[0].length : 0;
-    
-    // 🔥 OPTİMİZASYON: Alt Dize (Substring) Bonusu
-    let finalMaxScore = maxWordScore;
+    // 🌟 1. ALT DİZE (SUBSTRING) BONUSU
+    let substringBonus = 0.0;
     if (s1.length >= 3 && s2.length >= 3 && (s2.includes(s1) || s1.includes(s2))) {
-        finalMaxScore = Math.max(maxWordScore, 0.88); 
+        substringBonus = 0.88; 
     }
 
-    if (finalMaxScore >= 0.70) {
-        if (finalMaxScore === 1.0 && exactWordLen < 2) { } 
-        else { return { finalScore: finalMaxScore, positionalExactMatchScore }; }
+    // 🌟 2. ÇEKİRDEK SKORLAMA MOTORU (Faz 2'nin İzole Edilmiş Hali)
+    // Bu motoru hem bütün cümle için hem de tekil kelimeler (Asli Unsur) için kullanacağız.
+    const computeCoreScore = (a: string, b: string) => {
+        if (!a || !b) return 0.0;
+        if (a === b) return 1.0;
+
+        const lev = levenshteinSimilarity(a, b);
+        
+        const jw = (() => {
+            let m = 0; const a_len = a.length, b_len = b.length;
+            const range = Math.floor(Math.max(a_len, b_len) / 2) - 1;
+            const a_matches = new Array(a_len).fill(false), b_matches = new Array(b_len).fill(false);
+            for (let i = 0; i < a_len; i++) {
+                for (let j = Math.max(0, i - range); j < Math.min(b_len, i + range + 1); j++) {
+                    if (a[i] === b[j] && !b_matches[j]) { a_matches[i] = true; b_matches[j] = true; m++; break; }
+                }
+            }
+            if (m === 0) return 0.0;
+            let k = 0, t = 0;
+            for (let i = 0; i < a_len; i++) {
+                if (a_matches[i]) {
+                    let j; for (j = k; j < b_len; j++) { if (b_matches[j]) { k = j + 1; break; } }
+                    if (a[i] !== b[j]) t++;
+                }
+            }
+            t /= 2;
+            const jaro_score = (m / a_len + m / b_len + (m - t) / m) / 3;
+            let l = 0;
+            for (let i = 0; i < Math.min(a_len, b_len, 4); i++) { if (a[i] === b[i]) l++; else break; }
+            return jaro_score + l * 0.1 * (1 - jaro_score);
+        })();
+
+        const ngram = (() => {
+            const getNGrams = (s: string) => { const n = new Set<string>(); for (let i = 0; i <= s.length - 2; i++) n.add(s.substring(i, i + 2)); return n; };
+            const ng1 = getNGrams(a), ng2 = getNGrams(b);
+            if (ng1.size === 0 && ng2.size === 0) return 1.0;
+            if (ng1.size === 0 || ng2.size === 0) return 0.0;
+            let common = 0; ng1.forEach(ng => { if (ng2.has(ng)) common++; });
+            return common / Math.min(ng1.size, ng2.size);
+        })();
+
+        const prefix = (() => {
+            const p1 = a.substring(0, Math.min(a.length, 3)), p2 = b.substring(0, Math.min(b.length, 3));
+            if (p1 === p2) return 1.0; if (p1.length === 0 && p2.length === 0) return 1.0;
+            return levenshteinSimilarity(p1, p2);
+        })();
+
+        const visual = (() => {
+            const penalty = visualMismatchPenalty(a, b);
+            const maxP = Math.max(a.length, b.length) * 1.0;
+            return maxP === 0 ? 1.0 : (1.0 - (penalty / maxP));
+        })();
+
+        // Yeni Ağırlık Dağılımı: maxWordScore kaldırıldığı için Levenshtein %35'e çıkarıldı.
+        return (lev * 0.35 + jw * 0.25 + ngram * 0.15 + visual * 0.15 + prefix * 0.10);
+    };
+
+    // 🌟 3. KELİMELERİ PARÇALAMA VE ERKEN DÖNÜŞ KONTROLÜ
+    const w1 = s1.split(' ').filter(w => w.length > 0);
+    const w2 = s2.split(' ').filter(w => w.length > 0);
+    
+    let bestWordLevenshtein = 0.0; 
+    let exactWordLen = 0;
+
+    if (w1.length > 0 && w2.length > 0) {
+        for (const a of w1) {
+            for (const b of w2) {
+                const pairLevenshtein = levenshteinSimilarity(a, b);
+                if (pairLevenshtein > bestWordLevenshtein) {
+                    bestWordLevenshtein = pairLevenshtein;
+                    if (a === b) exactWordLen = a.length;
+                }
+            }
+        }
     }
 
-    const nameSimRaw = (levenshteinScore * 0.30 + jaroWinklerScore * 0.25 + ngramScore * 0.15 + visualScore * 0.15 + prefixScore * 0.10 + maxWordScore * 0.05);
+    // Erken Dönüş (Early Return) Barajı "ems vs ens" (3 harfli) için 0.70'ten 0.65'e indirildi!
+    let earlyReturnScore = Math.max(substringBonus, bestWordLevenshtein);
+    if (earlyReturnScore >= 0.65) {
+        if (earlyReturnScore === 1.0 && exactWordLen < 2 && s1 !== s2) { 
+            // pas geç (Cümle içindeki 1 harflik 'a' vs 'a' eşleşmelerini iptal et)
+        } else { 
+            return { finalScore: earlyReturnScore, positionalExactMatchScore }; 
+        }
+    }
+
+    // 🌟 4. ASLİ UNSUR (KELİME) VS BÜTÜNSEL CÜMLE KIYASLAMASI
+    // Bütün cümle (ems eurasia vs ens)
+    const fullStringScore = computeCoreScore(s1, s2);
+    
+    // Asli Unsurlar (Kelimeler arası en iyi Faz 2 skoru)
+    let bestWordPairScore = 0.0;
+    if (w1.length > 0 && w2.length > 0) {
+        for (const a of w1) {
+            for (const b of w2) {
+                const pairScore = computeCoreScore(a, b);
+                if (pairScore > bestWordPairScore) {
+                    bestWordPairScore = pairScore;
+                }
+            }
+        }
+    }
+
+    // En yüksek olanı Nihai Faz 2 Skoru olarak al
+    let phase2Final = Math.max(fullStringScore, bestWordPairScore, substringBonus);
+
+    // 🌟 5. FONETİK SKOR VE BİRLEŞTİRME
     const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
 
-    let finalScore = (nameSimRaw * 0.95) + (phonRaw * 0.05);
+    let finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
     finalScore = Math.max(0.0, Math.min(1.0, finalScore));
 
     return { finalScore, positionalExactMatchScore }; 

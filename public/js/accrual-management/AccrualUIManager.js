@@ -155,10 +155,15 @@ export class AccrualUIManager {
                 let tfn = acc.tpeInvoiceNo || '-';
                 if (tfn.length > 15) tfn = tfn.substring(0, 12) + '...';
 
-                // 🔥 YENİ: EFN (Evreka Fatura No) için Akıllı Link Oluşturucu
+                // 🔥 YENİ: EVREKA Fatura No için Akıllı ve Bağımsız Link Oluşturucu
                 let efnHtml = '-';
                 if (acc.evrekaInvoiceNo && acc.evrekaInvoiceNo !== '-') {
-                    let invoiceLink = acc.invoice_url || acc.invoiceUrl || (acc.details && acc.details.kolaybi_pdf_url) || null;
+                    // Tahakkuk nesnesi içindeki olası tüm fatura/PDF linki alanlarını tara
+                    let invoiceLink = acc.invoice_url || acc.invoiceUrl || null;
+                    
+                    if (!invoiceLink && acc.details) {
+                        invoiceLink = acc.details.kolaybi_pdf_url || acc.details.invoice_url || acc.details.invoiceUrl;
+                    }
                     
                     if (!invoiceLink && acc.files && acc.files.length > 0) {
                         const invoiceFile = acc.files.find(f => 
@@ -169,16 +174,26 @@ export class AccrualUIManager {
                         if (invoiceFile) invoiceLink = invoiceFile.url || invoiceFile.downloadURL;
                     }
 
-                    let displayEfn = acc.evrekaInvoiceNo;
-                    if (displayEfn.length > 35) displayEfn = displayEfn.substring(0, 32) + '...';
+                    // Fatura numaralarını virgülle ayırıp temizle
+                    const efnArray = acc.evrekaInvoiceNo.split(',').map(s => s.trim()).filter(s => s !== '');
 
-                    if (invoiceLink) {
-                        efnHtml = `<a href="${invoiceLink}" target="_blank" class="badge badge-success p-2 shadow-sm text-white" style="text-decoration: none;" title="Faturayı Görüntüle">
-                                      <i class="fas fa-file-invoice mr-1"></i> ${displayEfn}
-                                   </a>`;
-                    } else {
-                        efnHtml = `<span class="badge badge-secondary p-2 shadow-sm">${displayEfn}</span>`;
-                    }
+                    const efnBadges = efnArray.map(displayEfn => {
+                        let shortEfn = displayEfn;
+                        if (shortEfn.length > 35) shortEfn = shortEfn.substring(0, 32) + '...';
+
+                        // Eğer bu tahakkuka bağlı bir fatura linki tespit edildiyse doğrudan href bağla
+                        if (invoiceLink) {
+                            return `<a href="${invoiceLink}" target="_blank" class="badge badge-success p-2 shadow-sm text-white mb-1" style="text-decoration: none; display: inline-block;" title="Faturayı Görüntüle">
+                                        <i class="fas fa-file-invoice mr-1"></i> ${shortEfn}
+                                    </a>`;
+                        } else {
+                            // Eğer link yoksa ama yine de tıklanabilir olmasını istiyorsak kolaybi arama sayfasına yönlendirebiliriz veya düz gösteririz
+                            return `<span class="badge badge-secondary p-2 shadow-sm mb-1" style="display: inline-block;" title="Fatura Linki Bulunamadı">${shortEfn}</span>`;
+                        }
+                    });
+
+                    // Rozetleri dikey (alt alta) hizalayarak birleştir
+                    efnHtml = `<div class="d-flex flex-column align-items-start">${efnBadges.join('')}</div>`;
                 }
 
                 const items = acc.items || [];

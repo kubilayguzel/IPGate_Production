@@ -344,6 +344,13 @@
                         "is_nullable": "YES",
                         "column_default": null,
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "department",
+                        "is_nullable": "YES",
+                        "column_default": "'EVREKA'::text",
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",
@@ -504,67 +511,6 @@
                         "column_name": "client_id",
                         "constraint_name": "client_discounts_client_id_fkey",
                         "foreign_table_name": "persons",
-                        "foreign_column_name": "id"
-                    }
-                ]
-            },
-            {
-                "columns": [
-                    {
-                        "data_type": "uuid",
-                        "column_name": "id",
-                        "is_nullable": "NO",
-                        "column_default": "uuid_generate_v4()",
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "text",
-                        "column_name": "client_id",
-                        "is_nullable": "NO",
-                        "column_default": null,
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "integer",
-                        "column_name": "fee_id",
-                        "is_nullable": "NO",
-                        "column_default": null,
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "numeric",
-                        "column_name": "custom_amount",
-                        "is_nullable": "NO",
-                        "column_default": null,
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "text",
-                        "column_name": "custom_currency",
-                        "is_nullable": "YES",
-                        "column_default": "'TRY'::text",
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "timestamp with time zone",
-                        "column_name": "created_at",
-                        "is_nullable": "YES",
-                        "column_default": "now()",
-                        "character_maximum_length": null
-                    }
-                ],
-                "table_name": "client_fee_tariffs",
-                "foreign_keys": [
-                    {
-                        "column_name": "client_id",
-                        "constraint_name": "client_fee_tariffs_client_id_fkey",
-                        "foreign_table_name": "persons",
-                        "foreign_column_name": "id"
-                    },
-                    {
-                        "column_name": "fee_id",
-                        "constraint_name": "client_fee_tariffs_fee_id_fkey",
-                        "foreign_table_name": "fee_tariffs",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -1213,6 +1159,27 @@
                         "is_nullable": "YES",
                         "column_default": "now()",
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "invoice_date",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "kolaybi_uuid",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "kolaybi_status",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "invoices",
@@ -1266,15 +1233,15 @@
                 "table_name": "ip_record_applicants",
                 "foreign_keys": [
                     {
-                        "column_name": "person_id",
-                        "constraint_name": "fk_ip_record_applicants_person",
-                        "foreign_table_name": "persons",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "ip_record_id",
                         "constraint_name": "ip_record_applicants_ip_record_id_fkey",
                         "foreign_table_name": "ip_records",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "person_id",
+                        "constraint_name": "fk_ip_record_applicants_person",
+                        "foreign_table_name": "persons",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -2674,10 +2641,23 @@
                         "is_nullable": "YES",
                         "column_default": "false",
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "uuid",
+                        "column_name": "price_list_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "persons",
                 "foreign_keys": [
+                    {
+                        "column_name": "price_list_id",
+                        "constraint_name": "fk_persons_price_list",
+                        "foreign_table_name": "price_lists",
+                        "foreign_column_name": "id"
+                    }
                 ]
             },
             {
@@ -2831,6 +2811,116 @@
                     }
                 ],
                 "table_name": "persons_related",
+                "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "uuid_generate_v4()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "uuid",
+                        "column_name": "price_list_id",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "integer",
+                        "column_name": "fee_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "custom_item_name",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "fee_type",
+                        "is_nullable": "NO",
+                        "column_default": "'Hizmet'::text",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "amount",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "currency",
+                        "is_nullable": "NO",
+                        "column_default": "'TRY'::text",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "price_list_items",
+                "foreign_keys": [
+                    {
+                        "column_name": "fee_id",
+                        "constraint_name": "price_list_items_fee_id_fkey",
+                        "foreign_table_name": "fee_tariffs",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "price_list_id",
+                        "constraint_name": "price_list_items_list_id_fkey",
+                        "foreign_table_name": "price_lists",
+                        "foreign_column_name": "id"
+                    }
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "uuid_generate_v4()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "name",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "description",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "price_lists",
                 "foreign_keys": [
                 ]
             },
@@ -4125,15 +4215,15 @@
                 "table_name": "transactions",
                 "foreign_keys": [
                     {
-                        "column_name": "transaction_type_id",
-                        "constraint_name": "fk_transactions_transaction_types",
-                        "foreign_table_name": "transaction_types",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "task_id",
                         "constraint_name": "fk_transactions_tasks",
                         "foreign_table_name": "tasks",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "transaction_type_id",
+                        "constraint_name": "fk_transactions_transaction_types",
+                        "foreign_table_name": "transaction_types",
                         "foreign_column_name": "id"
                     }
                 ]

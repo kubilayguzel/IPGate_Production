@@ -680,7 +680,8 @@ export class PersonModalManager {
         if (editGroup) editGroup.style.display = 'none';
 
         const addBtn = document.getElementById('addRelatedBtn');
-        if (addBtn) addBtn.style.display = 'inline-block'; 
+        // 👇 DEĞİŞTİRİLEN KISIM: 'inline-block' yerine boş string ('') atayarak flex yapısının bozulmasını engelliyoruz
+        if (addBtn) addBtn.style.display = '';
     }
 
     async removeRelated(idx, isLoaded) {
@@ -953,6 +954,9 @@ export class PersonModalManager {
         
         const relatedList = document.getElementById('relatedListContainer');
         if (relatedList) relatedList.innerHTML = '';
+
+        // 👇 EKLENEN KISIM: İlgili kişi formunun UI durumu da sıfırlanmalı
+        this.resetRelatedForm();
     }
 
     addPhoneListeners(id) {

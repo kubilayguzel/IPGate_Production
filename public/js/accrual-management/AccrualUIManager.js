@@ -45,6 +45,46 @@ export class AccrualUIManager {
                 return;
             }
 
+            // 🔥 YENİ: Tahakkuklar sekmesinde Fatura Numarasına tıklanınca veritabanından faturayı bul ve aç
+            const viewAccrualInvoiceBtn = e.target.closest('.view-accrual-invoice-btn');
+            if (viewAccrualInvoiceBtn) {
+                e.preventDefault();
+                const invoiceNo = viewAccrualInvoiceBtn.dataset.invoiceNo;
+                
+                // Kullanıcıya arama yapıldığını göstermek için ikonu spinner yap
+                const icon = viewAccrualInvoiceBtn.querySelector('i');
+                if (icon) icon.className = 'fas fa-spinner fa-spin mr-1';
+
+                // Invoices (Faturalar) tablosunda bu numarayı ara
+                supabase.from('invoices').select('id')
+                    .eq('invoice_no', invoiceNo)
+                    .limit(1)
+                    .then(({data, error}) => {
+                        if (data && data.length > 0) {
+                            if (icon) icon.className = 'fas fa-file-invoice mr-1';
+                            // Gerçek Fatura ID'sini bulduk, Faturalar sekmesinin mevcut görüntüleme eventini tetikliyoruz
+                            document.dispatchEvent(new CustomEvent('invoice-view-request', { detail: { id: data[0].id } }));
+                        } else {
+                            // invoice_no alanında bulamazsa, kolaybi_invoice_id alanında şansını denesin
+                            supabase.from('invoices').select('id').eq('kolaybi_invoice_id', invoiceNo).limit(1)
+                            .then(({data: data2}) => {
+                                if (icon) icon.className = 'fas fa-file-invoice mr-1';
+                                if (data2 && data2.length > 0) {
+                                    document.dispatchEvent(new CustomEvent('invoice-view-request', { detail: { id: data2[0].id } }));
+                                } else {
+                                    alert('Bu fatura numarasına ait resmi kayıt sistemde (Faturalar sekmesinde) bulunamadı.');
+                                }
+                            });
+                        }
+                    })
+                    .catch(err => {
+                        if (icon) icon.className = 'fas fa-file-invoice mr-1';
+                        console.error('Fatura aranırken hata:', err);
+                        alert('Fatura aranırken bir hata oluştu.');
+                    });
+                return;
+            }
+
             // 🔥 YENİ: Fatura Senkronizasyon (Sync) Butonu
             const syncBtn = e.target.closest('.sync-invoice-btn');
             if (syncBtn) {
@@ -155,25 +195,9 @@ export class AccrualUIManager {
                 let tfn = acc.tpeInvoiceNo || '-';
                 if (tfn.length > 15) tfn = tfn.substring(0, 12) + '...';
 
-                // 🔥 YENİ: EVREKA Fatura No için Akıllı ve Bağımsız Link Oluşturucu
+                // 🔥 YENİ: EVREKA Fatura No için Akıllı ve Veritabanı Uyumlu Link Oluşturucu
                 let efnHtml = '-';
                 if (acc.evrekaInvoiceNo && acc.evrekaInvoiceNo !== '-') {
-                    // Tahakkuk nesnesi içindeki olası tüm fatura/PDF linki alanlarını tara
-                    let invoiceLink = acc.invoice_url || acc.invoiceUrl || null;
-                    
-                    if (!invoiceLink && acc.details) {
-                        invoiceLink = acc.details.kolaybi_pdf_url || acc.details.invoice_url || acc.details.invoiceUrl;
-                    }
-                    
-                    if (!invoiceLink && acc.files && acc.files.length > 0) {
-                        const invoiceFile = acc.files.find(f => 
-                            (f.type && f.type.toLowerCase().includes('invoice')) || 
-                            (f.name && f.name.toLowerCase().includes('fatura')) ||
-                            (f.type && f.type === 'official_invoice')
-                        );
-                        if (invoiceFile) invoiceLink = invoiceFile.url || invoiceFile.downloadURL;
-                    }
-
                     // Fatura numaralarını virgülle ayırıp temizle
                     const efnArray = acc.evrekaInvoiceNo.split(',').map(s => s.trim()).filter(s => s !== '');
 
@@ -181,14 +205,27 @@ export class AccrualUIManager {
                         let shortEfn = displayEfn;
                         if (shortEfn.length > 35) shortEfn = shortEfn.substring(0, 32) + '...';
 
-                        // Eğer bu tahakkuka bağlı bir fatura linki tespit edildiyse doğrudan href bağla
-                        if (invoiceLink) {
-                            return `<a href="${invoiceLink}" target="_blank" class="badge badge-success p-2 shadow-sm text-white mb-1" style="text-decoration: none; display: inline-block;" title="Faturayı Görüntüle">
-                                        <i class="fas fa-file-invoice mr-1"></i> ${shortEfn}
-                                    </a>`;
+                        // Metni küçük harfe çevirerek analiz et
+                        const lowerEfn = displayEfn.toLowerCase();
+                        
+                        // Fatura numarası OLMAYAN durumları tespit et (kesilmeyecek, yok, iptal vb. kelimeler geçiyorsa veya metinde hiç rakam yoksa)
+                        const isNotInvoice = lowerEfn.includes('kesil') || 
+                                             lowerEfn.includes('yok') || 
+                                             lowerEfn.includes('iptal') || 
+                                             lowerEfn.includes('bekliyor') ||
+                                             lowerEfn.includes('muaf') || 
+                                             !/\d/.test(lowerEfn); // İçinde hiç rakam (\d) yoksa
+
+                        if (isNotInvoice) {
+                            // Fatura numarası değilse: Gri ve tıklanamaz rozet (Badge Secondary)
+                            return `<span class="badge badge-secondary p-2 shadow-sm mb-1" style="display: inline-block;">
+                                        <i class="fas fa-info-circle mr-1"></i> ${shortEfn}
+                                    </span>`;
                         } else {
-                            // Eğer link yoksa ama yine de tıklanabilir olmasını istiyorsak kolaybi arama sayfasına yönlendirebiliriz veya düz gösteririz
-                            return `<span class="badge badge-secondary p-2 shadow-sm mb-1" style="display: inline-block;" title="Fatura Linki Bulunamadı">${shortEfn}</span>`;
+                            // Gerçek bir fatura numarasıysa: Yeşil ve tıklanabilir link (Badge Success)
+                            return `<a href="#" class="badge badge-success p-2 shadow-sm text-white mb-1 view-accrual-invoice-btn" data-invoice-no="${displayEfn}" style="text-decoration: none; display: inline-block;" title="Resmi Faturayı Görüntüle">
+                                        <i class="fas fa-file-invoice mr-1" style="pointer-events: none;"></i> ${shortEfn}
+                                    </a>`;
                         }
                     });
 

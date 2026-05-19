@@ -47,7 +47,17 @@ function removeTurkishSuffixes(word: string) {
 
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
-    let cleaned = String(name).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // 🔥 OPTİMİZASYON: Çoklu harf ve ses kombinasyonlarını standartlaştırma (ia-ya, ie-ye, pf-f eklendi)
+    let processed = String(name).toLowerCase()
+        .replace(/ch/g, 'ç')
+        .replace(/sh/g, 'ş')
+        .replace(/x/g, 'ks')
+        .replace(/pf/g, 'f')
+        .replace(/ia/g, 'ya')
+        .replace(/ie/g, 'ye');
+        
+    let cleaned = processed.replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (removeGenericWords) {
         cleaned = cleaned.split(' ').filter(word => {
             const stemmedWord = removeTurkishSuffixes(word);
@@ -59,33 +69,38 @@ function cleanMarkName(name: string, removeGenericWords = true) {
 
 function normalizeStringForPhonetic(str: string) {
     if (!str) return "";
-    return str.toLowerCase().replace(/[^a-z0-9ğüşöçı]/g, '').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/ı/g, 'i');
+    
+    // 🔥 OPTİMİZASYON: Fonetik kıyaslama öncesi dönüşümler (ia-ya, ie-ye, pf-f eklendi)
+    return str.toLowerCase()
+        .replace(/ch/g, 'ç')
+        .replace(/sh/g, 'ş')
+        .replace(/x/g, 'ks')
+        .replace(/pf/g, 'f')
+        .replace(/ia/g, 'ya')
+        .replace(/ie/g, 'ye')
+        .replace(/[^a-z0-9ğüşöçı]/g, '')
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/ı/g, 'i');
 }
 
+// 🎯 YENİ GÖRSEL HARİTA (c-s, c-k, d-t, g-k ilişkileri eklendi)
 const visualMap: Record<string, string[]> = {
-    "a": ["e", "o"], "b": ["d", "p"], "c": ["ç", "s"], "ç": ["c", "s"], "d": ["b", "p"], "e": ["a", "o"], "f": ["t"],
-    "g": ["ğ", "q"], "ğ": ["g", "q"], "h": ["n"], "i": ["l", "j", "ı"], "ı": ["i"], "j": ["i", "y"], "k": ["q", "x"],
-    "l": ["i", "1"], "m": ["n"], "n": ["m", "r"], "o": ["a", "0", "ö"], "ö": ["o"], "p": ["b", "q"], "q": ["g", "k"],
-    "r": ["n"], "s": ["ş", "c", "z"], "ş": ["s", "z"], "t": ["f"], "u": ["ü", "v"], "ü": ["u", "v"], "v": ["u", "ü", "w", "w"], // w eşleşmesi garantilendi
-    "w": ["v", "u"], "x": ["ks"], "y": ["j"], "z": ["s", "ş"], "0": ["o"], "1": ["l", "i"], "ks": ["x"], "Q": ["O","0"],
-    "O": ["Q", "0"], "I": ["l", "1"], "L": ["I", "1"], "Z": ["2"], "S": ["5"], "B": ["8"], "D": ["O"]
+    "b": ["d", "p"], "d": ["b", "p", "t"], "p": ["b", "d"],
+    "c": ["ç", "s", "k"], "ç": ["c"], 
+    "s": ["ş", "z", "c"], "ş": ["s", "z"], "z": ["s", "ş"],
+    "g": ["ğ", "k"], "ğ": ["g"],
+    "q": ["k"], "k": ["q", "c", "g"], 
+    "i": ["ı", "l", "1", "j"], "ı": ["i", "l", "1"], "l": ["i", "ı", "1"], "1": ["i", "ı", "l"], "j": ["i", "y"], "y": ["j"],
+    "m": ["n"], "n": ["m"], 
+    "o": ["ö", "0"], "ö": ["o"], "0": ["o", "O"],
+    "u": ["ü"], "ü": ["u"],
+    "v": ["w"], "w": ["v"], 
+    "f": ["t"], "t": ["f", "d"]
 };
-
-function visualMismatchPenalty(a: string, b: string) {
-    if (!a || !b) return 5; 
-    const lenDiff = Math.abs(a.length - b.length);
-    const minLen = Math.min(a.length, b.length);
-    let penalty = lenDiff * 0.5;
-    for (let i = 0; i < minLen; i++) {
-        const ca = a[i].toLowerCase();
-        const cb = b[i].toLowerCase();
-        if (ca !== cb) {
-            if (visualMap[ca] && visualMap[ca].includes(cb)) penalty += 0.25;
-            else penalty += 1.0;
-        }
-    }
-    return penalty;
-}
 
 function parseDateForValidation(val: any): Date | null {
     if (!val) return null;
@@ -101,24 +116,54 @@ function parseDateForValidation(val: any): Date | null {
     return null;
 }
 
-const v0 = new Int32Array(512);
-const v1 = new Int32Array(512);
+const v0 = new Float64Array(512);
+const v1 = new Float64Array(512);
 
+// 🔥 GÖRSEL ZEKAYA VE KONUM BİLİNCİNE SAHİP LEVENSHTEIN 
 function levenshteinSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
     const lenA = a.length, lenB = b.length;
     if (lenA === 0 || lenB === 0) return 0.0;
     if (lenB >= 512) return 0.0; 
+
     for (let i = 0; i <= lenB; i++) v0[i] = i;
+    
     for (let i = 0; i < lenA; i++) {
         v1[0] = i + 1;
         for (let j = 0; j < lenB; j++) {
-            const cost = a[i] === b[j] ? 0 : 1;
-            v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+            const charA = a[i];
+            const charB = b[j];
+            
+            let cost = 1.0; 
+            
+            if (charA === charB) {
+                cost = 0.0; 
+            } else if (
+                (visualMap[charA] && visualMap[charA].includes(charB)) || 
+                (visualMap[charB] && visualMap[charB].includes(charA))
+            ) {
+                const isStart = (i === 0 || j === 0);
+                const isEnd = (i === lenA - 1 || j === lenB - 1);
+
+                if (isStart) {
+                    cost = 0.30; 
+                } else if (isEnd) {
+                    cost = 0.15; 
+                } else {
+                    cost = 0.10; 
+                }
+            }
+
+            v1[j + 1] = Math.min(
+                v1[j] + 1,           
+                v0[j + 1] + 1,       
+                v0[j] + cost         
+            );
         }
         for (let j = 0; j <= lenB; j++) v0[j] = v1[j];
     }
-    return 1 - (v1[lenB] / Math.max(lenA, lenB));
+    
+    return Math.max(0.0, Math.min(1.0, 1 - (v1[lenB] / Math.max(lenA, lenB))));
 }
 
 function isPhoneticallySimilar(a: string, b: string) {
@@ -161,8 +206,7 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         substringBonus = 0.88; 
     }
 
-    // 🌟 2. ÇEKİRDEK SKORLAMA MOTORU (Faz 2'nin İzole Edilmiş Hali)
-    // Bu motoru hem bütün cümle için hem de tekil kelimeler (Asli Unsur) için kullanacağız.
+    // 🌟 2. ÇEKİRDEK SKORLAMA MOTORU
     const computeCoreScore = (a: string, b: string) => {
         if (!a || !b) return 0.0;
         if (a === b) return 1.0;
@@ -208,14 +252,7 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
             return levenshteinSimilarity(p1, p2);
         })();
 
-        const visual = (() => {
-            const penalty = visualMismatchPenalty(a, b);
-            const maxP = Math.max(a.length, b.length) * 1.0;
-            return maxP === 0 ? 1.0 : (1.0 - (penalty / maxP));
-        })();
-
-        // Yeni Ağırlık Dağılımı: maxWordScore kaldırıldığı için Levenshtein %35'e çıkarıldı.
-        return (lev * 0.35 + jw * 0.25 + ngram * 0.15 + visual * 0.15 + prefix * 0.10);
+        return (lev * 0.50 + jw * 0.25 + ngram * 0.15 + prefix * 0.10);
     };
 
     // 🌟 3. KELİMELERİ PARÇALAMA VE ERKEN DÖNÜŞ KONTROLÜ
@@ -237,21 +274,18 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // Erken Dönüş (Early Return) Barajı "ems vs ens" (3 harfli) için 0.70'ten 0.65'e indirildi!
     let earlyReturnScore = Math.max(substringBonus, bestWordLevenshtein);
     if (earlyReturnScore >= 0.65) {
         if (earlyReturnScore === 1.0 && exactWordLen < 2 && s1 !== s2) { 
-            // pas geç (Cümle içindeki 1 harflik 'a' vs 'a' eşleşmelerini iptal et)
+            // pas geç
         } else { 
             return { finalScore: earlyReturnScore, positionalExactMatchScore }; 
         }
     }
 
     // 🌟 4. ASLİ UNSUR (KELİME) VS BÜTÜNSEL CÜMLE KIYASLAMASI
-    // Bütün cümle (ems eurasia vs ens)
     const fullStringScore = computeCoreScore(s1, s2);
     
-    // Asli Unsurlar (Kelimeler arası en iyi Faz 2 skoru)
     let bestWordPairScore = 0.0;
     if (w1.length > 0 && w2.length > 0) {
         for (const a of w1) {
@@ -264,7 +298,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // En yüksek olanı Nihai Faz 2 Skoru olarak al
     let phase2Final = Math.max(fullStringScore, bestWordPairScore, substringBonus);
 
     // 🌟 5. FONETİK SKOR VE BİRLEŞTİRME
@@ -281,7 +314,7 @@ async function markWorkerStatus(supabase: any, jobId: string, workerId: string |
     
     const { data: activeWorkers } = await supabase.from('search_progress_workers').select('id').eq('job_id', jobId).eq('status', 'processing');
     if (!activeWorkers || activeWorkers.length === 0) {
-        console.log(`[Job ${jobId}] 🎉 TıM İŞÇİLER (${status}) İŞLEMİ BİTİRDİ. Ana Job 'completed' yapılıyor.`);
+        console.log(`[Job ${jobId}] 🎉 TÜM İŞÇİLER (${status}) İŞLEMİ BİTİRDİ. Ana Job 'completed' yapılıyor.`);
         await supabase.from('search_progress').update({ status: 'completed' }).eq('id', jobId);
     }
 }
@@ -302,7 +335,6 @@ serve(async (req) => {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                // 🔥 OPTİMİZASYON: Timeout / CPU Kill yememek için lokma boyutunu (BATCH_SIZE) düşürdük
                 const BATCH_SIZE = 250; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
@@ -314,7 +346,6 @@ serve(async (req) => {
                         ? String(mark.searchMarkName).trim() 
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
-                    // 🔥 DÜZELTME: Veritabanındaki snake_case (brand_text_search) okuma sorunu çözüldü
                     const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
                     let alternatives = Array.isArray(rawBrandText) ? rawBrandText : [];
                     
@@ -338,7 +369,6 @@ serve(async (req) => {
                         return [String(val)];
                     };
 
-                    // 🔥 DÜZELTME: Veritabanındaki snake_case (nice_class_search) okuma sorunu çözüldü
                     const originalClassesRaw = mark.goodsAndServicesByClass ? makeArray(mark.goodsAndServicesByClass.map((c:any)=>c.classNo||c)) : makeArray(mark.niceClasses || mark.nice_classes);
                     const watchedClassesRaw = makeArray(mark.niceClassSearch || mark.nice_class_search);
 
@@ -355,7 +385,6 @@ serve(async (req) => {
                     
                     const bypassClassFilter = greenSet.size === 0 && orangeSet.size === 0;
 
-                    // 🔥 OPTİMİZASYON: İzlenen markanın başvuru tarihini döngüye girmeden SADECE 1 KERE parse ediyoruz
                     const appDateRaw = mark.applicationDate || mark.application_date || null;
                     const parsedAppDate = parseDateForValidation(appDateRaw);
 
@@ -385,7 +414,6 @@ serve(async (req) => {
                         const hit = hits[i];
                         currentLastId = hit.id;
                         
-                        // 🔥 OPTİMİZASYON: Rakip markanın tarihini 200 döngüde değil, dışarıda SADECE 1 KERE parse et.
                         const parsedHitDate = parseDateForValidation(hit.application_date);
                         
                         let rawHitClasses: string[] = [];
@@ -407,7 +435,6 @@ serve(async (req) => {
 
                         for (const mark of preparedMarks) {
                             
-                            // 🔥 OPTİMİZASYON: Ağır nesne yaratımını engelleyerek sadece CPU bazlı milisaniyelik zaman kıyası yaptık
                             let isValidDate = true;
                             if (parsedHitDate && mark.parsedAppDate && !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime())) {
                                 isValidDate = parsedHitDate >= mark.parsedAppDate;

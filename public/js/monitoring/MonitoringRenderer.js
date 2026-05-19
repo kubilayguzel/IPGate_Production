@@ -30,6 +30,8 @@ export class MonitoringRenderer {
             return currentSort.direction === 'asc' ? '<i class="fas fa-sort-up" style="color:#333; margin-left:5px;"></i>' : '<i class="fas fa-sort-down" style="color:#333; margin-left:5px;"></i>';
         };
 
+        const isIntl = this.dataManager.currentTab === 'international';
+        
         let html = `<table class="accruals-table"><thead><tr>
                         <th><input type="checkbox" id="headerSelectAllCheckbox" /></th>
                         <th>Görsel</th>
@@ -40,6 +42,7 @@ export class MonitoringRenderer {
                         <th class="sortable" data-sort="applicationDate" style="cursor:pointer">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
                         <th>Nice Sınıfı</th>
                         <th>Durum</th>
+                        ${isIntl ? '<th>İzlenecek Ülkeler</th><th>Başlangıç Tarihi</th><th>Bitiş Tarihi</th>' : ''}
                     </tr></thead><tbody>`;
 
         data.forEach(r => {
@@ -89,6 +92,12 @@ export class MonitoringRenderer {
                 return '-';
             })();
 
+            const intlCols = isIntl ? `
+                <td>${r.monitoredCountries && r.monitoredCountries.length ? r.monitoredCountries.join(', ') : '-'}</td>
+                <td>${this.formatTurkishDate(r.monitoringStartDate)}</td>
+                <td>${this.formatTurkishDate(r.monitoringEndDate)}</td>
+            ` : '';
+
             html += `<tr data-id="${r.id}" class="${rowClass}">
                         <td><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>
                         <td>${trademarkImageHtml}</td>
@@ -99,6 +108,7 @@ export class MonitoringRenderer {
                         <td>${this.formatTurkishDate(r.applicationDate)}</td>
                         <td>${niceClassesHtml}</td>
                         <td><span class="badge badge-${statusInfo.color}">${statusInfo.text}</span></td>
+                        ${intlCols}
                     </tr>`;
         });
 

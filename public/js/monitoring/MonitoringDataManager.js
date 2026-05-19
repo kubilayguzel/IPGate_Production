@@ -8,6 +8,16 @@ export class MonitoringDataManager {
         this.allPersons = [];
         this.ipRecordCache = new Map();
         this.currentSort = { field: 'applicationDate', direction: 'desc' };
+        
+        // 🔥 YENİ: Varsayılan sekme
+        this.currentTab = 'domestic'; 
+    }
+
+    // 🔥 YENİ: Sekme değiştirme metodu
+    setTab(tabName) {
+        this.currentTab = tabName;
+        // Sekme değiştiğinde sadece o sekmeye ait verileri filtrele
+        this.filterData({}); 
     }
 
     async init() {
@@ -72,14 +82,18 @@ export class MonitoringDataManager {
                     applicationDate: ipRecord.applicationDate || null,
                     status: ipRecord.status || 'unknown',
                     brandImageUrl: ipRecord.brandImageUrl || d.image_path || '',
-                    ownerName: ipRecord.applicantName || '-',
-                    niceClasses: ipRecord.niceClasses || [],
+                    ownerName: ipRecord.applicantName || d.applicant_name || '-', // Manuel girilen sahibi de al
+                    niceClasses: ipRecord.niceClasses || ensureArray(d.manual_nice_classes), // Manuel sınıflar
                     brandTextSearch: bts,
-                    // 🔥 ÇÖZÜM: Veritabanındaki 'search_mark_name' verisine EN YÜKSEK önceliği verdik!
                     searchMarkName: d.search_mark_name || ipRecord.title || d.mark_name || '',
                     niceClassSearch: ensureArray(d.nice_class_search),
                     createdAt: d.created_at,
-                    applicants: ipRecord.applicants || []
+                    applicants: ipRecord.applicants || [],
+
+                    monitoringType: d.monitoring_type || 'domestic',
+                    monitoredCountries: ensureArray(d.monitored_countries),
+                    monitoringStartDate: d.monitoring_start_date || null,
+                    monitoringEndDate: d.monitoring_end_date || null
                 };
             });
 
@@ -126,6 +140,8 @@ export class MonitoringDataManager {
 
     filterData(filters) {
         this.filteredData = this.allMonitoringData.filter(item => {
+            // 🔥 YENİ: Sadece aktif sekmeye ait kayıtları göster
+            if (item.monitoringType !== this.currentTab) return false;
             if (filters.search) {
                 const markName = (item.title || item.markName || '').toLowerCase();
                 const owner = this.getOwnerNames(item).toLowerCase();
@@ -216,5 +232,25 @@ export class MonitoringDataManager {
             if (!error) successful++;
         }
         return successful;
+    }
+
+    // 🔥 YENİ: Yurtdışı manuel kayıt ekleme (Görsel Desteğiyle)
+    async addManualRecord(recordData) {
+        const payload = {
+            ip_record_id: null,
+            monitoring_type: 'international',
+            mark_name: recordData.markName,
+            applicant_name: recordData.applicantName,
+            application_no: recordData.applicationNo,
+            manual_nice_classes: recordData.niceClasses,
+            monitored_countries: recordData.countries,
+            monitoring_start_date: recordData.startDate,
+            monitoring_end_date: recordData.endDate,
+            search_mark_name: recordData.markName,
+            image_path: recordData.imagePath || null // 🔥 EKLENDİ: Görsel URL'si
+        };
+        const { data, error } = await supabase.from('monitoring_trademarks').insert([payload]).select();
+        if (error) throw error;
+        return data;
     }
 }

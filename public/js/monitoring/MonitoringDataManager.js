@@ -34,28 +34,23 @@ export class MonitoringDataManager {
 
     async fetchMonitoringData() {
         try {
-            // 1. URL'den belirli bir markaya (Göz ikonuna) tıklanıp gelinmiş mi kontrol et
-            const urlParams = new URLSearchParams(window.location.search);
-            const filterId = urlParams.get('filterId');
-
-            // 2. SADECE monitoring tablosunu çekiyoruz (Hata veren SQL JOIN'leri tamamen kaldırıldı)
-            let query = supabase
+            // 1) Yurtiçi (Portföye Bağlı) Verileri Çek
+            const { data: domesticData, error: domError } = await supabase
                 .from('monitoring_trademarks')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            if (filterId) {
-                query = query.eq('ip_record_id', String(filterId));
-            }
+            // 2) Yurtdışı (Yeni Tablo - Bağımsız) Verileri Çek
+            const { data: intlData, error: intlError } = await supabase
+                .from('international_monitoring')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-            const { data: monitoringData, error } = await query;
-            if (error) throw error;
+            if (domError) throw domError;
 
-            // 3. ✨ SİHİRLİ DOKUNUŞ: Karmaşık verileri zaten hazırlayan ve önbellekleyen servisi kullanıyoruz!
+            // IP Records eşleştirmesi (Yurtiçi için)
             const recordsRes = await ipRecordsService.getRecords();
             const allIpRecords = recordsRes.success ? recordsRes.data : [];
-
-            // Hızlı eşleştirme için Map (Sözlük) oluştur
             const ipRecordsMap = new Map();
             allIpRecords.forEach(r => ipRecordsMap.set(r.id, r));
 
@@ -66,38 +61,54 @@ export class MonitoringDataManager {
                 return [val];
             };
 
-            // 4. Verileri JavaScript tarafında saniyeler içinde birleştir
-            this.allMonitoringData = monitoringData.map(d => {
-                // İlgili ana marka kaydını servisten gelen verilerin içinden bul
+            // Yurtiçi Verilerini Map'le
+            const mappedDomestic = domesticData.map(d => {
                 const ipRecord = ipRecordsMap.get(d.ip_record_id) || {};
-                
-                const bts = ensureArray(d.brand_text_search);
-
                 return {
                     id: d.id,
                     ipRecordId: d.ip_record_id,
                     title: ipRecord.title || d.mark_name || '-',
                     markName: ipRecord.title || d.mark_name || '-',
-                    applicationNumber: ipRecord.applicationNumber || d.application_no || '-',
+                    applicationNumber: ipRecord.applicationNumber || '-',
                     applicationDate: ipRecord.applicationDate || null,
                     status: ipRecord.status || 'unknown',
                     brandImageUrl: ipRecord.brandImageUrl || d.image_path || '',
-                    ownerName: ipRecord.applicantName || d.applicant_name || '-', // Manuel girilen sahibi de al
-                    niceClasses: ipRecord.niceClasses || ensureArray(d.manual_nice_classes), // Manuel sınıflar
-                    brandTextSearch: bts,
-                    searchMarkName: d.search_mark_name || ipRecord.title || d.mark_name || '',
+                    ownerName: ipRecord.applicantName || '-',
+                    niceClasses: ipRecord.niceClasses || [],
+                    brandTextSearch: ensureArray(d.brand_text_search),
+                    searchMarkName: d.search_mark_name || ipRecord.title || '',
                     niceClassSearch: ensureArray(d.nice_class_search),
                     createdAt: d.created_at,
-                    applicants: ipRecord.applicants || [],
-
-                    monitoringType: d.monitoring_type || 'domestic',
-                    monitoredCountries: ensureArray(d.monitored_countries),
-                    monitoringStartDate: d.monitoring_start_date || null,
-                    monitoringEndDate: d.monitoring_end_date || null
+                    monitoringType: 'domestic'
                 };
             });
 
-            this.filteredData = [...this.allMonitoringData];
+            // Yurtdışı Verilerini Map'le (Yeni Tablodan)
+            const mappedIntl = (intlData || []).map(d => ({
+                id: d.id,
+                ipRecordId: null,
+                title: d.mark_name || '-',
+                markName: d.mark_name || '-',
+                applicationNumber: d.application_no || '-',
+                applicationDate: null,
+                status: 'unknown',
+                brandImageUrl: d.image_path || '',
+                ownerName: d.applicant_name || '-',
+                niceClasses: ensureArray(d.nice_classes),
+                brandTextSearch: [],
+                searchMarkName: d.mark_name || '',
+                niceClassSearch: [],
+                createdAt: d.created_at,
+                monitoringType: 'international',
+                monitoredCountries: ensureArray(d.countries),
+                monitoringStartDate: d.start_date || null,
+                monitoringEndDate: d.end_date || null
+            }));
+
+            // Her iki diziyi birleştir ve UI'a yolla
+            this.allMonitoringData = [...mappedDomestic, ...mappedIntl];
+            this.filterData({}); // Sadece aktif sekmeyi gösterecek
+            
             return { success: true, data: this.allMonitoringData };
         } catch (err) {
             console.error("Supabase fetch hatası:", err);
@@ -225,32 +236,36 @@ export class MonitoringDataManager {
         }
     }
 
-    async deleteRecords(idsArray) {
-        let successful = 0;
-        for (const id of idsArray) {
-            const { error } = await supabase.from('monitoring_trademarks').delete().eq('id', id);
-            if (!error) successful++;
-        }
-        return successful;
-    }
-
-    // 🔥 YENİ: Yurtdışı manuel kayıt ekleme (Görsel Desteğiyle)
+    // 🔥 Yurtdışı kayıtlarını YENİ tabloya ekle
     async addManualRecord(recordData) {
         const payload = {
-            ip_record_id: null,
-            monitoring_type: 'international',
             mark_name: recordData.markName,
             applicant_name: recordData.applicantName,
             application_no: recordData.applicationNo,
-            manual_nice_classes: recordData.niceClasses,
-            monitored_countries: recordData.countries,
-            monitoring_start_date: recordData.startDate,
-            monitoring_end_date: recordData.endDate,
-            search_mark_name: recordData.markName,
-            image_path: recordData.imagePath || null // 🔥 EKLENDİ: Görsel URL'si
+            nice_classes: recordData.niceClasses,
+            countries: recordData.countries,
+            start_date: recordData.startDate,
+            end_date: recordData.endDate,
+            image_path: recordData.imagePath || null
         };
-        const { data, error } = await supabase.from('monitoring_trademarks').insert([payload]).select();
+        const { data, error } = await supabase.from('international_monitoring').insert([payload]).select();
         if (error) throw error;
         return data;
+    }
+
+    // 🔥 Silme işleminde kaydın tipine bakıp doğru tablodan sil
+    async deleteRecords(idsArray) {
+        let successful = 0;
+        for (const id of idsArray) {
+            const record = this.allMonitoringData.find(r => r.id === id);
+            if (!record) continue;
+            
+            // Eğer yurtdışı kaydıysa yeni tablodan, yurtiçiyse eski tablodan sil
+            const targetTable = record.monitoringType === 'international' ? 'international_monitoring' : 'monitoring_trademarks';
+            
+            const { error } = await supabase.from(targetTable).delete().eq('id', id);
+            if (!error) successful++;
+        }
+        return successful;
     }
 }

@@ -1,4 +1,3 @@
-// public/js/monitoring/MonitoringDataManager.js
 import { supabase, ipRecordsService } from '../../supabase-config.js';
 
 export class MonitoringDataManager {
@@ -8,15 +7,11 @@ export class MonitoringDataManager {
         this.allPersons = [];
         this.ipRecordCache = new Map();
         this.currentSort = { field: 'applicationDate', direction: 'desc' };
-        
-        // 🔥 YENİ: Varsayılan sekme
         this.currentTab = 'domestic'; 
     }
 
-    // 🔥 YENİ: Sekme değiştirme metodu
     setTab(tabName) {
         this.currentTab = tabName;
-        // Sekme değiştiğinde sadece o sekmeye ait verileri filtrele
         this.filterData({}); 
     }
 
@@ -48,7 +43,7 @@ export class MonitoringDataManager {
 
             if (domError) throw domError;
 
-            // IP Records eşleştirmesi (Yurtiçi için)
+            // IP Records eşleştirmesi
             const recordsRes = await ipRecordsService.getRecords();
             const allIpRecords = recordsRes.success ? recordsRes.data : [];
             const ipRecordsMap = new Map();
@@ -61,18 +56,18 @@ export class MonitoringDataManager {
                 return [val];
             };
 
-            // Yurtiçi Verilerini Map'le
+            // Yurtiçi Verilerini Map'le (Gereksiz kolonlardan temizlendi)
             const mappedDomestic = domesticData.map(d => {
                 const ipRecord = ipRecordsMap.get(d.ip_record_id) || {};
                 return {
                     id: d.id,
                     ipRecordId: d.ip_record_id,
-                    title: ipRecord.title || d.mark_name || '-',
-                    markName: ipRecord.title || d.mark_name || '-',
+                    title: ipRecord.title || '-',
+                    markName: ipRecord.title || '-',
                     applicationNumber: ipRecord.applicationNumber || '-',
                     applicationDate: ipRecord.applicationDate || null,
                     status: ipRecord.status || 'unknown',
-                    brandImageUrl: ipRecord.brandImageUrl || d.image_path || '',
+                    brandImageUrl: ipRecord.brandImageUrl || '',
                     ownerName: ipRecord.applicantName || '-',
                     niceClasses: ipRecord.niceClasses || [],
                     brandTextSearch: ensureArray(d.brand_text_search),
@@ -105,9 +100,9 @@ export class MonitoringDataManager {
                 monitoringEndDate: d.end_date || null
             }));
 
-            // Her iki diziyi birleştir ve UI'a yolla
+            // Birleştir ve arayüze sun
             this.allMonitoringData = [...mappedDomestic, ...mappedIntl];
-            this.filterData({}); // Sadece aktif sekmeyi gösterecek
+            this.filterData({});
             
             return { success: true, data: this.allMonitoringData };
         } catch (err) {
@@ -115,71 +110,28 @@ export class MonitoringDataManager {
             return { success: false, error: err.message };
         }
     }
-    
-    // Eski SQL sorgusu yerine bu da servise bağlandı
-    async fetchIpRecordByIdCached(recordId) {
-        if (!recordId) return null;
-        if (this.ipRecordCache.has(recordId)) return this.ipRecordCache.get(recordId);
-        
-        try {
-            // Ayrı SQL yazmak yerine merkezi servisi kullanıyoruz
-            const res = await ipRecordsService.getRecordById(recordId);
-            
-            if (!res.success || !res.data) return null;
-            
-            const data = res.data;
-            const rec = {
-                ...data,
-                markName: data.title || '-',
-                ownerName: data.applicantName || '-',
-            };
-            
-            this.ipRecordCache.set(recordId, rec);
-            return rec;
-        } catch (e) {
-            return null;
-        }
-    }
 
     getOwnerNames(item) {
-        // Zaten ipRecordsService 'applicantName' formatını mükemmel ayarlıyor
-        if (item.ownerName && item.ownerName !== '-') {
-            return item.ownerName;
-        }
+        if (item.ownerName && item.ownerName !== '-') return item.ownerName;
         return '-';
     }
 
-    filterData(filters) {
+    filterData(filters = {}) {
         this.filteredData = this.allMonitoringData.filter(item => {
-            // 🔥 YENİ: Sadece aktif sekmeye ait kayıtları göster
+            // Sadece aktif sekmeyi göster
             if (item.monitoringType !== this.currentTab) return false;
+
             if (filters.search) {
                 const markName = (item.title || item.markName || '').toLowerCase();
                 const owner = this.getOwnerNames(item).toLowerCase();
-                const applicationNo = (item.applicationNumber || item.applicationNo || '').toLowerCase();
+                const applicationNo = (item.applicationNumber || '').toLowerCase();
                 const sTerms = [...(item.brandTextSearch || []), item.searchMarkName].filter(Boolean).join(' ').toLowerCase();
-
                 if (!markName.includes(filters.search) && !owner.includes(filters.search) && !applicationNo.includes(filters.search) && !sTerms.includes(filters.search)) return false;
             }
-            if (filters.markName && !(item.title || item.markName || '').toLowerCase().includes(filters.markName)) return false;
-            if (filters.searchTerms) {
-                const allTerms = [...(item.brandTextSearch || []), item.searchMarkName].filter(Boolean).join(' ').toLowerCase();
-                if (!allTerms.includes(filters.searchTerms)) return false;
-            }
-            if (filters.owner && !this.getOwnerNames(item).toLowerCase().includes(filters.owner)) return false;
-            if (filters.niceClass) {
-                const searchClasses = filters.niceClass.split(/[,\s]+/).filter(c => c !== '');
-                const allClassSources = [...(item.niceClasses || []), ...(item.niceClassSearch || [])].filter(c => c !== null).map(String);
-                const hasMatch = searchClasses.some(sClass => allClassSources.includes(sClass));
-                if (!hasMatch) return false;
-            }
-            
-            // Durum (Status) filtrelemesi
             if (filters.status && filters.status !== 'all') {
                 const itemStatusVal = this.getNormalizedStatus(item.status);
                 if (itemStatusVal !== filters.status) return false;
             }
-
             return true;
         });
         return this.sortData();
@@ -188,12 +140,10 @@ export class MonitoringDataManager {
     getNormalizedStatus(status) {
         if (!status) return 'unknown';
         const s = String(status).toLowerCase();
-        if (['registered', 'approved', 'active', 'tescilli', 'kabul'].includes(s)) return 'registered';
+        if (['registered', 'approved', 'active', 'tescilli'].includes(s)) return 'registered';
         if (['filed', 'application', 'başvuru'].includes(s)) return 'application';
-        if (['published', 'yayında', 'pending', 'decision_pending', 'karar bekleniyor'].includes(s)) return 'pending';
-        if (['rejected', 'refused', 'cancelled', 'reddedildi', 'iptal', 'hükümsüz'].includes(s)) return 'rejected';
-        if (['objection', 'itiraz'].includes(s)) return 'objection';
-        if (['litigation', 'dava'].includes(s)) return 'litigation';
+        if (['published', 'yayında'].includes(s)) return 'pending';
+        if (['rejected', 'refused', 'cancelled', 'iptal'].includes(s)) return 'rejected';
         return 'unknown';
     }
 
@@ -202,15 +152,11 @@ export class MonitoringDataManager {
             let valA, valB;
             switch (this.currentSort.field) {
                 case 'markName':
-                    valA = (a.title || a.markName || '').toLowerCase();
-                    valB = (b.title || b.markName || '').toLowerCase();
-                    break;
+                    valA = (a.title || a.markName || '').toLowerCase(); valB = (b.title || b.markName || '').toLowerCase(); break;
                 case 'owner':
-                    valA = this.getOwnerNames(a).toLowerCase(); valB = this.getOwnerNames(b).toLowerCase();
-                    break;
+                    valA = this.getOwnerNames(a).toLowerCase(); valB = this.getOwnerNames(b).toLowerCase(); break;
                 case 'applicationDate':
-                    valA = new Date(a.applicationDate || 0).getTime(); valB = new Date(b.applicationDate || 0).getTime();
-                    break;
+                    valA = new Date(a.applicationDate || 0).getTime(); valB = new Date(b.applicationDate || 0).getTime(); break;
                 default: return 0;
             }
             if (valA < valB) return this.currentSort.direction === 'asc' ? -1 : 1;
@@ -225,18 +171,10 @@ export class MonitoringDataManager {
             nice_class_search: niceClassArray,
             search_mark_name: searchMarkNameValue
         }).eq('id', id);
-
         if (error) throw error;
-
-        const index = this.allMonitoringData.findIndex(item => item.id === id);
-        if (index !== -1) {
-            this.allMonitoringData[index].brandTextSearch = brandTextArray;
-            this.allMonitoringData[index].niceClassSearch = niceClassArray;
-            this.allMonitoringData[index].searchMarkName = searchMarkNameValue;
-        }
     }
 
-    // 🔥 Yurtdışı kayıtlarını YENİ tabloya ekle
+    // Yurtdışı manuel ekleme (Yeni tabloya)
     async addManualRecord(recordData) {
         const payload = {
             mark_name: recordData.markName,
@@ -253,16 +191,13 @@ export class MonitoringDataManager {
         return data;
     }
 
-    // 🔥 Silme işleminde kaydın tipine bakıp doğru tablodan sil
     async deleteRecords(idsArray) {
         let successful = 0;
         for (const id of idsArray) {
             const record = this.allMonitoringData.find(r => r.id === id);
             if (!record) continue;
-            
-            // Eğer yurtdışı kaydıysa yeni tablodan, yurtiçiyse eski tablodan sil
+            // Kaydın ait olduğu tabloyu bul ve sil
             const targetTable = record.monitoringType === 'international' ? 'international_monitoring' : 'monitoring_trademarks';
-            
             const { error } = await supabase.from(targetTable).delete().eq('id', id);
             if (!error) successful++;
         }

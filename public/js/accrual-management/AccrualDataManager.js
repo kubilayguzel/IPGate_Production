@@ -655,4 +655,57 @@ export class AccrualDataManager {
         }
         return false;
     }
+
+    // 👇 EKLENECEK: TEKRARLAYAN TAHAKKUK VERİ YÖNETİMİ 👇
+    async createRecursiveAccrual(accrualData) {
+        try {
+            const { data, error } = await supabase
+                .from('accruals_recursive')
+                .insert([{
+                    person_id: accrualData.personId,
+                    type: accrualData.type,
+                    amount: accrualData.amount,
+                    currency: accrualData.currency,
+                    period: accrualData.period,
+                    start_date: accrualData.startDate,
+                    next_trigger_date: accrualData.startDate,
+                    description: accrualData.description,
+                    is_active: true
+                }])
+                .select();
+            
+            if (error) throw error;
+            return { success: true, data: data[0] };
+        } catch (error) {
+            console.error('Tekrarlayan tahakkuk oluşturma hatası:', error);
+            throw new Error(error.message);
+        }
+    }
+
+    async getRecursiveAccruals() {
+        try {
+            const { data, error } = await supabase
+                .from('accruals_recursive')
+                .select('*')
+                .order('created_at', { ascending: false });
+                
+            if (error) throw error;
+            return { success: true, data };
+        } catch (error) {
+            console.error('Tekrarlayan tahakkukları getirme hatası:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteRecursiveAccrual(id) {
+        try {
+            const { error } = await supabase.from('accruals_recursive').delete().eq('id', id);
+            if (error) throw error;
+            return { success: true };
+        } catch (error) {
+            console.error('Tekrarlayan tahakkuk silme hatası:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    // 👆 EKLENECEK BÖLÜMÜN BİTİŞİ 👆
 }

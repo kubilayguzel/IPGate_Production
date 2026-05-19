@@ -38,6 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.initPagination();
             this.setupEventListeners();
             await this.loadData();
+            await this.loadRecursiveData();
         }
 
         initPagination() {
@@ -59,6 +60,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 showNotification('Veriler yüklenirken hata oluştu.', 'error');
             } finally {
                 this.uiManager.toggleLoading(false);
+            }
+        }
+
+        async loadRecursiveData() {
+            if (!this.uiManager.recursiveTableBody) return;
+            const res = await this.dataManager.getRecursiveAccruals();
+            if (res.success) {
+                this.uiManager.renderRecursiveTable(res.data, this.dataManager.allPersons);
             }
         }
 
@@ -496,6 +505,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 else if (targetHref === '#content-invoices') {
                     this.state.activeTab = 'invoices';
                     if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none'; // Gizle
+                }
+                // (Mevcut 'foreign' ve 'invoices' if bloklarının arasına veya sonrasına)
+                else if (targetHref === '#content-recursive') {
+                    this.state.activeTab = 'recursive';
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
+                    this.loadRecursiveData(); // 🔥 EKLENDİ
                 }
                 else {
                     this.state.activeTab = 'main';
@@ -966,11 +981,54 @@ document.addEventListener('DOMContentLoaded', async () => {
                     this.uiManager.toggleLoading(true);
                     try {
                         const newAccrualData = formResult.data;
-                        const fileToUpload = (newAccrualData.files || [])[0];
-                        await this.dataManager.createFreestyleAccrual(newAccrualData, fileToUpload);
-                        modalFreestyle.classList.remove('show');
-                        await this.loadData(); // 🔥 YENİ: Yeni oluşturulan veriyi ekrana çek
-                        showNotification('Serbest tahakkuk başarıyla oluşturuldu!', 'success');
+                        const structure = document.getElementById('accrualStructure')?.value || 'single';
+
+                        if (structure === 'recursive') {
+                            // --- TEKRARLAYAN TAHAKKUK KAYDETME ---
+                            const period = document.getElementById('recPeriod').value;
+                            const startDate = document.getElementById('recStartDate').value;
+                            
+                            if (!period || !startDate) {
+                                showNotification('Lütfen periyot ve başlama tarihini seçin.', 'error');
+                                this.uiManager.toggleLoading(false); return;
+                            }
+
+                            // Dinamik diziden ilk parayı alıyoruz
+                            let finalAmount = 0, finalCurrency = 'TRY';
+                            if (Array.isArray(newAccrualData.totalAmount) && newAccrualData.totalAmount.length > 0) {
+                                finalAmount = newAccrualData.totalAmount[0].amount;
+                                finalCurrency = newAccrualData.totalAmount[0].currency;
+                            } else if (newAccrualData.officialFee?.amount > 0) {
+                                finalAmount = newAccrualData.officialFee.amount;
+                                finalCurrency = newAccrualData.officialFee.currency;
+                            } else if (newAccrualData.serviceFee?.amount > 0) {
+                                finalAmount = newAccrualData.serviceFee.amount;
+                                finalCurrency = newAccrualData.serviceFee.currency;
+                            }
+
+                            const recursivePayload = {
+                                personId: newAccrualData.tpInvoicePartyId || newAccrualData.serviceInvoicePartyId,
+                                type: newAccrualData.type || 'Masraf',
+                                amount: finalAmount,
+                                currency: finalCurrency,
+                                period: period,
+                                startDate: startDate,
+                                description: newAccrualData.description
+                            };
+
+                            await this.dataManager.createRecursiveAccrual(recursivePayload);
+                            modalFreestyle.classList.remove('show');
+                            await this.loadRecursiveData();
+                            showNotification('Abonelik / Tekrarlayan Tahakkuk başarıyla oluşturuldu!', 'success');
+
+                        } else {
+                            // --- MEVCUT TEKİL TAHAKKUK KAYDETME ---
+                            const fileToUpload = (newAccrualData.files || [])[0];
+                            await this.dataManager.createFreestyleAccrual(newAccrualData, fileToUpload);
+                            modalFreestyle.classList.remove('show');
+                            await this.loadData();
+                            showNotification('Serbest tahakkuk başarıyla oluşturuldu!', 'success');
+                        }
                     }
                     catch (e) { showNotification('Tahakkuk kaydedilemedi: ' + e.message, 'error'); } 
                     finally { this.uiManager.toggleLoading(false); }

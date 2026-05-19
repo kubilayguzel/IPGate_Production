@@ -1106,6 +1106,83 @@
                     },
                     {
                         "data_type": "text",
+                        "column_name": "mark_name",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "applicant_name",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "application_no",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "nice_classes",
+                        "is_nullable": "YES",
+                        "column_default": "'[]'::jsonb",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "countries",
+                        "is_nullable": "YES",
+                        "column_default": "'[]'::jsonb",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "start_date",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "end_date",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "image_path",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "international_monitoring",
+                "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "gen_random_uuid()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
                         "column_name": "kolaybi_invoice_id",
                         "is_nullable": "YES",
                         "column_default": null,

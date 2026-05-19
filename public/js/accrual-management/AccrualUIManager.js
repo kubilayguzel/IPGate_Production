@@ -9,6 +9,7 @@ export class AccrualUIManager {
         this.tableBody = document.getElementById('accrualsTableBody');
         this.foreignTableBody = document.getElementById('foreignTableBody');
         this.invoicesTableBody = document.getElementById('invoicesTableBody');
+        this.recursiveTableBody = document.getElementById('recursiveTableBody');
         this.noRecordsMessage = document.getElementById('noRecordsMessage');
         this.bulkActions = document.getElementById('bulkActions');
         this.loadingIndicator = document.getElementById('loadingIndicator');
@@ -112,6 +113,36 @@ export class AccrualUIManager {
         if (this.tableBody) this.tableBody.addEventListener('click', handleTableClick);
         if (this.foreignTableBody) this.foreignTableBody.addEventListener('click', handleTableClick);
         if (this.invoicesTableBody) this.invoicesTableBody.addEventListener('click', handleTableClick);
+        if (this.recursiveTableBody) this.recursiveTableBody.addEventListener('click', handleTableClick);
+    }
+
+    // 👇 EKLENECEK YENİ METOD BAŞLANGICI 👇
+    setupRecursiveFormListeners() {
+        const structureSelect = document.getElementById('accrualStructure');
+        const recursiveFields = document.querySelectorAll('.recursive-field');
+
+        if (structureSelect) {
+            structureSelect.addEventListener('change', (e) => {
+                const isRecursive = e.target.value === 'recursive';
+                
+                // Seçime göre periyot ve tarih alanlarını gizle/göster
+                recursiveFields.forEach(el => el.style.display = isRecursive ? 'block' : 'none');
+                
+                // Tekrarlayan seçildiğinde tarihi bugüne kur (eğer boşsa)
+                const recStartDateInput = document.getElementById('recStartDate');
+                if (isRecursive && recStartDateInput && !recStartDateInput.value) {
+                    recStartDateInput.value = new Date().toISOString().split('T')[0];
+                }
+            });
+        }
+
+        // Modal kapandığında formu sıfırla (Bir sonraki açılışta temiz gelsin)
+        $('#freestyleAccrualModal').on('hidden.bs.modal', () => {
+            if (structureSelect) structureSelect.value = 'single';
+            recursiveFields.forEach(el => el.style.display = 'none');
+            const recStartDateInput = document.getElementById('recStartDate');
+            if (recStartDateInput) recStartDateInput.value = '';
+        });
     }
 
     renderTable(data, lookups, activeTab = 'main') {
@@ -867,5 +898,43 @@ export class AccrualUIManager {
 
     getEditFormData() {
         return this.editFormManager ? this.editFormManager.getData() : { success: false, error: 'Form yüklenmedi' };
+    }
+
+    // 👇 EKLENECEK: TEKRARLAYAN TAHAKKUK TABLOSUNU ÇİZME 👇
+    renderRecursiveTable(accruals, allPersonsList) {
+        if (!this.recursiveTableBody) return;
+        
+        if (!accruals || accruals.length === 0) {
+            this.recursiveTableBody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">Kayıtlı abonelik / tekrarlayan tahakkuk bulunamadı.</td></tr>';
+            return;
+        }
+
+        const periodMap = { 'monthly': 'Aylık', 'quarterly': '3 Aylık', 'biannually': '6 Aylık', 'annually': 'Yıllık' };
+
+        const html = accruals.map(a => {
+            const personObj = allPersonsList.find(p => p.id === a.person_id);
+            const personName = personObj ? personObj.name : 'Bilinmiyor';
+            const statusBadge = a.is_active ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-secondary">Pasif</span>';
+            
+            return `
+                <tr data-id="${a.id}">
+                    <td><input type="checkbox" class="recursive-row-checkbox" value="${a.id}"></td>
+                    <td><strong>${personName}</strong></td>
+                    <td><span class="badge badge-primary">${a.type}</span></td>
+                    <td><span class="badge badge-info">${periodMap[a.period] || a.period}</span></td>
+                    <td class="font-weight-bold text-success">${this._formatMoney(a.amount, a.currency)}</td>
+                    <td>${a.start_date ? new Date(a.start_date).toLocaleDateString('tr-TR') : '-'}</td>
+                    <td><span class="text-primary font-weight-bold">${a.next_trigger_date ? new Date(a.next_trigger_date).toLocaleDateString('tr-TR') : '-'}</span></td>
+                    <td>${statusBadge}</td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-danger delete-recursive-btn" data-id="${a.id}" title="Sil">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        this.recursiveTableBody.innerHTML = html;
     }
 }

@@ -300,6 +300,12 @@
                             <i class="fas fa-file-invoice-dollar mr-2"></i>Faturalar
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link font-weight-bold" id="tab-recursive" data-toggle="tab" href="#content-recursive" role="tab" style="color:#fd7e14;">
+                            <i class="fas fa-redo mr-2"></i>Tekrarlayan Tahakkuklar
+                        </a>
+                    </li>
+                    </ul>
                 </ul>
 
                 <div class="tab-content">
@@ -368,13 +374,31 @@
                                         <th class="text-center" style="width: 80px;">İşlemler</th>
                                     </tr>
                                 </thead>
-                                 <tbody id="invoicesTableBody"></tbody>
+                                <tbody id="invoicesTableBody"></tbody>
+                             </table>
+                        </div>
+                    </div> <div class="tab-pane fade" id="content-recursive" role="tabpanel">
+                        <div class="table-container">
+                             <table class="accruals-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"><input type="checkbox" id="selectAllRecursiveCheckbox"></th>
+                                        <th>Müvekkil/Cari</th>
+                                        <th>Tahakkuk Türü</th>
+                                        <th>Periyot</th>
+                                        <th>Tutar</th>
+                                        <th>İlk Başlama Tarihi</th>
+                                        <th>Sonraki Tetiklenme</th>
+                                        <th>Durum</th>
+                                        <th class="text-center" style="width: 80px;">İşlemler</th>
+                                    </tr>
+                                </thead>
+                                 <tbody id="recursiveTableBody"></tbody>
                              </table>
                         </div>
                     </div>
-                </div>
-
-                <div id="loadingIndicator" class="loading">Yükleniyor...</div>
+                    
+                </div> <div id="loadingIndicator" class="loading">Yükleniyor...</div>
                 <div id="noRecordsMessage" class="no-records">Kayıt bulunamadı.</div>
                 
                 <div id="paginationControls" class="pagination-container" style="display:flex; justify-content:center; padding:20px;"></div>

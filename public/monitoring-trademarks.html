@@ -667,9 +667,10 @@ tr.selected-row:hover {
                                 <label class="font-weight-bold text-muted small">Marka Adı *</label>
                                 <input type="text" class="form-control" id="manMarkName" required>
                             </div>
-                            <div class="col-md-6 form-group">
+                            <div class="col-md-6 form-group position-relative">
                                 <label class="font-weight-bold text-muted small">Başvuru Sahibi</label>
-                                <input type="text" class="form-control" id="manApplicantName">
+                                <input type="text" class="form-control" id="manApplicantName" placeholder="Kişi veya firma ara..." autocomplete="off">
+                                <div id="applicantDropdown" class="dropdown-menu shadow-sm" style="width: 100%; display: none; max-height: 200px; overflow-y: auto; position: absolute; z-index: 1000; top: 100%;"></div>
                             </div>
                             <div class="col-md-6 form-group">
                                 <label class="font-weight-bold text-muted small">Başvuru/Tescil No</label>

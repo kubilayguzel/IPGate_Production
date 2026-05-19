@@ -86,6 +86,13 @@ class MonitoringController {
         this.renderMonitoredCountries();
     }
 
+    // 🔥 YENİ: Kişi Seçme Metodu
+    selectApplicant(e, name) {
+        e.preventDefault();
+        document.getElementById('manApplicantName').value = name;
+        document.getElementById('applicantDropdown').style.display = 'none';
+    }
+
     renderMonitoredCountries() {
         const container = document.getElementById('selectedCountriesContainer');
         const hiddenInput = document.getElementById('manCountries');
@@ -172,9 +179,45 @@ class MonitoringController {
             countryDropdown.style.display = 'block';
         });
 
+        // 🔥 YENİ: Başvuru Sahibi (Kişi/Firma) Arama Mantığı
+        const applicantInput = document.getElementById('manApplicantName');
+        const applicantDropdown = document.getElementById('applicantDropdown');
+
+        applicantInput?.addEventListener('input', (e) => {
+            const val = e.target.value.trim().toLocaleLowerCase('tr-TR');
+            
+            if(val.length < 2) {
+                applicantDropdown.style.display = 'none';
+                return;
+            }
+            
+            // Hafızadaki person listesinde arama yap
+            const filteredPersons = this.dataManager.allPersons.filter(p => 
+                p.name && p.name.toLocaleLowerCase('tr-TR').includes(val)
+            ).slice(0, 10); // İlk 10 sonucu göster
+
+            if (filteredPersons.length > 0) {
+                applicantDropdown.innerHTML = filteredPersons.map(p => {
+                    // İsim içindeki kesme işaretlerinin (örn: McDonald's) kodu bozmasını engellemek için kaçış ekliyoruz
+                    const escapedName = p.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `<a class="dropdown-item py-2" href="#" onclick="window.monitoringApp.selectApplicant(event, '${escapedName}')">
+                        <i class="fas fa-user text-muted mr-2"></i> ${p.name}
+                    </a>`;
+                }).join('');
+            } else {
+                applicantDropdown.innerHTML = '<span class="dropdown-item text-muted py-2">Kayıtlı kişi bulunamadı</span>';
+            }
+            applicantDropdown.style.display = 'block';
+        });
+
+        // Dışarı tıklanınca dropdown'ları kapat
         document.addEventListener('click', (e) => {
             if (countryInput && !countryInput.contains(e.target) && !countryDropdown.contains(e.target)) {
                 countryDropdown.style.display = 'none';
+            }
+            // 🔥 YENİ: Kişi listesini de kapat
+            if (applicantInput && !applicantInput.contains(e.target) && !applicantDropdown.contains(e.target)) {
+                applicantDropdown.style.display = 'none';
             }
         });
 

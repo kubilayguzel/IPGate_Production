@@ -7,7 +7,6 @@ export class AccrualFormManager {
         this.allPersons = allPersons;
         this.isFreestyle = options.isFreestyle || false; 
         
-        // Dışarıdan Otomatik Hesapla fonksiyonu gelirse al
         this.onAutoCalc = options.onAutoCalc || null;
         
         this.selectedTpParty = null;
@@ -18,7 +17,6 @@ export class AccrualFormManager {
     render() {
         if (!this.container) return;
 
-        // 🔥 KESİN ÇÖZÜM: Senin HTML yapında hedef .modal-dialog DEĞİL, doğrudan .modal-content!
         const modalContent = this.container.closest('.modal-content');
         if (modalContent) {
             modalContent.style.setProperty('max-width', '1400px', 'important');
@@ -28,14 +26,7 @@ export class AccrualFormManager {
         const p = this.prefix;
         const inputHeightStyle = "height: 50px !important;";
 
-        const typeOptions = this.isFreestyle ? `
-            <option value="Hizmet" selected>Hizmet</option>
-            <option value="Masraf">Masraf</option>
-            <option value="Kur Farkı">Kur Farkı</option>
-            <option value="Resmi Ücret Farkı">Resmi Ücret Farkı</option>
-            <option value="SWIFT Maliyeti">SWIFT Maliyeti</option>
-            <option value="Diğer">Diğer</option>
-        ` : `
+        const typeOptions = `
             <option value="Hizmet" selected>Hizmet</option>
             <option value="Masraf">Masraf</option>
             <option value="Kur Farkı">Kur Farkı</option>
@@ -51,7 +42,34 @@ export class AccrualFormManager {
             </div>
         ` : '';
 
+        // 🔥 YENİ: Sadece Serbest Tahakkukta Çıkacak Olan Tekrarlayan Seçenekleri
+        const recursiveHtml = this.isFreestyle ? `
+            <div class="row mb-3 pb-3 border-bottom bg-light rounded pt-3 px-2 shadow-sm" style="border: 2px dashed #1e3c72 !important;">
+                <div class="col-md-12 form-group">
+                    <label class="font-weight-bold text-primary small">Tahakkuk Yapısı <span class="text-danger">*</span></label>
+                    <select class="custom-select w-100 shadow-sm" id="${p}Structure" style="height: 45px; font-size: 14px; font-weight: 600; cursor: pointer;" required>
+                        <option value="single">Tekil Tahakkuk (Sadece 1 kez oluşturulur)</option>
+                        <option value="recursive">Tekrarlayan Tahakkuk (Seçilen periyotlarda otomatik oluşturulur)</option>
+                    </select>
+                </div>
+                <div class="col-md-6 form-group ${p}recursive-field" style="display: none;">
+                    <label class="font-weight-bold text-primary small">Tekrarlama Dönemi / Periyot <span class="text-danger">*</span></label>
+                    <select class="custom-select w-100 shadow-sm" id="${p}Period" style="height: 45px; font-size: 14px; cursor: pointer;">
+                        <option value="monthly">Aylık</option>
+                        <option value="quarterly">3 Aylık</option>
+                        <option value="biannually">6 Aylık</option>
+                        <option value="annually">Yıllık</option>
+                    </select>
+                </div>
+                <div class="col-md-6 form-group ${p}recursive-field" style="display: none;">
+                    <label class="font-weight-bold text-primary small">İlk Başlama Tarihi <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control w-100 shadow-sm" id="${p}StartDate" style="height: 45px; font-size: 14px;">
+                </div>
+            </div>
+        ` : '';
+
         const html = `
+            ${recursiveHtml}
             <div class="row mb-3">
                 <div class="col-md-4">
                     <div class="form-group mb-0 p-2 bg-light border rounded">
@@ -194,10 +212,25 @@ export class AccrualFormManager {
     }
 
     setupListeners() {
+        const p = this.prefix;
 
-        const p = this.prefix; // 🔥 EN ÜSTE ALINDI (Hata Çözüldü)
+        // 🔥 YENİ: Tekrarlayan Tahakkuk Form Dinleyicisi
+        if (this.isFreestyle) {
+            const structureSelect = document.getElementById(`${p}Structure`);
+            const recursiveFields = document.querySelectorAll(`.${p}recursive-field`);
+            if (structureSelect) {
+                structureSelect.addEventListener('change', (e) => {
+                    const isRec = e.target.value === 'recursive';
+                    recursiveFields.forEach(el => el.style.display = isRec ? 'block' : 'none');
+                    
+                    const startDateInput = document.getElementById(`${p}StartDate`);
+                    if (isRec && startDateInput && !startDateInput.value) {
+                        startDateInput.value = new Date().toISOString().split('T')[0];
+                    }
+                });
+            }
+        }
 
-        // 🔥 YENİ: Departman Seçimi Değiştikçe Kalem Seçeneklerini Güncelle
         const deptEl = document.getElementById(`${p}Department`);
         if (deptEl) {
             deptEl.addEventListener('change', (e) => {
@@ -217,7 +250,6 @@ export class AccrualFormManager {
                 if (this.onAutoCalc) {
                     this.onAutoCalc();
                 } else {
-                    // YENİ EKLENDİ: O anki tahakkuk verisiyle global bir event fırlat
                     document.dispatchEvent(new CustomEvent('accrual-auto-calc-request', { 
                         detail: { accrualData: this.currentData } 
                     }));
@@ -227,12 +259,11 @@ export class AccrualFormManager {
 
         this.setupSearch(`${p}TpInvoiceParty`, (person) => { 
             this.selectedTpParty = person; 
-            this.checkSasRequirement(person); // 🔥 YENİ
+            this.checkSasRequirement(person);
         });
         this.setupSearch(`${p}ForeignPaymentParty`, (person) => { this.selectedForeignParty = person; });
     }
 
-    // 🔥 YENİ: Departmana Göre Tüm Satırlardaki Kalem Türlerini Dinamik Değiştiren Motor
     updateLineItemTypes(department) {
         const p = this.prefix;
         const tbody = document.getElementById(`${p}LineItemsBody`);
@@ -255,26 +286,22 @@ export class AccrualFormManager {
             `;
         }
 
-        // Mevcut tüm satırlardaki seçenekleri güncelle
         tbody.querySelectorAll('.item-type').forEach(selectEl => {
             selectEl.innerHTML = optionsHtml;
-            selectEl.dispatchEvent(new Event('change')); // Renklerin güncellenmesi için tetikle
+            selectEl.dispatchEvent(new Event('change'));
         });
     }
 
-    // 🔥 GÜNCELLENEN: Müvekkil için SAS Kodu Gereksinimini Kontrol Et (Hem ana kolon hem detay kontrolü)
     checkSasRequirement(person) {
         const container = document.getElementById(`${this.prefix}OrderCodeContainer`);
         if (!container) return;
 
         if (person) {
-            // Detay alanını güvenli bir şekilde objeye çevir
             let pDetails = {};
             if (person.details) {
                 pDetails = typeof person.details === 'string' ? JSON.parse(person.details) : person.details;
             }
 
-            // Kontrol: Hem doğrudan kolona (person.requires_sas_code) hem de detay JSON'una bakıyoruz
             const requiresSAS = 
                 person.requires_sas_code === true || 
                 pDetails?.requires_sas_code === true || 
@@ -292,12 +319,8 @@ export class AccrualFormManager {
         if (!tbody) return;
         
         tbody.innerHTML = ''; 
-        
-        if (items && items.length > 0) {
-            items.forEach(item => this.addLineItem(item));
-        } else {
-            this.addLineItem(); 
-        }
+        if (items && items.length > 0) items.forEach(item => this.addLineItem(item));
+        else this.addLineItem(); 
         
         this.calculateTotal(); 
     }
@@ -325,18 +348,10 @@ export class AccrualFormManager {
                     }
                 </select>
             </td>
-            <td>
-                <input type="text" class="form-control form-control-sm item-name" value="${item.item_name || ''}" placeholder="Açıklama giriniz...">
-            </td>
-            <td>
-                <input type="number" class="form-control form-control-sm item-qty text-center" value="${item.quantity || 1}" min="0.1" step="0.1">
-            </td>
-            <td>
-                <input type="number" class="form-control form-control-sm item-price text-right" value="${item.unit_price || 0}" min="0" step="0.01">
-            </td>
-            <td>
-                <input type="number" class="form-control form-control-sm item-vat text-center" value="${item.vat_rate !== undefined ? item.vat_rate : 20}" min="0" step="1">
-            </td>
+            <td><input type="text" class="form-control form-control-sm item-name" value="${item.item_name || ''}" placeholder="Açıklama giriniz..."></td>
+            <td><input type="number" class="form-control form-control-sm item-qty text-center" value="${item.quantity || 1}" min="0.1" step="0.1"></td>
+            <td><input type="number" class="form-control form-control-sm item-price text-right" value="${item.unit_price || 0}" min="0" step="0.01"></td>
+            <td><input type="number" class="form-control form-control-sm item-vat text-center" value="${item.vat_rate !== undefined ? item.vat_rate : 20}" min="0" step="1"></td>
             <td>
                 <select class="form-control form-control-sm item-currency" style="height: 35px !important; padding: 4px 8px !important;">
                     <option value="TRY" ${item.currency === 'TRY' ? 'selected' : ''}>TRY</option>
@@ -344,7 +359,6 @@ export class AccrualFormManager {
                     <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>
                     <option value="CHF" ${item.currency === 'CHF' ? 'selected' : ''}>CHF</option>
                     <option value="GBP" ${item.currency === 'GBP' ? 'selected' : ''}>GBP</option>
-                    
                 </select>
             </td>
             <td class="font-weight-bold text-right item-total align-middle text-dark">0.00</td>
@@ -360,12 +374,10 @@ export class AccrualFormManager {
             if (type === 'Hizmet' || type === 'Hukuk Danışmanlık') {
                 tr.style.backgroundColor = '#f0fff4'; 
                 tr.querySelector('.item-type').style.color = '#276749';
-            }
-            else if (type === 'TP Harç' || type === 'TP Hizmet') {
+            } else if (type === 'TP Harç' || type === 'TP Hizmet') {
                 tr.style.backgroundColor = '#ebf8ff'; 
                 tr.querySelector('.item-type').style.color = '#2b6cb0';
             } else if (type === 'Yurtdışı Maliyet') {
-                // 🔥 YENİ: Yurtdışı Maliyet için hafif kırmızı/pembe tema
                 tr.style.backgroundColor = '#fff5f5'; 
                 tr.querySelector('.item-type').style.color = '#c53030';
             } else {
@@ -380,11 +392,8 @@ export class AccrualFormManager {
             const vat = parseFloat(tr.querySelector('.item-vat').value) || 0;
             const currency = tr.querySelector('.item-currency').value;
             
-            // 🔥 ÇÖZÜM 1: Matematiksel işlemi doğrudan 2 ondalık haneye zorlayıp Sayıya (Number) çeviriyoruz
             const total = Number(((qty * price) * (1 + vat / 100)).toFixed(2));
-            
             tr.querySelector('.item-total').textContent = new Intl.NumberFormat('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits:2}).format(total);
-            
             tr.dataset.rawTotal = total;
             tr.dataset.currency = currency;
             
@@ -510,17 +519,23 @@ export class AccrualFormManager {
             else if(i.type !== 'hidden') i.value = '';
         });
         
+        // 🔥 YENİ: Tekrarlayan ayarlarını sıfırla
+        if (this.isFreestyle && document.getElementById(`${p}Structure`)) {
+            document.getElementById(`${p}Structure`).value = 'single';
+            document.getElementById(`${p}Structure`).dispatchEvent(new Event('change'));
+        }
+
         document.getElementById(`${p}AccrualType`).value = this.isFreestyle ? 'Masraf' : 'Hizmet';
         
         if (document.getElementById(`${p}Department`)) {
             document.getElementById(`${p}Department`).value = 'EVREKA';
-            this.updateLineItemTypes('EVREKA'); // 🔥 YENİ EKLENDİ
+            this.updateLineItemTypes('EVREKA'); 
         }
 
         if (this.isFreestyle && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = '';
 
-        document.getElementById(`${p}LineItemsBody`).innerHTML = ''; // Tabloyu temizle
-        this.addLineItem(); // Boş bir satır ekle
+        document.getElementById(`${p}LineItemsBody`).innerHTML = '';
+        this.addLineItem(); 
 
         document.getElementById(`${p}TpeInvoiceNo`).value = '';
         document.getElementById(`${p}EvrekaInvoiceNo`).value = '';
@@ -554,15 +569,22 @@ export class AccrualFormManager {
         const p = this.prefix;
         if(!data) return;
         
-        this.currentData = data; // YENİ EKLENDİ: Form verisini hafızada tut
-
+        this.currentData = data; 
         this.originalRemainingAmount = data.remainingAmount || null;
+
+        if (this.isFreestyle && document.getElementById(`${p}Structure`)) {
+            document.getElementById(`${p}Structure`).value = data.structure || 'single';
+            document.getElementById(`${p}Structure`).dispatchEvent(new Event('change'));
+            if (data.period) document.getElementById(`${p}Period`).value = data.period;
+            if (data.startDate) document.getElementById(`${p}StartDate`).value = data.startDate;
+        }
+
         document.getElementById(`${p}AccrualType`).value = data.type || data.accrualType || (this.isFreestyle ? 'Masraf' : 'Hizmet');
         
         if (document.getElementById(`${p}Department`)) {
             const dept = data.department || 'EVREKA';
             document.getElementById(`${p}Department`).value = dept;
-            this.updateLineItemTypes(dept); // 🔥 YENİ EKLENDİ
+            this.updateLineItemTypes(dept); 
         }
 
         if (this.isFreestyle && data.subject && document.getElementById(`${p}Subject`)) document.getElementById(`${p}Subject`).value = data.subject;
@@ -618,7 +640,6 @@ export class AccrualFormManager {
         if (data.tpInvoiceParty) {
             this.selectedTpParty = data.tpInvoiceParty;
             this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);
-            // 🔥 YENİ: Düzenleme modunda müvekkil SAS alanını göster/gizle
             const fullPerson = this.allPersons.find(p => String(p.id) === String(data.tpInvoiceParty.id));
             this.checkSasRequirement(fullPerson || data.tpInvoiceParty);
         }
@@ -669,6 +690,11 @@ export class AccrualFormManager {
         const department = document.getElementById(`${p}Department`)?.value || 'EVREKA';
         let subjectText = '';
 
+        // 🔥 YENİ: Tekrarlayan Seçenekleri Kaydetme
+        const structure = document.getElementById(`${p}Structure`)?.value || 'single';
+        const period = document.getElementById(`${p}Period`)?.value || null;
+        const startDate = document.getElementById(`${p}StartDate`)?.value || null;
+
         if (this.isFreestyle) {
             subjectText = document.getElementById(`${p}Subject`)?.value.trim() || '';
             if (!subjectText) return { success: false, error: 'Lütfen Serbest Tahakkuk için Konu/Başlık girin.' };
@@ -698,8 +724,6 @@ export class AccrualFormManager {
                 items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount, currency });
                 totalsMap[currency] = (totalsMap[currency] || 0) + total_amount;
 
-                // 🔥 SORUN 1 ÇÖZÜMÜ: Düzenleme modunda rakamların şişmemesi için 
-                // KDV'li (total_amount) yerine, KDV'siz (Birim x Adet) ham fiyatı kaydediyoruz.
                 const preVatAmount = quantity * unit_price;
                 if (fee_type.includes('Harç') || fee_type === 'Yurtdışı Maliyet') fallbackOffAmount += preVatAmount;
                 else fallbackSrvAmount += preVatAmount;
@@ -731,6 +755,10 @@ export class AccrualFormManager {
         return {
             success: true,
             data: {
+                structure: structure,    // 🔥 EKLENDİ
+                period: period,          // 🔥 EKLENDİ
+                startDate: startDate,    // 🔥 EKLENDİ
+
                 type: accrualType, 
                 accrualType: accrualType, 
                 department: department,
@@ -766,10 +794,11 @@ export class AccrualFormManager {
         const p = this.prefix;
         
         const elementsToToggle = [
-            `${p}Department`, // 🔥 YENİ 1E: Departman alanını da kilitleme listesine al
+            `${p}Structure`, `${p}Period`, `${p}StartDate`, // 🔥 YENİ EKLENDİ
+            `${p}Department`,
             `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`,
             `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, `${p}ForeignInvoiceFile`,
-            `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode` // 🔥 YENİ EKLENDİ
+            `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode`
         ];
 
         elementsToToggle.forEach(id => {

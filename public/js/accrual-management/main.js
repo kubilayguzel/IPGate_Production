@@ -981,12 +981,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     this.uiManager.toggleLoading(true);
                     try {
                         const newAccrualData = formResult.data;
-                        const structure = document.getElementById('accrualStructure')?.value || 'single';
+                        const structure = newAccrualData.structure || 'single';
 
                         if (structure === 'recursive') {
                             // --- TEKRARLAYAN TAHAKKUK KAYDETME ---
-                            const period = document.getElementById('recPeriod').value;
-                            const startDate = document.getElementById('recStartDate').value;
+                            const period = newAccrualData.period;
+                            const startDate = newAccrualData.startDate;
                             
                             if (!period || !startDate) {
                                 showNotification('Lütfen periyot ve başlama tarihini seçin.', 'error');
@@ -1136,6 +1136,30 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             }, 1000);
+
+            // YENİ: Tekrarlayan Tahakkuk Silme Butonu
+            if (this.uiManager.recursiveTableBody) {
+                this.uiManager.recursiveTableBody.addEventListener('click', async (e) => {
+                    const deleteBtn = e.target.closest('.delete-recursive-btn');
+                    if (deleteBtn) {
+                        if (!confirm('Bu tekrarlayan tahakkuk (abonelik) şablonunu silmek istediğinize emin misiniz?')) return;
+                        this.uiManager.toggleLoading(true);
+                        try {
+                            const res = await this.dataManager.deleteRecursiveAccrual(deleteBtn.dataset.id);
+                            if (res.success) {
+                                showNotification('Şablon başarıyla silindi.', 'success');
+                                await this.loadRecursiveData();
+                            }
+                        } catch(err) { showNotification('Hata: ' + err.message, 'error'); }
+                        finally { this.uiManager.toggleLoading(false); }
+                    }
+                });
+            }
+
+            // YENİ: Modal içindeki Tekil/Tekrarlayan seçim dinleyicilerini başlat
+            if (typeof this.uiManager.setupRecursiveFormListeners === 'function') {
+                this.uiManager.setupRecursiveFormListeners();
+            }
 
         } // <--- İŞTE BU PARANTEZ 'setupEventListeners' FONKSİYONUNUN GERÇEK KAPANIŞIDIR
 

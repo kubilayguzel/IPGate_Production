@@ -116,10 +116,12 @@ export class AccrualUIManager {
         if (this.recursiveTableBody) this.recursiveTableBody.addEventListener('click', handleTableClick);
     }
 
-    // 👇 EKLENECEK YENİ METOD BAŞLANGICI 👇
     setupRecursiveFormListeners() {
         const structureSelect = document.getElementById('accrualStructure');
         const recursiveFields = document.querySelectorAll('.recursive-field');
+        
+        // Form alanını kapsayan div (Müvekkil, para, kdv vb. burada yükleniyor)
+        const freestyleFormContainer = document.getElementById('freestyleAccrualFormContainer'); 
 
         if (structureSelect) {
             structureSelect.addEventListener('change', (e) => {
@@ -132,6 +134,11 @@ export class AccrualUIManager {
                 const recStartDateInput = document.getElementById('recStartDate');
                 if (isRecursive && recStartDateInput && !recStartDateInput.value) {
                     recStartDateInput.value = new Date().toISOString().split('T')[0];
+                }
+
+                // 🔥 ÇÖZÜM BURADA: Alttaki formun gizlenmesini engelle
+                if (freestyleFormContainer) {
+                    freestyleFormContainer.style.display = 'block'; 
                 }
             });
         }

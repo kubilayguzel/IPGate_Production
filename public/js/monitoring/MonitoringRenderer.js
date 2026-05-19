@@ -30,27 +30,33 @@ export class MonitoringRenderer {
 
         const isIntl = this.dataManager.currentTab === 'international';
 
-        let html = `<table class="accruals-table"><thead><tr>
-                        <th><input type="checkbox" id="headerSelectAllCheckbox" /></th>
-                        <th>Görsel</th>
-                        <th class="sortable" data-sort="markName" style="cursor:pointer">Marka Adı ${getSortIcon('markName')}</th>
-                        <th>Aranacak İbareler</th>
-                        <th class="sortable" data-sort="owner" style="cursor:pointer">Sahip ${getSortIcon('owner')}</th>
-                        <th>Başvuru No</th>
-                        <th class="sortable" data-sort="applicationDate" style="cursor:pointer">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
-                        <th>Nice Sınıfı</th>
-                        <th>Durum</th>
-                        ${isIntl ? '<th>İzlenecek Ülkeler</th><th>Başlangıç Tarihi</th><th>Bitiş Tarihi</th>' : ''}
-                    </tr></thead><tbody>`;
+        // Dinamik Başlıklar (Yurtdışındayken checkbox ve Aranacak İbareler GİZLENİR)
+        let html = `<table class="accruals-table"><thead><tr>`;
+        if (!isIntl) {
+            html += `<th style="width: 40px;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>`;
+        }
+        html += `<th>Görsel</th>
+                 <th class="sortable" data-sort="markName" style="cursor:pointer">Marka Adı ${getSortIcon('markName')}</th>`;
+        if (!isIntl) {
+            html += `<th>Aranacak İbareler</th>`;
+        }
+        html += `<th class="sortable" data-sort="owner" style="cursor:pointer">Sahip ${getSortIcon('owner')}</th>
+                 <th>Başvuru No</th>
+                 <th class="sortable" data-sort="applicationDate" style="cursor:pointer">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
+                 <th>Nice Sınıfı</th>
+                 <th>Durum</th>`;
+        if (isIntl) {
+            html += `<th>İzlenecek Ülkeler</th><th>Başlangıç Tarihi</th><th>Bitiş Tarihi</th><th>İşlemler</th>`;
+        }
+        html += `</tr></thead><tbody>`;
 
         if (!data || data.length === 0) {
-            html += `<tr><td colspan="${isIntl ? 12 : 9}" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>`;
+            html += `<tr><td colspan="${isIntl ? 10 : 9}" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>`;
         } else {
             data.forEach(r => {
                 const isSelected = selectedItems.has(r.id) ? 'checked' : '';
                 const rowClass = selectedItems.has(r.id) ? 'selected-row' : '';
 
-                // Görsel Çizimi (Temizlenmiş Hali)
                 const trademarkImageHtml = (() => {
                     let imageUrl = r.brandImageUrl;
                     if (imageUrl && imageUrl.trim() !== '') {
@@ -81,25 +87,34 @@ export class MonitoringRenderer {
                 const nc = r.niceClasses || [];
                 const niceClassesHtml = nc.length > 0 ? nc.map(c => `<span class="badge badge-secondary mb-1">${c}</span>`).join(' ') : '-';
 
-                // Yurtdışı Kolonları
-                const intlCols = isIntl ? `
-                    <td>${r.monitoredCountries && r.monitoredCountries.length ? r.monitoredCountries.join(', ') : '-'}</td>
-                    <td>${this.formatTurkishDate(r.monitoringStartDate)}</td>
-                    <td>${this.formatTurkishDate(r.monitoringEndDate)}</td>
-                ` : '';
-
-                html += `<tr data-id="${r.id}" class="${rowClass}">
-                            <td><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>
-                            <td>${trademarkImageHtml}</td>
-                            <td title="${markNameText}">${markNameHtml}</td>
-                            <td>${searchTermsHtml}</td>
-                            <td><div class="owner-cell" title="${ownerNames}">${ownerNames}</div></td>
+                // Satır Çizimi
+                let rowHtml = `<tr data-id="${r.id}" class="${rowClass}">`;
+                if (!isIntl) {
+                    rowHtml += `<td><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>`;
+                }
+                rowHtml += `<td>${trademarkImageHtml}</td>
+                            <td title="${markNameText}">${markNameHtml}</td>`;
+                if (!isIntl) {
+                    rowHtml += `<td>${searchTermsHtml}</td>`;
+                }
+                rowHtml += `<td><div class="owner-cell" title="${ownerNames}">${ownerNames}</div></td>
                             <td>${r.applicationNumber || '-'}</td>
                             <td>${this.formatTurkishDate(r.applicationDate)}</td>
                             <td>${niceClassesHtml}</td>
-                            <td><span class="badge badge-${statusInfo.color}">${statusInfo.text}</span></td>
-                            ${intlCols}
-                        </tr>`;
+                            <td><span class="badge badge-${statusInfo.color}">${statusInfo.text}</span></td>`;
+                if (isIntl) {
+                    rowHtml += `
+                        <td>${r.monitoredCountries && r.monitoredCountries.length ? r.monitoredCountries.join(', ') : '-'}</td>
+                        <td>${this.formatTurkishDate(r.monitoringStartDate)}</td>
+                        <td>${this.formatTurkishDate(r.monitoringEndDate)}</td>
+                        <td style="white-space: nowrap;">
+                            <button class="btn btn-sm btn-info edit-intl-btn" data-id="${r.id}" title="Düzenle"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-sm btn-danger delete-intl-btn" data-id="${r.id}" title="Sil"><i class="fas fa-trash"></i></button>
+                        </td>
+                    `;
+                }
+                rowHtml += `</tr>`;
+                html += rowHtml;
             });
         }
         html += `</tbody></table>`;

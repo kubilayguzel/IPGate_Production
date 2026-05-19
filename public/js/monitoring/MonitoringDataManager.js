@@ -29,13 +29,11 @@ export class MonitoringDataManager {
 
     async fetchMonitoringData() {
         try {
-            // 1) Yurtiçi (Portföye Bağlı) Verileri Çek
             const { data: domesticData, error: domError } = await supabase
                 .from('monitoring_trademarks')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            // 2) Yurtdışı (Yeni Tablo - Bağımsız) Verileri Çek
             const { data: intlData, error: intlError } = await supabase
                 .from('international_monitoring')
                 .select('*')
@@ -43,7 +41,6 @@ export class MonitoringDataManager {
 
             if (domError) throw domError;
 
-            // IP Records eşleştirmesi
             const recordsRes = await ipRecordsService.getRecords();
             const allIpRecords = recordsRes.success ? recordsRes.data : [];
             const ipRecordsMap = new Map();
@@ -56,7 +53,6 @@ export class MonitoringDataManager {
                 return [val];
             };
 
-            // Yurtiçi Verilerini Map'le (Gereksiz kolonlardan temizlendi)
             const mappedDomestic = domesticData.map(d => {
                 const ipRecord = ipRecordsMap.get(d.ip_record_id) || {};
                 return {
@@ -78,7 +74,6 @@ export class MonitoringDataManager {
                 };
             });
 
-            // Yurtdışı Verilerini Map'le (Yeni Tablodan)
             const mappedIntl = (intlData || []).map(d => ({
                 id: d.id,
                 ipRecordId: null,
@@ -100,7 +95,6 @@ export class MonitoringDataManager {
                 monitoringEndDate: d.end_date || null
             }));
 
-            // Birleştir ve arayüze sun
             this.allMonitoringData = [...mappedDomestic, ...mappedIntl];
             this.filterData({});
             
@@ -118,7 +112,6 @@ export class MonitoringDataManager {
 
     filterData(filters = {}) {
         this.filteredData = this.allMonitoringData.filter(item => {
-            // Sadece aktif sekmeyi göster
             if (item.monitoringType !== this.currentTab) return false;
 
             if (filters.search) {
@@ -174,7 +167,6 @@ export class MonitoringDataManager {
         if (error) throw error;
     }
 
-    // Yurtdışı manuel ekleme (Yeni tabloya)
     async addManualRecord(recordData) {
         const payload = {
             mark_name: recordData.markName,
@@ -191,12 +183,32 @@ export class MonitoringDataManager {
         return data;
     }
 
+    // 🔥 YENİ: Yurtdışı kaydını güncelleme metodu
+    async updateManualRecord(id, recordData) {
+        const payload = {
+            mark_name: recordData.markName,
+            applicant_name: recordData.applicantName,
+            application_no: recordData.applicationNo,
+            nice_classes: recordData.niceClasses,
+            countries: recordData.countries,
+            start_date: recordData.startDate,
+            end_date: recordData.endDate
+        };
+        // Yalnızca görsel silindiyse veya yenisi yüklendiyse payload'a ekle
+        if (recordData.imagePath !== undefined) {
+            payload.image_path = recordData.imagePath;
+        }
+        
+        const { data, error } = await supabase.from('international_monitoring').update(payload).eq('id', id).select();
+        if (error) throw error;
+        return data;
+    }
+
     async deleteRecords(idsArray) {
         let successful = 0;
         for (const id of idsArray) {
             const record = this.allMonitoringData.find(r => r.id === id);
             if (!record) continue;
-            // Kaydın ait olduğu tabloyu bul ve sil
             const targetTable = record.monitoringType === 'international' ? 'international_monitoring' : 'monitoring_trademarks';
             const { error } = await supabase.from(targetTable).delete().eq('id', id);
             if (!error) successful++;

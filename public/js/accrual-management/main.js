@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 selectedIds: new Set(),
                 itemsPerPage: 50 
             };
+            this.editingRecursiveId = null;
             this.pagination = null;
             this.uploadedPaymentReceipts = []; 
             this.filterDebounceTimer = null; 
@@ -1016,10 +1017,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 description: newAccrualData.description
                             };
 
-                            await this.dataManager.createRecursiveAccrual(recursivePayload);
+                            if (this.editingRecursiveId) {
+                                await this.dataManager.updateRecursiveAccrual(this.editingRecursiveId, recursivePayload);
+                                showNotification('Tekrarlayan Tahakkuk başarıyla güncellendi!', 'success');
+                            } else {
+                                await this.dataManager.createRecursiveAccrual(recursivePayload);
+                                showNotification('Abonelik / Tekrarlayan Tahakkuk başarıyla oluşturuldu!', 'success');
+                            }
+                            
+                            this.editingRecursiveId = null; // İşlem bitince ID'yi sıfırla
                             modalFreestyle.classList.remove('show');
                             await this.loadRecursiveData();
-                            showNotification('Abonelik / Tekrarlayan Tahakkuk başarıyla oluşturuldu!', 'success');
 
                         } else {
                             // --- MEVCUT TEKİL TAHAKKUK KAYDETME ---
@@ -1137,12 +1145,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }, 1000);
 
-            // YENİ: Tekrarlayan Tahakkuk Silme Butonu
+            // YENİ: Tekrarlayan Tahakkuk Tablosu İşlem Butonları (Silme ve Düzenleme)
             if (this.uiManager.recursiveTableBody) {
                 this.uiManager.recursiveTableBody.addEventListener('click', async (e) => {
                     const deleteBtn = e.target.closest('.delete-recursive-btn');
+                    const editBtn = e.target.closest('.edit-recursive-btn');
+
                     if (deleteBtn) {
-                        if (!confirm('Bu tekrarlayan tahakkuk (abonelik) şablonunu silmek istediğinize emin misiniz?')) return;
+                        if (!confirm('Bu abonelik/tekrarlayan tahakkuk şablonunu silmek istediğinize emin misiniz?')) return;
                         this.uiManager.toggleLoading(true);
                         try {
                             const res = await this.dataManager.deleteRecursiveAccrual(deleteBtn.dataset.id);
@@ -1153,8 +1163,37 @@ document.addEventListener('DOMContentLoaded', async () => {
                         } catch(err) { showNotification('Hata: ' + err.message, 'error'); }
                         finally { this.uiManager.toggleLoading(false); }
                     }
+
+                    if (editBtn) {
+                        const id = editBtn.dataset.id;
+                        this.editingRecursiveId = id;
+                        
+                        // İlgili kaydı bul ve formu doldur
+                        const res = await this.dataManager.getRecursiveAccruals();
+                        const record = res.data.find(r => r.id === id);
+                        
+                        if (record) {
+                            const person = this.dataManager.allPersons.find(p => p.id === record.person_id);
+                            const formData = {
+                                structure: 'recursive',
+                                period: record.period,
+                                startDate: record.start_date,
+                                type: record.type,
+                                description: record.description,
+                                serviceFee: { amount: record.amount, currency: record.currency },
+                                tpInvoiceParty: person
+                            };
+                            this.freestyleFormManager.setData(formData);
+                            document.getElementById('freestyleAccrualModal').classList.add('show');
+                            document.getElementById('freestyleAccrualModal').style.display = 'block';
+                        }
+                    }
                 });
             }
+
+            // Modal kapanırken düzenleme ID'sini sıfırla ki yeni kayıtlarda hata olmasın
+            document.getElementById('closeFreestyleAccrualModal')?.addEventListener('click', () => { this.editingRecursiveId = null; });
+            document.getElementById('cancelFreestyleAccrualBtn')?.addEventListener('click', () => { this.editingRecursiveId = null; });
 
             // YENİ: Modal içindeki Tekil/Tekrarlayan seçim dinleyicilerini başlat
             if (typeof this.uiManager.setupRecursiveFormListeners === 'function') {

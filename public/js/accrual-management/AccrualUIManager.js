@@ -933,9 +933,12 @@ export class AccrualUIManager {
                     <td>${a.start_date ? new Date(a.start_date).toLocaleDateString('tr-TR') : '-'}</td>
                     <td><span class="text-primary font-weight-bold">${a.next_trigger_date ? new Date(a.next_trigger_date).toLocaleDateString('tr-TR') : '-'}</span></td>
                     <td>${statusBadge}</td>
-                    <td class="text-center">
+                    <td class="text-center" style="white-space: nowrap;">
+                        <button class="btn btn-sm btn-warning edit-recursive-btn" data-id="${a.id}" title="Düzenle">
+                            <i class="fas fa-edit"></i>
+                        </button>
                         <button class="btn btn-sm btn-danger delete-recursive-btn" data-id="${a.id}" title="Sil">
-                            <i class="fas fa-trash"></i>
+                            <i class="fas fa-trash-alt"></i>
                         </button>
                     </td>
                 </tr>

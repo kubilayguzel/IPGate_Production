@@ -707,5 +707,27 @@ export class AccrualDataManager {
             return { success: false, error: error.message };
         }
     }
-    // 👆 EKLENECEK BÖLÜMÜN BİTİŞİ 👆
+
+    async updateRecursiveAccrual(id, accrualData) {
+        try {
+            const { data, error } = await supabase
+                .from('accruals_recursive')
+                .update({
+                    person_id: accrualData.personId,
+                    type: accrualData.type,
+                    amount: accrualData.amount,
+                    currency: accrualData.currency,
+                    period: accrualData.period,
+                    start_date: accrualData.startDate,
+                    description: accrualData.description
+                })
+                .eq('id', id)
+                .select();
+            if (error) throw error;
+            return { success: true, data: data[0] };
+        } catch (error) {
+            console.error('Tekrarlayan tahakkuk güncelleme hatası:', error);
+            throw new Error(error.message);
+        }
+    }
 }

@@ -279,15 +279,24 @@ class MonitoringController {
 
     setupPagination() {
         if (!this.pagination) {
-            this.pagination = new Pagination('paginationContainer', 10, (pageData) => {
-                this.renderer.renderTable(pageData, this.selectedItems, this.dataManager.currentSort);
+            this.pagination = new Pagination({
+                containerId: 'paginationContainer',
+                itemsPerPage: 10,
+                onPageChange: (page, itemsPerPage) => {
+                    const pageData = this.pagination.getCurrentPageData(this.dataManager.filteredData);
+                    this.renderer.renderTable(pageData, this.selectedItems, this.dataManager.currentSort);
+                }
             });
         }
     }
 
     renderPage() {
         if (this.pagination) {
-            this.pagination.updateData(this.dataManager.filteredData);
+            // Önce toplam sayıyı pagination'a bildir
+            this.pagination.update(this.dataManager.filteredData.length);
+            // Sonra o anki sayfanın verisini al ve tabloya çiz
+            const pageData = this.pagination.getCurrentPageData(this.dataManager.filteredData);
+            this.renderer.renderTable(pageData, this.selectedItems, this.dataManager.currentSort);
         } else {
             this.renderer.renderTable(this.dataManager.filteredData, this.selectedItems, this.dataManager.currentSort);
         }

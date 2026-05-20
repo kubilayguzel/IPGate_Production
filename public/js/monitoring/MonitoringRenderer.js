@@ -30,24 +30,33 @@ export class MonitoringRenderer {
 
         const isIntl = this.dataManager.currentTab === 'international';
 
-        // Dinamik Başlıklar (Yurtdışındayken checkbox ve Aranacak İbareler GİZLENİR)
         let html = `<table class="accruals-table"><thead><tr>`;
+        
         if (!isIntl) {
-            html += `<th style="width: 40px;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>`;
+            // YURTİÇİ TABLO BAŞLIKLARI
+            html += `<th style="width: 40px; text-align: center;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>
+                     <th style="width: 100px; text-align: center;">Görsel</th>
+                     <th class="sortable" data-sort="markName" style="cursor:pointer; width: 220px;">Marka Adı ${getSortIcon('markName')}</th>
+                     <th style="width: 250px;">Aranacak İbareler</th>
+                     <th class="sortable" data-sort="owner" style="cursor:pointer; width: auto;">Sahip ${getSortIcon('owner')}</th>
+                     <th style="width: 130px;">Başvuru No</th>
+                     <th class="sortable" data-sort="applicationDate" style="cursor:pointer; width: 120px;">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
+                     <th style="width: 150px;">Nice Sınıfı</th>
+                     <th style="width: 100px; text-align: center;">Durum</th>`;
+        } else {
+            // YURTDIŞI TABLO BAŞLIKLARI (Marka/Sahip 40px daraltıldı, diğerlerine paylaştırıldı)
+            html += `<th style="width: 100px; text-align: center;">Görsel</th>
+                     <th class="sortable" data-sort="markName" style="cursor:pointer; width: auto; min-width: 160px;">Marka Adı ${getSortIcon('markName')}</th>
+                     <th class="sortable" data-sort="owner" style="cursor:pointer; width: auto; min-width: 160px;">Sahip ${getSortIcon('owner')}</th>
+                     <th style="width: 130px;">Başvuru No</th>
+                     <th class="sortable" data-sort="applicationDate" style="cursor:pointer; width: 120px;">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
+                     <th style="width: 140px;">Nice Sınıfı</th>
+                     <th style="width: 170px;">İzlenecek Ülkeler</th>
+                     <th style="width: 120px;">Başlangıç Tarihi</th>
+                     <th style="width: 120px;">Bitiş Tarihi</th>
+                     <th style="width: 130px; min-width: 130px; text-align: center;">İşlemler</th>`;
         }
-        html += `<th>Görsel</th>
-                 <th class="sortable" data-sort="markName" style="cursor:pointer">Marka Adı ${getSortIcon('markName')}</th>`;
-        if (!isIntl) {
-            html += `<th>Aranacak İbareler</th>`;
-        }
-        html += `<th class="sortable" data-sort="owner" style="cursor:pointer">Sahip ${getSortIcon('owner')}</th>
-                 <th>Başvuru No</th>
-                 <th class="sortable" data-sort="applicationDate" style="cursor:pointer">Başvuru Tarihi ${getSortIcon('applicationDate')}</th>
-                 <th>Nice Sınıfı</th>
-                 <th>Durum</th>`;
-        if (isIntl) {
-            html += `<th>İzlenecek Ülkeler</th><th>Başlangıç Tarihi</th><th>Bitiş Tarihi</th><th>İşlemler</th>`;
-        }
+        
         html += `</tr></thead><tbody>`;
 
         if (!data || data.length === 0) {
@@ -90,28 +99,29 @@ export class MonitoringRenderer {
                 // Satır Çizimi
                 let rowHtml = `<tr data-id="${r.id}" class="${rowClass}">`;
                 if (!isIntl) {
-                    rowHtml += `<td><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>`;
-                }
-                rowHtml += `<td>${trademarkImageHtml}</td>
-                            <td title="${markNameText}">${markNameHtml}</td>`;
-                if (!isIntl) {
-                    rowHtml += `<td>${searchTermsHtml}</td>`;
-                }
-                rowHtml += `<td><div class="owner-cell" title="${ownerNames}">${ownerNames}</div></td>
-                            <td>${r.applicationNumber || '-'}</td>
-                            <td>${this.formatTurkishDate(r.applicationDate)}</td>
-                            <td>${niceClassesHtml}</td>
-                            <td><span class="badge badge-${statusInfo.color}">${statusInfo.text}</span></td>`;
-                if (isIntl) {
-                    rowHtml += `
-                        <td>${r.monitoredCountries && r.monitoredCountries.length ? r.monitoredCountries.join(', ') : '-'}</td>
-                        <td>${this.formatTurkishDate(r.monitoringStartDate)}</td>
-                        <td>${this.formatTurkishDate(r.monitoringEndDate)}</td>
-                        <td style="white-space: nowrap;">
-                            <button class="btn btn-sm btn-info edit-intl-btn" data-id="${r.id}" title="Düzenle"><i class="fas fa-edit"></i></button>
-                            <button class="btn btn-sm btn-danger delete-intl-btn" data-id="${r.id}" title="Sil"><i class="fas fa-trash"></i></button>
-                        </td>
-                    `;
+                    rowHtml += `<td style="text-align: center;"><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>
+                                <td style="text-align: center;">${trademarkImageHtml}</td>
+                                <td title="${markNameText}">${markNameHtml}</td>
+                                <td>${searchTermsHtml}</td>
+                                <td><div class="owner-cell" title="${ownerNames}">${ownerNames}</div></td>
+                                <td>${r.applicationNumber || '-'}</td>
+                                <td>${this.formatTurkishDate(r.applicationDate)}</td>
+                                <td>${niceClassesHtml}</td>
+                                <td style="text-align: center;"><span class="badge badge-${statusInfo.color}">${statusInfo.text}</span></td>`;
+                } else {
+                    rowHtml += `<td style="text-align: center;">${trademarkImageHtml}</td>
+                                <td title="${markNameText}">${markNameHtml}</td>
+                                <td><div class="owner-cell" title="${ownerNames}">${ownerNames}</div></td>
+                                <td>${r.applicationNumber || '-'}</td>
+                                <td>${this.formatTurkishDate(r.applicationDate)}</td>
+                                <td>${niceClassesHtml}</td>
+                                <td>${r.monitoredCountries && r.monitoredCountries.length ? r.monitoredCountries.join(', ') : '-'}</td>
+                                <td>${this.formatTurkishDate(r.monitoringStartDate)}</td>
+                                <td>${this.formatTurkishDate(r.monitoringEndDate)}</td>
+                                <td style="white-space: nowrap; text-align: center;">
+                                    <button class="btn btn-sm btn-info edit-intl-btn" data-id="${r.id}" title="Düzenle"><i class="fas fa-edit"></i></button>
+                                    <button class="btn btn-sm btn-danger delete-intl-btn" data-id="${r.id}" title="Sil"><i class="fas fa-trash"></i></button>
+                                </td>`;
                 }
                 rowHtml += `</tr>`;
                 html += rowHtml;

@@ -808,7 +808,7 @@ const loadInitialData = async () => {
     
     await loadBulletinOptions();
 
-    // 🔥 DÜZELTME: Olmayan client_id kaldırıldı. Alias yerine gerçek tablo isimleri kullanıldı ve ip_record_classes eklendi.
+    // 1. Yurtiçi (TÜRKPATENT) Markalarını Çekiyoruz
     const { data: monitoringData, error } = await supabase
         .from('monitoring_trademarks')
         .select(`
@@ -821,9 +821,13 @@ const loadInitialData = async () => {
             )
         `);
 
-    if (error) {
-        console.error("❌ İzlenen Markalar Çekilirken Supabase Hatası:", error.message);
-    }
+    // 🔥 YENİ: 2. Yurtdışı İzlenen Markaları (Manuel/Serbest Girişler için) Çekiyoruz
+    const { data: intlData, error: intlError } = await supabase
+        .from('international_monitoring')
+        .select('*');
+
+    if (error) console.error("❌ Yurtiçi Markalar Çekilirken Hata:", error.message);
+    if (intlError) console.error("❌ Yurtdışı Markalar Çekilirken Hata:", intlError.message);
 
     const ensureArray = (val) => {
         if (!val) return [];
@@ -832,11 +836,12 @@ const loadInitialData = async () => {
         return [val];
     };
 
+    let tempTrademarks = [];
+
+    // Yurtiçi Verileri Formatla ve Sepete At
     if (monitoringData) {
-        monitoringTrademarks = monitoringData.map(d => {
+        const domesticList = monitoringData.map(d => {
             const ip = d.ip_records || {};
-            
-            // Tablo ilişkilerinden gelen veriler
             const details = ip.ip_record_trademark_details ? (Array.isArray(ip.ip_record_trademark_details) ? ip.ip_record_trademark_details[0] : ip.ip_record_trademark_details) : {};
             const applicants = ip.ip_record_applicants || [];
             const classes = ip.ip_record_classes || [];
@@ -851,17 +856,17 @@ const loadInitialData = async () => {
             }
             if (!ownerId) ownerId = `owner_${ownerName.toLowerCase().replace(/[^a-z0-9]/gi, '').substring(0, 20)}`;
 
-            // Sınıfları Diziye Çevirme (Örn: [25, 35])
             const niceClassesArray = classes.map(c => String(c.class_no));
 
             const tmData = {
                 id: d.id, title: markName, markName: markName, 
-                searchMarkName: d.search_mark_name || '', // 🔥 ÇÖZÜM 1: Veritabanından gelen asıl arama kriterini kaybetmemek için buraya ekliyoruz
+                searchMarkName: d.search_mark_name || '', 
                 applicationNo: ip.application_number || "-", applicationNumber: ip.application_number || "-",
                 applicationDate: ip.application_date, ipRecordId: d.ip_record_id, ownerName: ownerName,
                 brandTextSearch: ensureArray(d.brand_text_search), niceClassSearch: ensureArray(d.nice_class_search),
                 niceClasses: niceClassesArray, imagePath: details.brand_image_url || '', 
-                applicants: [{ name: ownerName }]
+                applicants: [{ name: ownerName }],
+                type: 'domestic' // Tür belirteci
             };
             
             tmData.ownerInfo = { key: ownerId, id: ownerId, name: ownerName };
@@ -871,9 +876,53 @@ const loadInitialData = async () => {
             
             return tmData;
         });
+        tempTrademarks.push(...domesticList);
     }
 
+    // 🔥 YENİ: Yurtdışı Verileri Formatla ve Sepete At
+    if (intlData) {
+        const intlList = intlData.map(d => {
+            const markName = d.mark_name || 'Bilinmeyen Marka';
+            const ownerName = d.applicant_name || 'Bilinmeyen Sahip';
+            
+            // Eğer sahip DB'de varsa ID'sini bağla, yoksa sanal ID üret
+            const foundPerson = allPersons.find(p => p.name && p.name.toLowerCase() === ownerName.toLowerCase());
+            const ownerId = foundPerson ? foundPerson.id : `owner_${ownerName.toLowerCase().replace(/[^a-z0-9]/gi, '').substring(0, 20)}`;
+
+            const niceClassesArray = ensureArray(d.nice_classes).map(String);
+
+            const tmData = {
+                id: d.id, 
+                title: markName, 
+                markName: markName, 
+                searchMarkName: markName, 
+                applicationNo: d.application_no || "-", 
+                applicationNumber: d.application_no || "-",
+                applicationDate: null, 
+                ipRecordId: null, // Yurtdışında şimdilik bağımsız
+                ownerName: ownerName,
+                brandTextSearch: [], 
+                niceClassSearch: [],
+                niceClasses: niceClassesArray, 
+                imagePath: d.image_path || '', 
+                applicants: [{ name: ownerName }],
+                type: 'international' // Tür belirteci
+            };
+            
+            tmData.ownerInfo = { key: ownerId, id: ownerId, name: ownerName };
+            tmData._searchOwner = ownerName.toLowerCase();
+            tmData._searchNice = niceClassesArray.join(', ');
+            tmData._searchBrand = markName.toLowerCase();
+            
+            return tmData;
+        });
+        tempTrademarks.push(...intlList);
+    }
+
+    // İkisini birleştirdiğimiz ana listeyi sisteme tanıtıyoruz
+    monitoringTrademarks = tempTrademarks;
     filteredMonitoringTrademarks = [...monitoringTrademarks];
+    
     initializeMonitoringPagination(); 
     cachedGroupedData = null; 
     renderMonitoringList(); 
@@ -2006,7 +2055,7 @@ const setupManualTargetSearch = () => {
     const resultsContainer = document.getElementById('manualTargetSearchResults');
     if (!input || !resultsContainer) return;
 
-    // 🔥 ÇÖZÜM 1: Listeye kaydırma (scroll) özelliği ekle ki çok sonuç çıkarsa ekranı taşırmasın
+    // Listeye kaydırma (scroll) özelliği ekle ki çok sonuç çıkarsa ekranı taşırmasın
     resultsContainer.style.maxHeight = '300px';
     resultsContainer.style.overflowY = 'auto';
 
@@ -2018,25 +2067,32 @@ const setupManualTargetSearch = () => {
             return; 
         }
         
-        // 🔥 ÇÖZÜM 2: .slice(0, 10) kısıtlamasını sildik. Artık eşleşen tüm markalar gelecek!
+        // Eşleşen tüm markaları getir (Yurtiçi ve Yurtdışı dahil)
         const matches = monitoringTrademarks.filter(tm => 
             (tm.title || '').toLowerCase().includes(term) || 
             (tm.applicationNo || '').toLowerCase().includes(term)
         );
 
-        resultsContainer.innerHTML = matches.map(tm => `
+        resultsContainer.innerHTML = matches.map(tm => {
+            // 🔥 YENİ: Yurtdışı mı Yurtiçi mi olduğunu gösteren şık bir rozet (Badge)
+            const badgeHtml = tm.type === 'international' 
+                ? '<span class="badge badge-info ml-2" style="font-size: 0.75em;"><i class="fas fa-globe mr-1"></i>Yurtdışı</span>' 
+                : '<span class="badge badge-secondary ml-2" style="font-size: 0.75em;"><i class="fas fa-flag-turkey mr-1"></i>TR</span>';
+
+            return `
             <a href="#" class="list-group-item list-group-item-action py-2" onclick="event.preventDefault(); document.getElementById('manualTargetSearchInput').value='${tm.title || tm.markName}'; document.getElementById('manualTargetId').value='${tm.id}'; document.getElementById('manualTargetSearchResults').style.display='none';">
                 <div class="d-flex w-100 justify-content-between align-items-center">
-                    <h6 class="mb-0 font-weight-bold" style="font-size: 14px;">${tm.title || tm.markName}</h6>
+                    <h6 class="mb-0 font-weight-bold" style="font-size: 14px;">${tm.title || tm.markName} ${badgeHtml}</h6>
                     <small class="text-muted border px-2 py-1 rounded bg-light">${tm.applicationNo || '-'}</small>
                 </div>
             </a>
-        `).join('');
+            `;
+        }).join('');
         
         resultsContainer.style.display = matches.length ? 'block' : 'none';
     });
 
-    // 🔥 EKSTRA DOKUNUŞ: Ekranın boş bir yerine tıklayınca arama listesini kapat
+    // Ekranın boş bir yerine tıklayınca arama listesini kapat
     document.addEventListener('click', (e) => {
         if (!input.contains(e.target) && !resultsContainer.contains(e.target)) {
             resultsContainer.style.display = 'none';

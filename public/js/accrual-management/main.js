@@ -498,24 +498,38 @@ document.addEventListener('DOMContentLoaded', async () => {
             $('a[data-toggle="tab"]').on('shown.bs.tab', (e) => {
                 const targetHref = $(e.target).attr("href");
                 const sendAdvisorBtn = document.getElementById('bulkSendAdvisorBtn');
+                
+                // 🔥 YENİ: Filtre ve sayfalama alanlarını seçiyoruz
+                const paginationControls = document.getElementById('paginationControls');
+                const filterSection = document.querySelector('.filter-section');
+
+                // Sekme değiştiğinde filtre ve sayfalamayı varsayılan olarak geri getiriyoruz
+                if (paginationControls) paginationControls.style.display = 'flex';
+                if (filterSection) filterSection.style.display = 'block';
 
                 if (targetHref === '#content-foreign') {
                     this.state.activeTab = 'foreign';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'inline-block'; // Butonu Göster
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'inline-block';
                 }
                 else if (targetHref === '#content-invoices') {
                     this.state.activeTab = 'invoices';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none'; // Gizle
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
                 }
-                // (Mevcut 'foreign' ve 'invoices' if bloklarının arasına veya sonrasına)
                 else if (targetHref === '#content-recursive') {
                     this.state.activeTab = 'recursive';
                     if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
-                    this.loadRecursiveData(); // 🔥 EKLENDİ
+                    
+                    // 🔥 ÇÖZÜM: Tekrarlayan sekmesinde genel sayfalamayı ve filtreyi tamamen gizle!
+                    if (paginationControls) paginationControls.style.display = 'none';
+                    if (filterSection) filterSection.style.display = 'none';
+                    
+                    this.state.selectedIds.clear();
+                    this.loadRecursiveData();
+                    return; // renderPage'in çalışmasını engelleyerek hatalı sayfalama yüklenmesini durdur
                 }
                 else {
                     this.state.activeTab = 'main';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none'; // Gizle
+                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
                 }
                 
                 this.state.selectedIds.clear(); 
@@ -973,8 +987,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     finally { this.uiManager.toggleLoading(false); }
                 });
 
-                document.getElementById('cancelFreestyleAccrualBtn').addEventListener('click', () => modalFreestyle.classList.remove('show'));
-                document.getElementById('closeFreestyleAccrualModal').addEventListener('click', () => modalFreestyle.classList.remove('show'));
+                document.getElementById('cancelFreestyleAccrualBtn').addEventListener('click', () => { modalFreestyle.classList.remove('show'); modalFreestyle.style.display = 'none'; });
+                document.getElementById('closeFreestyleAccrualModal').addEventListener('click', () => { modalFreestyle.classList.remove('show'); modalFreestyle.style.display = 'none'; });
                 document.getElementById('saveFreestyleAccrualBtn').addEventListener('click', async () => {
                     const formResult = this.freestyleFormManager.getData();
                     if (!formResult.success) { showNotification(formResult.error, 'error'); return; }
@@ -1007,14 +1021,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 finalCurrency = newAccrualData.serviceFee.currency;
                             }
 
+                            // --- TEKRARLAYAN TAHAKKUK KAYDETME/GÜNCELLEME ---
                             const recursivePayload = {
                                 personId: newAccrualData.tpInvoicePartyId || newAccrualData.serviceInvoicePartyId,
                                 type: newAccrualData.type || 'Masraf',
+                                department: newAccrualData.department || 'EVREKA', // 🔥 Bölümü kaydet
                                 amount: finalAmount,
                                 currency: finalCurrency,
                                 period: period,
                                 startDate: startDate,
-                                description: newAccrualData.description
+                                description: newAccrualData.description,
+                                items: newAccrualData.items // 🔥 Tam kalem detaylarını (KDV, miktar, net fiyat) kaydet
                             };
 
                             if (this.editingRecursiveId) {
@@ -1027,6 +1044,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             
                             this.editingRecursiveId = null; // İşlem bitince ID'yi sıfırla
                             modalFreestyle.classList.remove('show');
+                            modalFreestyle.style.display = 'none'; // 🔥 EKLENDİ
                             await this.loadRecursiveData();
 
                         } else {
@@ -1034,6 +1052,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const fileToUpload = (newAccrualData.files || [])[0];
                             await this.dataManager.createFreestyleAccrual(newAccrualData, fileToUpload);
                             modalFreestyle.classList.remove('show');
+                            modalFreestyle.style.display = 'none'; // 🔥 EKLENDİ
                             await this.loadData();
                             showNotification('Serbest tahakkuk başarıyla oluşturuldu!', 'success');
                         }
@@ -1174,15 +1193,37 @@ document.addEventListener('DOMContentLoaded', async () => {
                         
                         if (record) {
                             const person = this.dataManager.allPersons.find(p => p.id === record.person_id);
+                            
                             const formData = {
                                 structure: 'recursive',
                                 period: record.period,
                                 startDate: record.start_date,
                                 type: record.type,
+                                department: record.department || 'EVREKA', // 🔥 DB'den bölümü al
                                 description: record.description,
-                                serviceFee: { amount: record.amount, currency: record.currency },
-                                tpInvoiceParty: person
+                                tpInvoiceParty: person,
+                                // 🔥 Kalemleri doğrudan DB'den, kaydedildiği orjinal haliyle yüklüyoruz
+                                items: record.items && record.items.length > 0 ? record.items : [{
+                                    // Eğer eski (kalemsiz) bir kayıtsa hata vermemesi için varsayılan fallback
+                                    fee_type: record.type,
+                                    item_name: record.description || 'Abonelik Bedeli',
+                                    quantity: 1,
+                                    unit_price: record.amount,
+                                    vat_rate: 20, 
+                                    currency: record.currency
+                                }]
                             };
+                            
+                            // 🔥 YENİ: Form ilk kez açılıyorsa Manager'i başlat
+                            if (!this.freestyleFormManager) {
+                                this.freestyleFormManager = new (await import('../components/AccrualFormManager.js')).AccrualFormManager(
+                                    'freestyleAccrualFormContainer', 'freestyle', this.dataManager.allPersons, { isFreestyle: true }
+                                );
+                                this.freestyleFormManager.render();
+                            } else {
+                                this.freestyleFormManager.persons = this.dataManager.allPersons;
+                            }
+
                             this.freestyleFormManager.setData(formData);
                             document.getElementById('freestyleAccrualModal').classList.add('show');
                             document.getElementById('freestyleAccrualModal').style.display = 'block';
@@ -1191,10 +1232,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
-            // Modal kapanırken düzenleme ID'sini sıfırla ki yeni kayıtlarda hata olmasın
-            document.getElementById('closeFreestyleAccrualModal')?.addEventListener('click', () => { this.editingRecursiveId = null; });
-            document.getElementById('cancelFreestyleAccrualBtn')?.addEventListener('click', () => { this.editingRecursiveId = null; });
-
+            // Modal kapanırken düzenleme ID'sini sıfırla ve pencereyi gizle
+            document.getElementById('closeFreestyleAccrualModal')?.addEventListener('click', () => { 
+                this.editingRecursiveId = null; 
+                const mod = document.getElementById('freestyleAccrualModal');
+                if (mod) { mod.classList.remove('show'); mod.style.display = 'none'; }
+            });
+            document.getElementById('cancelFreestyleAccrualBtn')?.addEventListener('click', () => { 
+                this.editingRecursiveId = null; 
+                const mod = document.getElementById('freestyleAccrualModal');
+                if (mod) { mod.classList.remove('show'); mod.style.display = 'none'; }
+            });
             // YENİ: Modal içindeki Tekil/Tekrarlayan seçim dinleyicilerini başlat
             if (typeof this.uiManager.setupRecursiveFormListeners === 'function') {
                 this.uiManager.setupRecursiveFormListeners();

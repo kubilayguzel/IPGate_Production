@@ -656,7 +656,6 @@ export class AccrualDataManager {
         return false;
     }
 
-    // 👇 EKLENECEK: TEKRARLAYAN TAHAKKUK VERİ YÖNETİMİ 👇
     async createRecursiveAccrual(accrualData) {
         try {
             const { data, error } = await supabase
@@ -664,22 +663,20 @@ export class AccrualDataManager {
                 .insert([{
                     person_id: accrualData.personId,
                     type: accrualData.type,
+                    department: accrualData.department, // 🔥 YENİ
                     amount: accrualData.amount,
                     currency: accrualData.currency,
                     period: accrualData.period,
                     start_date: accrualData.startDate,
                     next_trigger_date: accrualData.startDate,
                     description: accrualData.description,
-                    is_active: true
+                    is_active: true,
+                    items: accrualData.items // 🔥 YENİ
                 }])
                 .select();
-            
             if (error) throw error;
             return { success: true, data: data[0] };
-        } catch (error) {
-            console.error('Tekrarlayan tahakkuk oluşturma hatası:', error);
-            throw new Error(error.message);
-        }
+        } catch (error) { throw new Error(error.message); }
     }
 
     async getRecursiveAccruals() {
@@ -715,19 +712,18 @@ export class AccrualDataManager {
                 .update({
                     person_id: accrualData.personId,
                     type: accrualData.type,
+                    department: accrualData.department, // 🔥 YENİ
                     amount: accrualData.amount,
                     currency: accrualData.currency,
                     period: accrualData.period,
                     start_date: accrualData.startDate,
-                    description: accrualData.description
+                    description: accrualData.description,
+                    items: accrualData.items // 🔥 YENİ
                 })
                 .eq('id', id)
                 .select();
             if (error) throw error;
             return { success: true, data: data[0] };
-        } catch (error) {
-            console.error('Tekrarlayan tahakkuk güncelleme hatası:', error);
-            throw new Error(error.message);
-        }
+        } catch (error) { throw new Error(error.message); }
     }
 }

@@ -933,13 +933,22 @@ export class AccrualUIManager {
                     <td>${a.start_date ? new Date(a.start_date).toLocaleDateString('tr-TR') : '-'}</td>
                     <td><span class="text-primary font-weight-bold">${a.next_trigger_date ? new Date(a.next_trigger_date).toLocaleDateString('tr-TR') : '-'}</span></td>
                     <td>${statusBadge}</td>
-                    <td class="text-center" style="white-space: nowrap;">
-                        <button class="btn btn-sm btn-warning edit-recursive-btn" data-id="${a.id}" title="Düzenle">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn btn-sm btn-danger delete-recursive-btn" data-id="${a.id}" title="Sil">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
+                    <td class="text-center">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-right shadow-sm border-0 p-2" style="min-width: auto;">
+                                <div class="d-flex justify-content-center align-items-center" style="gap: 5px;">
+                                    <button class="btn btn-sm btn-light text-warning edit-recursive-btn" data-id="${a.id}" title="Düzenle">
+                                        <i class="fas fa-edit" style="pointer-events: none;"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-light text-danger delete-recursive-btn" data-id="${a.id}" title="Sil">
+                                        <i class="fas fa-trash-alt" style="pointer-events: none;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </td>
                 </tr>
             `;

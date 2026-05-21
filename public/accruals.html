@@ -314,22 +314,34 @@
                             <table class="accruals-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox"></th>
-                                        <th class="sortable" data-sort="id">ID <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="createdAt">Tarih <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="type">Tür <i class="fas fa-sort sort-icon"></i></th> <th>Alan</th>
-                                        <th class="sortable" data-sort="status">Durum <i class="fas fa-sort sort-icon"></i></th>
-                                        <th>İlgili Dosya</th>
-                                        <th class="sortable" data-sort="subject">Konu <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="taskTitle">İlgili İş <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="party">Taraf <i class="fas fa-sort sort-icon"></i></th>
-                                        <th>TFN</th>
-                                        <th>EFN</th>
-                                        <th class="sortable" data-sort="officialFee">Yansıtma<i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="serviceFee">Hizmet Ü.<i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="totalAmount">Toplam <i class="fas fa-sort sort-icon"></i></th>
-                                        <th class="sortable" data-sort="remainingAmount">Kalan <i class="fas fa-sort sort-icon"></i></th>
-                                        <th>İşlemler</th>
+                                        <th style="width: 40px; vertical-align: middle;"><input type="checkbox" id="selectAllCheckbox"></th>
+                                        
+                                        <th style="width: 12%; vertical-align: middle;">
+                                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                                <div class="sortable text-dark" data-sort="id" style="cursor: pointer;" title="Numaraya göre sırala">Tahakkuk No <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                <div class="sortable text-muted" data-sort="createdAt" style="cursor: pointer; font-size: 0.85em; font-weight: normal;" title="Tarihe göre sırala">Oluşturma Tarihi <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                            </div>
+                                        </th>
+                                        
+                                        <th style="width: 40%; vertical-align: middle;">
+                                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                                <div class="sortable text-dark" data-sort="party" style="cursor: pointer;" title="Müvekkile göre sırala">Müvekkil Adı <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                <div class="sortable text-muted" data-sort="subject" style="cursor: pointer; font-size: 0.85em; font-weight: normal;" title="İş konusuna göre sırala">İş Detayı / Konu <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                            </div>
+                                        </th>
+                                        
+                                        <th style="width: 18%; vertical-align: middle;">
+                                            <div class="sortable text-dark" data-sort="totalAmount" style="cursor: pointer;" title="Tutara göre sırala">Finansal Özet <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                        </th>
+                                        
+                                        <th style="width: 20%; vertical-align: middle;">
+                                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                                <div class="sortable text-dark" data-sort="status" style="cursor: pointer;" title="Duruma göre sırala">Tahakkuk Durumu <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                <div class="sortable text-muted" data-sort="remainingAmount" style="cursor: pointer; font-size: 0.85em; font-weight: normal;" title="Kalan bakiyeye göre sırala">Kalan Bakiye <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                            </div>
+                                        </th>
+                                        
+                                        <th style="width: 10%; vertical-align: middle;" class="text-center">İşlemler</th>
                                     </tr>
                                 </thead>
                                 <tbody id="accrualsTableBody"></tbody>

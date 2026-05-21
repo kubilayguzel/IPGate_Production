@@ -403,26 +403,60 @@ export class AccrualUIManager {
                     </tr>`;
                 }
                 else if (activeTab === 'main') {
+                    // Departman ve Tür rozetlerini yan yana ve şık almak için yeniden düzenledik
+                    const deptBadgeInline = acc.department === 'HUKUK' 
+                        ? `<span class="badge badge-dark shadow-sm"><i class="fas fa-balance-scale mr-1"></i> HUKUK</span>` 
+                        : `<span class="badge badge-primary shadow-sm"><i class="fas fa-trademark mr-1"></i> EVREKA</span>`;
+                    
+                    const efnDisplay = efnHtml !== '-' ? efnHtml : `<span class="text-muted" style="font-size: 0.85em;"><i class="fas fa-file-invoice"></i> Fatura Kesilmedi</span>`;
+                    const tfnDisplay = tfn !== '-' ? `<span class="text-muted ml-2" style="font-size: 0.8em;" title="TÜRKPATENT Fatura No"><i class="fas fa-receipt"></i> TP: ${tfn}</span>` : '';
+
                     return `
-                    <tr>
-                        <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
-                        <td>${acc.id}</td>
-                        <td>${dateStr}</td>
-                        <td>${typeHtml}</td> <td><span class="badge badge-info">${fieldDisplay}</span></td>
-                        <td><span class="badge ${sCls}">${sTxt}</span></td>
-                        <td>${relatedFileDisplay}</td>
-                        <td><span class="font-weight-bold text-secondary">${subjectHtml}</span></td>
-                        <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>
-                        <td>${partyHtml}</td>
-                        <td><span class="text-muted font-weight-bold">${tfn}</span></td>
-                        <td>${efnHtml}</td>
-                        <td>${officialStr}</td>
-                        <td>${serviceStr}</td>
-                        <td>${this._formatMoney(acc.totalAmount)}</td>
-                        <td>${remainingHtml}</td>
-                        <td class="text-center">${actionMenuHtml}</td>
+                    <tr class="align-middle border-bottom">
+                        <td class="align-middle"><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
+                        
+                        <td class="align-middle">
+                            <div class="font-weight-bold text-dark" style="font-size: 1.05em;">#${acc.id}</div>
+                            <div class="text-muted mt-1" style="font-size: 0.85em;"><i class="far fa-calendar-alt"></i> ${dateStr}</div>
+                        </td>
+
+                        <td class="align-middle">
+                            <div class="d-flex align-items-center mb-1" style="gap: 5px;">
+                                <span class="font-weight-bold text-dark" style="font-size: 1.05em;">${partyHtml}</span>
+                                ${deptBadgeInline}
+                                <span class="badge ${typeBadgeClass} shadow-sm">${accType}</span>
+                            </div>
+                            <div class="text-muted d-flex align-items-center flex-wrap" style="font-size: 0.85em; gap: 5px;">
+                                <span class="badge badge-light border text-secondary" title="İşlem Alanı">${fieldDisplay}</span>
+                                <a href="#" class="task-detail-link text-info font-weight-bold" data-task-id="${acc.taskId}" title="Bağlı İş/Görev">${taskDisplay}</a> 
+                                <span>| ${relatedFileDisplay !== '-' ? relatedFileDisplay + ' - ' : ''}${subjectHtml}</span>
+                            </div>
+                        </td>
+
+                        <td class="align-middle">
+                            <div class="font-weight-bold text-primary mb-1" style="font-size: 1.15em;">
+                                ${this._formatMoney(acc.totalAmount)}
+                            </div>
+                            <div class="d-flex flex-column text-muted" style="font-size: 0.8em; gap: 2px;">
+                                <span><i class="fas fa-briefcase text-secondary" style="width:14px"></i> Hizm: <span class="font-weight-bold">${serviceStr}</span></span>
+                                <span><i class="fas fa-university text-secondary" style="width:14px"></i> Yans: <span class="font-weight-bold">${officialStr}</span></span>
+                            </div>
+                        </td>
+
+                        <td class="align-middle">
+                            <div class="d-flex align-items-center mb-2" style="gap: 8px;">
+                                <span class="badge ${sCls} p-1 px-2" style="font-size:0.85em">${sTxt}</span>
+                                <div style="font-size: 0.85em;">${remainingHtml}</div>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                ${efnDisplay}
+                                ${tfnDisplay}
+                            </div>
+                        </td>
+
+                        <td class="align-middle text-center">${actionMenuHtml}</td>
                     </tr>`;
-                    } else {
+                } else {
                     // Yurtdışı (Foreign) Sekmesi İçin Çizim
                     let paymentParty = acc.serviceInvoiceParty?.name || '-';
                     let documentHtml = '-';

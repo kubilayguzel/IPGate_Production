@@ -219,14 +219,16 @@ export class AccrualUIManager {
                     fullSubject = acc.subject || '-';
                 }
 
-                let shortSubject = fullSubject.length > 18 ? fullSubject.substring(0, 18) + '..' : fullSubject;
+                // Konu/İş detayı için limiti 40 karaktere çıkardık
+                let shortSubject = fullSubject.length > 40 ? fullSubject.substring(0, 40) + '..' : fullSubject;
                 const subjectHtml = `<span title="${fullSubject}" style="cursor:help;">${shortSubject}</span>`;
 
                 let fullPartyName = '-';
                 if (acc.officialFee?.amount > 0 && acc.tpInvoiceParty) fullPartyName = acc.tpInvoiceParty.name || 'Türk Patent';
                 else if (acc.serviceFee?.amount > 0 && acc.serviceInvoiceParty) fullPartyName = acc.serviceInvoiceParty.name || '-';
 
-                let shortPartyName = fullPartyName.length > 18 ? fullPartyName.substring(0, 18) + '..' : fullPartyName;
+                // Müvekkil adı için limiti 35 karaktere çıkardık (yerimiz bol)
+                let shortPartyName = fullPartyName.length > 35 ? fullPartyName.substring(0, 35) + '..' : fullPartyName;
                 const partyHtml = `<span title="${fullPartyName}" style="cursor:help;">${shortPartyName}</span>`;
 
                 // 🔥 KESİN ÇÖZÜM: Değişkenler tablonun en başında, doğru yerde tanımlanıyor

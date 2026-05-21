@@ -331,7 +331,13 @@
                                         </th>
                                         
                                         <th style="width: 18%; vertical-align: middle;">
-                                            <div class="sortable text-dark" data-sort="totalAmount" style="cursor: pointer;" title="Tutara göre sırala">Finansal Özet <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                                <div class="sortable text-dark font-weight-bold" data-sort="totalAmount" style="cursor: pointer;" title="Genel toplama göre sırala">Genel Toplam Tutar <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                <div class="d-flex text-muted" style="font-size: 0.85em; gap: 12px;">
+                                                    <div class="sortable" data-sort="serviceFee" style="cursor: pointer;" title="Sadece Hizmet tutarına göre sırala">Hizm <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                    <div class="sortable" data-sort="officialFee" style="cursor: pointer;" title="Sadece Yansıtma tutarına göre sırala">Yans <i class="fas fa-sort text-muted" style="font-size:0.8em"></i></div>
+                                                </div>
+                                            </div>
                                         </th>
                                         
                                         <th style="width: 20%; vertical-align: middle;">

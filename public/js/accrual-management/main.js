@@ -715,13 +715,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                 this.renderPage();
             });
 
-            document.querySelectorAll('th[data-sort]').forEach(th => {
-                th.style.cursor = 'pointer';
-                th.addEventListener('click', () => {
-                    const column = th.dataset.sort;
-                    this.state.sort = this.state.sort.column === column ? { column, direction: this.state.sort.direction === 'asc' ? 'desc' : 'asc' } : { column, direction: 'asc' };
+            // 🔥 ÇÖZÜM: 'th[data-sort]' yerine genel '[data-sort]' arıyoruz, böylece div'ler de tıklanabilir oluyor
+            document.querySelectorAll('[data-sort]').forEach(el => {
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', (e) => {
+                    // Kullanıcı bazen div'in kendisine değil içindeki ikona/yazıya tıklayabilir, bu yüzden closest ile kapsayıcıyı alıyoruz
+                    const targetEl = e.target.closest('[data-sort]');
+                    if (!targetEl) return;
+                    
+                    const column = targetEl.dataset.sort;
+                    this.state.sort = this.state.sort.column === column 
+                        ? { column, direction: this.state.sort.direction === 'asc' ? 'desc' : 'asc' } 
+                        : { column, direction: 'asc' };
+                        
+                    // Ekrandaki tüm ikonları sıfırla
                     document.querySelectorAll('.sort-icon').forEach(i => i.className = 'fas fa-sort sort-icon text-muted');
-                    th.querySelector('i').className = `fas fa-sort-${this.state.sort.direction === 'asc' ? 'up' : 'down'} sort-icon`;
+                    
+                    // Sadece tıklanan filtrenin ikonunu aktif et
+                    const icon = targetEl.querySelector('i');
+                    if(icon) {
+                        icon.className = `fas fa-sort-${this.state.sort.direction === 'asc' ? 'up' : 'down'} sort-icon text-primary`;
+                    }
+                    
                     this.renderPage();
                 });
             });

@@ -313,8 +313,80 @@ export class AccrualDataManager {
         if (sort && sort.column) {
             data.sort((a, b) => {
                 let valA = a[sort.column]; let valB = b[sort.column];
-                if (sort.column === 'taskTitle') { valA = a.taskTitle || ''; valB = b.taskTitle || ''; } 
-                else if (sort.column === 'subject') { valA = String(valA || ''); valB = String(valB || ''); }
+                
+                // 🔥 ÇÖZÜM: 0. Tahakkuk No Sıralaması (Metin değil, gerçek SAYI olarak)
+                if (sort.column === 'id') {
+                    valA = Number(a.id) || 0;
+                    valB = Number(b.id) || 0;
+                }
+                
+                // 1. Müvekkil / Taraf Sıralaması
+                else if (sort.column === 'party') {
+                    const getP = (item) => item.tpInvoiceParty?.name || item.serviceInvoiceParty?.name || '';
+                    valA = getP(a).toLowerCase();
+                    valB = getP(b).toLowerCase();
+                }
+                
+                // 2. İş Detayı / Konu Sıralaması
+                else if (sort.column === 'subject') {
+                    const getS = (item) => {
+                        const task = this.allTasks[String(item.taskId)];
+                        if (task && task.relatedIpRecordId) {
+                            const ipRec = this.ipRecordsMap[String(task.relatedIpRecordId)];
+                            if (ipRec) return ipRec.markName || '';
+                        }
+                        return item.subject || '';
+                    };
+                    valA = getS(a).toLowerCase();
+                    valB = getS(b).toLowerCase();
+                }
+
+                // 3. Genel Toplam Tutar Sıralaması
+                else if (sort.column === 'totalAmount') {
+                    const getT = (item) => {
+                        if (Array.isArray(item.totalAmount)) return item.totalAmount.reduce((sum, x) => sum + (Number(x.amount)||0), 0);
+                        return Number(item.totalAmount) || 0;
+                    };
+                    valA = getT(a);
+                    valB = getT(b);
+                }
+
+                // 4. Kalan Bakiye Sıralaması
+                else if (sort.column === 'remainingAmount') {
+                    const getR = (item) => {
+                        let rem = item.remainingAmount;
+                        if (item.status === 'unpaid' && (!rem || (Array.isArray(rem) && rem.length === 0))) rem = item.totalAmount;
+                        if (Array.isArray(rem)) return rem.reduce((sum, x) => sum + (Number(x.amount)||0), 0);
+                        return Number(rem) || 0;
+                    };
+                    valA = getR(a);
+                    valB = getR(b);
+                }
+
+                // 5. Hizmet ve Yansıtma Tutarları Sıralaması (Yeni)
+                else if (sort.column === 'serviceFee') {
+                    const getSrv = (item) => {
+                        if (item.type !== 'Hizmet') return 0;
+                        const srvItems = (item.items || []).filter(i => i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
+                        return srvItems.reduce((sum, i) => sum + (Number(i.total_amount) || 0), 0);
+                    };
+                    valA = getSrv(a);
+                    valB = getSrv(b);
+                }
+                else if (sort.column === 'officialFee') {
+                    const getOff = (item) => {
+                        let offItems = (item.items || []);
+                        if (item.type === 'Hizmet') offItems = offItems.filter(i => i.fee_type !== 'Hizmet' && i.fee_type !== 'Hukuk Danışmanlık');
+                        return offItems.reduce((sum, i) => sum + (Number(i.total_amount) || 0), 0);
+                    };
+                    valA = getOff(a);
+                    valB = getOff(b);
+                }
+                
+                else {
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                }
 
                 if (valA < valB) return sort.direction === 'asc' ? -1 : 1;
                 if (valA > valB) return sort.direction === 'asc' ? 1 : -1;

@@ -400,6 +400,175 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }; // Zümrüt Yeşili
                 });
 
+
+                // ==============================================================================
+                // 🔥 --- 5. BÖLÜM: EVREKA İŞLERİ SEKME YAPISI (Detaylı Kalem Kırılımlı) ---
+                // ==============================================================================
+                const wsEvreka = workbook.addWorksheet('Evreka İşleri', { views: [{ showGridLines: true }] });
+                
+                // Başlık Grubu (Mavi Tema)
+                wsEvreka.mergeCells('A1:K1');
+                const evrekaTitle = wsEvreka.getCell('A1');
+                evrekaTitle.value = "IPGate - Evreka Birimi Detaylı Kalem Raporu";
+                evrekaTitle.font = { name: 'Montserrat', size: 16, bold: true, color: { argb: 'FF1E3A8A' } };
+                wsEvreka.getRow(1).height = 40;
+
+                wsEvreka.mergeCells('A2:K2');
+                const evrekaSub = wsEvreka.getCell('A2');
+                evrekaSub.value = `Rapor Tarihi: ${new Date().toLocaleDateString('tr-TR')} | Sadece EVREKA Departmanına Ait Kalem (Item) Kırılımlı Kayıtlar`;
+                evrekaSub.font = { name: 'Montserrat', size: 10, italic: true, color: { argb: 'FF6B7280' } };
+                wsEvreka.getRow(2).height = 20;
+
+                // Tablo Kolon Tanımlamaları (KALEM BAZLI DETAY)
+                wsEvreka.columns = [
+                    { header: 'Tahakkuk No', key: 'id', width: 15 },
+                    { header: 'Müvekkil / Taraf', key: 'party', width: 35 },
+                    { header: 'Tahakkuk Türü', key: 'type', width: 18 },
+                    { header: 'Kalem Adı / Detay', key: 'itemName', width: 45 },
+                    { header: 'Ücret Tipi', key: 'feeType', width: 20 },
+                    { header: 'Miktar', key: 'qty', width: 10 },
+                    { header: 'Birim Fiyat', key: 'unitPrice', width: 15, style: { numFmt: '#,##0.00' } },
+                    { header: 'KDV %', key: 'vat', width: 10 },
+                    { header: 'Toplam Tutar', key: 'total', width: 18, style: { numFmt: '#,##0.00' } },
+                    { header: 'Para Birimi', key: 'curr', width: 12 },
+                    { header: 'Fatura Durumu', key: 'status', width: 18 }
+                ];
+
+                // Başlık Satırı Stili (Mavi)
+                wsEvreka.getRow(4).height = 28;
+                wsEvreka.getRow(4).eachCell((cell) => {
+                    cell.font = { name: 'Montserrat', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }; // Koyu Mavi
+                    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                });
+
+                // Verileri Filtrele ve Yaz (Tahakkuk bazlı değil, KALEM bazlı döngü)
+                const evrekaList = dataToExport.filter(a => a.department === 'EVREKA');
+                let evrekaSumMap = {};
+
+                evrekaList.forEach(acc => {
+                    const items = acc.items || [];
+                    items.forEach(item => {
+                        const itemCurr = item.currency || acc.currency || 'TRY';
+                        const itemTotal = Number(item.total_amount) || 0;
+
+                        if (!evrekaSumMap[itemCurr]) evrekaSumMap[itemCurr] = 0;
+                        evrekaSumMap[itemCurr] += itemTotal;
+
+                        const r = wsEvreka.addRow({
+                            id: acc.id,
+                            party: acc.paymentParty || acc.tpInvoiceParty?.name || acc.serviceInvoiceParty?.name || '-',
+                            type: acc.type || '-',
+                            itemName: item.item_name || '-',
+                            feeType: item.fee_type || '-',
+                            qty: Number(item.quantity) || 1,
+                            unitPrice: Number(item.unit_price) || 0,
+                            vat: Number(item.vat_rate) || 0,
+                            total: itemTotal,
+                            curr: itemCurr,
+                            status: acc.status === 'invoiced' ? 'Fatura Kesildi' : (acc.status === 'sent' ? 'Gönderildi' : 'Taslak')
+                        });
+                        r.height = 22;
+                        r.eachCell(cell => {
+                            cell.font = { name: 'Montserrat', size: 10 };
+                            cell.border = { top: { style: 'thin', color: { argb: 'FFE5E7EB' } }, bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
+                        });
+                    });
+                });
+
+                // Evreka Döviz Bazlı Özet Tablosu
+                wsEvreka.addRow([]); 
+                Object.keys(evrekaSumMap).forEach(cur => {
+                    const smRow = wsEvreka.addRow({
+                        party: `${cur} TOPLAM YEKÜN`,
+                        total: evrekaSumMap[cur],
+                        curr: cur
+                    });
+                    smRow.height = 24;
+                    smRow.eachCell(cell => {
+                        cell.font = { name: 'Montserrat', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; // Parlak Mavi
+                    });
+                });
+
+                // ==============================================================================
+                // 🔥 --- 6. BÖLÜM: HUKUK İŞLERİ SEKME YAPISI (Detaylı Kalem Kırılımlı) ---
+                // ==============================================================================
+                const wsHukuk = workbook.addWorksheet('Hukuk İşleri', { views: [{ showGridLines: true }] });
+                
+                // Başlık Grubu (Mor Tema)
+                wsHukuk.mergeCells('A1:K1');
+                const hukukTitle = wsHukuk.getCell('A1');
+                hukukTitle.value = "IPGate - Hukuk Birimi Detaylı Kalem Raporu";
+                hukukTitle.font = { name: 'Montserrat', size: 16, bold: true, color: { argb: 'FF4C1D95' } };
+                wsHukuk.getRow(1).height = 40;
+
+                wsHukuk.mergeCells('A2:K2');
+                const hukukSub = wsHukuk.getCell('A2');
+                hukukSub.value = `Rapor Tarihi: ${new Date().toLocaleDateString('tr-TR')} | Sadece HUKUK Departmanına Ait Kalem (Item) Kırılımlı Kayıtlar`;
+                hukukSub.font = { name: 'Montserrat', size: 10, italic: true, color: { argb: 'FF6B7280' } };
+                wsHukuk.getRow(2).height = 20;
+
+                // Tablo Kolon Tanımlamaları (Aynı Kırılımlar)
+                wsHukuk.columns = wsEvreka.columns;
+
+                // Başlık Satırı Stili (Mor)
+                wsHukuk.getRow(4).height = 28;
+                wsHukuk.getRow(4).eachCell((cell) => {
+                    cell.font = { name: 'Montserrat', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6D28D9' } }; // Koyu Mor
+                    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                });
+
+                // Verileri Filtrele ve Yaz (Tahakkuk bazlı değil, KALEM bazlı döngü)
+                const hukukList = dataToExport.filter(a => a.department === 'HUKUK');
+                let hukukSumMap = {};
+
+                hukukList.forEach(acc => {
+                    const items = acc.items || [];
+                    items.forEach(item => {
+                        const itemCurr = item.currency || acc.currency || 'TRY';
+                        const itemTotal = Number(item.total_amount) || 0;
+
+                        if (!hukukSumMap[itemCurr]) hukukSumMap[itemCurr] = 0;
+                        hukukSumMap[itemCurr] += itemTotal;
+
+                        const r = wsHukuk.addRow({
+                            id: acc.id,
+                            party: acc.paymentParty || acc.tpInvoiceParty?.name || acc.serviceInvoiceParty?.name || '-',
+                            type: acc.type || '-',
+                            itemName: item.item_name || '-',
+                            feeType: item.fee_type || '-',
+                            qty: Number(item.quantity) || 1,
+                            unitPrice: Number(item.unit_price) || 0,
+                            vat: Number(item.vat_rate) || 0,
+                            total: itemTotal,
+                            curr: itemCurr,
+                            status: acc.status === 'invoiced' ? 'Fatura Kesildi' : (acc.status === 'sent' ? 'Gönderildi' : 'Taslak')
+                        });
+                        r.height = 22;
+                        r.eachCell(cell => {
+                            cell.font = { name: 'Montserrat', size: 10 };
+                            cell.border = { top: { style: 'thin', color: { argb: 'FFE5E7EB' } }, bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
+                        });
+                    });
+                });
+
+                // Hukuk Döviz Bazlı Özet Tablosu
+                wsHukuk.addRow([]); 
+                Object.keys(hukukSumMap).forEach(cur => {
+                    const smRow = wsHukuk.addRow({
+                        party: `${cur} TOPLAM YEKÜN`,
+                        total: hukukSumMap[cur],
+                        curr: cur
+                    });
+                    smRow.height = 24;
+                    smRow.eachCell(cell => {
+                        cell.font = { name: 'Montserrat', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8B5CF6' } }; // Parlak Mor
+                    });
+                });
+
                 // Dosyayı Dışa Aktar
                 const buffer = await workbook.xlsx.writeBuffer();
                 const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

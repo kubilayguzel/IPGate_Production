@@ -36,46 +36,39 @@ serve(async (req) => {
     };
 
     // ==============================================================================
-    // İŞLEM 1: FATURA SİLME / İPTAL ETME (TOPLU İŞLEM TAMİRİ)
+    // İŞLEM 1: FATURA SİLME / İPTAL ETME 
     // ==============================================================================
     if (action === 'delete') {
         const { invoiceId } = body;
         if (!invoiceId) throw new Error("Fatura ID (invoiceId) gerekli.");
 
-        // 1. İlgili ana faturayı bul
         const { data: invoiceData, error: invError } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
         if (invError || !invoiceData) throw new Error("Fatura veritabanında bulunamadı.");
         if (invoiceData.status !== 'draft') throw new Error("Sadece 'Taslak' durumundaki faturalar iptal edilebilir.");
 
-        // 🔥 TAMİR: Bu faturaya bağlı TÜM tahakkukları bul (limit(1).single() kaldırıldı)
         const { data: allLinkedAccruals } = await supabaseClient.from('accruals')
             .select('id, invoice_id, invoice_id_2')
             .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
 
-        // 🔥 TAMİR: Silinecek tüm fatura ID'lerini bir havuzda topla
-        let invoicesToDelete = [invoiceId];
+        let invoicesToDelete: string[] = [invoiceId];
         if (allLinkedAccruals && allLinkedAccruals.length > 0) {
-            allLinkedAccruals.forEach(acc => {
+            allLinkedAccruals.forEach((acc: any) => {
                 if (acc.invoice_id) invoicesToDelete.push(acc.invoice_id);
                 if (acc.invoice_id_2) {
-                    // invoice_id_2 virgülle ayrılmış birden fazla ID içerebilir
                     const parts = acc.invoice_id_2.split(',');
-                    parts.forEach(p => invoicesToDelete.push(p.trim()));
+                    parts.forEach((p: string) => invoicesToDelete.push(p.trim()));
                 }
             });
         }
         
-        // Tekrarlanan ID'leri temizle
         invoicesToDelete = [...new Set(invoicesToDelete)].filter(Boolean);
 
-        // 2. KolayBi ve DB'den Silme Döngüsü
         const accessToken = await getKolaybiToken();
         for (const invId of invoicesToDelete) {
             const { data: inv } = await supabaseClient.from('invoices').select('*').eq('id', invId).single();
             
             if (inv && inv.kolaybi_invoice_id && inv.kolaybi_invoice_id !== 'undefined') {
                 try {
-                    // KolayBi'den İptal Et
                     await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, {
                         method: 'DELETE',
                         headers: { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel }
@@ -84,11 +77,9 @@ serve(async (req) => {
                     console.error(`KolayBi silme hatası (ID: ${inv.kolaybi_invoice_id}):`, e);
                 }
             }
-            // Yerel DB'den (invoices tablosu) Sil
             await supabaseClient.from('invoices').delete().eq('id', invId);
         }
 
-        // 🔥 TAMİR: Bağlı TÜM tahakkukları tek seferde serbest bırak
         if (allLinkedAccruals && allLinkedAccruals.length > 0) {
             const accrualIdsToUpdate = allLinkedAccruals.map(a => a.id);
             await supabaseClient.from('accruals')
@@ -103,7 +94,7 @@ serve(async (req) => {
     }
 
     // ==============================================================================
-    // İŞLEM 3: FATURA SENKRONİZASYONU (SYNC)
+    // İŞLEM 3: FATURA SENKRONİZASYONU 
     // ==============================================================================
     if (action === 'sync') {
         const { invoiceId } = body;
@@ -147,11 +138,10 @@ serve(async (req) => {
         }
 
         return new Response(JSON.stringify({ success: true, message: "Fatura durumu başarıyla senkronize edildi.", data: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
     }
     
     // ==============================================================================
-    // İŞLEM 5: TOPLU SENKRONİZASYON (SYNC BULK)
+    // İŞLEM 5: TOPLU SENKRONİZASYON 
     // ==============================================================================
     if (action === 'sync_bulk') {
         const { invoiceIds } = body;
@@ -209,7 +199,7 @@ serve(async (req) => {
     }
 
     // ==============================================================================
-    // İŞLEM 4: FATURA GÖRÜNTÜLEME (VIEW)
+    // İŞLEM 4: FATURA GÖRÜNTÜLEME 
     // ==============================================================================
     if (action === 'view') {
         const { invoiceId } = body;
@@ -235,7 +225,7 @@ serve(async (req) => {
     }
 
     // ==============================================================================
-    // İŞLEM 2: FATURA OLUŞTURMA (CREATE) - OTOMATİK PARÇALAYICI & KUR AKLI
+    // İŞLEM 2: FATURA OLUŞTURMA (CREATE) - AKILLI FALLBACK & MUAFİYET KODLU
     // ==============================================================================
     if (action === 'create') {
         const { accrualIds, mergeStrategy } = body;
@@ -262,9 +252,8 @@ serve(async (req) => {
             throw new Error(`Merkez Bankasından ${currencyCode} güncel satış kuru alınamadı.`);
         };
 
-        // Farklı Kur Kontrolü
         const uniqueCurrencies = new Set<string>();
-        accruals.forEach(acc => {
+        accruals.forEach((acc: any) => {
             if (acc.accrual_items) {
                 acc.accrual_items.forEach((item: any) => {
                     let cur = (item.currency || 'TRY').toUpperCase();
@@ -282,7 +271,6 @@ serve(async (req) => {
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // Tümü TRY'ye Çevrilmesi İstenirse
         if (mergeStrategy === 'merge_try') {
             const rates: Record<string, number> = {};
             for (const acc of accruals) {
@@ -310,23 +298,19 @@ serve(async (req) => {
         if (!clientId) throw new Error("Taraf (Fatura Sahibi / tp_invoice_party) seçilmemiş.");
 
         for (const acc of accruals) {
-            const currentPartyId = acc.tp_invoice_party_id;
-            if (currentPartyId !== clientId) throw new Error("Güvenlik İhlali: Farklı müşterilere ait tahakkuklar tek faturada birleştirilemez!");
+            if (acc.tp_invoice_party_id !== clientId) throw new Error("Güvenlik İhlali: Farklı müşterilere ait tahakkuklar tek faturada birleştirilemez!");
         }
 
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 
-        // 🔥 LOGLU VE FİLTRELİ: FİNANS İLETİŞİM KİŞİLERİNİ (MAİLLERİ) TOPLA
-        const { data: financePersons, error: financeErr } = await supabaseClient
+        const { data: financePersons } = await supabaseClient
             .from('persons_related')
             .select('email')
             .eq('person_id', clientId)
             .or('notify_finance_to.eq.true,notify_finance_cc.eq.true');
 
-        console.log(`[KOLAYBI-DEBUG] Fatura Kesilecek Cari ID: ${clientId}`);
-        if (financeErr) console.error(`[KOLAYBI-DEBUG] Finans Kişileri Çekme Hatası:`, financeErr);
-
+        // 🔥 TAMİR 1: AKILLI E-POSTA SEÇİMİ
         let emailList: string[] = [];
         
         if (financePersons && financePersons.length > 0) {
@@ -335,23 +319,25 @@ serve(async (req) => {
             });
         }
 
-        const uniqueEmails = [...new Set(emailList)];
-        
-        // 🔥 ÇÖZÜM: KolayBi tekil mail formatı (Regex) zorunluluğu tuttuğu için listeyi virgülle birleştirmek yerine SADECE İLK MAİLİ alıyoruz!
-        const finalEmail = uniqueEmails.length > 0 ? uniqueEmails[0] : "";
-        
-        console.log(`[KOLAYBI-DEBUG] Şirket Ana Maili (Listeye EKLENMEDİ): "${clientData.email}"`);
-        console.log(`[KOLAYBI-DEBUG] Bulunan Tüm Finans Mailleri:`, uniqueEmails);
-        console.log(`[KOLAYBI-DEBUG] KolayBi'ye Gönderilecek TEK Kesin Mail: "${finalEmail}"`);
+        if (emailList.length === 0 && clientData.email && clientData.email.trim() !== '') {
+            emailList.push(clientData.email.trim());
+        }
 
-        const identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
+        const uniqueEmails = [...new Set(emailList)];
+        const finalEmail = uniqueEmails.length > 0 ? uniqueEmails[0] : "";
+
+        // 🔥 TAMİR 2: TCKN ZORUNLULUĞU (10 veya 11 hane değilse 11111111111 yap)
+        let identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
+        if (identityNo.length !== 10 && identityNo.length !== 11) {
+            identityNo = "11111111111";
+        }
+
         const orderCodes = [...new Set(accruals.map((a: any) => a.order_code).filter(Boolean))];
-        
         if (clientData.requires_sas_code === true && orderCodes.length === 0) {
-            throw new Error(`[SAS ZORUNLU] Bu müvekkil (${clientData.name}) için Sipariş (SAS) Kodu girmek zorunludur! Lütfen fatura oluşturmadan önce tahakkukları düzenleyerek kodları ekleyin.`);
+            throw new Error(`[SAS ZORUNLU] Bu müvekkil (${clientData.name}) için Sipariş (SAS) Kodu girmek zorunludur!`);
         }
         
-        const taskIds = accruals.map(a => a.task_id).filter(Boolean);
+        const taskIds = accruals.map((a: any) => a.task_id).filter(Boolean);
         let tasksMap: any = {};
 
         if (taskIds.length > 0) {
@@ -399,8 +385,6 @@ serve(async (req) => {
         }
 
         associateParams.append("identity_no", identityNo);
-        
-        // 🔥 HAFIZA TEMİZLİĞİ: finalEmailsString boş dahi olsa ("") KolayBi'ye gönderilir ve eski maili ezer geçer!
         associateParams.append("email", finalEmail || "");
         if (clientData.tax_office) associateParams.append("tax_office", clientData.tax_office);
 
@@ -464,7 +448,7 @@ serve(async (req) => {
         }
 
         let jobDetailsLines: string[] = [];
-        accruals.forEach(acc => {
+        accruals.forEach((acc: any) => {
             if (acc.task_id && tasksMap[acc.task_id]) {
                 const t = tasksMap[acc.task_id];
                 const line = `${t.origin} ${t.refNo} ${t.brand} ${t.title} (${acc.task_id})`.replace(/\s+/g, ' ').trim();
@@ -474,15 +458,8 @@ serve(async (req) => {
 
         let noteLines: string[] = [];
         noteLines.push("FATURA AÇIKLAMALARI:");
-        
-        if (orderCodes.length > 0) {
-            noteLines.push(`Sipariş No (SAS): ${orderCodes.join(', ')}`);
-        }
-        
-        if (jobDetailsLines.length > 0) {
-            noteLines.push(`İş Detayı: ${jobDetailsLines.join(', ')}`);
-        }
-        
+        if (orderCodes.length > 0) noteLines.push(`Sipariş No (SAS): ${orderCodes.join(', ')}`);
+        if (jobDetailsLines.length > 0) noteLines.push(`İş Detayı: ${jobDetailsLines.join(', ')}`);
         noteLines.push(`Tahakkuk No: ${accrualIds.join(', ')}`);
         noteLines.push(`Not: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`);
 
@@ -491,7 +468,7 @@ serve(async (req) => {
 
         const groups: Record<string, any[]> = {};
 
-        accruals.forEach((acc) => {
+        accruals.forEach((acc: any) => {
             if (acc.accrual_items && acc.accrual_items.length > 0) {
                 acc.accrual_items.forEach((item: any) => {
                     const itemCurrency = item.currency ? (item.currency.toUpperCase() === 'TL' ? 'TRY' : item.currency.toUpperCase()) : 'TRY';
@@ -524,7 +501,8 @@ serve(async (req) => {
             }
         });
 
-        const createInvoiceInKolaybi = async (items: any[], docType: string, invoiceCurrency: string) => {
+        // 🔥 ÇÖZÜM 1: forceScenario parametresi eklendi
+        const createInvoiceInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
             if (items.length === 0) return null;
 
             const invoiceParams = new URLSearchParams();
@@ -532,7 +510,11 @@ serve(async (req) => {
             invoiceParams.append("address_id", String(kolaybiAddressId));
             invoiceParams.append("order_date", new Date().toISOString().split('T')[0]); 
             invoiceParams.append("type", "sale_invoice"); 
-            invoiceParams.append("document_scenario", identityNo.length === 10 ? "TICARIFATURA" : "EARSIV"); 
+            
+            // 🔥 ÇÖZÜM 2: Eğer zorunlu bir senaryo verilmişse (Retry) onu kullan, yoksa uzunluğa göre karar ver
+            const currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
+            invoiceParams.append("document_scenario", currentScenario); 
+            
             invoiceParams.append("document_type", docType); 
             invoiceParams.append("description", finalInvoiceNote);
             
@@ -545,6 +527,11 @@ serve(async (req) => {
                 invoiceParams.append(`items[${itemIndex}][unit_price]`, item.price.toFixed(2));
                 invoiceParams.append(`items[${itemIndex}][vat_rate]`, item.vat.toString());
                 invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
+
+                if (item.vat === 0) {
+                    invoiceParams.append(`items[${itemIndex}][vat_exemption_code]`, "351");
+                    invoiceParams.append(`items[${itemIndex}][vat_exemption_reason_code]`, "351");
+                }
 
                 if (docType === 'TEVKIFAT') {
                     invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
@@ -566,8 +553,19 @@ serve(async (req) => {
             try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Fatura API Yanıtı Okunamadı`); }
 
             if (!invoiceReq.ok || invoiceRes.success === false) {
+                const errorMessage = invoiceRes.message || "";
+                
+                // 🔥 ÇÖZÜM 3 (AKILLI RETRY): Şahıs şirketi e-Fatura mükellefi çıkarsa, anında TICARIFATURA olarak tekrar dene!
+                if (errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && currentScenario === "EARSIVFATURA") {
+                    console.log(`[OTOMATİK DÜZELTME] Müşteri e-Fatura mükellefi çıktı. TICARIFATURA ile tekrar deneniyor...`);
+                    return await createInvoiceInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA");
+                }
+
                 const decodedRequest = decodeURIComponent(requestBodyString).replace(/&/g, '\n');
-                throw new Error(`[${docType} - ${invoiceCurrency}] Fatura Oluşturma Hatası: ${invoiceRes.message || JSON.stringify(invoiceRes)} \n\n📌 GİDEN İSTEK:\n${decodedRequest}`);
+                const detailedErrors = invoiceRes.errors ? JSON.stringify(invoiceRes.errors) : "";
+                const responseData = invoiceRes.data ? JSON.stringify(invoiceRes.data) : "";
+                
+                throw new Error(`[${docType} - ${invoiceCurrency}] Fatura Oluşturma Hatası: ${errorMessage} | 🚨 HATA DETAYI: ${detailedErrors} ${responseData} \n\n📌 GİDEN İSTEK:\n${decodedRequest}`);
             }
             
             return {

@@ -2638,15 +2638,16 @@ export const feeCalculationService = {
                 } 
                 else {
                     // KURAL 2: Özel tarife listesinde yok. 
-                    // İskonto SADECE hizmetlere uygulanır, Resmi Harçlara UYGULANMAZ.
-                    const isOfficialFee = fType === 'TP Harç' || fType === 'Resmi Harç' || fType.toLowerCase().includes('harç');
+                    // İskonto SADECE "Hizmet" (Evreka Hizmet) tipindeki kalemlere uygulanır.
+                    // "TP Harç", "Resmi Harç" veya "TP Hizmet" kalemlerine KESİNLİKLE UYGULANMAZ.
+                    const isOfficialFee = fType === 'TP Harç' || fType === 'Resmi Harç' || fType === 'TP Hizmet' || fType.toLowerCase().includes('harç');
                     
-                    if (!isOfficialFee && !activePriceListId && clientDiscountRate > 0) {
-                        // Sadece özel tarifesi HİÇ OLMAYAN ve Resmi Harç OLMAYAN kalemlere iskonto uygula
+                    if (!isOfficialFee && fType === 'Hizmet' && !activePriceListId && clientDiscountRate > 0) {
+                        // Sadece Tipi "Hizmet" olan ve özel tarifesi olmayan kalemlere iskonto uygula
                         unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
                         console.log(`[CALCULATION ENGINE] 📉 İSKONTO UYGULANDI! (%${clientDiscountRate}) -> Kalem: ${tariff.name} | Yeni Fiyat: ${unitPrice} ${currency}`);
                     } else {
-                        console.log(`[CALCULATION ENGINE] 📄 STANDART FİYAT GEÇERLİ -> Kalem: ${tariff.name} | Fiyat: ${unitPrice} ${currency}`);
+                        console.log(`[CALCULATION ENGINE] 📄 NET/STANDART FİYAT GEÇERLİ -> Kalem: ${tariff.name} | Fiyat: ${unitPrice} ${currency}`);
                     }
                 }
 

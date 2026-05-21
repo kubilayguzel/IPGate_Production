@@ -273,24 +273,33 @@ export class AccrualUIManager {
 
                 const items = acc.items || [];
                 
-                // 1. Hizmet Ücreti (Sadece Evreka Hizmeti)
-                const srvItems = items.filter(i => i.fee_type === 'Hizmet');
+                let srvItems = [];
+                let offItems = [];
+
+                // 🔥 ÇÖZÜM: Tahakkuk Türü "Hizmet" ise kalemleri tiplerine göre ayır.
+                // Eğer "Hizmet" DEĞİLSE (Örn: Masraf, Kur Farkı), içindeki hiçbir şey Hizmet olamaz, hepsi Yansıtma'ya gider!
+                if (accType === 'Hizmet') {
+                    srvItems = items.filter(i => i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
+                    offItems = items.filter(i => i.fee_type !== 'Hizmet' && i.fee_type !== 'Hukuk Danışmanlık');
+                } else {
+                    srvItems = []; // Hizmet ücreti sıfırlanır
+                    offItems = items; // Tüm kalemler (içinde ne olursa olsun) Yansıtma'ya atılır
+                }
+
+                // 1. Hizmet Ücreti Toplamı
                 const srvMap = {};
                 srvItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    // 🔥 ÇÖZÜM: unit_price * quantity YERİNE doğrudan total_amount toplanıyor!
                     srvMap[curr] = (srvMap[curr] || 0) + (Number(i.total_amount) || 0);
                 });
                 const serviceStr = Object.keys(srvMap).length > 0 
                     ? Object.entries(srvMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
                     : '-';
 
-                // 2. Resmi Ücret (Evreka Hizmeti dışındaki her şey: Harç, TP Hizmet, Masraf, Yurtdışı Maliyet)
-                const offItems = items.filter(i => i.fee_type !== 'Hizmet');
+                // 2. Yansıtma / Resmi Ücret Toplamı
                 const offMap = {};
                 offItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    // 🔥 ÇÖZÜM: unit_price * quantity YERİNE doğrudan total_amount toplanıyor!
                     offMap[curr] = (offMap[curr] || 0) + (Number(i.total_amount) || 0);
                 });
                 const officialStr = Object.keys(offMap).length > 0 

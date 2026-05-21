@@ -2436,7 +2436,9 @@ export const feeCalculationService = {
      * Görev tipine ve müvekkil bilgisine göre fatura kalemlerini dinamik çeker.
      */
     async calculateAccrualItems({ taskTypeId, clientId, recordId = null, extraParams = {} }) {
-        console.log(`[CALCULATION ENGINE] 🚀 Hesaplama Başladı. Görev Tipi: ${taskTypeId}, Müvekkil: ${clientId}`);
+        console.log(`\n======================================================`);
+        console.log(`[CALCULATION ENGINE] 🚀 Hesaplama Motoru Başladı!`);
+        console.log(`[CALCULATION ENGINE] 📦 Gelen İlk Veriler -> Görev Tipi: ${taskTypeId}, Müvekkil ID: ${clientId}`);
         
         try {
             const taskObj = extraParams.task || {};
@@ -2449,16 +2451,37 @@ export const feeCalculationService = {
                 let parentId = detailsObj.parent_task_id || detailsObj.relatedTaskId || taskObj.relatedTaskId;
 
                 if (parentId) {
-                    const { data: parentTask } = await supabase.from('tasks').select('task_type_id, ip_record_id').eq('id', String(parentId)).single();
+                    const { data: parentTask } = await supabase.from('tasks').select('task_type_id, ip_record_id, task_owner_id').eq('id', String(parentId)).single();
                     if (parentTask) {
                         if (parentTask.task_type_id) {
                             taskTypeId = parentTask.task_type_id; 
-                            console.log(`[CALCULATION ENGINE] ✅ Asıl İş Bulundu! Yeni Görev Tipi: ${taskTypeId}`);
+                            console.log(`[CALCULATION ENGINE] ✅ Asıl İş (Parent Task) Bulundu! Yeni Görev Tipi: ${taskTypeId}`);
                         }
                         if (parentTask.ip_record_id && !actualRecordId) {
                             actualRecordId = parentTask.ip_record_id; 
                         }
+                        // 🔥 ÇÖZÜM 1: Tahakkukun ana işinde (parent task) bir müvekkil varsa onu kullan!
+                        if (parentTask.task_owner_id && !clientId) {
+                            clientId = parentTask.task_owner_id;
+                            console.log(`[CALCULATION ENGINE] 👤 Ana görevden Müvekkil ID'si devralındı: ${clientId}`);
+                        }
                     }
+                }
+            }
+
+            // 🔥 ÇÖZÜM 2: GÖREVDE HİÇBİR MÜVEKKİL YOKSA, PORTFÖYÜN BAŞVURU SAHİBİNİ BUL
+            if (!clientId && actualRecordId) {
+                console.log(`[CALCULATION ENGINE] ⚠️ Görevde Müvekkil (Client) yok. IP Record (${actualRecordId}) üzerinden başvuru sahibi aranıyor...`);
+                const { data: applicants } = await supabase.from('ip_record_applicants')
+                    .select('person_id')
+                    .eq('ip_record_id', String(actualRecordId))
+                    .order('order_index', { ascending: true })
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (applicants && applicants.person_id) {
+                    clientId = applicants.person_id;
+                    console.log(`[CALCULATION ENGINE] ✅ Başvuru sahibi Müvekkil olarak atandı: ${clientId}`);
                 }
             }
             
@@ -2479,7 +2502,7 @@ export const feeCalculationService = {
             let isPenalty = false;
             let finalClassCount = extraParams.classCount || 1;
             let hasRetailClass = false; 
-            let retailCoveredClassCount = 0; // 🔥 YENİ: Kapsam sayısını tutacak değişken
+            let retailCoveredClassCount = 0; 
 
             if (actualRecordId) {
                 if (!ipRecord.renewal_date && !ipRecord.renewalDate) {
@@ -2487,7 +2510,6 @@ export const feeCalculationService = {
                     if (recData) ipRecord.renewal_date = recData.renewal_date;
                 }
                 
-                // Sınıfları ve içindeki mal listesini (items) doğrudan veritabanından çek
                 const { data: classesData } = await supabase.from('ip_record_classes').select('class_no, items').eq('ip_record_id', String(actualRecordId));
                 
                 if (classesData && classesData.length > 0) {
@@ -2499,7 +2521,6 @@ export const feeCalculationService = {
                             const strItem = String(item);
                             if (strItem.includes('35-5') || strItem.includes('Müşterilerin malları')) {
                                 hasRetailClass = true;
-                                // 🔥 Metin içindeki [KAPSAM: 8] etiketini Regex ile bulup sayıyı alır
                                 const match = strItem.match(/\[KAPSAM:\s*(\d+)\]/i);
                                 if (match && match[1]) {
                                     retailCoveredClassCount = parseInt(match[1], 10);
@@ -2507,10 +2528,8 @@ export const feeCalculationService = {
                             }
                         }
                     }
-                    console.log(`[CALCULATION ENGINE] 🔄 ${finalClassCount} Sınıf | 35.05 Var: ${hasRetailClass} | Perakende Kapsamı: ${retailCoveredClassCount}`);
                 }
             } else if (ipRecord.niceClasses && Array.isArray(ipRecord.niceClasses)) {
-                // Yedek Okuma (DB erişilemezse front-end datasından oku)
                 finalClassCount = ipRecord.niceClasses.length;
                 if (ipRecord.goodsAndServicesByClass && Array.isArray(ipRecord.goodsAndServicesByClass)) {
                     const class35 = ipRecord.goodsAndServicesByClass.find(c => String(c.classNo) === '35');
@@ -2549,6 +2568,8 @@ export const feeCalculationService = {
             let activePriceListId = null;
 
             if (clientId) {
+                console.log(`[CALCULATION ENGINE] 🔍 Müvekkil (${clientId}) için Özel Tarife ve İskonto aranıyor...`);
+                
                 // 5.1 Önce müvekkilin bir price_list_id'si veya discount_rate'i var mı ona bak
                 const { data: personData } = await supabase.from('persons')
                     .select('price_list_id')
@@ -2557,6 +2578,7 @@ export const feeCalculationService = {
 
                 if (personData && personData.price_list_id) {
                     activePriceListId = personData.price_list_id;
+                    console.log(`[CALCULATION ENGINE] 💡 Müvekkile atanmış ÖZEL TARİFE LİSTESİ BULUNDU (ID: ${activePriceListId})`);
                 }
 
                 // 5.2 İskonto oranını çek
@@ -2576,14 +2598,17 @@ export const feeCalculationService = {
                         .eq('price_list_id', activePriceListId);
 
                     if (tariffItems) {
-                        // Sadece "katalogdaki değeri ezen (fee_id dolu)" kalemleri sözlüğe ekle
+                        // 🔥 ÇÖZÜM 3: ID'leri Kesinlikle String (Metin) Yaparak Veri Tipi Uyuşmazlığını Engelliyoruz!
                         tariffItems.forEach(cf => { 
                             if (cf.fee_id) {
-                                clientCustomFees[cf.fee_id] = { amount: cf.amount, currency: cf.currency }; 
+                                clientCustomFees[String(cf.fee_id)] = { amount: cf.amount, currency: cf.currency }; 
                             }
                         });
+                        console.log(`[CALCULATION ENGINE] 📝 Özel tarifeden ${Object.keys(clientCustomFees).length} adet özel fiyat içeri aktarıldı!`);
                     }
                 }
+            } else {
+                console.warn(`[CALCULATION ENGINE] ⚠️ Müvekkil (Client) tespiti başarısız oldu! Tüm kalemler Standart Fiyat olarak hesaplanacak.`);
             }
 
             const accrualItems = [];
@@ -2602,82 +2627,57 @@ export const feeCalculationService = {
 
                 // --- HESAPLAMA HİYERARŞİSİ (AKILLI MOTOR - GÜNCELLENDİ) ---
                 const fType = String(tariff.fee_type).trim();
-                const isService = fType !== 'TP Harç' && fType !== 'TP Hizmet';
+                const tIdStr = String(tariff.id); // Tip uyuşmazlığına karşı güvenlik
 
-                if (isService) {
-                    if (clientCustomFees[tariff.id]) {
-                        // KURAL 1: Müvekkile özel tarife listesinde bu hizmet tanımlanmışsa onu kullan (İskonto YOK)
-                        unitPrice = clientCustomFees[tariff.id].amount;
-                        currency = clientCustomFees[tariff.id].currency || tariff.currency;
-                        isCustomPrice = true;
+                // KURAL 1: Müvekkile özel tarife listesinde bu kalem AÇIKÇA tanımlanmışsa KULLAN!
+                if (clientCustomFees[tIdStr]) {
+                    unitPrice = clientCustomFees[tIdStr].amount;
+                    currency = clientCustomFees[tIdStr].currency || tariff.currency;
+                    isCustomPrice = true;
+                    console.log(`[CALCULATION ENGINE] 💎 ÖZEL FİYAT KULLANILDI! -> Kalem: ${tariff.name} | Yeni Fiyat: ${unitPrice} ${currency}`);
+                } 
+                else {
+                    // KURAL 2: Özel tarife listesinde yok. 
+                    // İskonto SADECE hizmetlere uygulanır, Resmi Harçlara UYGULANMAZ.
+                    const isOfficialFee = fType === 'TP Harç' || fType === 'Resmi Harç' || fType.toLowerCase().includes('harç');
+                    
+                    if (!isOfficialFee && !activePriceListId && clientDiscountRate > 0) {
+                        // Sadece özel tarifesi HİÇ OLMAYAN ve Resmi Harç OLMAYAN kalemlere iskonto uygula
+                        unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
+                        console.log(`[CALCULATION ENGINE] 📉 İSKONTO UYGULANDI! (%${clientDiscountRate}) -> Kalem: ${tariff.name} | Yeni Fiyat: ${unitPrice} ${currency}`);
                     } else {
-                        // KURAL 2: Kalem özel tarife listesinde YOK.
-                        if (activePriceListId) {
-                            // Müvekkile özel tarife atanmış ama bu hizmet o listede tanımlanmamış.
-                            // KURAL: İskonto UYGULANMAZ, standart fiyat geçerli olur. (unitPrice zaten tariff.amount)
-                        } else if (clientDiscountRate > 0) {
-                            // Müvekkilin özel tarifesi HİÇ YOK. O zaman (varsa) genel iskonto uygulanır.
-                            unitPrice = tariff.amount * (1 - (clientDiscountRate / 100));
-                        }
+                        console.log(`[CALCULATION ENGINE] 📄 STANDART FİYAT GEÇERLİ -> Kalem: ${tariff.name} | Fiyat: ${unitPrice} ${currency}`);
                     }
-                } else {
-                    // KURAL 3: Bu bir "Harç" ise özel tarife ve iskontolar KESİNLİKLE YOK SAYILIR.
-                    // unitPrice zaten tariff.amount olarak kalır.
                 }
 
                 let quantity = 0;
                 const rule = map.calculation_rule;
 
-                // 🔥 ÇÖZÜM 2: 42 ID'li kural (35.05 Hizmet Ücreti İstisnası)
+                // Sınıf Başına Kural Hesaplamaları
                 if (String(tariff.id) === '42' || rule === 'class_35_retail_over_2') {
-                    // Sistem kapsam değerini bulduysa (X - 2) hesaplar. [KAPSAM] etiketi bulunamadıysa (veya sayı 2'den küçükse) 0 kalır.
                     quantity = hasRetailClass ? Math.max(0, retailCoveredClassCount - 2) : 0;
                 } 
                 else {
                     switch (rule) {
-                        case 'fixed': 
-                            quantity = 1; 
-                            break;
-                        case 'per_class': 
-                            quantity = finalClassCount > 0 ? finalClassCount : 1; 
-                            break;
-                        case 'extra_class': 
-                            quantity = Math.max(0, finalClassCount - 1);
-                            break;
-                        case 'second_class_only': 
-                            quantity = finalClassCount >= 2 ? 1 : 0; 
-                            break;
-                        case 'extra_class_over_2': 
-                            quantity = Math.max(0, finalClassCount - 2); 
-                            break;
-                        case 'extra_class_over_3': 
-                            quantity = Math.max(0, finalClassCount - 3); 
-                            break;
-                        case 'per_priority': 
-                            quantity = extraParams.priorityCount || 0; 
-                            break;
-                        case 'fixed_normal': 
-                            quantity = !isPenalty ? 1 : 0; 
-                            break;
-                        case 'fixed_penalty': 
-                            quantity = isPenalty ? 1 : 0;  
-                            break;
-                        case 'extra_class_normal': 
-                            quantity = !isPenalty ? Math.max(0, finalClassCount - 1) : 0; 
-                            break;
-                        case 'extra_class_penalty': 
-                            quantity = isPenalty ? Math.max(0, finalClassCount - 1) : 0;  
-                            break;
-                        default:
-                            quantity = 1;
-                            break;
+                        case 'fixed': quantity = 1; break;
+                        case 'per_class': quantity = finalClassCount > 0 ? finalClassCount : 1; break;
+                        case 'extra_class': quantity = Math.max(0, finalClassCount - 1); break;
+                        case 'second_class_only': quantity = finalClassCount >= 2 ? 1 : 0; break;
+                        case 'extra_class_over_2': quantity = Math.max(0, finalClassCount - 2); break;
+                        case 'extra_class_over_3': quantity = Math.max(0, finalClassCount - 3); break;
+                        case 'per_priority': quantity = extraParams.priorityCount || 0; break;
+                        case 'fixed_normal': quantity = !isPenalty ? 1 : 0; break;
+                        case 'fixed_penalty': quantity = isPenalty ? 1 : 0; break;
+                        case 'extra_class_normal': quantity = !isPenalty ? Math.max(0, finalClassCount - 1) : 0; break;
+                        case 'extra_class_penalty': quantity = isPenalty ? Math.max(0, finalClassCount - 1) : 0; break;
+                        default: quantity = 1; break;
                     }
                 }
 
                 if (quantity > 0) {
                     const vatRate = (tariff.fee_type === 'TP Harç') ? 0 : 20;
                     
-                    // 🔥 ÇÖZÜM 1 (Kuruş Hatası): Kayan nokta matematiğini virgülden sonra 2 haneye sabitledik
+                    // Kayan nokta hatasına karşı güvenlik (2 Hane Sabitleme)
                     const safeUnitPrice = Number(parseFloat(unitPrice).toFixed(2));
                     const safeTotalAmount = Number((safeUnitPrice * quantity).toFixed(2));
 
@@ -2695,7 +2695,8 @@ export const feeCalculationService = {
                 }
             }
 
-            console.log(`[CALCULATION ENGINE] 🎉 Hesaplama Tamamlandı. Fatura Kalemleri:`, accrualItems);
+            console.log(`[CALCULATION ENGINE] 🎉 Hesaplama Tamamlandı! Oluşan Fatura Kalemi Sayısı: ${accrualItems.length}`);
+            console.log(`======================================================\n`);
             return accrualItems;
 
         } catch (error) {

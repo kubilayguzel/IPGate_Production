@@ -250,8 +250,15 @@ export class AccrualFormManager {
                 if (this.onAutoCalc) {
                     this.onAutoCalc();
                 } else {
+                    // 🔥 ÇÖZÜM 1: Formun o anki güncel halini (seçili müvekkili) alıyoruz
+                    const currentFormData = this.getData();
+                    const activeFormData = currentFormData.success ? currentFormData.data : null;
+                    
                     document.dispatchEvent(new CustomEvent('accrual-auto-calc-request', { 
-                        detail: { accrualData: this.currentData } 
+                        detail: { 
+                            accrualData: this.currentData,
+                            formData: activeFormData // Güncel veriyi gönderiyoruz
+                        } 
                     }));
                 }
             });

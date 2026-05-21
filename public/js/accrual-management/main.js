@@ -447,7 +447,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // 🔥 2. ADIM EKLENTİSİ: MERKEZİ MOTORU ÇAĞIRAN YENİ DİNLEYİCİ
             document.addEventListener('accrual-auto-calc-request', async (e) => {
-                const { accrualData } = e.detail;
+                const { accrualData, formData } = e.detail;
                 
                 if (!accrualData || (!accrualData.taskId || accrualData.taskId === 'null')) {
                     showNotification("Bu tahakkukun bağlı olduğu bir görev bulunamadı.", "warning");
@@ -468,10 +468,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (ipData) ipRecordData = ipData;
                     }
 
+                    // 🔥 ÇÖZÜM 2: Formda (ekranda) seçili olan güncel müvekkili al (öncelikli), yoksa veritabanındakine bak
+                    let activeClientId = null;
+                    if (formData && formData.tpInvoicePartyId) {
+                        activeClientId = formData.tpInvoicePartyId;
+                    } else if (formData && formData.serviceInvoicePartyId) {
+                        activeClientId = formData.serviceInvoicePartyId;
+                    } else {
+                        activeClientId = taskData.task_owner_id;
+                    }
+
                     // 2. SUPABASE-CONFIG.JS'DEKİ MERKEZİ MOTORU ÇAĞIR
                     const calculatedItems = await feeCalculationService.calculateAccrualItems({
                         taskTypeId: taskData.task_type_id,
-                        clientId: taskData.task_owner_id,
+                        clientId: activeClientId, // 🔥 Artık formdaki YÖRSAN id'si buraya gidiyor!
                         recordId: taskData.ip_record_id,
                         extraParams: { task: taskData, ipRecord: ipRecordData }
                     });

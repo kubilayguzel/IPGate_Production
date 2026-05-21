@@ -1701,13 +1701,48 @@ const handleReportGeneration = async (event, options = {}) => {
                         const { data: applicantData } = await supabase.from('ip_record_applicants').select('person_id').eq('ip_record_id', realIpRecordId).order('order_index', { ascending: true }).limit(1).maybeSingle();
                         if (applicantData && applicantData.person_id) finalClientId = applicantData.person_id;
                     }
+                    // 🔥 EKLENEN KISIM: Mükerrer (Bekleyen) Mail Kontrolü
+                    let mailAlreadyExists = false;
+                    if (finalClientId) {
+                        // Sadece bu müvekkile ait, bülten modülünden çıkan ve gönderilmeyi bekleyen mailleri çekiyoruz
+                        const { data: existingMails } = await supabase.from('mail_notifications')
+                            .select('id, status, dynamic_parent_context')
+                            .eq('client_id', finalClientId)
+                            .eq('source', 'bulletin_watch_system')
+                            .eq('template_id', 'tmpl_watchnotice')
+                            .in('status', ['awaiting_client_approval', 'missing_info', 'pending', 'draft']);
 
+                        if (existingMails && existingMails.length > 0) {
+                            for (const m of existingMails) {
+                                try {
+                                    // Veritabanındaki stringified JSON'ı Javascript objesine çeviriyoruz
+                                    const ctx = typeof m.dynamic_parent_context === 'string' ? JSON.parse(m.dynamic_parent_context) : (m.dynamic_parent_context || {});
+                                    
+                                    // Bülten numarası eşleşiyorsa, bu müvekkil için zaten bir taslak oluşmuş demektir
+                                    if (String(ctx.bulletin_no) === String(bulletinNo)) {
+                                        mailAlreadyExists = true;
+                                        break;
+                                    }
+                                } catch (err) {}
+                            }
+                        }
+                    }
+
+                    if (mailAlreadyExists) {
+                        console.log(`⚠️ [MAİL ATLANDI] ${clientData.ownerName} için zaten gönderilmeyi bekleyen ${bulletinNo} nolu bülten mail taslağı mevcut.`);
+                        continue; // Mail oluşturma adımlarını (ve gereksiz mailService çağrısını) tamamen atla!
+                    }
+                    // 🔥 EKLENEN KISIM BİTİŞİ
+
+
+                    // Eğer buraya ulaştıysa taslak yok demektir, normal şekilde mail oluşturmaya devam et
                     const mailRecipients = await mailService.resolveMailRecipients(realIpRecordId, '20', finalClientId);
                     const finalTo = mailRecipients.to || [];
                     const finalCc = mailRecipients.cc || [];
 
                     let realBulletinDateStr = null;
                     const { data: bData } = await supabase.from('trademark_bulletins').select('bulletin_date').eq('bulletin_no', bulletinNo).limit(1).maybeSingle();
+
                     if (bData && bData.bulletin_date) realBulletinDateStr = bData.bulletin_date;
 
                     let objectionDeadline = "-";

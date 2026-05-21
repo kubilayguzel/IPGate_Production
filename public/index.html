@@ -518,11 +518,12 @@
                 } else if (role === 'belirsiz') {
                     window.location.replace('client-pending.html');
                 } else {
-                    window.location.replace('portfolio.html'); // admin, superadmin, user
+                    // 🔥 YENİ: Personel için açılış sayfası my-tasks.html yapıldı
+                    window.location.replace('my-tasks.html'); 
                 }
             } catch (e) {
                 console.error("Yönlendirme hatası:", e);
-                window.location.replace('portfolio.html'); // Fallback (Hata olursa)
+                window.location.replace('my-tasks.html'); // Fallback durumu
             }
         }
 

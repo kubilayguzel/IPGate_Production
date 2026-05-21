@@ -200,12 +200,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         processData(preservePage = false) {
+            // Supabase'den gelen "YYYY-MM-DD HH:mm:ss+00" formatını tarayıcıların sorunsuz anlaması için standart ISO 8601 formatına çevirir
             const safeDate = (val) => {
                 if (!val) return null;
-                return new Date(val);
+                const isoStr = String(val).replace(' ', 'T');
+                const d = new Date(isoStr);
+                return isNaN(d.getTime()) ? null : d;
             };
 
             this.processedData = this.allTasks.map(task => {
+                // Her iki tarih anahtarını da güvene alıyoruz
+                const opDueStr = task.operationalDueDate || task.dueDate || task.operational_due_date;
+                const offDueStr = task.officialDueDate || task.official_due_date;
+
                 const appNo = task.iprecordApplicationNo || "-";
                 const recordTitleDisplay = task.iprecordTitle || task.relatedIpRecordTitle || "-";
                 const applicantName = task.iprecordApplicantName || "-";
@@ -225,10 +232,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     taskTypeDisplay,
                     statusText,
                     searchString,
-                    dueDateObj: safeDate(task.dueDate),
-                    officialDueObj: safeDate(task.officialDueDate),
+                    dueDateObj: safeDate(opDueStr),
+                    officialDueObj: safeDate(offDueStr),
                     createdAtObj: safeDate(task.created_at || task.createdAt),
-                    updatedAtObj: safeDate(task.updated_at || task.updatedAt) // 🔥 YENİ
+                    updatedAtObj: safeDate(task.updated_at || task.updatedAt)
                 };
             });
 

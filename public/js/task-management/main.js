@@ -267,18 +267,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const assignedUser = this.usersMap.get(String(task.assignedTo_uid));
                 const assignedToDisplay = assignedUser ? (assignedUser.displayName || assignedUser.email) : (task.assignedTo_email || 'Atanmamış');
 
-                // Ağır new Date() yerine hafif string manipülasyonu
-                const opDue = task.operationalDueDate || task.dueDate;
-                const offDue = task.officialDueDate;
+                const opDueStr = task.operationalDueDate || task.dueDate || task.operational_due_date;
+                const offDueStr = task.officialDueDate || task.official_due_date;
                 
-                const operationalDueDisplay = opDue ? opDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
-                const officialDueDisplay = offDue ? offDue.split('T')[0].split('-').reverse().join('.') : 'Belirtilmemiş';
-                const statusText = this.statusDisplayMap[task.status] || task.status;
+                // Supabase'den gelen "2026-05-24 21:00:00+00" gibi tarihleri güvenli ISO formatına çevir (" " yerine "T")
+                const parseSafeDate = (dStr) => {
+                    if (!dStr) return null;
+                    const isoStr = String(dStr).replace(' ', 'T');
+                    const d = new Date(isoStr);
+                    return isNaN(d.getTime()) ? null : d;
+                };
 
-                // 🔥 ÇÖZÜM 1: Sıralama motorunun kullanabilmesi için Gerçek Tarih Objelerini oluştur
-                const operationalDueObj = opDue ? new Date(opDue) : null;
-                const officialDueObj = offDue ? new Date(offDue) : null;
-                
+                const operationalDueObj = parseSafeDate(opDueStr);
+                const officialDueObj = parseSafeDate(offDueStr);
+
+                // TR Saat dilimine (Local) göre tarihi formatla (Türkiye saatiyle gece 00:00 olduğu için 25'ine geçecek)
+                const formatDateTR = (dObj) => {
+                    if (!dObj) return 'Belirtilmemiş';
+                    return `${String(dObj.getDate()).padStart(2, '0')}.${String(dObj.getMonth() + 1).padStart(2, '0')}.${dObj.getFullYear()}`;
+                };
+
+                const operationalDueDisplay = formatDateTR(operationalDueObj);
+                const officialDueDisplay = formatDateTR(officialDueObj);
+                const statusText = this.statusDisplayMap[task.status] || task.status;                
                 const searchString = [task.title, appNo, recordTitle, applicantName, taskTypeDisplay, assignedToDisplay]
                     .filter(Boolean)
                     .join(' ')

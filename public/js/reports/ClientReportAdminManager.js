@@ -4,41 +4,51 @@ import { supabase } from '../../supabase-config.js';
 
 export class ClientReportAdminManager {
     constructor() {
-            this.portalUsers = [];
-            this.reportConfigs = [];
-            
-            // RAPOR TÜRLERİ VE İSTEDİKLERİ PARAMETRELER
-            this.REPORT_SCHEMAS = {
-                'bulletin_search': {
-                    fields: [
-                        { id: 'client_nos', type: 'textarea', label: 'Aranacak Client Numaraları', placeholder: 'Virgülle ayırarak giriniz (Örn: 7978125, 1122334)', required: true }
-                    ]
-                },
-                'status_based': { // Gelecekte eklenebilecek örnek bir rapor
-                    fields: [
-                        { id: 'target_status', type: 'select', label: 'Hangi Statüdeki Kayıtlar?', options: ['Başvuru', 'Tescilli', 'İtiraz Aşamasında'], required: true },
-                        { id: 'min_date', type: 'date', label: 'Şu Tarihten Sonrakiler (Opsiyonel)', required: false }
-                    ]
-                }
-            };
+        this.allPortalUsers = [];
+        this.allPersons = [];
+        this.reportConfigs = [];
+        
+        // Seçilenleri tutacağımız listeler
+        this.selectedUsers = [];
+        this.selectedClients = [];
+        
+        // RAPOR TÜRLERİ VE İSTEDİKLERİ PARAMETRELER
+        this.REPORT_SCHEMAS = {
+            'bulletin_search': {
+                fields: [
+                    { id: 'client_nos', type: 'textarea', label: 'Aranacak Client Numaraları', placeholder: 'Virgülle ayırarak giriniz (Örn: 7978125, 1122334)', required: true }
+                ]
+            },
+            'status_based': {
+                fields: [
+                    { id: 'target_status', type: 'select', label: 'Hangi Statüdeki Kayıtlar?', options: ['Başvuru', 'Tescilli', 'İtiraz Aşamasında'], required: true },
+                    { id: 'min_date', type: 'date', label: 'Şu Tarihten Sonrakiler (Opsiyonel)', required: false }
+                ]
+            }
+        };
 
-            this.init();
-        }
+        this.init();
+    }
 
     async init() {
-        this.bindEvents();
         await this.loadPortalUsers();
+        await this.loadPersons();
+        this.bindEvents();
         await this.loadReportConfigs();
     }
 
     bindEvents() {
-        // 1. YENİ RAPOR OLUŞTUR BUTONU (Modal Açılışı ve Temizlik)
+        // 1. YENİ RAPOR OLUŞTUR BUTONU
         document.getElementById('btnCreateClientReport').addEventListener('click', () => {
             document.getElementById('clientReportForm').reset();
             document.getElementById('reportConfigId').value = '';
-            document.getElementById('clientReportModalLabel').innerHTML = '<i class="fas fa-plus"></i> Yeni Müvekkil Rapor Paketi'; // Başlığı sıfırla
+            document.getElementById('clientReportModalLabel').innerHTML = '<i class="fas fa-plus"></i> Yeni Müvekkil Rapor Paketi';
             
-            document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+            // Listeleri ve rozetleri temizle
+            this.selectedUsers = [];
+            this.selectedClients = [];
+            this.renderSelectedUsers();
+            this.renderSelectedClients();
             
             const dynamicContainer = document.getElementById('dynamicCriteriaContainer');
             if (dynamicContainer) {
@@ -52,37 +62,32 @@ export class ClientReportAdminManager {
         // 2. KAYDET BUTONU
         document.getElementById('btnSaveClientReport').addEventListener('click', () => this.saveReportConfig());
 
-        // 3. SİL VE DÜZENLE BUTONLARI (Tablo üzerinden Event Delegation)
+        // 3. SİL VE DÜZENLE BUTONLARI
         document.getElementById('clientReportsTableBody').addEventListener('click', (e) => {
-            // Silme İşlemi
             const deleteBtn = e.target.closest('.delete-report-btn');
             if (deleteBtn) {
                 const id = deleteBtn.dataset.id;
-                if(confirm('Bu rapor paketini silmek istediğinize emin misiniz? (Atanan müvekkiller bu raporu artık göremez.)')) {
+                if(confirm('Bu rapor paketini silmek istediğinize emin misiniz?')) {
                     this.deleteReportConfig(id);
                 }
-                return; // Silme işlemi yapıldıysa düzenlemeye bakmaya gerek yok
+                return;
             }
 
-            // Düzenleme İşlemi (YENİ EKLENDİ)
             const editBtn = e.target.closest('.edit-report-btn');
             if (editBtn) {
-                const id = editBtn.dataset.id;
-                this.openEditModal(id);
+                this.openEditModal(editBtn.dataset.id);
             }
         });
 
-        // 4. DİNAMİK FORM OLUŞTURUCU (Rapor türü seçildiğinde tetiklenir)
+        // 4. DİNAMİK FORM OLUŞTURUCU
         document.getElementById('reportType').addEventListener('change', (e) => {
             const selectedType = e.target.value;
             const container = document.getElementById('dynamicCriteriaContainer');
             container.innerHTML = ''; 
-            
             const schema = this.REPORT_SCHEMAS[selectedType];
             
             if (schema && schema.fields && schema.fields.length > 0) {
                 container.style.display = 'block'; 
-                
                 schema.fields.forEach(field => {
                     const isReq = field.required ? '<span class="text-danger">*</span>' : '';
                     let inputHtml = '';
@@ -108,117 +113,190 @@ export class ClientReportAdminManager {
             }
         });
 
-        // Kullanıcı checkbox'ları tıklanıp değiştiğinde müvekkil listesini getir
-        document.addEventListener('change', (e) => {
-                if (e.target && e.target.classList.contains('user-checkbox')) {
-                    this.handleAssignedUsersChange();
-                }
-            });
-        }
+        // 5. ARAMA İŞLEMLERİ (Kullanıcılar ve Müvekkiller)
+        this.setupSearch('userSearchInput', 'userSearchResults', this.allPortalUsers, (user) => {
+            if (!this.selectedUsers.find(u => u.id === user.id)) {
+                this.selectedUsers.push({ id: user.id, name: user.display_name || user.email });
+                this.renderSelectedUsers();
+            }
+        }, ['display_name', 'email']);
 
-    // YENİ FONKSİYON: Mevcut verilerle modalı doldurur
+        this.setupSearch('clientSearchInput', 'clientSearchResults', this.allPersons, (person) => {
+            if (!this.selectedClients.find(c => c.id === person.id)) {
+                this.selectedClients.push({ id: person.id, name: person.name });
+                this.renderSelectedClients();
+            }
+        }, ['name']);
+
+        // Rozetleri (Badge) silme işlemleri
+        document.getElementById('portalUsersContainer').addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-user')) {
+                const id = e.target.dataset.id;
+                this.selectedUsers = this.selectedUsers.filter(u => String(u.id) !== String(id));
+                this.renderSelectedUsers();
+            }
+        });
+
+        document.getElementById('reportTargetClientsList').addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-client')) {
+                const id = e.target.dataset.id;
+                this.selectedClients = this.selectedClients.filter(c => String(c.id) !== String(id));
+                this.renderSelectedClients();
+            }
+        });
+    }
+
+    // Arama motorunu kuran ortak yardımcı fonksiyon
+    setupSearch(inputId, resultsId, dataArray, onSelect, searchKeys) {
+        const input = document.getElementById(inputId);
+        const results = document.getElementById(resultsId);
+        if (!input || !results) return;
+
+        input.addEventListener('input', (e) => {
+            const val = e.target.value.toLowerCase().trim();
+            if (val.length < 2) {
+                results.style.display = 'none';
+                return;
+            }
+            
+            const matches = dataArray.filter(item => 
+                searchKeys.some(key => (item[key] || '').toLowerCase().includes(val))
+            ).slice(0, 10);
+
+            if (matches.length === 0) {
+                results.innerHTML = '<div class="list-group-item text-muted p-2">Sonuç bulunamadı</div>';
+            } else {
+                results.innerHTML = matches.map(item => `
+                    <a href="#" class="list-group-item list-group-item-action p-2 search-result-item" data-id="${item.id}">
+                        ${searchKeys.map(k => item[k]).filter(Boolean).join(' - ')}
+                    </a>
+                `).join('');
+            }
+            results.style.display = 'block';
+        });
+
+        results.addEventListener('click', (e) => {
+            e.preventDefault();
+            const itemEl = e.target.closest('.search-result-item');
+            if (itemEl) {
+                const id = itemEl.dataset.id;
+                const item = dataArray.find(x => String(x.id) === String(id));
+                if (item) onSelect(item);
+                input.value = '';
+                results.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !results.contains(e.target)) {
+                results.style.display = 'none';
+            }
+        });
+    }
+
+    renderSelectedUsers() {
+        const container = document.getElementById('portalUsersContainer');
+        if (!container) return;
+        container.innerHTML = this.selectedUsers.map(u => `
+            <span class="badge badge-primary p-2 mr-2 mb-2 d-inline-flex align-items-center" style="font-size: 0.9em; border-radius: 8px;">
+                ${u.name} <i class="fas fa-times ml-2 remove-user" data-id="${u.id}" style="cursor: pointer;"></i>
+            </span>
+        `).join('');
+    }
+
+    renderSelectedClients() {
+        const container = document.getElementById('reportTargetClientsList');
+        if (!container) return;
+        container.innerHTML = this.selectedClients.map(c => `
+            <span class="badge badge-success p-2 mr-2 mb-2 d-inline-flex align-items-center" style="font-size: 0.9em; border-radius: 8px;">
+                ${c.name} <i class="fas fa-times ml-2 remove-client" data-id="${c.id}" style="cursor: pointer;"></i>
+            </span>
+        `).join('');
+    }
+
     openEditModal(id) {
-        // Hafızadaki rapor listesinden ilgili raporu bul
         const config = this.reportConfigs.find(c => c.id === id);
         if (!config) return;
 
-        // 1. Formu ve kullanıcıları temizle
+        // Formu ve listeleri temizle
         document.getElementById('clientReportForm').reset();
-        document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+        this.selectedUsers = [];
+        this.selectedClients = [];
         
-        // 2. Statik alanları doldur (ID, Adı, Türü)
         document.getElementById('reportConfigId').value = config.id;
         document.getElementById('reportName').value = config.name;
         
-        // 3. Türü seç ve JS'ye "sanki kullanıcı tıklamış gibi" change eventi gönder. 
-        // Bu sayede dinamik inputlar ekrana çizilir.
         const typeSelect = document.getElementById('reportType');
         typeSelect.value = config.report_type;
         typeSelect.dispatchEvent(new Event('change'));
 
-        // 4. Ekrana çizilen dinamik inputların içini veritabanındaki criteria objesiyle doldur
         if (config.criteria) {
             for (const [key, value] of Object.entries(config.criteria)) {
                 const input = document.querySelector(`.dynamic-field[data-key="${key}"]`);
-                if (input) {
-                    // Veri Array (dizi) ise arasına virgül koyup textarea'ya yaz (Örn: client_nos)
-                    input.value = Array.isArray(value) ? value.join(', ') : value;
-                }
+                if (input) input.value = Array.isArray(value) ? value.join(', ') : value;
             }
         }
 
-        // 5. Kayıtlı kullanıcıların checkbox'larını işaretle
+        // Atanmış kullanıcıları rozet olarak ekle
         if (config.client_report_assignments && config.client_report_assignments.length > 0) {
             config.client_report_assignments.forEach(assignment => {
-                const cb = document.getElementById(`user-${assignment.user_id}`);
-                if (cb) cb.checked = true;
+                const user = this.allPortalUsers.find(u => String(u.id) === String(assignment.user_id));
+                if (user) this.selectedUsers.push({ id: user.id, name: user.display_name || user.email });
             });
         }
+        this.renderSelectedUsers();
 
-        // 🔥 YENİ: Rapor düzenlenirken daha önce kaydedilmiş müvekkilleri de ekrana çizdir ve işaretle
+        // Atanmış müvekkilleri rozet olarak ekle
         const targetClients = config.criteria?.target_portal_clients || [];
-        this.handleAssignedUsersChange(targetClients);
+        if (targetClients.length > 0) {
+            targetClients.forEach(cid => {
+                const person = this.allPersons.find(p => String(p.id) === String(cid));
+                if (person) {
+                    this.selectedClients.push({ id: person.id, name: person.name });
+                } else {
+                    this.selectedClients.push({ id: cid, name: `Firma ID: ${cid}` });
+                }
+            });
+        }
+        this.renderSelectedClients();
 
-        // Modalı aç ve başlığı değiştir
         document.getElementById('clientReportModalLabel').innerHTML = '<i class="fas fa-edit"></i> Rapor Paketini Güncelle';
         $('#clientReportModal').modal('show');
     }
 
     async loadPortalUsers() {
         try {
-            // users tablosundan verileri çekiyoruz. 
-            // Sadece role = 'client' olanları filtreliyoruz ki adminler listede kalabalık yapmasın.
             const { data, error } = await supabase
                 .from('users')
                 .select('id, email, display_name, role')
                 .eq('role', 'client') 
                 .order('display_name');
-            
             if (error) throw error;
-            this.portalUsers = data || [];
-            
-            const container = document.getElementById('portalUsersContainer');
-            container.innerHTML = '';
-            
-            if (this.portalUsers.length === 0) {
-                container.innerHTML = '<div class="text-muted small">Sistemde portal kullanıcısı (client) bulunamadı.</div>';
-                return;
-            }
+            this.allPortalUsers = data || [];
+        } catch (error) { console.error('Kullanıcılar yüklenemedi:', error); }
+    }
 
-            this.portalUsers.forEach(user => {
-                // full_name yerine display_name kullanıyoruz
-                const nameDisplay = user.display_name ? `${user.display_name} (${user.email})` : user.email;
-                container.innerHTML += `
-                    <div class="custom-control custom-checkbox mb-2">
-                        <input type="checkbox" class="custom-control-input user-checkbox" id="user-${user.id}" value="${user.id}">
-                        <label class="custom-control-label" for="user-${user.id}" style="cursor:pointer;">
-                            <i class="fas fa-user-tie text-secondary mr-1"></i> ${nameDisplay}
-                        </label>
-                    </div>
-                `;
-            });
-        } catch (error) {
-            console.error('Kullanıcılar yüklenemedi:', error);
-            document.getElementById('portalUsersContainer').innerHTML = '<div class="text-danger small">Kullanıcılar yüklenirken bir hata oluştu.</div>';
-        }
+    async loadPersons() {
+        try {
+            const { data, error } = await supabase
+                .from('persons')
+                .select('id, name')
+                .order('name');
+            if (error) throw error;
+            this.allPersons = data || [];
+        } catch (error) { console.error('Müvekkiller yüklenemedi:', error); }
     }
 
     async loadReportConfigs() {
         try {
             const tbody = document.getElementById('clientReportsTableBody');
-            
-            // Konfigürasyonları ve ona bağlı atamaları tek seferde çekiyoruz (Foreign Key)
             const { data, error } = await supabase
                 .from('client_report_configs')
-                .select(`
-                    *,
-                    client_report_assignments ( user_id )
-                `)
+                .select(`*, client_report_assignments ( user_id )`)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
             this.reportConfigs = data || [];
-            
             tbody.innerHTML = '';
             
             if (this.reportConfigs.length === 0) {
@@ -259,13 +337,12 @@ export class ClientReportAdminManager {
     }
 
     async saveReportConfig() {
-        const id = document.getElementById('reportConfigId').value; // UPDATE İÇİN ID
+        const id = document.getElementById('reportConfigId').value; 
         const name = document.getElementById('reportName').value.trim();
         const type = document.getElementById('reportType').value;
         
         if (!name || !type) return alert('Lütfen Rapor Adı ve Türünü doldurun.');
 
-        // 1. DİNAMİK KRİTERLERİ TOPLAMA
         const criteriaObj = {};
         let hasError = false;
 
@@ -278,7 +355,6 @@ export class ClientReportAdminManager {
                 input.classList.add('is-invalid');
             } else {
                 input.classList.remove('is-invalid');
-                // client_nos verisini virgülle bölüp array yapalım
                 if (key === 'client_nos') {
                     criteriaObj[key] = val.split(',').map(n => n.trim()).filter(n => n.length > 0);
                 } else {
@@ -289,13 +365,9 @@ export class ClientReportAdminManager {
 
         if (hasError) return alert('Lütfen zorunlu kriter alanlarını doldurun.');
 
-        const selectedUserIds = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
-
-        // 🔥 YENİ: İşaretlenen hedef müvekkilleri topla ve criteria objesine ekle
-        const targetPortalClients = [];
-        document.querySelectorAll('.target-client-cb:checked').forEach(cb => {
-            targetPortalClients.push(cb.value);
-        });
+        // Yeni rozet (seçim) sisteminden ID'leri topla
+        const selectedUserIds = this.selectedUsers.map(u => u.id);
+        const targetPortalClients = this.selectedClients.map(c => c.id);
         criteriaObj.target_portal_clients = targetPortalClients;
 
         const btn = document.getElementById('btnSaveClientReport');
@@ -306,52 +378,23 @@ export class ClientReportAdminManager {
             let configData = null;
 
             if (id) {
-                // ================== GÜNCELLEME (UPDATE) İŞLEMİ ==================
-                const { data, error } = await supabase
-                    .from('client_report_configs')
-                    .update({
-                        name: name,
-                        report_type: type,
-                        criteria: criteriaObj,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', id)
-                    .select()
-                    .single();
-
+                const { data, error } = await supabase.from('client_report_configs')
+                    .update({ name: name, report_type: type, criteria: criteriaObj, updated_at: new Date().toISOString() })
+                    .eq('id', id).select().single();
                 if (error) throw error;
                 configData = data;
 
-                // Atamaları güncellemek için en temiz yol: Önce bu rapora ait tüm eski atamaları silmek
-                const { error: delError } = await supabase
-                    .from('client_report_assignments')
-                    .delete()
-                    .eq('report_id', id);
-                if (delError) throw delError;
-
+                await supabase.from('client_report_assignments').delete().eq('report_id', id);
             } else {
-                // ================== YENİ KAYIT (INSERT) İŞLEMİ ==================
-                const { data, error } = await supabase
-                    .from('client_report_configs')
-                    .insert([{
-                        name: name,
-                        report_type: type,
-                        criteria: criteriaObj
-                    }])
-                    .select()
-                    .single();
-
+                const { data, error } = await supabase.from('client_report_configs')
+                    .insert([{ name: name, report_type: type, criteria: criteriaObj }])
+                    .select().single();
                 if (error) throw error;
                 configData = data;
             }
 
-            // ================== KULLANICI ATAMALARINI EKLE ==================
-            // (Hem insert hem update için ortak adım)
             if (selectedUserIds.length > 0 && configData) {
-                const assignments = selectedUserIds.map(uid => ({
-                    report_id: configData.id,
-                    user_id: uid
-                }));
+                const assignments = selectedUserIds.map(uid => ({ report_id: configData.id, user_id: uid }));
                 const { error: assignError } = await supabase.from('client_report_assignments').insert(assignments);
                 if (assignError) throw assignError;
             }
@@ -370,61 +413,12 @@ export class ClientReportAdminManager {
 
     async deleteReportConfig(id) {
         try {
-            // RLS ve ON DELETE CASCADE ayarlandığı için config'i silmek atamaları da silecektir.
             const { error } = await supabase.from('client_report_configs').delete().eq('id', id);
             if (error) throw error;
-            this.loadReportConfigs(); // Tabloyu yenile
+            this.loadReportConfigs(); 
         } catch (error) {
             console.error('Silme Hatası:', error);
             alert('Silinirken bir hata oluştu.');
-        }
-    }
-
-    async handleAssignedUsersChange(preselectedClients = []) {
-        // 🔥 DÜZELTME: Kullanıcılar HTML'de <select> değil, .user-checkbox olarak tutuluyor.
-        const selectedUsers = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
-        
-        const container = $('#reportTargetClientsContainer');
-        const listDiv = $('#reportTargetClientsList');
-
-        if (selectedUsers.length === 0) {
-            container.hide();
-            listDiv.empty();
-            return;
-        }
-
-        try {
-            // Seçilen kullanıcıların yetkili olduğu tüm firmaları çek
-            const { data: links, error } = await supabase
-                .from('user_person_links')
-                .select('person_id, persons(name)')
-                .in('user_id', selectedUsers);
-
-            if (error) throw error;
-
-            // Firmaları tekilleştir
-            const uniqueClients = new Map();
-            links.forEach(link => {
-                if (link.persons) uniqueClients.set(link.person_id, link.persons.name);
-            });
-
-            listDiv.empty();
-            if (uniqueClients.size === 0) {
-                listDiv.html('<div class="text-muted small">Bu kullanıcıların yetkili olduğu bir firma bulunamadı.</div>');
-            } else {
-                uniqueClients.forEach((name, id) => {
-                    const isChecked = preselectedClients.includes(id) ? 'checked' : '';
-                    listDiv.append(`
-                        <div class="custom-control custom-checkbox mb-1">
-                            <input type="checkbox" class="custom-control-input target-client-cb" id="tc_${id}" value="${id}" ${isChecked}>
-                            <label class="custom-control-label" for="tc_${id}">${name}</label>
-                        </div>
-                    `);
-                });
-            }
-            container.show();
-        } catch (err) {
-            console.error("Müvekkiller çekilemedi:", err);
         }
     }
 }

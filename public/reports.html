@@ -178,17 +178,24 @@
                     <div id="dynamicCriteriaContainer" class="p-3 mb-3 bg-light rounded" style="display: none; border: 1px dashed #ccc;">
                         </div>
 
-                    <div class="form-group">
-                        <label>Bu Raporu Görebilecek Portal Kullanıcıları</label>
-                        <div id="portalUsersContainer" class="border p-2 rounded bg-white" style="max-height: 150px; overflow-y: auto;"></div>
+                        <div class="form-group mt-4">
+                        <label class="font-weight-bold">Bu Raporu Görebilecek Portal Kullanıcıları</label>
+                        <div class="position-relative">
+                            <input type="text" id="userSearchInput" class="form-control" placeholder="Kullanıcı ara (Ad veya E-posta)...">
+                            <div id="userSearchResults" class="list-group position-absolute w-100 shadow" style="display:none; z-index:1000; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <div id="portalUsersContainer" class="mt-2 d-flex flex-wrap"></div>
                     </div>
                     
-                    <div class="form-group mt-3" id="reportTargetClientsContainer" style="display: none;">
-                        <label>Raporun Aktif Olacağı Müvekkiller <br>
-                            <small class="text-danger">(Kullanıcının portalda hangi firmayı seçtiğinde bu raporu göreceğini belirleyin)</small>
+                    <div class="form-group mt-4" id="reportTargetClientsContainer">
+                        <label class="font-weight-bold">Raporun Aktif Olacağı Müvekkiller <br>
+                            <small class="text-danger font-weight-normal">(Kullanıcının portalda hangi firmayı seçtiğinde bu raporu göreceğini belirleyin)</small>
                         </label>
-                        <div id="reportTargetClientsList" class="border p-2 rounded bg-light" style="max-height: 150px; overflow-y: auto;">
-                            </div>
+                        <div class="position-relative">
+                            <input type="text" id="clientSearchInput" class="form-control" placeholder="Müvekkil firma ara...">
+                            <div id="clientSearchResults" class="list-group position-absolute w-100 shadow" style="display:none; z-index:1000; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <div id="reportTargetClientsList" class="mt-2 d-flex flex-wrap"></div>
                     </div>
                 </form>
                 </div>

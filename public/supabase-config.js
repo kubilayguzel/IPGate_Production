@@ -151,7 +151,8 @@ export async function waitForAuthUser({ requireAuth = true, redirectTo = 'index.
 
         if (userRole !== 'belirsiz' && userRole !== 'client') {
             if (currentPath.includes('client-pending.html') || currentPath.includes('client-portal.html')) {
-                window.location.replace('dashboard.html'); 
+                // 🔥 YENİ: Yanlış adrese giren personel de İşlerim sayfasına yönlendirilecek
+                window.location.replace('my-tasks.html'); 
                 return null;
             }
         }

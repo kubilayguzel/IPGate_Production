@@ -966,21 +966,17 @@ const loadDataFromCache = async (realBulletinId) => {
     const infoMessageContainer = document.getElementById('infoMessageContainer');
     
     try {
-        let data, error;
+        let allCachedData = [];
+        let from = 0;
+        const limitSize = 20000; // Supabase'i yormamak ve tarayıcıyı dondurmamak için 20 Binlik paketler
+        
+        if (typeof SimpleLoading !== 'undefined') {
+            SimpleLoading.update('Veriler Yükleniyor...', 'Çok sayıda sonuç tespit edildi, parça parça indiriliyor...');
+        }
 
-        // 🔥 ÇÖZÜM 3: Manuel kayıtlar için ayrı, bültenler için ayrı çekim işlemi
-        if (realBulletinId === MANUAL_COLLECTION_ID) {
-            ({ data, error } = await supabase
-                .from('monitoring_trademark_records')
-                .select(`
-                    id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
-                    trademark_bulletin_records (
-                        id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
-                    )
-                `)
-                .eq('source', 'manual'));
-        } else {
-            ({ data, error } = await supabase
+        // 🔥 ÇÖZÜM: Supabase 100.000 sınırını aşmak için Döngü (Pagination)
+        while (true) {
+            let req = supabase
                 .from('monitoring_trademark_records')
                 .select(`
                     id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
@@ -988,15 +984,32 @@ const loadDataFromCache = async (realBulletinId) => {
                         id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                     )
                 `)
-                .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]));
-        }
+                .range(from, from + limitSize - 1);
 
-        if (error) throw error;
+            if (realBulletinId === MANUAL_COLLECTION_ID) {
+                req = req.eq('source', 'manual');
+            } else {
+                req = req.in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]);
+            }
+
+            const { data, error } = await req;
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                allCachedData.push(...data);
+            }
+            
+            // Eğer gelen veri limitSize'dan küçükse (veya sıfırsa) tüm paketler/kayıtlar bitmiş demektir.
+            if (!data || data.length < limitSize) {
+                break;
+            }
+            from += limitSize; // Bir sonraki 20.000'lik pakete geç
+        }
 
         let cachedResults = [];
 
-        if (data && data.length > 0) {
-            cachedResults = data.map(item => {
+        if (allCachedData && allCachedData.length > 0) {
+            cachedResults = allCachedData.map(item => {
                 let bRec = item.trademark_bulletin_records || {};
                 if (Array.isArray(bRec)) bRec = bRec[0] || {};
 
@@ -1024,17 +1037,19 @@ const loadDataFromCache = async (realBulletinId) => {
         
         if (infoMessageContainer) {
             infoMessageContainer.innerHTML = cachedResults.length > 0 
-                ? `<div class="info-message success">Listedeki markalarınız için ${cachedResults.length} adet sonuç yüklendi.</div>` 
+                ? `<div class="info-message success">Listedeki markalarınız için ${cachedResults.length.toLocaleString('tr-TR')} adet sonuç yüklendi.</div>` 
                 : '';
         }
         
         if (noRecordsMessage) noRecordsMessage.style.display = cachedResults.length > 0 ? 'none' : 'block';
         
         await groupAndSortResults();
+        
         if (pagination) {
             pagination.update(allSimilarResults.length);
             pagination.goToPage(1); 
         }
+        
         renderCurrentPageOfResults();
         
     } catch (error) {

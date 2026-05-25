@@ -857,7 +857,8 @@ class PortfolioController {
 
         // 🔥 ÇÖZÜM 1 & 2: Yurtdışı sekmesi ise eksik olan Yenileme Tarihi başlığını ekliyoruz. Bu kolon kaymasını tamamen çözer!
         if (tab === 'trademark' && this.state.subTab !== 'turkpatent') {
-            columns.push({ key: 'renewalDate', label: 'Yenileme Tar.', sortable: true, width: '140px', filterable: true, inputType: 'date' });
+            // 🔥 ÇÖZÜM 2: Ekranda formatlı görünmesi için key değerini güncelledik
+            columns.push({ key: 'formattedRenewalDate', label: 'Yenileme Tar.', sortable: true, width: '140px', filterable: true, inputType: 'date' });
         }
 
         columns.push(
@@ -1046,8 +1047,9 @@ class PortfolioController {
                 excelColumns.forEach(col => {
                     if (col.key === 'brandImage') {
                         rowData[col.key] = ''; 
-                    } else if (col.key === 'renewalDate') {
-                        let val = record.renewalDate;
+                        // 🔥 ÇÖZÜM 3: Excel'de hem formatlı key'i hem ham key'i yakalayıp garantili yazdırıyoruz
+                    } else if (col.key === 'renewalDate' || col.key === 'formattedRenewalDate') {
+                        let val = record.renewalDate || record.renewal_date;
                         if (val && val !== '-') {
                             try {
                                 const d = new Date(val);

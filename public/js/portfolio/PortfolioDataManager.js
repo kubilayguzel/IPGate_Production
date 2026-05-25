@@ -22,6 +22,15 @@ export class PortfolioDataManager {
     async _mapRawToProcessed(rawData) {
         for (let i = 0; i < rawData.length; i++) {
             const record = rawData[i];
+            
+            // 🔥 ÇÖZÜM 1: Veritabanındaki yılan_durumu (snake_case) verileri deve_hörgücü (camelCase) formata eşitliyoruz
+            if (record.renewal_date && !record.renewalDate) record.renewalDate = record.renewal_date;
+            if (record.application_number && !record.applicationNumber) record.applicationNumber = record.application_number;
+            if (record.application_date && !record.applicationDate) record.applicationDate = record.application_date;
+
+            // Yenileme tarihini ekranda düzgün göstermek için formatlıyoruz
+            record.formattedRenewalDate = this._fmtDate(record.renewalDate);
+
             record.applicationDateTs = this._parseDate(record.applicationDate);
             record.formattedApplicantName = (record.applicantName && record.applicantName !== '-')
                 ? record.applicantName

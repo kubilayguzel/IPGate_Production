@@ -24,6 +24,7 @@ const RELATED_CLASSES_MAP: Record<string, string[]> = {
     "36": ["35", "37", "39"]
 };
 
+// 🔥 ÇÖZÜM 1: İngilizce bağlaçlar eklendi (in, to, the, of, for vb.)
 const GENERIC_WORDS = [
     'ltd', 'şti', 'aş', 'anonim', 'şirketi', 'şirket', 'limited', 'inc', 'corp', 'corporation', 'co', 'company', 'llc', 'group', 'grup',
     'sanayi', 'ticaret', 'turizm', 'tekstil', 'gıda', 'inşaat', 'danışmanlık', 'hizmet', 'hizmetleri', 'bilişim', 'teknoloji', 'sigorta', 'yayıncılık', 'mobilya', 'otomotiv', 'tarım', 'enerji', 'petrol', 'kimya', 'kozmetik', 'ilaç', 'medikal', 'sağlık', 'eğitim', 'spor', 'müzik', 'film', 'medya', 'reklam', 'pazarlama', 'lojistik', 'nakliyat', 'kargo', 'finans', 'bankacılık', 'emlak', 'gayrimenkul', 'madencilik', 'metal', 'plastik', 'cam', 'seramik', 'ahşap',
@@ -34,7 +35,8 @@ const GENERIC_WORDS = [
     'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
     'yemek', 'restaurant', 'restoran', 'cafe', 'kahve', 'coffee', 'çay', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
-    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski'
+    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski',
+    'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an'
 ];
 
 function removeTurkishSuffixes(word: string) {
@@ -47,15 +49,11 @@ function removeTurkishSuffixes(word: string) {
 
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
-    
-    // 🔥 OPTİMİZASYON: Çoklu harf ve ses kombinasyonlarını standartlaştırma (ia-ya, ie-ye, pf-f eklendi)
     let processed = String(name).toLowerCase()
         .replace(/ch/g, 'ç')
         .replace(/sh/g, 'ş')
         .replace(/x/g, 'ks')
-        .replace(/pf/g, 'f')
-        .replace(/ia/g, 'ya')
-        .replace(/ie/g, 'ye');
+        .replace(/pf/g, 'f');
         
     let cleaned = processed.replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (removeGenericWords) {
@@ -69,38 +67,38 @@ function cleanMarkName(name: string, removeGenericWords = true) {
 
 function normalizeStringForPhonetic(str: string) {
     if (!str) return "";
-    
-    // 🔥 OPTİMİZASYON: Fonetik kıyaslama öncesi dönüşümler (ia-ya, ie-ye, pf-f eklendi)
     return str.toLowerCase()
         .replace(/ch/g, 'ç')
         .replace(/sh/g, 'ş')
         .replace(/x/g, 'ks')
         .replace(/pf/g, 'f')
-        .replace(/ia/g, 'ya')
-        .replace(/ie/g, 'ye')
         .replace(/[^a-z0-9ğüşöçı]/g, '')
-        .replace(/ğ/g, 'g')
-        .replace(/ü/g, 'u')
-        .replace(/ş/g, 's')
-        .replace(/ö/g, 'o')
-        .replace(/ç/g, 'c')
-        .replace(/ı/g, 'i');
+        .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/ı/g, 'i');
 }
 
-// 🎯 YENİ GÖRSEL HARİTA (c-s, c-k, d-t, g-k ilişkileri eklendi)
-const visualMap: Record<string, string[]> = {
-    "b": ["d", "p"], "d": ["b", "p", "t"], "p": ["b", "d"],
-    "c": ["ç", "s", "k"], "ç": ["c"], 
+// 🎯 HIZLI VE KESİN GÖRSEL HARİTA OLUŞTURUCU (O(1) Hızında)
+const rawVisualMap: Record<string, string[]> = {
+    "a": ["e", "o"], "e": ["a", "o"], "o": ["a", "0", "ö"], "ö": ["o"], "0": ["o", "O"],
+    "b": ["d", "p"], "d": ["b", "p", "t"], "p": ["b", "d", "q"],
+    "c": ["ç", "s", "k"], "ç": ["c", "s"], 
     "s": ["ş", "z", "c"], "ş": ["s", "z"], "z": ["s", "ş"],
-    "g": ["ğ", "k"], "ğ": ["g"],
-    "q": ["k"], "k": ["q", "c", "g"], 
+    "g": ["ğ", "k", "q"], "ğ": ["g", "q"],
+    "q": ["k", "g"], "k": ["q", "c", "g"], 
     "i": ["ı", "l", "1", "j"], "ı": ["i", "l", "1"], "l": ["i", "ı", "1"], "1": ["i", "ı", "l"], "j": ["i", "y"], "y": ["j"],
-    "m": ["n"], "n": ["m"], 
-    "o": ["ö", "0"], "ö": ["o"], "0": ["o", "O"],
-    "u": ["ü"], "ü": ["u"],
-    "v": ["w"], "w": ["v"], 
+    "m": ["n"], "n": ["m", "r"], "r": ["n"],
+    "u": ["ü", "v"], "ü": ["u", "v"], "v": ["u", "ü", "w"], "w": ["v", "u"], 
     "f": ["t"], "t": ["f", "d"]
 };
+
+const fastVisualMap: Record<string, Record<string, boolean>> = {};
+for (const [k, vals] of Object.entries(rawVisualMap)) {
+    if (!fastVisualMap[k]) fastVisualMap[k] = {};
+    for (const v of vals) {
+        fastVisualMap[k][v] = true;
+        if (!fastVisualMap[v]) fastVisualMap[v] = {};
+        fastVisualMap[v][k] = true;
+    }
+}
 
 function parseDateForValidation(val: any): Date | null {
     if (!val) return null;
@@ -119,7 +117,7 @@ function parseDateForValidation(val: any): Date | null {
 const v0 = new Float64Array(512);
 const v1 = new Float64Array(512);
 
-// 🔥 GÖRSEL ZEKAYA VE KONUM BİLİNCİNE SAHİP LEVENSHTEIN 
+// 🔥 GÖRSEL ZEKANIN LEVENSHTEIN İÇİNE AKILLICA YEDİRİLMİŞ HALİ (0.30, 0.15, 0.10 Cezalarıyla)
 function levenshteinSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
     const lenA = a.length, lenB = b.length;
@@ -138,19 +136,18 @@ function levenshteinSimilarity(a: string, b: string): number {
             
             if (charA === charB) {
                 cost = 0.0; 
-            } else if (
-                (visualMap[charA] && visualMap[charA].includes(charB)) || 
-                (visualMap[charB] && visualMap[charB].includes(charA))
-            ) {
-                const isStart = (i === 0 || j === 0);
-                const isEnd = (i === lenA - 1 || j === lenB - 1);
+            } else {
+                let isSpecialIY = false;
+                if (charA === 'i' && charB === 'y' && (a[i + 1] === 'a' || a[i + 1] === 'e' || b[j + 1] === 'a' || b[j + 1] === 'e')) isSpecialIY = true;
+                if (charA === 'y' && charB === 'i' && (a[i + 1] === 'a' || a[i + 1] === 'e' || b[j + 1] === 'a' || b[j + 1] === 'e')) isSpecialIY = true;
 
-                if (isStart) {
-                    cost = 0.30; 
-                } else if (isEnd) {
-                    cost = 0.15; 
-                } else {
-                    cost = 0.10; 
+                if (isSpecialIY || (fastVisualMap[charA] && fastVisualMap[charA][charB])) {
+                    const isStart = (i === 0 || j === 0);
+                    const isEnd = (i === lenA - 1 || j === lenB - 1);
+
+                    if (isStart) cost = 0.30; 
+                    else if (isEnd) cost = 0.15; 
+                    else cost = 0.10; 
                 }
             }
 
@@ -200,13 +197,12 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         return 1.0;
     })();
 
-    // 🌟 1. ALT DİZE (SUBSTRING) BONUSU
     let substringBonus = 0.0;
     if (s1.length >= 3 && s2.length >= 3 && (s2.includes(s1) || s1.includes(s2))) {
         substringBonus = 0.88; 
     }
 
-    // 🌟 2. ÇEKİRDEK SKORLAMA MOTORU
+    // 🌟 MOTOR DAĞILIMI GÜNCELLENDİ (Lev: %50, JW: %25, N-Gram: %15, Prefix: %10)
     const computeCoreScore = (a: string, b: string) => {
         if (!a || !b) return 0.0;
         if (a === b) return 1.0;
@@ -255,7 +251,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         return (lev * 0.50 + jw * 0.25 + ngram * 0.15 + prefix * 0.10);
     };
 
-    // 🌟 3. KELİMELERİ PARÇALAMA VE ERKEN DÖNÜŞ KONTROLÜ
     const w1 = s1.split(' ').filter(w => w.length > 0);
     const w2 = s2.split(' ').filter(w => w.length > 0);
     
@@ -274,8 +269,9 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
+    // 🔥 ÇÖZÜM 2: Erken dönüş barajı 0.70'e sabitlendi (130 Bin çöp veri engellendi)
     let earlyReturnScore = Math.max(substringBonus, bestWordLevenshtein);
-    if (earlyReturnScore >= 0.65) {
+    if (earlyReturnScore >= 0.70) {
         if (earlyReturnScore === 1.0 && exactWordLen < 2 && s1 !== s2) { 
             // pas geç
         } else { 
@@ -283,9 +279,9 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // 🌟 4. ASLİ UNSUR (KELİME) VS BÜTÜNSEL CÜMLE KIYASLAMASI
     const fullStringScore = computeCoreScore(s1, s2);
     
+    // Her asli unsur Math.max a girmeden önce TÜM formüllerden geçerek gücünü kanıtlar!
     let bestWordPairScore = 0.0;
     if (w1.length > 0 && w2.length > 0) {
         for (const a of w1) {
@@ -300,7 +296,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     let phase2Final = Math.max(fullStringScore, bestWordPairScore, substringBonus);
 
-    // 🌟 5. FONETİK SKOR VE BİRLEŞTİRME
     const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
 
     let finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
@@ -328,14 +323,11 @@ serve(async (req) => {
         const supabase = createClient(supabaseUrl, supabaseKey);
         const body = await req.json();
 
-        // =========================================================================
-        // İŞÇİ MODU (Zincirleme Tarama - Bayrak Yarışı)
-        // =========================================================================
         if (body.action === 'worker') {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                const BATCH_SIZE = 250; 
+                const BATCH_SIZE = 150; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
                 console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç ID: ${lastId}`);
@@ -434,7 +426,6 @@ serve(async (req) => {
                         const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
 
                         for (const mark of preparedMarks) {
-                            
                             let isValidDate = true;
                             if (parsedHitDate && mark.parsedAppDate && !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime())) {
                                 isValidDate = parsedHitDate >= mark.parsedAppDate;
@@ -488,7 +479,6 @@ serve(async (req) => {
                 } 
 
                 if (actualProcessedCount === 0 && !hasMoreRecords) {
-                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Kayıt kalmadı, işçi başarıyla kapanıyor.`);
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                     return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
                 }
@@ -510,31 +500,23 @@ serve(async (req) => {
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
                 if (hasMoreRecords) {
-                    console.log(`[Worker ${workerId}] 🔄 DEVAM EDİYOR | İşlenen: ${newProcessedCount}/${totalBulletinRecords} (%${progressPercent})`);
-                    
                     EdgeRuntime.waitUntil(
                         supabase.functions.invoke('perform-trademark-similarity-search', {
                             body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: currentLastId, processedCount: newProcessedCount, totalBulletinRecords },
                             headers: { Authorization: `Bearer ${supabaseKey}` }
                         }).then(async (res) => {
-                            if (res.error) {
-                                console.error(`[Worker ${workerId}] 🚨 API Çağrı Hatası:`, res.error);
-                                await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                            }
+                            if (res.error) await markWorkerStatus(supabase, jobId, workerId, 'failed');
                         }).catch(async (err) => {
-                            console.error(`[Worker ${workerId}] 🚨 Ağ Hatası:`, err);
                             await markWorkerStatus(supabase, jobId, workerId, 'failed');
                         })
                     );
                 } else {
-                    console.log(`[Worker ${workerId}] ✅ GÖREV TAMAMLANDI | Tüm bülten tarandı.`);
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                 }
 
                 return new Response(JSON.stringify({ success: true, workerId }), { headers: corsHeaders });
 
             } catch (workerErr) {
-                console.error(`🚨 [Worker ${workerId}] ÇÖKTÜ:`, workerErr);
                 await markWorkerStatus(supabase, jobId, workerId, 'failed');
                 return new Response(JSON.stringify({ success: false, error: workerErr.message }), { headers: corsHeaders, status: 500 });
             }
@@ -586,7 +568,6 @@ serve(async (req) => {
                     body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
                     headers: { Authorization: `Bearer ${supabaseKey}` }
                 }).catch(async (err) => {
-                    console.error(`[Worker ${item.workerId}] Başlangıç çağrısı başarısız oldu:`, err);
                     await markWorkerStatus(supabase, jobId, item.workerId, 'failed');
                 })
             );
@@ -597,7 +578,6 @@ serve(async (req) => {
         });
 
     } catch (error) {
-        console.error("[General Error] İşlem hatası:", error);
         return new Response(JSON.stringify({ success: false, error: error.message }), {
             status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });

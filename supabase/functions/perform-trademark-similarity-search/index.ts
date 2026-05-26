@@ -24,7 +24,7 @@ const RELATED_CLASSES_MAP: Record<string, string[]> = {
     "36": ["35", "37", "39"]
 };
 
-// 🔥 ÇÖZÜM 1: İngilizce bağlaçlar eklendi (in, to, the, of, for vb.)
+// 🔥 Jenerik Kelimeler
 const GENERIC_WORDS = [
     'ltd', 'şti', 'aş', 'anonim', 'şirketi', 'şirket', 'limited', 'inc', 'corp', 'corporation', 'co', 'company', 'llc', 'group', 'grup',
     'sanayi', 'ticaret', 'turizm', 'tekstil', 'gıda', 'inşaat', 'danışmanlık', 'hizmet', 'hizmetleri', 'bilişim', 'teknoloji', 'sigorta', 'yayıncılık', 'mobilya', 'otomotiv', 'tarım', 'enerji', 'petrol', 'kimya', 'kozmetik', 'ilaç', 'medikal', 'sağlık', 'eğitim', 'spor', 'müzik', 'film', 'medya', 'reklam', 'pazarlama', 'lojistik', 'nakliyat', 'kargo', 'finans', 'bankacılık', 'emlak', 'gayrimenkul', 'madencilik', 'metal', 'plastik', 'cam', 'seramik', 'ahşap',
@@ -32,11 +32,11 @@ const GENERIC_WORDS = [
     'ürün', 'products', 'services', 'solutions', 'çözüm', 'sistem', 'systems', 'teknolojileri', 'malzeme', 'materials', 'ekipman', 'equipment', 'cihaz', 'device', 'araç', 'tools', 'yedek', 'parça', 'parts', 'aksesuar', 'accessories', 'gereç',
     'meşhur', 'ünlü', 'famous', 'since', 'est', 'established', 'tarihi', 'historical', 'geleneksel', 'traditional', 'klasik', 'classic', 'yeni', 'new', 'fresh', 'taze', 'özel', 'special', 'premium', 'lüks', 'luxury', 'kalite', 'quality', 'uygun',
     'turkey', 'türkiye', 'international', 'uluslararası',
-    'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
+    'real estate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
-    'yemek', 'restaurant', 'restoran', 'cafe', 'kahve', 'coffee', 'çay', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
-    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski',
-    'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an'
+    'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
+    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an',
+    'com', 'tr', 'comtr', 'net', 'org', 'www', 'io'
 ];
 
 function removeTurkishSuffixes(word: string) {
@@ -50,6 +50,11 @@ function removeTurkishSuffixes(word: string) {
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
     let processed = String(name).toLowerCase()
+        // 🔥 YENİ: Sadece NOKTA ile başlayan gerçek uzantıları ve www. ön ekini siler
+        .replace(/\.(com\.tr|net\.tr|org\.tr|com|tr|net|org|co|io|info|biz|tv)\b/g, '')
+        .replace(/^www\./g, '')
+        
+        // Yabancı Çift Sesleri Hizala
         .replace(/ch/g, 'ç')
         .replace(/sh/g, 'ş')
         .replace(/x/g, 'ks')
@@ -76,9 +81,50 @@ function normalizeStringForPhonetic(str: string) {
         .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/ı/g, 'i');
 }
 
-// 🎯 HIZLI VE KESİN GÖRSEL HARİTA OLUŞTURUCU (O(1) Hızında)
+// 🌟 YENİ: KAVRAMSAL ÇEVİRİ MOTORU (Sayılar ve Semboller)
+function numberToTurkishText(numStr: string): string {
+    const birler = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"];
+    const onlar = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"];
+    let num = parseInt(numStr, 10);
+    if (isNaN(num)) return numStr;
+    if (num === 0) return "sıfır";
+    
+    let text = "";
+    let binlerBas = Math.floor(num / 1000);
+    let yuzlerBas = Math.floor((num % 1000) / 100);
+    let onlarBas = Math.floor((num % 100) / 10);
+    let birlerBas = num % 10;
+
+    if (binlerBas > 1) text += birler[binlerBas] + " bin ";
+    else if (binlerBas === 1) text += "bin ";
+
+    if (yuzlerBas > 1) text += birler[yuzlerBas] + " yüz ";
+    else if (yuzlerBas === 1) text += "yüz ";
+
+    if (onlarBas > 0) text += onlar[onlarBas] + " ";
+    if (birlerBas > 0) text += birler[birlerBas] + " ";
+
+    return text.trim();
+}
+
+function convertNumbersAndSymbolsToText(str: string): string {
+    if (!str) return "";
+    let result = str;
+    
+    // Sembol çevirileri
+    result = result.replace(/&/g, ' ve ').replace(/\+/g, ' artı ').replace(/%/g, ' yüzde ');
+    
+    // Sayı çevirileri (1 ile 9999 arasındaki rakamları okunuşuna çevirir)
+    result = result.replace(/\b\d{1,4}\b/g, (match) => {
+        return numberToTurkishText(match);
+    });
+    
+    return result.replace(/\s+/g, ' ').trim();
+}
+
+// O(1) Hızında Görsel Harita
 const rawVisualMap: Record<string, string[]> = {
-    "a": ["e", "o"], "e": ["a", "o"], "o": ["a", "0", "ö"], "ö": ["o"], "0": ["o", "O"],
+    "o": ["0", "ö"], "ö": ["o"], "0": ["o", "O"],
     "b": ["d", "p"], "d": ["b", "p", "t"], "p": ["b", "d", "q"],
     "c": ["ç", "s", "k"], "ç": ["c", "s"], 
     "s": ["ş", "z", "c"], "ş": ["s", "z"], "z": ["s", "ş"],
@@ -117,12 +163,26 @@ function parseDateForValidation(val: any): Date | null {
 const v0 = new Float64Array(512);
 const v1 = new Float64Array(512);
 
-// 🔥 GÖRSEL ZEKANIN LEVENSHTEIN İÇİNE AKILLICA YEDİRİLMİŞ HALİ (0.30, 0.15, 0.10 Cezalarıyla)
+// 🔥 GÖRSEL CEZALAR UZUNLUĞA GÖRE DİNAMİKLEŞTİRİLDİ (Sizin Sürüm)
 function levenshteinSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
     const lenA = a.length, lenB = b.length;
     if (lenA === 0 || lenB === 0) return 0.0;
     if (lenB >= 512) return 0.0; 
+
+    let pStart, pMid, pEnd;
+    const maxLen = Math.max(lenA, lenB);
+    
+    if (maxLen <= 3) {
+        pStart = 0.70; pMid = 0.50; pEnd = 0.60;
+    } else if (maxLen >= 8) {
+        pStart = 0.30; pMid = 0.20; pEnd = 0.15;
+    } else {
+        const step = maxLen - 3; 
+        pStart = 0.70 - (0.08 * step); 
+        pMid = 0.50 - (0.06 * step);   
+        pEnd = 0.60 - (0.09 * step);   
+    }
 
     for (let i = 0; i <= lenB; i++) v0[i] = i;
     
@@ -142,12 +202,12 @@ function levenshteinSimilarity(a: string, b: string): number {
                 if (charA === 'y' && charB === 'i' && (a[i + 1] === 'a' || a[i + 1] === 'e' || b[j + 1] === 'a' || b[j + 1] === 'e')) isSpecialIY = true;
 
                 if (isSpecialIY || (fastVisualMap[charA] && fastVisualMap[charA][charB])) {
-                    const isStart = (i === 0 || j === 0);
-                    const isEnd = (i === lenA - 1 || j === lenB - 1);
+                    const isStart = (i === 0 && j === 0);
+                    const isEnd = (i === lenA - 1 && j === lenB - 1);
 
-                    if (isStart) cost = 0.30; 
-                    else if (isEnd) cost = 0.15; 
-                    else cost = 0.10; 
+                    if (isStart) cost = pStart; 
+                    else if (isEnd) cost = pEnd; 
+                    else cost = pMid; 
                 }
             }
 
@@ -163,27 +223,40 @@ function levenshteinSimilarity(a: string, b: string): number {
     return Math.max(0.0, Math.min(1.0, 1 - (v1[lenB] / Math.max(lenA, lenB))));
 }
 
+// 🌟 YENİ: TÜRKÇE FONETİK (METAPHONE) SES İSKELETİ MOTORU
+function getTurkishPhoneticSkeleton(str: string): string {
+    if (!str) return "";
+    let code = str.toLowerCase();
+    
+    // Sessiz harfleri sesdeş (kulağa benzer gelen) gruplara atarız
+    code = code.replace(/[bp]/g, '1')
+               .replace(/[cçj]/g, '2')
+               .replace(/[dt]/g, '3')
+               .replace(/[gkğq]/g, '4')
+               .replace(/[vf]/g, '5')
+               .replace(/[sşz]/g, '6');
+               
+    // Ünlü harfleri tamamen çöpe atıyoruz (Ritim iskeleti çıkar)
+    code = code.replace(/[aeıioöuü]/g, '');
+    
+    // Yan yana gelen aynı ses kodlarını siliyoruz (Örn: PİSKİVİ -> 1645)
+    code = code.replace(/(.)\1+/g, '$1');
+    
+    return code;
+}
+
+// Orijinal isPhoneticallySimilar yenisiyle değiştirildi
 function isPhoneticallySimilar(a: string, b: string) {
     if (!a || !b) return 0.0;
-    a = normalizeStringForPhonetic(a); b = normalizeStringForPhonetic(b);
-    if (a === b) return 1.0;
-    const lenA = a.length, lenB = b.length;
-    const minLen = Math.min(lenA, lenB), maxLen = Math.max(lenA, lenB);
-    if (maxLen === 0) return 1.0; if (minLen === 0) return 0.0;
-    let matchingChars = 0;
-    const matchedB = new Array(lenB).fill(false);
-    const searchRange = Math.min(maxLen, Math.floor(maxLen / 2) + 1);
-    for (let i = 0; i < lenA; i++) {
-        for (let j = Math.max(0, i - searchRange); j < Math.min(lenB, i + searchRange + 1); j++) {
-            if (a[i] === b[j] && !matchedB[j]) { matchingChars++; matchedB[j] = true; break; }
-        }
+    
+    const skeletonA = getTurkishPhoneticSkeleton(a);
+    const skeletonB = getTurkishPhoneticSkeleton(b);
+    
+    if (skeletonA === skeletonB && skeletonA.length > 0) {
+        return 1.0; 
     }
-    if (matchingChars === 0) return 0.0;
-    const commonality = matchingChars / Math.max(lenA, lenB);
-    let positionalBonus = 0;
-    if (a[0] === b[0]) positionalBonus += 0.2;
-    if (lenA > 1 && lenB > 1 && a[1] === b[1]) positionalBonus += 0.1;
-    return Math.max(0.0, Math.min(1.0, (commonality * 0.7) + (positionalBonus * 0.3)));
+    
+    return levenshteinSimilarity(skeletonA, skeletonB);
 }
 
 function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMarkNameOriginal: string, s1: string, s2: string) {
@@ -198,11 +271,15 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     })();
 
     let substringBonus = 0.0;
-    if (s1.length >= 3 && s2.length >= 3 && (s2.includes(s1) || s1.includes(s2))) {
-        substringBonus = 0.88; 
+    if (s1.length >= 3 && s2.length >= 3) {
+        const checkExactWord = (full: string, part: string) => {
+            return full === part || full.startsWith(part + ' ') || full.endsWith(' ' + part) || full.includes(' ' + part + ' ');
+        };
+        if (checkExactWord(s2, s1) || checkExactWord(s1, s2)) {
+            substringBonus = 0.88; 
+        }
     }
 
-    // 🌟 MOTOR DAĞILIMI GÜNCELLENDİ (Lev: %50, JW: %25, N-Gram: %15, Prefix: %10)
     const computeCoreScore = (a: string, b: string) => {
         if (!a || !b) return 0.0;
         if (a === b) return 1.0;
@@ -239,16 +316,39 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
             if (ng1.size === 0 && ng2.size === 0) return 1.0;
             if (ng1.size === 0 || ng2.size === 0) return 0.0;
             let common = 0; ng1.forEach(ng => { if (ng2.has(ng)) common++; });
-            return common / Math.min(ng1.size, ng2.size);
+            return (2 * common) / (ng1.size + ng2.size); // Dice Coefficient
         })();
 
-        const prefix = (() => {
-            const p1 = a.substring(0, Math.min(a.length, 3)), p2 = b.substring(0, Math.min(b.length, 3));
-            if (p1 === p2) return 1.0; if (p1.length === 0 && p2.length === 0) return 1.0;
-            return levenshteinSimilarity(p1, p2);
-        })();
+        let coreScore = (lev * 0.60 + jw * 0.25 + ngram * 0.15);
 
-        return (lev * 0.50 + jw * 0.25 + ngram * 0.15 + prefix * 0.10);
+        // KALKAN 1: BAŞ HARF ÇAPASI
+        if (a.length > 0 && b.length > 0) {
+            const charA = a[0];
+            const charB = b[0];
+            let isFirstLetterMatch = (charA === charB);
+            
+            if (!isFirstLetterMatch) {
+                 let isSpecialIY = false;
+                 if (charA === 'i' && charB === 'y' && (a[1] === 'a' || a[1] === 'e' || b[1] === 'a' || b[1] === 'e')) isSpecialIY = true;
+                 if (charA === 'y' && charB === 'i' && (a[1] === 'a' || a[1] === 'e' || b[1] === 'a' || b[1] === 'e')) isSpecialIY = true;
+                 
+                 if (isSpecialIY || (fastVisualMap[charA] && fastVisualMap[charA][charB])) {
+                     isFirstLetterMatch = true; 
+                 }
+            }
+            
+            if (!isFirstLetterMatch) {
+                coreScore = coreScore * 0.85; 
+            }
+        }
+
+        // KALKAN 2: KADEMELİ HECE (N-GRAM) CEZASI (%40 ve altına dinamik oranlı ceza)
+        if (coreScore >= 0.50 && ngram <= 0.40) {
+            const penaltyPercent = 0.30 - (ngram * 0.50); 
+            coreScore = coreScore * (1.0 - penaltyPercent); 
+        }
+
+        return coreScore;
     };
 
     const w1 = s1.split(' ').filter(w => w.length > 0);
@@ -269,7 +369,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // 🔥 ÇÖZÜM 2: Erken dönüş barajı 0.70'e sabitlendi (130 Bin çöp veri engellendi)
     let earlyReturnScore = Math.max(substringBonus, bestWordLevenshtein);
     if (earlyReturnScore >= 0.70) {
         if (earlyReturnScore === 1.0 && exactWordLen < 2 && s1 !== s2) { 
@@ -281,7 +380,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     const fullStringScore = computeCoreScore(s1, s2);
     
-    // Her asli unsur Math.max a girmeden önce TÜM formüllerden geçerek gücünü kanıtlar!
     let bestWordPairScore = 0.0;
     if (w1.length > 0 && w2.length > 0) {
         for (const a of w1) {
@@ -294,8 +392,17 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    let phase2Final = Math.max(fullStringScore, bestWordPairScore, substringBonus);
+    // Zayıf Eşleşme Sönümleyici
+    let phase2Final = fullStringScore;
+    if (bestWordPairScore >= 0.75) {
+        phase2Final = Math.max(phase2Final, bestWordPairScore);
+    } else if (bestWordPairScore > fullStringScore) {
+        phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
+    }
+    
+    phase2Final = Math.max(phase2Final, substringBonus);
 
+    // TÜRKÇE FONETİK BONUSU DEVREDE
     const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
 
     let finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
@@ -332,6 +439,7 @@ serve(async (req) => {
                 
                 console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç ID: ${lastId}`);
 
+                // 🌟 YAPISAL VE KAVRAMSAL KLONLAMALAR BURADA BAŞLIYOR 🌟
                 const preparedMarks = monitoredMarks.map((mark: any) => {
                     const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
                     const primaryName = validSearchMarkName 
@@ -339,11 +447,27 @@ serve(async (req) => {
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
                     const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
-                    let alternatives = Array.isArray(rawBrandText) ? rawBrandText : [];
+                    let alternatives = Array.isArray(rawBrandText) ? [...rawBrandText] : []; // Kopya alıyoruz
                     
                     if (validSearchMarkName && mark.markName) {
                         const exactMarkName = String(mark.markName).trim().toLowerCase();
                         alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
+                    }
+
+                    // 1. Klonlama: Sayıları ve Sembolleri Yazıya Çevirme
+                    const conceptualName = convertNumbersAndSymbolsToText(primaryName);
+                    if (conceptualName !== primaryName) {
+                        alternatives.push(conceptualName);
+                    }
+
+                    // 2. Klonlama: Token Sort (Kelimeleri Alfabetik Dizme)
+                    const primaryCleaned = cleanMarkName(primaryName, true);
+                    const words = primaryCleaned.split(' ').filter(w => w.trim().length > 0);
+                    if (words.length > 1) {
+                        const sortedName = [...words].sort().join(' ');
+                        if (sortedName !== primaryCleaned) {
+                            alternatives.push(sortedName);
+                        }
                     }
 
                     const searchTerms = [primaryName, ...alternatives]
@@ -421,9 +545,15 @@ serve(async (req) => {
                         const hitClasses = rawHitClasses.map(cleanClass).filter(Boolean);
                         
                         const rawHitName = String(hit.brand_name || '');
+                        
+                        // 🌟 DİKKAT: RAKİP MARKALARA DA TOKEN SORT (YER DEĞİŞTİRME) UYGULUYORUZ
                         const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
-                        const rawCleanedHitName = rawHitName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                        const cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
+                        let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
+                        
+                        if (isHitMultiWord) {
+                            // "YILDIZ KUZEY" -> "kuzey yıldız" oluyor ki bizim markayla eşleşsin.
+                            cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
+                        }
 
                         for (const mark of preparedMarks) {
                             let isValidDate = true;
@@ -441,7 +571,7 @@ serve(async (req) => {
                             });
 
                             for (const searchItem of mark.searchTerms) {
-                                let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && rawCleanedHitName.includes(searchItem.cleanedSearchName);
+                                let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && cleanedHitName.includes(searchItem.cleanedSearchName);
 
                                 if (!hasPoolMatch && !isExactPrefixSuffix) continue;
 
@@ -522,15 +652,11 @@ serve(async (req) => {
             }
         }
 
-        // =========================================================================
-        // BAŞLANGIÇ MODU
-        // =========================================================================
         const { monitoredMarks, selectedBulletinId } = body;
         if (!monitoredMarks || !selectedBulletinId) throw new Error("Eksik parametre.");
 
         const jobId = `job_${Date.now()}`;
         const rawBulletinNumber = String(selectedBulletinId).split('_')[0];
-        console.log(`[Main Job] 🟢 ARAMA BAŞLATILDI | Job ID: ${jobId}, Hedef Bülten No: ${rawBulletinNumber}`);
 
         const { count, error: countError } = await supabase
             .from('trademark_bulletin_records')

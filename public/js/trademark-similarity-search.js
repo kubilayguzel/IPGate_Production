@@ -1233,39 +1233,54 @@ const performResearch = async () => {
     const bulletinKey = document.getElementById('bulletinSelect').value;
     if (!bulletinKey) return;
     
-    // 🔥 KORUMA: Yurtdışı (Manuel) listedeyken "Yeniden Ara" butonunu çalışmasını engelle, yanlışlıkla DB'den silinmesin.
     if (bulletinKey === MANUAL_COLLECTION_ID) {
-        showNotification('Yurtdışı/Serbest liste üzerinde yeniden otomatik arama yapılamaz. Bu liste sadece manuel eklenen kayıtları gösterir.', 'warning');
+        showNotification('Yurtdışı/Serbest liste üzerinde yeniden otomatik arama yapılamaz.', 'warning');
         return;
     }
 
     if (typeof SimpleLoading !== 'undefined') {
-        SimpleLoading.show('Hazırlanıyor...', 'Listedeki markaların eski sonuçları temizleniyor...');
+        SimpleLoading.show('Hazırlanıyor...', 'Veritabanındaki eski sonuçlar tamamen temizleniyor...');
     }
     
     try {
         const realBulletinId = String(bulletinKey).split('_')[0];
         const filteredIds = filteredMonitoringTrademarks.map(tm => tm.id);
         
-        const { data } = await supabase
-            .from('monitoring_trademark_records')
-            .select('id, monitored_trademark_id, trademark_bulletin_records!inner(bulletin_id)')
-            .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]);
+        // 🔥 SİHİRLİ DÖNGÜ: Supabase 1000 limitini aşmak için silinecek TÜM ID'leri parça parça çek!
+        let allIdsToDelete = [];
+        let from = 0;
+        const limitSize = 10000;
+        
+        while (true) {
+            const { data } = await supabase
+                .from('monitoring_trademark_records')
+                .select('id, monitored_trademark_id, trademark_bulletin_records!inner(bulletin_id)')
+                .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
+                .range(from, from + limitSize - 1);
+                
+            if (!data || data.length === 0) break;
             
-        if (data && data.length > 0) {
-            const idsToDelete = data
+            const chunkIds = data
                 .filter(d => filteredIds.includes(d.monitored_trademark_id))
                 .map(d => d.id);
                 
-            for (let i = 0; i < idsToDelete.length; i += 500) {
-                await supabase.from('monitoring_trademark_records').delete().in('id', idsToDelete.slice(i, i + 500));
+            allIdsToDelete.push(...chunkIds);
+            
+            if (data.length < limitSize) break;
+            from += limitSize;
+        }
+        
+        // 🔥 TOPLANAN TÜM ID'leri 500'erli paketler halinde GERÇEKTEN sil (Zombilere son!)
+        if (allIdsToDelete.length > 0) {
+            for (let i = 0; i < allIdsToDelete.length; i += 500) {
+                await supabase.from('monitoring_trademark_records').delete().in('id', allIdsToDelete.slice(i, i + 500));
             }
         }
     } catch(e) {
         console.error("Önbellek temizlenirken hata:", e);
     }
     
-    await performSearch();
+    await performSearch(); // Silme bitince yeni, temiz aramayı başlat
 };
 
 const groupAndSortResults = async () => {

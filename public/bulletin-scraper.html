@@ -8,8 +8,10 @@
     <link rel="stylesheet" href="css/shared-styles.css"> 
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 </head>
 <body>
@@ -99,7 +101,7 @@
                     <div>
                         <span class="badge badge-warning px-3 py-2 mr-1" id="qPending" style="font-size: 0.9rem;">Bekleyen: 0</span>
                         <span class="badge badge-success px-3 py-2 mr-1" id="qCompleted" style="font-size: 0.9rem;">Biten: 0</span>
-                        <span class="badge badge-danger px-3 py-2" id="qError" style="font-size: 0.9rem;">Hatalı: 0</span>
+                        <span class="badge badge-danger px-3 py-2 shadow-sm" id="qError" style="font-size: 0.9rem; cursor: pointer; transition: 0.2s;" title="Hata detaylarını görmek için tıklayın">Hatalı: 0 <i class="fas fa-search ms-1"></i></span>
                     </div>
                 </div>
                 <div class="card-body p-4 text-center">
@@ -341,6 +343,54 @@
             }
         }
     }
+
+    // 🔥 YENİ: Hatalı Kayıtları İnceleme ve Tekrar Kuyruğa Alma (Retry) Mekanizması
+    const elErrorBadge = document.getElementById('qError');
+    if (elErrorBadge) {
+        elErrorBadge.addEventListener('click', async () => {
+            const { data: errorItems, error } = await supabase
+                .from('bulletin_fetch_queue')
+                .select('application_number, error_message')
+                .eq('status', 'error')
+                .limit(100);
+                
+            if (error || !errorItems || errorItems.length === 0) {
+                Swal.fire('Bilgi', 'Şu an gösterilecek bir hata kaydı bulunmuyor.', 'info');
+                return;
+            }
+
+            let tableHtml = `<table class="table table-sm table-hover text-left" style="font-size: 0.9rem;">
+                <thead class="bg-light"><tr><th>Başvuru No</th><th>Hata Sebebi / Log</th></tr></thead>
+                <tbody>`;
+            errorItems.forEach(item => {
+                tableHtml += `<tr>
+                    <td class="font-weight-bold text-dark">${item.application_number}</td>
+                    <td class="text-danger">${item.error_message || 'Bilinmeyen Hata'}</td>
+                </tr>`;
+            });
+            tableHtml += `</tbody></table>`;
+
+            Swal.fire({
+                title: 'Hata Veren Kayıtlar',
+                html: `<div style="max-height: 350px; overflow-y: auto; border: 1px solid #eee; border-radius: 5px;">${tableHtml}</div>`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#1cc88a',
+                confirmButtonText: '<i class="fas fa-redo mr-1"></i> Hepsini Tekrar Kuyruğa Al',
+                cancelButtonText: 'Kapat',
+                width: '700px'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({title: 'İşleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+                    // Hatalı olan tüm kayıtların statüsünü temizleyip tekrar pending (bekleyen) yapıyoruz
+                    await supabase.from('bulletin_fetch_queue').update({ status: 'pending', error_message: null }).eq('status', 'error');
+                    Swal.fire('Başarılı!', 'Hatalı kayıtlar tekrar kuyruğa alındı. Botu tekrar başlatabilirsiniz.', 'success');
+                    updateQueueStats();
+                }
+            });
+        });
+    }    
+    
     // 🔥 MANUEL BAŞVURU EKLEME (KUYRUĞA YAZMA) İŞLEMİ BURAYA EKLENDİ 🔥
     const addManualBtn = document.getElementById('addManualAppNoBtn');
     if (addManualBtn) {

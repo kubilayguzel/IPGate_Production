@@ -777,24 +777,27 @@ const updateSearchButtonsState = () => {
 };
 
 const applyMonitoringListFilters = () => {
-    const [ownerFilter, niceFilter, brandFilter] = [
+    // 🔥 ÇÖZÜM: 'appNoSearch' yani başvuru numarası filtresini de diziye dahil ettik
+    const [ownerFilter, niceFilter, brandFilter, appNoFilter] = [
         document.getElementById('ownerSearch')?.value || '', 
         document.getElementById('niceClassSearch')?.value || '', 
-        document.getElementById('brandNameSearch')?.value || ''
+        document.getElementById('brandNameSearch')?.value || '',
+        document.getElementById('appNoSearch')?.value || ''
     ].map(s => s.toLowerCase().trim());
     
     filteredMonitoringTrademarks = monitoringTrademarks.filter(data => {
-        // 🚀 Her seferinde .toLowerCase() hesaplamak yerine peşin hesaplanmış özellikleri kullanır (0 milisaniye)
+        // 🚀 Her seferinde .toLowerCase() hesaplamak yerine peşin hesaplanmış özellikleri kullanır
         return (!ownerFilter || data._searchOwner.includes(ownerFilter)) && 
                (!niceFilter || data._searchNice.includes(niceFilter)) && 
-               (!brandFilter || data._searchBrand.includes(brandFilter));
+               (!brandFilter || data._searchBrand.includes(brandFilter)) &&
+               (!appNoFilter || (data._searchAppNo && data._searchAppNo.includes(appNoFilter)));
     });
     
     cachedGroupedData = null; 
     renderMonitoringList(); 
     updateMonitoringCount(); 
     updateOwnerBasedPagination(); 
-    // 🔥 YENİ: Butonları mevcut listeye göre güncelle
+    // Butonları mevcut listeye göre güncelle
     updateSearchButtonsState();
     
     if (pagination) { pagination.goToPage(1); renderCurrentPageOfResults(); }
@@ -873,6 +876,7 @@ const loadInitialData = async () => {
             tmData._searchOwner = ownerName.toLowerCase();
             tmData._searchNice = niceClassesArray.join(', ');
             tmData._searchBrand = markName.toLowerCase();
+            tmData._searchAppNo = String(tmData.applicationNo).toLowerCase();
             
             return tmData;
         });
@@ -913,6 +917,7 @@ const loadInitialData = async () => {
             tmData._searchOwner = ownerName.toLowerCase();
             tmData._searchNice = niceClassesArray.join(', ');
             tmData._searchBrand = markName.toLowerCase();
+            tmData._searchAppNo = String(tmData.applicationNo).toLowerCase();
             
             return tmData;
         });
@@ -2230,12 +2235,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     bulletinSelect?.addEventListener('change', checkCacheAndToggleButtonStates);
     
     clearFiltersBtn?.addEventListener('click', () => {
-        ['ownerSearch', 'niceClassSearch', 'brandNameSearch'].forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = ''; });
+        ['ownerSearch', 'niceClassSearch', 'brandNameSearch', 'appNoSearch'].forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = ''; });
         bulletinSelect.selectedIndex = 0; applyMonitoringListFilters(); showNotification('Filtreler temizlendi.', 'info');
     });
 
-    ['ownerSearch', 'niceClassSearch', 'brandNameSearch'].forEach(id => { document.getElementById(id)?.addEventListener('input', debounce(applyMonitoringListFilters, 400)); });
-
+    ['ownerSearch', 'niceClassSearch', 'brandNameSearch', 'appNoSearch'].forEach(id => { document.getElementById(id)?.addEventListener('input', debounce(applyMonitoringListFilters, 400)); });
+    
     document.getElementById('btnGenerateReportAndNotifyGlobal')?.addEventListener('click', handleGlobalReportAndNotifyGeneration);
     document.getElementById('openManualEntryBtn')?.addEventListener('click', openManualEntryModal);
     document.querySelectorAll('.btn-group-toggle label.btn').forEach(l => l.addEventListener('click', function() { setTimeout(() => updateManualFormUI(this.querySelector('input').value), 50); }));

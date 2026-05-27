@@ -24,19 +24,20 @@ const RELATED_CLASSES_MAP: Record<string, string[]> = {
     "36": ["35", "37", "39"]
 };
 
-// 🔥 Jenerik Kelimeler
 const GENERIC_WORDS = [
     'ltd', 'şti', 'aş', 'anonim', 'şirketi', 'şirket', 'limited', 'inc', 'corp', 'corporation', 'co', 'company', 'llc', 'group', 'grup',
     'sanayi', 'ticaret', 'turizm', 'tekstil', 'gıda', 'inşaat', 'danışmanlık', 'hizmet', 'hizmetleri', 'bilişim', 'teknoloji', 'sigorta', 'yayıncılık', 'mobilya', 'otomotiv', 'tarım', 'enerji', 'petrol', 'kimya', 'kozmetik', 'ilaç', 'medikal', 'sağlık', 'eğitim', 'spor', 'müzik', 'film', 'medya', 'reklam', 'pazarlama', 'lojistik', 'nakliyat', 'kargo', 'finans', 'bankacılık', 'emlak', 'gayrimenkul', 'madencilik', 'metal', 'plastik', 'cam', 'seramik', 'ahşap',
     'mühendislik', 'proje', 'taahhüt', 'ithalat', 'ihracat', 'üretim', 'imalat', 'veteriner', 'petshop', 'polikliniği', 'hastane', 'klinik', 'müşavirlik', 'muhasebe', 'hukuk', 'avukatlık', 'mimarlık', 'peyzaj', 'tasarım', 'dizayn', 'design', 'grafik', 'web', 'yazılım', 'software', 'donanım', 'hardware', 'elektronik', 'elektrik', 'makina', 'makine', 'endüstri', 'fabrika', 'laboratuvar', 'araştırma', 'geliştirme', 'ofis',
     'ürün', 'products', 'services', 'solutions', 'çözüm', 'sistem', 'systems', 'teknolojileri', 'malzeme', 'materials', 'ekipman', 'equipment', 'cihaz', 'device', 'araç', 'tools', 'yedek', 'parça', 'parts', 'aksesuar', 'accessories', 'gereç',
     'meşhur', 'ünlü', 'famous', 'since', 'est', 'established', 'tarihi', 'historical', 'geleneksel', 'traditional', 'klasik', 'classic', 'yeni', 'new', 'fresh', 'taze', 'özel', 'special', 'premium', 'lüks', 'luxury', 'kalite', 'quality', 'uygun',
-    'turkey', 'türkiye', 'international', 'uluslararası',
-    'real estate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
+    'turkey', 'türkiye', 'international', 'uluslararası', 'tesisi', 'sistemleri',
+    // 🔥 DÜZELTME 1: 'real estate' parçalandı ve bitişik hali de eklendi
+    'real', 'estate', 'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
     'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
     've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an',
-    'com', 'tr', 'comtr', 'net', 'org', 'www', 'io'
+    // 🔥 DÜZELTME 2: 'net', 'tr', 'org' tehlikeli olduğu için listeden çıkarıldı. Sadece zararsız olanlar bırakıldı.
+    'com', 'comtr', 'www', 'io'
 ];
 
 function removeTurkishSuffixes(word: string) {
@@ -50,6 +51,9 @@ function removeTurkishSuffixes(word: string) {
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
     let processed = String(name).toLowerCase()
+        // 🔥 YENİ: Kesme işaretlerini (apostrof) boşluğa değil, doğrudan HİÇLİĞE çevir (eda's -> edas)
+        .replace(/['`’]/g, '')
+        
         // 🔥 YENİ: Sadece NOKTA ile başlayan gerçek uzantıları ve www. ön ekini siler
         .replace(/\.(com\.tr|net\.tr|org\.tr|com|tr|net|org|co|io|info|biz|tv)\b/g, '')
         .replace(/^www\./g, '')

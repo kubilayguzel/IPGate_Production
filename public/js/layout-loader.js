@@ -251,15 +251,27 @@ async function setupMenuBadges(supabase, userId) {
         .eq('id', userId)
         .single();
 
-      // 2. Sadece yetkili kişiler (admin/superadmin) bu rozeti görebilsin
+      // 2. Sadece yetkili kişiler (admin/superadmin) onay bekleyen kullanıcıları görebilsin
+      let pendingCount = 0;
       if (userProfile && (userProfile.role === 'superadmin' || userProfile.role === 'admin')) {
-        const { count: pendingCount } = await supabase
+        const { count } = await supabase
           .from('users')
           .select('*', { count: 'exact', head: true })
           .eq('role', 'belirsiz');
+        pendingCount = count || 0;
+        localStorage.setItem('global_pending_users', pendingCount);
+      }
 
-        // 'reminders' id'li menü öğesine rozeti ekle (uygulamanın yerleşik UI fonksiyonu ile)
-        updateBadgeUI('reminders', pendingCount || 0);
+      // 🔥 ÇÖZÜM 3: Reminders sayfasından belleğe aldığımız okunmamış bildirim sayısını menüye basıyoruz
+      const unreadReminders = parseInt(localStorage.getItem('global_unread_reminders') || '0');
+      const totalReminders = pendingCount + unreadReminders;
+      
+      updateBadgeUI('reminders', totalReminders);
+      
+      // Rozeti daha dikkat çekici (kırmızı) yapmak için class ekliyoruz
+      const reminderBadgeEl = document.getElementById('badge-reminders');
+      if(reminderBadgeEl && totalReminders > 0) {
+          reminderBadgeEl.classList.add('bg-danger', 'text-white');
       }
     }
     // ----------------------------------------------------------------

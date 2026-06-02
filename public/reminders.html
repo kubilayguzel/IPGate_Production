@@ -285,10 +285,6 @@
                         
                         let dbStatus = r.status || 'active';
                         
-                        // Geçmiş tarihli bir notsa tamamlandı olarak işaretle
-                        if (threshold === 'expired' && dbStatus !== 'completed') {
-                            dbStatus = 'completed'; reminderService.updateReminder(r.id, { status: 'completed' }).catch(()=>{});
-                        }
                         const archive = (dbStatus === 'completed' || this.isArchived('manual', r.id));
 
                         tempArr.push({
@@ -417,6 +413,10 @@
 
             syncSidebarBadge() {
                 const unreadCount = this.combinedData.filter(r => r.status !== 'completed' && !r.isRead && r.threshold !== 'future').length;
+                
+                // 🔥 ÇÖZÜM 2: Bildirim sayısını tüm sayfalarda görebilmek için tarayıcı belleğine kaydediyoruz
+                localStorage.setItem('global_unread_reminders', unreadCount);
+
                 const navLinks = document.querySelectorAll('a[href*="reminders.html"]');
                 navLinks.forEach(link => {
                     let badge = link.querySelector('.sidebar-reminder-badge');
@@ -429,8 +429,18 @@
                     badge.textContent = unreadCount;
                     badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
                 });
-            }
 
+                // Ana menüdeki standart rozeti de anında güncelle
+                const mainBadge = document.getElementById('badge-reminders');
+                if (mainBadge) {
+                    const pendingCount = parseInt(localStorage.getItem('global_pending_users') || '0');
+                    const total = unreadCount + pendingCount;
+                    mainBadge.textContent = total;
+                    mainBadge.style.display = total > 0 ? 'inline-block' : 'none';
+                    mainBadge.classList.add('bg-danger', 'text-white'); // Kırmızı rozet stili
+                }
+            }
+            
             render() {
                 const container = document.getElementById('timelineContainer');
                 let filtered = this.combinedData;

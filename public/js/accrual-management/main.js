@@ -1177,6 +1177,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         this.freestyleFormManager.reset();
                         modalFreestyle.classList.add('show');
+                        modalFreestyle.style.display = 'block'; // 🔥 ÇÖZÜM BURADA: Modalı görünür hale getiriyoruz!
                     } catch (error) { showNotification('Form yüklenirken hata oluştu.', 'error'); } 
                     finally { this.uiManager.toggleLoading(false); }
                 });

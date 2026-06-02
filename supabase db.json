@@ -375,6 +375,124 @@
                         "data_type": "uuid",
                         "column_name": "id",
                         "is_nullable": "NO",
+                        "column_default": "gen_random_uuid()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "person_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "type",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "amount",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "currency",
+                        "is_nullable": "YES",
+                        "column_default": "'TRY'::text",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "period",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "start_date",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "next_trigger_date",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "last_trigger_date",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "description",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "boolean",
+                        "column_name": "is_active",
+                        "is_nullable": "YES",
+                        "column_default": "true",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "updated_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "items",
+                        "is_nullable": "YES",
+                        "column_default": "'[]'::jsonb",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "department",
+                        "is_nullable": "YES",
+                        "column_default": "'EVREKA'::text",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "accruals_recursive",
+                "foreign_keys": [
+                    {
+                        "column_name": "person_id",
+                        "constraint_name": "accruals_recursive_person_id_fkey",
+                        "foreign_table_name": "persons",
+                        "foreign_column_name": "id"
+                    }
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
                         "column_default": "uuid_generate_v4()",
                         "character_maximum_length": null
                     },
@@ -1310,15 +1428,15 @@
                 "table_name": "ip_record_applicants",
                 "foreign_keys": [
                     {
-                        "column_name": "ip_record_id",
-                        "constraint_name": "ip_record_applicants_ip_record_id_fkey",
-                        "foreign_table_name": "ip_records",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "person_id",
                         "constraint_name": "fk_ip_record_applicants_person",
                         "foreign_table_name": "persons",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "ip_record_id",
+                        "constraint_name": "ip_record_applicants_ip_record_id_fkey",
+                        "foreign_table_name": "ip_records",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -2953,15 +3071,15 @@
                 "table_name": "price_list_items",
                 "foreign_keys": [
                     {
-                        "column_name": "fee_id",
-                        "constraint_name": "price_list_items_fee_id_fkey",
-                        "foreign_table_name": "fee_tariffs",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "price_list_id",
                         "constraint_name": "price_list_items_list_id_fkey",
                         "foreign_table_name": "price_lists",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "fee_id",
+                        "constraint_name": "price_list_items_fee_id_fkey",
+                        "foreign_table_name": "fee_tariffs",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -3718,6 +3836,55 @@
                     }
                 ],
                 "table_name": "tasks",
+                "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "text",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "monitored_trademark_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "bulletin_record_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "boolean",
+                        "column_name": "is_similar",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "note",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "success_chance",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "temp_saved_similarities",
                 "foreign_keys": [
                 ]
             },

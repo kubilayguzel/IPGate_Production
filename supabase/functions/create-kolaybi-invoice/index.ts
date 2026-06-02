@@ -115,36 +115,34 @@ serve(async (req) => {
 
         const docData = detailRes.data || detailRes;
         
-        // KolayBi e-fatura detaylarını genellikle 'e_document' objesi içinde döner
         const eDoc = docData.e_document || {};
+        
+        // API Dokümantasyonuna göre asıl statü kodlarını alıyoruz
+        const commStatusObj = docData.commercial_doc_status || {};
+        const commStatusVal = commStatusObj.value || null; // Örn: 'rejected', 'approved', 'sent'
+        const eDocStatus = docData.e_document_status || null; // Örn: 'sent_to_receiver', 'waiting_gib'
 
-        const serialNo = eDoc.document_number || docData.serial_no || docData.invoice_no || null;
-        const issueDate = eDoc.issue_date || docData.issue_date || docData.order_date || null;
-
-        // Durum için en doğru metni (Örn: "REDDEDİLDİ", "KABUL EDİLDİ", "GİB ONAYLI") önceliklendirerek bul
-        const kStatus = eDoc.status_description || eDoc.status || docData.e_document_status || docData.status_description || docData.status || null;
+        const serialNo = eDoc.document_number || docData.header?.serial_no || docData.serial_no || docData.invoice_no || null;
+        const issueDate = eDoc.issue_date || docData.header?.issue_date || docData.issue_date || docData.order_date || null;
         const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
 
         const updates: any = {};
         if (serialNo) updates.invoice_no = serialNo;
         if (issueDate) updates.invoice_date = issueDate;
-        if (kStatus) updates.kolaybi_status = String(kStatus);
         if (uuid) updates.kolaybi_uuid = uuid;
 
-        // Sistemin kendi ana 'status' kolonunu da KolayBi'den gelen metne göre akıllı güncelleyelim
-        if (kStatus) {
-            const statusUpper = String(kStatus).toUpperCase();
-            if (statusUpper.includes('RED') || statusUpper.includes('REJECT')) {
-                updates.status = 'rejected';
-            } else if (statusUpper.includes('İPTAL') || statusUpper.includes('CANCEL')) {
-                updates.status = 'cancelled';
-            } else if (statusUpper.includes('KABUL') || statusUpper.includes('ONAY') || statusUpper.includes('APPROVED')) {
-                updates.status = 'approved';
-            } else if (uuid && inv.status === 'draft') {
-                updates.status = 'sent';
-            }
-        } else if (uuid && inv.status === 'draft') {
+        // Sistemin kendi ana 'status' kolonunu KolayBi'nin commercial_doc_status değeriyle kesinleştir
+        if (commStatusVal) {
+            updates.status = commStatusVal; // Doğrudan 'draft', 'rejected', 'approved', 'cancelled', vb. yazar
+        } else if (eDocStatus && inv.status === 'draft') {
             updates.status = 'sent';
+        }
+        
+        // UI tarafında detayı görmek için kolaybi_status'u teknik koda (Örn: sent_to_receiver) eşitle
+        if (eDocStatus) {
+            updates.kolaybi_status = eDocStatus;
+        } else if (commStatusVal) {
+            updates.kolaybi_status = commStatusVal;
         }
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
@@ -187,31 +185,33 @@ serve(async (req) => {
                 const docData = detailRes.data || detailRes;
                 
                 const eDoc = docData.e_document || {};
+        
+                // API Dokümantasyonuna göre asıl statü kodlarını alıyoruz
+                const commStatusObj = docData.commercial_doc_status || {};
+                const commStatusVal = commStatusObj.value || null; // Örn: 'rejected', 'approved', 'sent'
+                const eDocStatus = docData.e_document_status || null; // Örn: 'sent_to_receiver', 'waiting_gib'
 
-                const serialNo = eDoc.document_number || docData.serial_no || docData.invoice_no || null;
-                const issueDate = eDoc.issue_date || docData.issue_date || docData.order_date || null;
-                const kStatus = eDoc.status_description || eDoc.status || docData.e_document_status || docData.status_description || docData.status || null;
+                const serialNo = eDoc.document_number || docData.header?.serial_no || docData.serial_no || docData.invoice_no || null;
+                const issueDate = eDoc.issue_date || docData.header?.issue_date || docData.issue_date || docData.order_date || null;
                 const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
 
                 const updates: any = {};
                 if (serialNo) updates.invoice_no = serialNo;
                 if (issueDate) updates.invoice_date = issueDate;
-                if (kStatus) updates.kolaybi_status = String(kStatus);
                 if (uuid) updates.kolaybi_uuid = uuid;
 
-                if (kStatus) {
-                    const statusUpper = String(kStatus).toUpperCase();
-                    if (statusUpper.includes('RED') || statusUpper.includes('REJECT')) {
-                        updates.status = 'rejected';
-                    } else if (statusUpper.includes('İPTAL') || statusUpper.includes('CANCEL')) {
-                        updates.status = 'cancelled';
-                    } else if (statusUpper.includes('KABUL') || statusUpper.includes('ONAY') || statusUpper.includes('APPROVED')) {
-                        updates.status = 'approved';
-                    } else if (uuid && inv.status === 'draft') {
-                        updates.status = 'sent';
-                    }
-                } else if (uuid && inv.status === 'draft') {
+                // Sistemin kendi ana 'status' kolonunu KolayBi'nin commercial_doc_status değeriyle kesinleştir
+                if (commStatusVal) {
+                    updates.status = commStatusVal; // Doğrudan 'draft', 'rejected', 'approved', 'cancelled', vb. yazar
+                } else if (eDocStatus && inv.status === 'draft') {
                     updates.status = 'sent';
+                }
+                
+                // UI tarafında detayı görmek için kolaybi_status'u teknik koda (Örn: sent_to_receiver) eşitle
+                if (eDocStatus) {
+                    updates.kolaybi_status = eDocStatus;
+                } else if (commStatusVal) {
+                    updates.kolaybi_status = commStatusVal;
                 }
 
                 if (Object.keys(updates).length > 0) {

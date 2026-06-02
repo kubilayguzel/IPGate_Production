@@ -744,40 +744,39 @@ export class AccrualDataManager {
     async autoSyncPendingInvoices() {
         if (!this.allInvoices || this.allInvoices.length === 0) return false;
 
-        // Faturanın tekrar sorgulanmasına GEREK OLMAYAN nihai durumlar
+        // KolayBi API dökümanına göre nihai (tekrar sorgulanmayacak) durumlar
         const finalStatuses = ['approved', 'rejected', 'cancelled', 'failed'];
 
         const pendingIds = this.allInvoices
             .filter(inv => {
-                // KolayBi ID'si yoksa geç
-                if (!inv.kolaybiInvoiceId || inv.kolaybiInvoiceId === 'undefined') return false;
+                const kId = String(inv.kolaybiInvoiceId);
+                if (!inv.kolaybiInvoiceId || kId === 'undefined' || kId === 'null') {
+                    return false; // Fatura henüz kesilmemiş
+                }
                 
-                const s = inv.status;
+                const s = (inv.status || 'draft').toLowerCase().trim();
                 
-                // 1. KURAL: Eğer fatura zaten Kabul, Red veya İptal edilmişse ASLA sorgulama!
-                if (finalStatuses.includes(s)) return false;
+                // Eğer fatura 'approved', 'rejected' veya 'cancelled' ise sorgulamayı atla
+                if (finalStatuses.includes(s)) {
+                    return false;
+                }
 
-                // 2. KURAL: Sadece sonucu henüz belli olmayanları (Taslak, İletildi, Bekliyor) sorgula
-                return !inv.kolaybiUuid || s === 'draft' || s === 'sent' || s === 'waiting' || s === 'processing';
+                // Geri kalan her şeyi sorgula (Örn: sent, sent_to_receiver, waiting_gib, taslak vb.)
+                return true;
             })
             .map(inv => inv.id);
 
         if (pendingIds.length > 0) {
-            // 🔥 GÜVENLİK/PERFORMANS: Aynı anda en fazla 30 faturayı sorgula ki KolayBi API'si veya tarayıcı kilitlenmesin
-            const idsToSync = pendingIds.slice(0, 30);
-            
-            console.log(`[OTO-SYNC] Toplam ${pendingIds.length} adet durumu belirsiz fatura var. Performans için ${idsToSync.length} tanesi sorgulanıyor...`);
-            
+            console.log(`[OTO-SYNC] Sorgulanacak ${pendingIds.length} adet fatura var. Limit kaldırıldı.`);
             try {
-                // Sadece filtrelenmiş ve limitlenmiş ID'leri gönderiyoruz
-                await this.syncBulkKolaybiInvoices(idsToSync);
+                await this.syncBulkKolaybiInvoices(pendingIds);
                 await this.fetchAllData(); 
                 return true; 
             } catch (e) {
                 console.error("[OTO-SYNC] Otomatik güncelleme hatası:", e);
             }
         } else {
-            console.log("[OTO-SYNC] Tüm faturalar nihai durumda (Kabul/Red/İptal). Güncellenecek fatura yok.");
+            console.log("[OTO-SYNC] Tüm faturalar nihai durumda. Güncellenecek fatura yok.");
         }
         return false;
     }

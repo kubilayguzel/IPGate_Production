@@ -132,9 +132,19 @@ export class AccrualFormManager {
                 </div>
             </div>
 
-            <div class="form-group mt-2 mb-3">
-                <label class="text-secondary font-weight-bold" style="font-size:0.9rem;"><i class="fas fa-edit mr-2"></i>Tahakkuk Açıklaması / Notu</label>
-                <textarea id="${p}AccrualDescription" class="form-control" rows="2" placeholder="Detaylı notlar veya referans bilgisi giriniz..."></textarea>
+            <div class="row mt-2 mb-3">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="text-secondary font-weight-bold" style="font-size:0.9rem;"><i class="fas fa-edit mr-2"></i>Tahakkuk Notu <small>(İç Bilgi)</small></label>
+                        <textarea id="${p}AccrualDescription" class="form-control bg-light" rows="3" placeholder="Sadece sistemde görünür, faturaya yazılmaz."></textarea>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="text-primary font-weight-bold" style="font-size:0.9rem;"><i class="fas fa-file-invoice mr-2"></i>Fatura Açıklaması <small>(Müşteriye Gider)</small></label>
+                        <textarea id="${p}InvoiceDescription" class="form-control border-primary" rows="3" placeholder="Doğrudan faturada alt açıklama olarak yer alacak metin."></textarea>
+                    </div>
+                </div>
             </div>
 
             <div id="${p}EpatsDocumentContainer" class="alert alert-secondary align-items-center justify-content-between mb-4" style="display:none; border-left: 4px solid #1e3c72;">
@@ -550,7 +560,8 @@ export class AccrualFormManager {
         if (document.getElementById(`${p}OrderCodeContainer`)) document.getElementById(`${p}OrderCodeContainer`).style.display = 'none';
         
         if (document.getElementById(`${p}AccrualDescription`)) document.getElementById(`${p}AccrualDescription`).value = '';
-        
+        if (document.getElementById(`${p}InvoiceDescription`)) document.getElementById(`${p}InvoiceDescription`).value = '';
+
         this.selectedTpParty = null;
         this.selectedForeignParty = null;
         
@@ -602,6 +613,10 @@ export class AccrualFormManager {
 
         const descInput = document.getElementById(`${p}AccrualDescription`);
         if (descInput) descInput.value = data.description || data.foreignDescription || '';
+        
+        // 🔥 YENİ EKLENEN
+        const invDescInput = document.getElementById(`${p}InvoiceDescription`);
+        if (invDescInput) invDescInput.value = data.invoice_description || data.invoiceDescription || '';
 
         const tbody = document.getElementById(`${p}LineItemsBody`);
         tbody.innerHTML = '';
@@ -743,6 +758,7 @@ export class AccrualFormManager {
 
         const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
         const accrualDesc = document.getElementById(`${p}AccrualDescription`)?.value.trim() || '';
+        const invoiceDesc = document.getElementById(`${p}InvoiceDescription`)?.value.trim() || ''; // 🔥 Eklendi
         
         const fileInput = document.getElementById(`${p}ForeignInvoiceFile`);
         const files = fileInput?.files;
@@ -790,7 +806,8 @@ export class AccrualFormManager {
                 tpeInvoiceNo: tpeInvoiceNo,
                 evrekaInvoiceNo: evrekaInvoiceNo,
                 orderCode: orderCode,
-                description: accrualDesc,           
+                description: accrualDesc,    
+                invoice_description: invoiceDesc,       
                 foreignInvoiceFile: foreignFile,    
                 files: files                        
             }
@@ -803,7 +820,7 @@ export class AccrualFormManager {
         const elementsToToggle = [
             `${p}Structure`, `${p}Period`, `${p}StartDate`, // 🔥 YENİ EKLENDİ
             `${p}Department`,
-            `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`,
+            `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`, `${p}InvoiceDescription`,
             `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, `${p}ForeignInvoiceFile`,
             `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode`
         ];

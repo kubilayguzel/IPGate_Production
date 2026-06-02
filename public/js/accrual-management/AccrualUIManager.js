@@ -364,11 +364,51 @@ export class AccrualUIManager {
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
                     
                     // Durum Belirleme
-                    let invStatusText = acc.kolaybiStatus || (acc.status === 'draft' ? 'Taslak' : (acc.status === 'sent' ? 'Gönderildi' : 'Bilinmiyor'));
+                    // 🔥 ÇÖZÜM: Gelişmiş KolayBi Statü Haritası (Tüm GİB durumları)
+                    let rawStatus = (acc.kolaybiStatus || acc.status || '').toLowerCase();
+                    let invStatusText = rawStatus;
                     let invStatusClass = 'badge-secondary';
-                    if (acc.status === 'draft') invStatusClass = 'badge-warning text-dark';
-                    else if (acc.status === 'sent') invStatusClass = 'badge-success';
-                    else if (acc.status === 'cancelled') { invStatusText = 'İptal Edildi'; invStatusClass = 'badge-danger'; }
+
+                    switch (rawStatus) {
+                        case 'draft':
+                        case 'taslak':
+                            invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
+                            invStatusClass = 'badge-warning text-dark';
+                            break;
+                        case 'waiting':
+                        case 'processing':
+                        case 'queued':
+                            invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> GİB Kuyruğunda';
+                            invStatusClass = 'badge-info text-white';
+                            break;
+                        case 'approved':
+                        case 'sent':
+                        case 'gönderildi':
+                            invStatusText = '<i class="fas fa-check-double mr-1"></i> GİB Onaylı';
+                            invStatusClass = 'badge-success';
+                            break;
+                        case 'rejected':
+                        case 'reddedildi':
+                            invStatusText = '<i class="fas fa-times-circle mr-1"></i> Reddedildi';
+                            invStatusClass = 'badge-danger';
+                            break;
+                        case 'cancelled':
+                        case 'canceled':
+                        case 'iptal':
+                            invStatusText = '<i class="fas fa-ban mr-1"></i> İptal Edildi';
+                            invStatusClass = 'badge-danger';
+                            break;
+                        case 'failed':
+                        case 'error':
+                            invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> GİB Hatası';
+                            invStatusClass = 'badge-dark';
+                            break;
+                        default:
+                            // Bilinmeyen yeni bir statü gelirse direkt kendisini yazsın
+                            invStatusText = acc.kolaybiStatus || acc.status || 'Bilinmiyor';
+                            invStatusClass = 'badge-light text-dark border';
+                            break;
+                    }
 
                     // Fatura No Linki (Tıklanabilir olması için view-invoice-btn sınıfı var)
                     let invoiceNoHtml = `<span class="font-weight-bold text-primary">${displayInvoiceNo}</span>`;

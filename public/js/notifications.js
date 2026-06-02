@@ -147,29 +147,36 @@ class NotificationsManager {
         this.toggleLoading(true);
         this.elements.tableBody.innerHTML = "";
 
-        let baseList = []; // 🔥 Filtrelenecek ana listeyi geçici değişkende tutuyoruz
+        let baseList = []; 
 
-        if (this.activeTab === 'pending') {
-            baseList = this.allNotifications.filter(n => n.status !== 'sent');
-        } else {
-            const sentList = this.allNotifications.filter(n => n.status === 'sent');
-            let filtered = [];
+        for (const n of this.allNotifications) {
+            const tStatus = n.task_status ? n.task_status.trim() : null;
+            const isWaitingForClient = ['awaiting_client_approval', 'client_approval_opened', 'awaiting-approval'].includes(tStatus);
+            const isSent = n.status === 'sent';
             
-            for (const n of sentList) {
-                const tStatus = n.task_status ? n.task_status.trim() : null;
-                // Sadece "Onay Bekliyor" değil, müvekkil linke tıklamış olsa bile (opened) hatırlatmada kalır
-                const isWaitingForClient = ['awaiting_client_approval', 'client_approval_opened', 'awaiting-approval'].includes(tStatus);
-                
-                // KURAL 1: HATIRLATMALAR SEKMESİ
-                if (this.activeTab === 'reminders' && n.associated_task_id && isWaitingForClient) {
-                    filtered.push(n);
-                }
-                // KURAL 2: GÖNDERİLEN BİLDİRİMLER SEKMESİ
-                else if (this.activeTab === 'sent' && (!n.associated_task_id || !isWaitingForClient)) {
-                    filtered.push(n);
-                }
+            // Türkçe karakterleri sorunsuz küçültmek için toLocaleLowerCase kullanıyoruz
+            const subjectLower = (n.subject || '').toLocaleLowerCase('tr-TR');
+            
+            // 🔥 HASSAS TESPİT: Bildirim konularını spesifik şablonlara göre ayırıyoruz
+            const isMonitoring = subjectLower.includes('sayılı bülten bildirimi');
+            const isRenewal = subjectLower.includes('yenileme işlemi / talimat bekleniyor');
+
+            if (this.activeTab === 'monitoring') {
+                if (!isSent && isMonitoring) baseList.push(n);
             }
-            baseList = filtered;
+            else if (this.activeTab === 'renewal') {
+                if (!isSent && !isMonitoring && isRenewal) baseList.push(n);
+            }
+            else if (this.activeTab === 'pending') {
+                // Bülten ve Yenileme haricindeki tüm diğer bekleyen standart bildirimler
+                if (!isSent && !isMonitoring && !isRenewal) baseList.push(n);
+            }
+            else if (this.activeTab === 'reminders') {
+                if (isSent && n.associated_task_id && isWaitingForClient) baseList.push(n);
+            }
+            else if (this.activeTab === 'sent') {
+                if (isSent && (!n.associated_task_id || !isWaitingForClient)) baseList.push(n);
+            }
         }
 
         // 🔥 YENİ: Arama Kutusuna Göre İkincil Filtreleme (Global Arama)
@@ -195,7 +202,8 @@ class NotificationsManager {
         // Sekmeye göre tablo başlıklarını (TH) gizle veya göster
         const dynamicCols = document.querySelectorAll('.dynamic-col');
         dynamicCols.forEach(col => {
-            col.style.display = this.activeTab === 'pending' ? 'none' : '';
+            // Bekleyenler grubundaki tüm sekmelerde dinamik kolonları (Hatırlatma Tarihi vb.) gizle
+            col.style.display = ['pending', 'monitoring', 'renewal'].includes(this.activeTab) ? 'none' : '';
         });
 
         if (this.pagination) {
@@ -268,8 +276,8 @@ class NotificationsManager {
                 finalSubject = `<strong>${brandName}</strong> - ${finalSubject}`;
             }
 
-            // 🔥 YENİ: Aktif sekme pending (bekleyen) ise o kolonları satırlarda da gizle
-            const isPending = this.activeTab === 'pending';
+            // 🔥 YENİ: Aktif sekme bekleyenler grubunda ise (pending/monitoring/renewal) o kolonları satırlarda da gizle
+            const isPendingGroup = ['pending', 'monitoring', 'renewal'].includes(this.activeTab);
 
             tr.innerHTML = `
                 <td><strong>${globalIndex + 1}</strong></td>
@@ -289,9 +297,9 @@ class NotificationsManager {
                     <span class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></span>
                 </td>
                 <td>${dueDate}</td>
-                ${!isPending ? `<td>${this.formatDate(notification.last_reminder_at)}</td>` : ''}
+                ${!isPendingGroup ? `<td>${this.formatDate(notification.last_reminder_at)}</td>` : ''}
                 <td><span class="badge bg-light text-dark border" title="Tetikleyen"><i class="fas fa-user mr-1"></i> ${notification.triggered_by_name || '-'}</span></td>
-                ${!isPending ? `<td><span class="badge bg-success text-white" title="Gönderen"><i class="fas fa-paper-plane mr-1"></i> ${notification.sent_by_name || '-'}</span></td>` : ''}
+                ${!isPendingGroup ? `<td><span class="badge bg-success text-white" title="Gönderen"><i class="fas fa-paper-plane mr-1"></i> ${notification.sent_by_name || '-'}</span></td>` : ''}
                 <td>${this.formatDate(notification.created_at)}</td>
                 <td>${this.formatDate(notification.sent_at)}</td>
                 <td class="actions-cell d-flex flex-column gap-2" style="gap: 5px;"></td>

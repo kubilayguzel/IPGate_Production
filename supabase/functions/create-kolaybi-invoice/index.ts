@@ -462,21 +462,19 @@ serve(async (req) => {
         if (jobDetailsLines.length > 0) noteLines.push(`İş Detayı: ${jobDetailsLines.join(', ')}`);
         noteLines.push(`Tahakkuk No: ${accrualIds.join(', ')}`);
 
-        // 🔥 ÇÖZÜM: Tahakkuk Açıklaması / Notu alanındaki metinleri faturaya ekleme
-        let accrualNotes: string[] = [];
+        // 🔥 YENİ: Artık 'description' (Tahakkuk Notu) değil, 'invoice_description' (Fatura Açıklaması) okunacak
+        let invoiceNotesFromAccruals: string[] = [];
         accruals.forEach((acc: any) => {
-            if (acc.description && acc.description.trim() !== '') {
-                // Eğer not içinde kullanıcı "Enter" ile satır atlamışsa, faturada yer tasarrufu için onu " - " ile birleştiriyoruz.
-                const cleanNote = acc.description.trim().replace(/\n/g, ' - ');
-                // Aynı nottan birden fazla tahakkukta varsa faturaya iki kere yazmasını engelliyoruz
-                if (!accrualNotes.includes(cleanNote)) {
-                    accrualNotes.push(cleanNote);
+            if (acc.invoice_description && acc.invoice_description.trim() !== '') {
+                const cleanNote = acc.invoice_description.trim().replace(/\n/g, ' - ');
+                if (!invoiceNotesFromAccruals.includes(cleanNote)) {
+                    invoiceNotesFromAccruals.push(cleanNote);
                 }
             }
         });
         
-        if (accrualNotes.length > 0) {
-            noteLines.push(`Tahakkuk Açıklaması: ${accrualNotes.join(' | ')}`);
+        if (invoiceNotesFromAccruals.length > 0) {
+            noteLines.push(`Fatura Açıklaması: ${invoiceNotesFromAccruals.join(' | ')}`);
         }
 
         noteLines.push(`Not: IPGate Sistemi Üzerinden Otomatik Oluşturulmuştur.`);

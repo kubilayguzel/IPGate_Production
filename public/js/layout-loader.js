@@ -242,7 +242,7 @@ async function setupMenuBadges(supabase, userId) {
   if (!supabase) return;
 
   try {
-    // --- YENİ EKLENEN: Hatırlatmalar (Belirsiz Kullanıcı) Rozeti ---
+    // --- YENİ EKLENEN: Hatırlatmalar Rozeti (Kullanıcı + Manuel + Sistem Bildirimleri) ---
     if (userId) {
       // 1. Önce giriş yapan kullanıcının rolünü kontrol et
       const { data: userProfile } = await supabase
@@ -262,16 +262,34 @@ async function setupMenuBadges(supabase, userId) {
         localStorage.setItem('global_pending_users', pendingCount);
       }
 
-      // 🔥 ÇÖZÜM 3: Reminders sayfasından belleğe aldığımız okunmamış bildirim sayısını menüye basıyoruz
-      const unreadReminders = parseInt(localStorage.getItem('global_unread_reminders') || '0');
+      // 3. LocalStorage'dan (reminders.html'in hesaplayıp yazdığı) okunmamış bildirimleri al
+      let unreadReminders = parseInt(localStorage.getItem('global_unread_reminders'));
+      
+      // 🔥 KURTARICI KOD: Eğer giriş yeni bir bilgisayardan yapıldıysa (Bellek boşsa), 
+      // sadece aktif manuel notları veritabanından hızlıca sayıp başlangıç değeri veriyoruz.
+      if (isNaN(unreadReminders)) {
+          const { count: manualNotesCount } = await supabase
+            .from('reminders')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId)
+            .neq('status', 'completed')
+            .eq('is_read', false);
+          unreadReminders = manualNotesCount || 0;
+      }
+
       const totalReminders = pendingCount + unreadReminders;
       
+      // Uygulamanın yerleşik fonksiyonu ile menüye sayıyı basıyoruz
       updateBadgeUI('reminders', totalReminders);
       
-      // Rozeti daha dikkat çekici (kırmızı) yapmak için class ekliyoruz
-      const reminderBadgeEl = document.getElementById('badge-reminders');
-      if(reminderBadgeEl && totalReminders > 0) {
-          reminderBadgeEl.classList.add('bg-danger', 'text-white');
+      // 🔥 GÜNCELLEME: Animasyon kaldırıldı, sadece dikkat çekici sabit kırmızı yapıldı
+      const badgeEl = document.getElementById('badge-reminders');
+      if (badgeEl && totalReminders > 0) {
+        badgeEl.classList.add('bg-danger', 'text-white');
+        badgeEl.style.padding = '3px 6px';
+        badgeEl.style.borderRadius = '10px'; // Hafif oval, şık bir görünüm
+      } else if (badgeEl) {
+        badgeEl.classList.remove('bg-danger', 'text-white');
       }
     }
     // ----------------------------------------------------------------

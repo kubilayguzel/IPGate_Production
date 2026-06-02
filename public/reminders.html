@@ -414,33 +414,21 @@
             syncSidebarBadge() {
                 const unreadCount = this.combinedData.filter(r => r.status !== 'completed' && !r.isRead && r.threshold !== 'future').length;
                 
-                // 🔥 ÇÖZÜM 2: Bildirim sayısını tüm sayfalarda görebilmek için tarayıcı belleğine kaydediyoruz
+                // 1. Sayıyı tüm sistemin anında görebilmesi için tarayıcı belleğine (localStorage) kaydet
                 localStorage.setItem('global_unread_reminders', unreadCount);
 
-                const navLinks = document.querySelectorAll('a[href*="reminders.html"]');
-                navLinks.forEach(link => {
-                    let badge = link.querySelector('.sidebar-reminder-badge');
-                    if (!badge) {
-                        badge = document.createElement('span');
-                        badge.className = 'sidebar-reminder-badge';
-                        link.style.position = 'relative'; 
-                        link.appendChild(badge);
-                    }
-                    badge.textContent = unreadCount;
-                    badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-                });
-
-                // Ana menüdeki standart rozeti de anında güncelle
-                const mainBadge = document.getElementById('badge-reminders');
-                if (mainBadge) {
+                // 2. Çift rozet oluşmasını engellemek için doğrudan ana menüdeki yerleşik rozeti güncelle
+                const badgeEl = document.getElementById('badge-reminders');
+                if (badgeEl) {
                     const pendingCount = parseInt(localStorage.getItem('global_pending_users') || '0');
                     const total = unreadCount + pendingCount;
-                    mainBadge.textContent = total;
-                    mainBadge.style.display = total > 0 ? 'inline-block' : 'none';
-                    mainBadge.classList.add('bg-danger', 'text-white'); // Kırmızı rozet stili
+                    
+                    badgeEl.textContent = total;
+                    badgeEl.style.display = total > 0 ? 'inline-block' : 'none';
+                    if (total > 0) badgeEl.classList.add('badge-pulse');
                 }
             }
-            
+
             render() {
                 const container = document.getElementById('timelineContainer');
                 let filtered = this.combinedData;

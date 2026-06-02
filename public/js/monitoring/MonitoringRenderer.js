@@ -34,8 +34,8 @@ export class MonitoringRenderer {
         
         if (!isIntl) {
             // YURTİÇİ TABLO BAŞLIKLARI
-            html += `<th style="width: 40px; text-align: center;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>
-                     <th style="width: 100px; text-align: center;">Görsel</th>
+            html += `<th style="width: 40px; text-align: center; overflow: visible; text-overflow: clip;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>
+            <th style="width: 100px; text-align: center;">Görsel</th>
                      <th class="sortable" data-sort="markName" style="cursor:pointer; width: 220px;">Marka Adı ${getSortIcon('markName')}</th>
                      <th style="width: 250px;">Aranacak İbareler</th>
                      <th class="sortable" data-sort="owner" style="cursor:pointer; width: auto;">Sahip ${getSortIcon('owner')}</th>
@@ -99,7 +99,7 @@ export class MonitoringRenderer {
                 // Satır Çizimi
                 let rowHtml = `<tr data-id="${r.id}" class="${rowClass}">`;
                 if (!isIntl) {
-                    rowHtml += `<td style="text-align: center;"><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>
+                    rowHtml += `<td style="text-align: center; overflow: visible; text-overflow: clip;"><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${isSelected}></td>
                                 <td style="text-align: center;">${trademarkImageHtml}</td>
                                 <td title="${markNameText}">${markNameHtml}</td>
                                 <td>${searchTermsHtml}</td>

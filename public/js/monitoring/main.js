@@ -16,9 +16,12 @@ class MonitoringController {
         this.monitoredCountriesList = new Set(); 
         this.allCountriesFromDB = []; 
 
-        // 🔥 YENİ: Düzenleme Durumu ve Görsel Kontrolü
         this.editingRecordId = null;
         this.imageRemoved = false; 
+        
+        // 🔥 DÜZELTME: Modal yöneticisini doğru şekilde başlatıyoruz
+        this.editModalManager = new EditCriteriaModalManager();
+        this.editModalManager.init(); // Modal içindeki tıklama olaylarını aktif eder
 
         window.monitoringApp = this; 
         this.init();
@@ -61,11 +64,11 @@ class MonitoringController {
             btnContainer.style.display = tabName === 'international' ? 'block' : 'none';
         }
         
-        // Yurtdışındayken "Seçilenleri Sil" butonunu gizle
-        const bulkDeleteBtn = document.getElementById('deleteBtn');
-        if (bulkDeleteBtn) {
-            bulkDeleteBtn.style.display = tabName === 'international' ? 'none' : 'inline-block';
-        }
+        // Yurtdışındayken "Seçilenleri Sil" ve "Kriter Düzenle" butonlarını gizle
+        const bulkDeleteBtn = document.getElementById('removeSelectedBtn');
+        const editCritBtn = document.getElementById('editCriteriaBtn');
+        if (bulkDeleteBtn) bulkDeleteBtn.style.display = tabName === 'international' ? 'none' : 'inline-block';
+        if (editCritBtn) editCritBtn.style.display = tabName === 'international' ? 'none' : 'inline-block';
         
         this.selectedItems.clear();
         this.updateButtons();
@@ -304,8 +307,16 @@ class MonitoringController {
     }
     
     updateButtons() {
-        const delBtn = document.getElementById('deleteBtn');
-        if (delBtn) delBtn.disabled = this.selectedItems.size === 0;
+        // 🔥 YENİ: Doğru ID'ler ve Seçili Sayısı Kontrolü
+        const removeBtn = document.getElementById('removeSelectedBtn');
+        const editBtn = document.getElementById('editCriteriaBtn');
+        const countSpan = document.getElementById('selectedCount');
+        
+        const count = this.selectedItems.size;
+        
+        if (removeBtn) removeBtn.disabled = count === 0; // En az 1 seçimde aktif olur
+        if (editBtn) editBtn.disabled = count !== 1; // Sadece 1 seçim olduğunda Kriter düzenlenebilir
+        if (countSpan) countSpan.textContent = count;
     }
     
     setupGlobalListeners() {
@@ -402,7 +413,8 @@ class MonitoringController {
             });
         }
 
-        const delBtn = document.getElementById('deleteBtn');
+        // Seçilenleri Kaldır (Sil) İşlemi
+        const delBtn = document.getElementById('removeSelectedBtn');
         if (delBtn) {
             delBtn.addEventListener('click', async () => {
                 if (this.selectedItems.size === 0) return;
@@ -417,6 +429,24 @@ class MonitoringController {
                     this.renderPage();
                 } catch(e) {
                     showNotification('Silme hatası: ' + e.message, 'error');
+                }
+            });
+        }
+
+        // 🔥 DÜZELTME: Kriterleri Düzenle Butonu İşlemi
+        const editBtn = document.getElementById('editCriteriaBtn');
+        if (editBtn) {
+            editBtn.addEventListener('click', () => {
+                if (this.selectedItems.size === 1) {
+                    const id = Array.from(this.selectedItems)[0];
+                    const record = this.dataManager.allMonitoringData.find(r => r.id === id);
+                    if (record && this.editModalManager) {
+                        // 'open' metodunu çağırıyoruz ve kayıt sonrası tabloyu yenilemesi için fonksiyonumuzu iletiyoruz
+                        this.editModalManager.open(record, () => {
+                            this.selectedItems.clear();
+                            this.renderPage();
+                        });
+                    }
                 }
             });
         }

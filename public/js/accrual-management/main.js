@@ -1270,9 +1270,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.addEventListener('invoice-sync-request', async (e) => {
                 try {
                     this.uiManager.toggleLoading(true);
-                    await this.dataManager.syncKolaybiInvoice(e.detail.id);
-                    showNotification("Fatura başarıyla senkronize edildi!", "success");
-                    await this.loadData(); // Tabloyu yeniler
+                    const res = await this.dataManager.syncKolaybiInvoice(e.detail.id);
+                    
+                    // 🔥 LOG İÇİN EKLENDİ: Kolaybiden dönen saf veriyi konsola bas
+                    console.log("🚨 KOLAYBİ'DEN GELEN HAM VERİ (RAW):", res.raw_kolaybi_data);
+                    console.log("🛠️ SİSTEMİN YAPTIĞI GÜNCELLEME (UPDATES):", res.data);
+                    
+                    showNotification("Senkronizasyon tamam. Lütfen F12 (Konsol) ekranına bakın!", "success");
+                    await this.loadData(); 
                 } catch (err) {
                     showNotification("Senkronizasyon Hatası: " + err.message, "error");
                 } finally {
@@ -1336,12 +1341,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 btnSyncAllInvoices.addEventListener('click', async () => {
                     try {
                         this.uiManager.toggleLoading(true);
+
+                        // KolayBi API dökümanına göre nihai (tekrar sorgulanmayacak) durumlar
+                        const finalStatuses = ['approved', 'rejected', 'cancelled', 'failed'];
+
+                        // Backend ve Auto-Sync ile aynı mantığı kullanıyoruz
                         const pendingIds = this.dataManager.allInvoices
-                            .filter(inv => inv.kolaybiInvoiceId && (!inv.kolaybiUuid || inv.status === 'draft'))
+                            .filter(inv => {
+                                const kId = String(inv.kolaybiInvoiceId);
+                                if (!inv.kolaybiInvoiceId || kId === 'undefined' || kId === 'null') return false;
+                                
+                                const s = (inv.status || 'draft').toLowerCase().trim();
+                                if (finalStatuses.includes(s)) return false;
+
+                                return true; // Diğer her şeyi sorgula
+                            })
                             .map(inv => inv.id);
                         
                         if(pendingIds.length === 0) {
-                            showNotification("Mevcut durumda ETTN bekleyen veya güncellenecek fatura bulunmuyor.", "warning");
+                            showNotification("Mevcut durumda güncellenecek fatura bulunmuyor.", "warning");
                             return;
                         }
                         

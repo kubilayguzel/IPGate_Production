@@ -115,35 +115,54 @@ serve(async (req) => {
 
         const docData = detailRes.data || detailRes;
         
-        const eDoc = docData.e_document || {};
-        
-        // API Dokümantasyonuna göre asıl statü kodlarını alıyoruz
-        const commStatusObj = docData.commercial_doc_status || {};
-        const commStatusVal = commStatusObj.value || null; // Örn: 'rejected', 'approved', 'sent'
-        const eDocStatus = docData.e_document_status || null; // Örn: 'sent_to_receiver', 'waiting_gib'
+        // 🔥 ÇÖZÜM: Statü bilgisini gizleyen KolayBi'ye karşı, "Liste" API'sine gidip asıl statüyü oradan çekiyoruz!
+        let listItem = null;
+        try {
+            const listReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices?id=${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+            if (listReq.ok) {
+                const listRes = await listReq.json();
+                const items = listRes.data?.data || listRes.data || [];
+                // Faturamızı listede bul
+                listItem = items.find((i: any) => String(i.id) === String(inv.kolaybi_invoice_id));
+                if (!listItem && items.length > 0) listItem = items[0];
+            }
+        } catch(e) {
+            console.error("Liste API Hatası:", e);
+        }
 
-        const serialNo = eDoc.document_number || docData.header?.serial_no || docData.serial_no || docData.invoice_no || null;
-        const issueDate = eDoc.issue_date || docData.header?.issue_date || docData.issue_date || docData.order_date || null;
-        const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
+        // Hem detaydan hem listeden gelen veriyi birleştir
+        const combinedData = { ...docData, ...listItem };
+        
+        const commStatusObj = combinedData.commercial_doc_status || {};
+        const commStatusVal = commStatusObj.value || combinedData.status || null; 
+        const eDocStatus = combinedData.e_document_status || null; 
+
+        const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
+        const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
+        const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
 
         const updates: any = {};
         if (serialNo) updates.invoice_no = serialNo;
         if (issueDate) updates.invoice_date = issueDate;
         if (uuid) updates.kolaybi_uuid = uuid;
 
-        // Sistemin kendi ana 'status' kolonunu KolayBi'nin commercial_doc_status değeriyle kesinleştir
-        if (commStatusVal) {
-            updates.status = commStatusVal; // Doğrudan 'draft', 'rejected', 'approved', 'cancelled', vb. yazar
-        } else if (eDocStatus && inv.status === 'draft') {
+        // 🔥 Akıllı Durum Analizi (Hem İngilizce API kodları hem Türkçe "Kabul Edildi" metinlerini kapsar)
+        const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
+        
+        if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
+            updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
+        } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
+            updates.status = 'approved';
+        } else if (commStatusVal) {
+            updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
+        } else if (uuid && inv.status === 'draft') {
             updates.status = 'sent';
         }
-        
-        // UI tarafında detayı görmek için kolaybi_status'u teknik koda (Örn: sent_to_receiver) eşitle
-        if (eDocStatus) {
-            updates.kolaybi_status = eDocStatus;
-        } else if (commStatusVal) {
-            updates.kolaybi_status = commStatusVal;
-        }
+
+        // Arayüzde detayı göstermek için orjinal KolayBi metnini sakla
+        if (eDocStatus) updates.kolaybi_status = eDocStatus;
+        else if (commStatusVal) updates.kolaybi_status = typeof commStatusVal === 'string' ? commStatusVal : null;
+
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
             
@@ -154,7 +173,13 @@ serve(async (req) => {
             }
         }
 
-        return new Response(JSON.stringify({ success: true, message: "Fatura durumu başarıyla senkronize edildi.", data: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        // YENİ KOD: Konsolda inceleyebilmek için docData'yı raw_kolaybi_data olarak dışarı aktarıyoruz
+        return new Response(JSON.stringify({ 
+            success: true, 
+            message: "Fatura durumu başarıyla senkronize edildi.", 
+            data: updates,
+            raw_kolaybi_data: docData // 🔥 LOG İÇİN EKLENDİ
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
     
     // ==============================================================================
@@ -184,35 +209,52 @@ serve(async (req) => {
 
                 const docData = detailRes.data || detailRes;
                 
-                const eDoc = docData.e_document || {};
-        
-                // API Dokümantasyonuna göre asıl statü kodlarını alıyoruz
-                const commStatusObj = docData.commercial_doc_status || {};
-                const commStatusVal = commStatusObj.value || null; // Örn: 'rejected', 'approved', 'sent'
-                const eDocStatus = docData.e_document_status || null; // Örn: 'sent_to_receiver', 'waiting_gib'
+                // 🔥 ÇÖZÜM: Statü bilgisini gizleyen KolayBi'ye karşı, "Liste" API'sine gidip asıl statüyü oradan çekiyoruz!
+                let listItem = null;
+                try {
+                    const listReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices?id=${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+                    if (listReq.ok) {
+                        const listRes = await listReq.json();
+                        const items = listRes.data?.data || listRes.data || [];
+                        listItem = items.find((i: any) => String(i.id) === String(inv.kolaybi_invoice_id));
+                        if (!listItem && items.length > 0) listItem = items[0];
+                    }
+                } catch(e) {
+                    console.error("Liste API Hatası:", e);
+                }
 
-                const serialNo = eDoc.document_number || docData.header?.serial_no || docData.serial_no || docData.invoice_no || null;
-                const issueDate = eDoc.issue_date || docData.header?.issue_date || docData.issue_date || docData.order_date || null;
-                const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
+                // Hem detaydan hem listeden gelen veriyi birleştir
+                const combinedData = { ...docData, ...listItem };
+                
+                const commStatusObj = combinedData.commercial_doc_status || {};
+                const commStatusVal = commStatusObj.value || combinedData.status || null; 
+                const eDocStatus = combinedData.e_document_status || null; 
+
+                const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
+                const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
+                const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
 
                 const updates: any = {};
                 if (serialNo) updates.invoice_no = serialNo;
                 if (issueDate) updates.invoice_date = issueDate;
                 if (uuid) updates.kolaybi_uuid = uuid;
 
-                // Sistemin kendi ana 'status' kolonunu KolayBi'nin commercial_doc_status değeriyle kesinleştir
-                if (commStatusVal) {
-                    updates.status = commStatusVal; // Doğrudan 'draft', 'rejected', 'approved', 'cancelled', vb. yazar
-                } else if (eDocStatus && inv.status === 'draft') {
+                // 🔥 Akıllı Durum Analizi (Hem İngilizce API kodları hem Türkçe "Kabul Edildi" metinlerini kapsar)
+                const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
+                
+                if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
+                    updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
+                } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
+                    updates.status = 'approved';
+                } else if (commStatusVal) {
+                    updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
+                } else if (uuid && inv.status === 'draft') {
                     updates.status = 'sent';
                 }
-                
-                // UI tarafında detayı görmek için kolaybi_status'u teknik koda (Örn: sent_to_receiver) eşitle
-                if (eDocStatus) {
-                    updates.kolaybi_status = eDocStatus;
-                } else if (commStatusVal) {
-                    updates.kolaybi_status = commStatusVal;
-                }
+
+                // Arayüzde detayı göstermek için orjinal KolayBi metnini sakla
+                if (eDocStatus) updates.kolaybi_status = eDocStatus;
+                else if (commStatusVal) updates.kolaybi_status = typeof commStatusVal === 'string' ? commStatusVal : null;
 
                 if (Object.keys(updates).length > 0) {
                     await supabaseClient.from('invoices').update(updates).eq('id', inv.id);

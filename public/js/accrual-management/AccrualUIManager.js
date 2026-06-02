@@ -363,40 +363,40 @@ export class AccrualUIManager {
                     // Fatura No'yu belirle
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
                     
-                    // Durum Belirleme: KolayBi API Dökümantasyonuna Göre Eşleştirme
-                    let sysStatus = (acc.status || '').toLowerCase(); // Örn: 'rejected', 'approved', 'sent'
-                    let kStatus = (acc.kolaybiStatus || '').toLowerCase(); // Örn: 'sent_to_receiver', 'waiting_gib'
+                    // Durum Belirleme: Gelişmiş Akıllı Eşleştirme (Türkçe ve İngilizce Kapsayıcı)
+                    let sysStatus = (acc.status || '').toLowerCase(); 
+                    let kStatus = (acc.kolaybiStatus || '').toLowerCase(); 
 
                     let invStatusText = acc.kolaybiStatus || acc.status || 'Bilinmiyor';
                     let invStatusClass = 'badge-secondary';
 
-                    // 1. İPTAL ve RED (En Kritik Durumlar)
-                    if (sysStatus === 'rejected') {
+                    // 1. İPTAL ve RED
+                    if (sysStatus === 'rejected' || kStatus.includes('red') || kStatus.includes('reject')) {
                         invStatusText = '<i class="fas fa-times-circle mr-1"></i> Reddedildi';
                         invStatusClass = 'badge-danger';
-                    } else if (sysStatus === 'cancelled') {
+                    } else if (sysStatus === 'cancelled' || kStatus.includes('iptal') || kStatus.includes('cancel')) {
                         invStatusText = '<i class="fas fa-ban mr-1"></i> İptal Edildi';
                         invStatusClass = 'badge-danger';
                     } 
-                    // 2. BAŞARILI İŞLEMLER (Onay ve Ulaşma)
-                    else if (sysStatus === 'approved') {
+                    // 2. BAŞARILI İŞLEMLER
+                    else if (sysStatus === 'approved' || kStatus.includes('kabul') || kStatus.includes('onay') || kStatus.includes('approv')) {
                         invStatusText = '<i class="fas fa-check-circle mr-1"></i> Kabul Edildi';
                         invStatusClass = 'badge-success';
-                    } else if (kStatus === 'sent_to_receiver') {
+                    } else if (kStatus.includes('ulaştı') || kStatus === 'sent_to_receiver') {
                         invStatusText = '<i class="fas fa-check-double mr-1"></i> Alıcıya Ulaştı';
                         invStatusClass = 'badge-success';
-                    } else if (kStatus === 'processed_in_gib') {
+                    } else if (kStatus.includes('işlendi') || kStatus === 'processed_in_gib') {
                         invStatusText = '<i class="fas fa-check mr-1"></i> GİB\'de İşlendi';
                         invStatusClass = 'badge-success';
                     }
                     // 3. SÜRECİ DEVAM EDENLER
-                    else if (kStatus === 'sent_to_gib' || sysStatus === 'sent') {
+                    else if (kStatus.includes('gönderildi') || kStatus === 'sent_to_gib' || sysStatus === 'sent') {
                         invStatusText = '<i class="fas fa-paper-plane mr-1"></i> GİB\'e Gönderildi';
                         invStatusClass = 'badge-primary';
-                    } else if (kStatus === 'waiting_gib' || kStatus === 'awaiting') {
+                    } else if (kStatus.includes('bekliyor') || kStatus === 'waiting_gib' || kStatus === 'awaiting') {
                         invStatusText = '<i class="fas fa-hourglass-half mr-1"></i> GİB Cevabı Bekleniyor';
                         invStatusClass = 'badge-info text-white';
-                    } else if (kStatus === 'in_queue' || kStatus === 'preparing' || kStatus === 'ready' || sysStatus === 'ready_to_send') {
+                    } else if (kStatus.includes('kuyruk') || kStatus.includes('hazır') || kStatus === 'in_queue' || sysStatus === 'ready_to_send') {
                         invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor / Kuyrukta';
                         invStatusClass = 'badge-warning text-dark';
                     } 
@@ -404,16 +404,15 @@ export class AccrualUIManager {
                     else if (sysStatus === 'draft') {
                         invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
                         invStatusClass = 'badge-secondary';
-                    } else if (kStatus.includes('failed') || kStatus.includes('error')) {
+                    } else if (kStatus.includes('hata') || kStatus.includes('failed') || kStatus.includes('error')) {
                         invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> Gönderim Hatası';
                         invStatusClass = 'badge-dark';
                     } else {
-                        // Eğer KolayBi yeni bir İngilizce durum eklerse temiz gösterelim:
                         const formattedRaw = (kStatus || sysStatus).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                         invStatusText = `<i class="fas fa-info-circle mr-1"></i> ${formattedRaw}`;
                         invStatusClass = 'badge-light border text-dark';
                     }
-
+                    
                     // Fatura No Linki (Tıklanabilir olması için view-invoice-btn sınıfı var)
                     let invoiceNoHtml = `<span class="font-weight-bold text-primary">${displayInvoiceNo}</span>`;
                     if (acc.kolaybiUuid) {

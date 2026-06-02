@@ -23,8 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.freestyleFormManager = null;
             this.state = {
                 activeTab: 'main',       
-                // 🔥 NEW: Added department and type to the initial state
-                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' },
+                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '' },
                 sort: { column: 'createdAt', direction: 'desc' },
                 selectedIds: new Set(),
                 itemsPerPage: 50 
@@ -583,20 +582,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         setupEventListeners() {
-            const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask'];
-            const handleFilterChange = () => {
-                this.state.filters.department = document.getElementById('filterDepartment').value;
-                this.state.filters.type = document.getElementById('filterType').value;
-                this.state.filters.startDate = document.getElementById('filterStartDate').value;
-                this.state.filters.endDate = document.getElementById('filterEndDate').value;
-                this.state.filters.status = document.getElementById('filterStatus').value;
-                this.state.filters.field = document.getElementById('filterField').value;
-                this.state.filters.party = document.getElementById('filterParty').value.trim();
-                this.state.filters.fileNo = document.getElementById('filterFileNo').value.trim();
-                this.state.filters.subject = document.getElementById('filterSubject').value.trim();
-                this.state.filters.task = document.getElementById('filterTask').value.trim();
-                this.renderPage();
-            };
+            // 🔥 YENİ: Fatura durumu ve açıklama alanları dinleyicilere eklendi
+        const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription'];
+        
+        const handleFilterChange = () => {
+            this.state.filters.department = document.getElementById('filterDepartment').value;
+            this.state.filters.type = document.getElementById('filterType').value;
+            this.state.filters.startDate = document.getElementById('filterStartDate').value;
+            this.state.filters.endDate = document.getElementById('filterEndDate').value;
+            this.state.filters.status = document.getElementById('filterStatus').value;
+            this.state.filters.invoiceStatus = document.getElementById('filterInvoiceStatus').value; // 🔥 Eklendi
+            this.state.filters.field = document.getElementById('filterField').value;
+            this.state.filters.party = document.getElementById('filterParty').value.trim();
+            this.state.filters.fileNo = document.getElementById('filterFileNo').value.trim();
+            this.state.filters.subject = document.getElementById('filterSubject').value.trim();
+            this.state.filters.task = document.getElementById('filterTask').value.trim();
+            this.state.filters.description = document.getElementById('filterDescription').value.trim(); // 🔥 Eklendi
+            this.renderPage();
+        };
 
             const debouncedFilter = () => { clearTimeout(this.filterDebounceTimer); this.filterDebounceTimer = setTimeout(handleFilterChange, 300); };
             filterInputs.forEach(id => {
@@ -605,14 +608,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             document.getElementById('btnClearFilters')?.addEventListener('click', () => {
-                filterInputs.forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) { if(el.tagName === 'SELECT') el.value = (id === 'filterStatus' ? 'all' : ''); else el.value = ''; }
-                });
-                // 🔥 NEW: Added department and type to the default empty state
-                this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', field: '', party: '', fileNo: '', subject: '', task: '' };
-                this.renderPage();
+            filterInputs.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { 
+                    if(el.tagName === 'SELECT') {
+                        // Durum ve Fatura Durumu 'all' olarak sıfırlanmalı
+                        el.value = (id === 'filterStatus' || id === 'filterInvoiceStatus') ? 'all' : ''; 
+                    } else { 
+                        el.value = ''; 
+                    } 
+                }
             });
+            this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '' };
+            this.renderPage();
+        });
 
             // 🔥 2. ADIM EKLENTİSİ: MERKEZİ MOTORU ÇAĞIRAN YENİ DİNLEYİCİ
             document.addEventListener('accrual-auto-calc-request', async (e) => {

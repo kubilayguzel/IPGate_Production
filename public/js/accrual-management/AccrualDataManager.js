@@ -67,6 +67,7 @@ export class AccrualDataManager {
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     orderCode: row.order_code || d.orderCode || null,
                     description: row.description || d.description || '', 
+                    invoiceDescription: row.invoice_description || d.invoice_description || '', // 🔥 YENİ
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
                     
@@ -299,6 +300,7 @@ export class AccrualDataManager {
                     return (ipRec?.markName || '').toLowerCase().includes(searchVal);
                 });
             }
+            // Sizin Mevcut "İlgili İş (Task)" Filtreniz (Buna dokunmuyoruz)
             if (filters.task) {
                 const searchVal = filters.task.toLowerCase();
                 data = data.filter(item => {
@@ -306,6 +308,39 @@ export class AccrualDataManager {
                     const typeObj = task ? this.allTransactionTypes.find(t => t.id === task.taskType) : null;
                     const taskName = typeObj ? (typeObj.alias || typeObj.name) : (task?.title || item.taskTitle || '');
                     return taskName.toLowerCase().includes(searchVal);
+                });
+            }
+
+            // 🔥 YENİ: Fatura Durumu Filtresi (HEMEN ALTINA EKLİYORUZ)
+            if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
+                const searchStatus = filters.invoiceStatus.toLowerCase();
+                data = data.filter(item => {
+                    const linkedInvoices = this.allInvoices.filter(inv => 
+                        inv.id === String(item.invoiceId) || inv.id === String(item.invoiceId2)
+                    );
+                    if (linkedInvoices.length === 0) return false;
+
+                    return linkedInvoices.some(inv => {
+                        const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
+                        let normalized = s;
+                        if (['taslak'].includes(s)) normalized = 'draft';
+                        if (['processing', 'queued', 'waiting'].includes(s)) normalized = 'waiting';
+                        if (['gönderildi', 'sent', 'approved'].includes(s)) normalized = 'approved';
+                        if (['reddedildi', 'rejected'].includes(s)) normalized = 'rejected';
+                        if (['canceled', 'iptal', 'cancelled'].includes(s)) normalized = 'cancelled';
+                        if (['error', 'failed'].includes(s)) normalized = 'failed';
+                        return normalized === searchStatus;
+                    });
+                });
+            }
+
+            // 🔥 YENİ: Açıklama Filtresi (HEMEN ALTINA EKLİYORUZ)
+            if (filters.description) {
+                const searchVal = filters.description.toLowerCase();
+                data = data.filter(item => {
+                    const desc1 = (item.description || '').toLowerCase();
+                    const desc2 = (item.invoiceDescription || '').toLowerCase();
+                    return desc1.includes(searchVal) || desc2.includes(searchVal);
                 });
             }
         }

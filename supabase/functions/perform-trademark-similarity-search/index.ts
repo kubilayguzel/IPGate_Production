@@ -31,12 +31,10 @@ const GENERIC_WORDS = [
     'ürün', 'products', 'services', 'solutions', 'çözüm', 'sistem', 'systems', 'teknolojileri', 'malzeme', 'materials', 'ekipman', 'equipment', 'cihaz', 'device', 'araç', 'tools', 'yedek', 'parça', 'parts', 'aksesuar', 'accessories', 'gereç',
     'meşhur', 'ünlü', 'famous', 'since', 'est', 'established', 'tarihi', 'historical', 'geleneksel', 'traditional', 'klasik', 'classic', 'yeni', 'new', 'fresh', 'taze', 'özel', 'special', 'premium', 'lüks', 'luxury', 'kalite', 'quality', 'uygun',
     'turkey', 'türkiye', 'international', 'uluslararası', 'tesisi', 'sistemleri',
-    // 🔥 DÜZELTME 1: 'real estate' parçalandı ve bitişik hali de eklendi
     'real', 'estate', 'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
     'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
     've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an',
-    // 🔥 DÜZELTME 2: 'net', 'tr', 'org' tehlikeli olduğu için listeden çıkarıldı. Sadece zararsız olanlar bırakıldı.
     'com', 'comtr', 'www', 'io'
 ];
 
@@ -51,14 +49,9 @@ function removeTurkishSuffixes(word: string) {
 function cleanMarkName(name: string, removeGenericWords = true) {
     if (!name) return '';
     let processed = String(name).toLowerCase()
-        // 🔥 YENİ: Kesme işaretlerini (apostrof) boşluğa değil, doğrudan HİÇLİĞE çevir (eda's -> edas)
         .replace(/['`’]/g, '')
-        
-        // 🔥 YENİ: Sadece NOKTA ile başlayan gerçek uzantıları ve www. ön ekini siler
         .replace(/\.(com\.tr|net\.tr|org\.tr|com|tr|net|org|co|io|info|biz|tv)\b/g, '')
         .replace(/^www\./g, '')
-        
-        // Yabancı Çift Sesleri Hizala
         .replace(/ch/g, 'ç')
         .replace(/sh/g, 'ş')
         .replace(/x/g, 'ks')
@@ -85,7 +78,6 @@ function normalizeStringForPhonetic(str: string) {
         .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/ı/g, 'i');
 }
 
-// 🌟 YENİ: KAVRAMSAL ÇEVİRİ MOTORU (Sayılar ve Semboller)
 function numberToTurkishText(numStr: string): string {
     const birler = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"];
     const onlar = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"];
@@ -115,10 +107,8 @@ function convertNumbersAndSymbolsToText(str: string): string {
     if (!str) return "";
     let result = str;
     
-    // Sembol çevirileri
     result = result.replace(/&/g, ' ve ').replace(/\+/g, ' artı ').replace(/%/g, ' yüzde ');
     
-    // Sayı çevirileri (1 ile 9999 arasındaki rakamları okunuşuna çevirir)
     result = result.replace(/\b\d{1,4}\b/g, (match) => {
         return numberToTurkishText(match);
     });
@@ -126,7 +116,6 @@ function convertNumbersAndSymbolsToText(str: string): string {
     return result.replace(/\s+/g, ' ').trim();
 }
 
-// O(1) Hızında Görsel Harita
 const rawVisualMap: Record<string, string[]> = {
     "o": ["0", "ö"], "ö": ["o"], "0": ["o", "O"],
     "b": ["d", "p"], "d": ["b", "p", "t"], "p": ["b", "d", "q"],
@@ -167,7 +156,6 @@ function parseDateForValidation(val: any): Date | null {
 const v0 = new Float64Array(512);
 const v1 = new Float64Array(512);
 
-// 🔥 GÖRSEL CEZALAR UZUNLUĞA GÖRE DİNAMİKLEŞTİRİLDİ (Sizin Sürüm)
 function levenshteinSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
     const lenA = a.length, lenB = b.length;
@@ -227,12 +215,10 @@ function levenshteinSimilarity(a: string, b: string): number {
     return Math.max(0.0, Math.min(1.0, 1 - (v1[lenB] / Math.max(lenA, lenB))));
 }
 
-// 🌟 YENİ: TÜRKÇE FONETİK (METAPHONE) SES İSKELETİ MOTORU
 function getTurkishPhoneticSkeleton(str: string): string {
     if (!str) return "";
     let code = str.toLowerCase();
     
-    // Sessiz harfleri sesdeş (kulağa benzer gelen) gruplara atarız
     code = code.replace(/[bp]/g, '1')
                .replace(/[cçj]/g, '2')
                .replace(/[dt]/g, '3')
@@ -240,16 +226,12 @@ function getTurkishPhoneticSkeleton(str: string): string {
                .replace(/[vf]/g, '5')
                .replace(/[sşz]/g, '6');
                
-    // Ünlü harfleri tamamen çöpe atıyoruz (Ritim iskeleti çıkar)
     code = code.replace(/[aeıioöuü]/g, '');
-    
-    // Yan yana gelen aynı ses kodlarını siliyoruz (Örn: PİSKİVİ -> 1645)
     code = code.replace(/(.)\1+/g, '$1');
     
     return code;
 }
 
-// Orijinal isPhoneticallySimilar yenisiyle değiştirildi
 function isPhoneticallySimilar(a: string, b: string) {
     if (!a || !b) return 0.0;
     
@@ -320,12 +302,11 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
             if (ng1.size === 0 && ng2.size === 0) return 1.0;
             if (ng1.size === 0 || ng2.size === 0) return 0.0;
             let common = 0; ng1.forEach(ng => { if (ng2.has(ng)) common++; });
-            return (2 * common) / (ng1.size + ng2.size); // Dice Coefficient
+            return (2 * common) / (ng1.size + ng2.size);
         })();
 
         let coreScore = (lev * 0.60 + jw * 0.25 + ngram * 0.15);
 
-        // KALKAN 1: BAŞ HARF ÇAPASI
         if (a.length > 0 && b.length > 0) {
             const charA = a[0];
             const charB = b[0];
@@ -346,7 +327,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
             }
         }
 
-        // KALKAN 2: KADEMELİ HECE (N-GRAM) CEZASI (%40 ve altına dinamik oranlı ceza)
         if (coreScore >= 0.50 && ngram <= 0.40) {
             const penaltyPercent = 0.30 - (ngram * 0.50); 
             coreScore = coreScore * (1.0 - penaltyPercent); 
@@ -396,7 +376,6 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // Zayıf Eşleşme Sönümleyici
     let phase2Final = fullStringScore;
     if (bestWordPairScore >= 0.75) {
         phase2Final = Math.max(phase2Final, bestWordPairScore);
@@ -404,7 +383,17 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
     }
     
-    phase2Final = Math.max(phase2Final, substringBonus);
+    // 🔥 YENİ: ANAGRAM (HARF KARIŞTIRMA) ALGORİTMASI 🔥
+    // Boşlukları silip, harfleri alfabetik sıraya diziyoruz
+    const s1Sorted = s1.replace(/\s+/g, '').split('').sort().join('');
+    const s2Sorted = s2.replace(/\s+/g, '').split('').sort().join('');
+    const anagramScoreRaw = computeCoreScore(s1Sorted, s2Sorted);
+    
+    // Birebir harfler tutsa bile sıraları bozuk olduğu için %20 ceza kesiyoruz.
+    const anagramScore = anagramScoreRaw * 0.80; 
+
+    // Anagram skoru bizim normal skorumuzdan yüksekse, onu geçerli kılıyoruz.
+    phase2Final = Math.max(phase2Final, substringBonus, anagramScore);
 
     // TÜRKÇE FONETİK BONUSU DEVREDE
     const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
@@ -441,9 +430,8 @@ serve(async (req) => {
                 const BATCH_SIZE = 150; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 
-                console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç ID: ${lastId}`);
+                console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç Offset: ${lastId}`);
 
-                // 🌟 YAPISAL VE KAVRAMSAL KLONLAMALAR BURADA BAŞLIYOR 🌟
                 const preparedMarks = monitoredMarks.map((mark: any) => {
                     const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
                     const primaryName = validSearchMarkName 
@@ -451,20 +439,18 @@ serve(async (req) => {
                         : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
                     
                     const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
-                    let alternatives = Array.isArray(rawBrandText) ? [...rawBrandText] : []; // Kopya alıyoruz
+                    let alternatives = Array.isArray(rawBrandText) ? [...rawBrandText] : [];
                     
                     if (validSearchMarkName && mark.markName) {
                         const exactMarkName = String(mark.markName).trim().toLowerCase();
                         alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
                     }
 
-                    // 1. Klonlama: Sayıları ve Sembolleri Yazıya Çevirme
                     const conceptualName = convertNumbersAndSymbolsToText(primaryName);
                     if (conceptualName !== primaryName) {
                         alternatives.push(conceptualName);
                     }
 
-                    // 2. Klonlama: Token Sort (Kelimeleri Alfabetik Dizme)
                     const primaryCleaned = cleanMarkName(primaryName, true);
                     const words = primaryCleaned.split(' ').filter(w => w.trim().length > 0);
                     if (words.length > 1) {
@@ -511,18 +497,19 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
-                let currentLastId = lastId;
+                // 🔥 YENİ: lastId artık metin değil, bir sayısal indeks (offset) olarak kullanılıyor
+                let currentOffset = parseInt(lastId, 10) || 0;
                 let actualProcessedCount = 0;
                 const uiResults = [];
                 const permanentRecords = []; 
 
+                // 🔥 YENİ: Veri tabanından çekerken .gt() yerine .range() kullanılıyor
                 const { data: hits, error } = await supabase
                     .from('trademark_bulletin_records')
                     .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
                     .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
                     .order('id')
-                    .gt('id', currentLastId)
-                    .limit(BATCH_SIZE);
+                    .range(currentOffset, currentOffset + BATCH_SIZE - 1);
 
                 if (error) throw error;
 
@@ -532,7 +519,6 @@ serve(async (req) => {
                     for (let i = 0; i < hits.length; i++) {
                         actualProcessedCount++;
                         const hit = hits[i];
-                        currentLastId = hit.id;
                         
                         const parsedHitDate = parseDateForValidation(hit.application_date);
                         
@@ -550,12 +536,10 @@ serve(async (req) => {
                         
                         const rawHitName = String(hit.brand_name || '');
                         
-                        // 🌟 DİKKAT: RAKİP MARKALARA DA TOKEN SORT (YER DEĞİŞTİRME) UYGULUYORUZ
                         const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
                         let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
                         
                         if (isHitMultiWord) {
-                            // "YILDIZ KUZEY" -> "kuzey yıldız" oluyor ki bizim markayla eşleşsin.
                             cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
                         }
 
@@ -633,10 +617,13 @@ serve(async (req) => {
                 const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
+                // 🔥 YENİ: Bir sonraki işlem bloğu için indexi BATCH_SIZE kadar ileri kaydırıyoruz
+                const nextOffset = currentOffset + BATCH_SIZE;
+
                 if (hasMoreRecords) {
                     EdgeRuntime.waitUntil(
                         supabase.functions.invoke('perform-trademark-similarity-search', {
-                            body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: currentLastId, processedCount: newProcessedCount, totalBulletinRecords },
+                            body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: nextOffset.toString(), processedCount: newProcessedCount, totalBulletinRecords },
                             headers: { Authorization: `Bearer ${supabaseKey}` }
                         }).then(async (res) => {
                             if (res.error) await markWorkerStatus(supabase, jobId, workerId, 'failed');
@@ -695,6 +682,7 @@ serve(async (req) => {
         for (const item of activeChunks) {
             EdgeRuntime.waitUntil(
                 supabase.functions.invoke('perform-trademark-similarity-search', {
+                    // 🔥 DÜZELTME: İlk çağrıda '0' stringini gönderiyoruz ki parseInt('0') -> 0 (offset başlangıcı) olsun
                     body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
                     headers: { Authorization: `Bearer ${supabaseKey}` }
                 }).catch(async (err) => {

@@ -154,10 +154,8 @@ class NotificationsManager {
             const isWaitingForClient = ['awaiting_client_approval', 'client_approval_opened', 'awaiting-approval'].includes(tStatus);
             const isSent = n.status === 'sent';
             
-            // Türkçe karakterleri sorunsuz küçültmek için toLocaleLowerCase kullanıyoruz
             const subjectLower = (n.subject || '').toLocaleLowerCase('tr-TR');
             
-            // 🔥 HASSAS TESPİT: Bildirim konularını spesifik şablonlara göre ayırıyoruz
             const isMonitoring = subjectLower.includes('sayılı bülten bildirimi');
             const isRenewal = subjectLower.includes('yenileme işlemi / talimat bekleniyor');
 
@@ -168,7 +166,6 @@ class NotificationsManager {
                 if (!isSent && !isMonitoring && isRenewal) baseList.push(n);
             }
             else if (this.activeTab === 'pending') {
-                // Bülten ve Yenileme haricindeki tüm diğer bekleyen standart bildirimler
                 if (!isSent && !isMonitoring && !isRenewal) baseList.push(n);
             }
             else if (this.activeTab === 'reminders') {
@@ -179,7 +176,6 @@ class NotificationsManager {
             }
         }
 
-        // 🔥 YENİ: Arama Kutusuna Göre İkincil Filtreleme (Global Arama)
         if (this.searchQuery) {
             baseList = baseList.filter(n => {
                 const subject = (n.subject || '').toLowerCase();
@@ -196,13 +192,34 @@ class NotificationsManager {
             });
         }
 
-        // Aramadan geçen son listeyi ana değişkene ata
-        this.notificationsData = baseList;
+        // 🔥 YENİ: Pending sekmesindeki aynı başvuru numaralarını gruplama (Tarihe göre sıralı)
+        if (this.activeTab === 'pending') {
+            const groups = {};
+            baseList.forEach(n => {
+                // Eğer başvuru numarası yoksa, kendine ait eşsiz bir grup anahtarı veriyoruz
+                const key = (n.app_no && n.app_no.trim() !== '' && n.app_no.trim() !== '-') ? n.app_no : 'no_app_' + n.id;
+                if (!groups[key]) groups[key] = { items: [], maxDate: 0 };
+                groups[key].items.push(n);
+                const d = new Date(n.created_at || 0).getTime();
+                if (d > groups[key].maxDate) groups[key].maxDate = d;
+            });
+            
+            // Grupları kendi içindeki EN YENİ bildirimin tarihine göre sırala
+            const sortedGroupKeys = Object.keys(groups).sort((a, b) => groups[b].maxDate - groups[a].maxDate);
+            
+            const flatGroupedList = [];
+            sortedGroupKeys.forEach(key => {
+                // Grubun kendi içindeki bildirimleri de yeniden eskiye sırala
+                groups[key].items.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+                flatGroupedList.push(...groups[key].items);
+            });
+            this.notificationsData = flatGroupedList;
+        } else {
+            this.notificationsData = baseList;
+        }
 
-        // Sekmeye göre tablo başlıklarını (TH) gizle veya göster
         const dynamicCols = document.querySelectorAll('.dynamic-col');
         dynamicCols.forEach(col => {
-            // Bekleyenler grubundaki tüm sekmelerde dinamik kolonları (Hatırlatma Tarihi vb.) gizle
             col.style.display = ['pending', 'monitoring', 'renewal'].includes(this.activeTab) ? 'none' : '';
         });
 
@@ -220,20 +237,74 @@ class NotificationsManager {
         this.toggleLoading(false);
     }
 
-    // --- RENDER (EKRANA BASMA) İŞLEMLERİ ---
     async renderCurrentPage() {
         if (!this.pagination) return;
         this.elements.tableBody.innerHTML = "";
         const slice = this.pagination.getCurrentPageData(this.notificationsData || []);
 
-        // 🔥 BURAYI SİLİN: (Artık startIndex hesabına gerek yok)
-        // const startIndex = (this.pagination.currentPage - 1) * this.pagination.itemsPerPage;
+        const isPendingGroup = ['pending', 'monitoring', 'renewal'].includes(this.activeTab);
+        
+        // 🔥 YENİ: Akordeon grupları takip etmek için değişken
+        let currentGroupKey = null;
 
         slice.forEach((notification, index) => {
-            // 🔥 YENİ: Verinin ana listedeki gerçek sırasını buluyoruz
             const globalIndex = this.notificationsData.indexOf(notification);
             
+            // 🔥 YENİ: Akordeon Başlığı Çizimi (Sadece pending sekmesinde ve 1'den fazla aynı app_no varsa)
+            let safeGroupKey = null;
+            let groupItemsCount = 0;
+            
+            if (this.activeTab === 'pending') {
+                const key = (notification.app_no && notification.app_no.trim() !== '' && notification.app_no.trim() !== '-') ? notification.app_no : null;
+                
+                if (key) {
+                    groupItemsCount = this.notificationsData.filter(n => n.app_no === key).length;
+                    if (groupItemsCount > 1) {
+                        safeGroupKey = key.replace(/[^a-zA-Z0-9]/g, '_'); // Class name için güvenli metin
+                        
+                        if (currentGroupKey !== key) {
+                            currentGroupKey = key;
+                            
+                            const groupHeader = document.createElement('tr');
+                            groupHeader.className = 'table-light group-header shadow-sm';
+                            groupHeader.style.cursor = 'pointer';
+                            groupHeader.innerHTML = `
+                                <td colspan="15" class="text-left font-weight-bold text-dark" style="padding: 12px 15px; border-left: 4px solid #4e73df; background-color: #eaecf4;">
+                                    <i class="fas fa-chevron-down mr-2 toggle-icon text-primary" style="transition: 0.3s; width: 15px;"></i> 
+                                    <i class="fas fa-layer-group text-secondary mr-1"></i> ${key} Numaralı Başvuruya Ait Bekleyen Bildirimler
+                                    <span class="badge bg-primary text-white ml-2" style="font-size: 0.85rem;">${groupItemsCount} Bildirim</span>
+                                </td>
+                            `;
+                            
+                            // Akordeon Tıklama Özelliği
+                            groupHeader.onclick = () => {
+                                const isCollapsed = groupHeader.classList.toggle('collapsed');
+                                const icon = groupHeader.querySelector('.toggle-icon');
+                                icon.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+                                
+                                const rows = document.querySelectorAll(`.group-row-${safeGroupKey}`);
+                                rows.forEach(row => {
+                                    row.style.display = isCollapsed ? 'none' : '';
+                                });
+                            };
+                            
+                            this.elements.tableBody.appendChild(groupHeader);
+                        }
+                    } else {
+                        currentGroupKey = null; // Grupsuz bir elemana geçildi
+                    }
+                } else {
+                    currentGroupKey = null;
+                }
+            }
+
             const tr = document.createElement('tr');
+            
+            // 🔥 YENİ: Eğer bir gruba aitse, akordeonun açıp kapatabilmesi için özel class ver
+            if (groupItemsCount > 1 && safeGroupKey) {
+                tr.classList.add(`group-row-${safeGroupKey}`);
+                tr.style.backgroundColor = '#fafafa'; // Gruplanmış satırlar farklı görünsün diye hafif gri yapıldı
+            }
             
             const statusMap = {
                 'sent': 'Gönderildi', 
@@ -258,26 +329,18 @@ class NotificationsManager {
             const clientName = notification.client_name || '-';
             const typeText = notification.type_text || notification.associated_transaction_id || '-';
             
-            // 🔥 ÇÖZÜM: Resmi Son Tarih'i sadece Gün.Ay.Yıl olarak formatla (Saati gizle)
             let dueDate = '-';
             if (notification.objection_deadline && notification.objection_deadline !== '-') {
                 const d = new Date(notification.objection_deadline);
-                // Eğer geçerli bir tarih objesiyse sadece tarihi (toLocaleDateString) al, değilse veritabanındaki ham metni yaz
                 dueDate = isNaN(d.getTime()) ? notification.objection_deadline : d.toLocaleDateString('tr-TR');
             }
 
-            // 🔥 ÇÖZÜM: View'dan doğrudan gelen marka adını okuyoruz
             let finalSubject = notification.subject || '<span class="missing-field">Konu Eksik</span>';
-            // Marka adı yoksa (örn: dava dosyasıysa), eski referansı kullanabilmek için güvenlik (fallback) ekledik
             const brandName = notification.brand_name || notification.ip_record_title;
             
-            // Eğer marka adı varsa ve konunun içinde zaten geçmiyorsa, konunun başına ekle
             if (brandName && finalSubject !== '<span class="missing-field">Konu Eksik</span>' && !finalSubject.includes(brandName)) {
                 finalSubject = `<strong>${brandName}</strong> - ${finalSubject}`;
             }
-
-            // 🔥 YENİ: Aktif sekme bekleyenler grubunda ise (pending/monitoring/renewal) o kolonları satırlarda da gizle
-            const isPendingGroup = ['pending', 'monitoring', 'renewal'].includes(this.activeTab);
 
             tr.innerHTML = `
                 <td><strong>${globalIndex + 1}</strong></td>
@@ -307,7 +370,6 @@ class NotificationsManager {
 
             const actionCell = tr.querySelector('.actions-cell');
             
-            // Düzenle Butonu
             const editBtn = document.createElement('button');
             editBtn.className = 'action-btn btn-sm btn-info w-100';
             editBtn.innerHTML = '<i class="fas fa-edit"></i> Düzenle';
@@ -315,7 +377,6 @@ class NotificationsManager {
             else { editBtn.onclick = () => this.openEditModal(notification); }
             actionCell.appendChild(editBtn);
 
-            // Aksiyon Butonları
             if (notification.status === 'missing_info') {
                 const miBtn = document.createElement('button');
                 miBtn.className = 'action-btn btn-sm btn-warning text-dark w-100'; 
@@ -330,9 +391,8 @@ class NotificationsManager {
                 actionCell.appendChild(remBtn);
             } else {
                 const sendBtn = document.createElement('button');
-                sendBtn.className = 'action-btn btn-sm btn-success w-100 send-btn'; // send-btn classı eklendi
+                sendBtn.className = 'action-btn btn-sm btn-success w-100 send-btn'; 
                 sendBtn.innerHTML = notification.status === 'failed' ? '<i class="fas fa-redo"></i> Tekrar Dene' : '<i class="fas fa-paper-plane"></i> Gönder';
-                // 🔥 YENİ: Eğer bekletiliyorsa butonu kilitle
                 if (isEvalPending || notification.is_held) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
                 else { sendBtn.onclick = (e) => this.processAction(e, notification, 'send'); }
                 actionCell.appendChild(sendBtn);
@@ -341,7 +401,6 @@ class NotificationsManager {
             this.elements.tableBody.appendChild(tr);
         });
 
-        // Satırlar eklendikten sonra Beklet checkbox olaylarını bağla
         this.setupHoldCheckboxes();
         this.loadAttachmentsForCells();
     }

@@ -111,7 +111,19 @@ serve(async (req) => {
         let detailRes;
         try { detailRes = JSON.parse(detailResText); } catch(e) { throw new Error("Fatura detayı API yanıtı okunamadı."); }
 
-        if (!detailReq.ok || detailRes.success === false) throw new Error(`Fatura detayı alınamadı: ${detailRes.message || JSON.stringify(detailRes)}`);
+        if (!detailReq.ok || detailRes.success === false) {
+            const errorMsg = detailRes.message || JSON.stringify(detailRes);
+            if (errorMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
+                // Fatura silinmişse tahakkukları serbest bırak ve faturayı sil
+                await supabaseClient.from('accruals')
+                    .update({ invoice_id: null, invoice_id_2: null, evreka_invoice_no: null })
+                    .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
+                await supabaseClient.from('invoices').delete().eq('id', invoiceId);
+                
+                throw new Error("Bu fatura KolayBi'den fiziksel olarak silinmiş. Sistemden kaldırıldı ve tahakkuklar serbest bırakıldı.");
+            }
+            throw new Error(`Fatura detayı alınamadı: ${errorMsg}`);
+        }
 
         const docData = detailRes.data || detailRes;
         
@@ -201,11 +213,21 @@ serve(async (req) => {
             
             try {
                 const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
-                if (!detailReq.ok) continue;
-                
                 const detailResText = await detailReq.text();
-                const detailRes = JSON.parse(detailResText);
-                if (detailRes.success === false) continue;
+                let detailRes;
+                try { detailRes = JSON.parse(detailResText); } catch(e) { continue; }
+
+                if (!detailReq.ok || detailRes.success === false) {
+                    const errMsg = detailRes.message || "";
+                    if (errMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
+                        await supabaseClient.from('accruals')
+                            .update({ invoice_id: null, invoice_id_2: null, evreka_invoice_no: null })
+                            .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
+                        await supabaseClient.from('invoices').delete().eq('id', inv.id);
+                        successCount++;
+                    }
+                    continue;
+                }
 
                 const docData = detailRes.data || detailRes;
                 

@@ -1335,17 +1335,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
 
-            // --- MANUEL TOPLU SENKRONİZASYON BUTONU ---
+                // --- MANUEL TOPLU SENKRONİZASYON BUTONU ---
             const btnSyncAllInvoices = document.getElementById('btnSyncAllInvoices');
             if (btnSyncAllInvoices) {
                 btnSyncAllInvoices.addEventListener('click', async () => {
                     try {
                         this.uiManager.toggleLoading(true);
 
-                        // KolayBi API dökümanına göre nihai (tekrar sorgulanmayacak) durumlar
                         const finalStatuses = ['approved', 'rejected', 'cancelled', 'failed'];
 
-                        // Backend ve Auto-Sync ile aynı mantığı kullanıyoruz
                         const pendingIds = this.dataManager.allInvoices
                             .filter(inv => {
                                 const kId = String(inv.kolaybiInvoiceId);
@@ -1354,12 +1352,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 const s = (inv.status || 'draft').toLowerCase().trim();
                                 if (finalStatuses.includes(s)) return false;
 
-                                return true; // Diğer her şeyi sorgula
+                                return true;
                             })
                             .map(inv => inv.id);
                         
                         if(pendingIds.length === 0) {
-                            showNotification("Mevcut durumda güncellenecek fatura bulunmuyor.", "warning");
+                            showNotification("Tüm faturalar güncel (Kabul/Red/İptal) durumda. Güncellenecek fatura bulunmuyor.", "warning");
                             return;
                         }
                         

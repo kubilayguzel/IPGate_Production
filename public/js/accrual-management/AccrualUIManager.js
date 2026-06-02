@@ -364,50 +364,36 @@ export class AccrualUIManager {
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
                     
                     // Durum Belirleme
-                    // 🔥 ÇÖZÜM: Gelişmiş KolayBi Statü Haritası (Tüm GİB durumları)
-                    let rawStatus = (acc.kolaybiStatus || acc.status || '').toLowerCase();
-                    let invStatusText = rawStatus;
+                    // 🔥 ÇÖZÜM: Gelişmiş KolayBi Statü Haritası (Tüm GİB durumları - Akıllı Eşleştirme)
+                    let kStatus = (acc.kolaybiStatus || '').toLowerCase();
+                    let sysStatus = (acc.status || '').toLowerCase();
+
+                    let invStatusText = acc.kolaybiStatus || acc.status || 'Bilinmiyor';
                     let invStatusClass = 'badge-secondary';
 
-                    switch (rawStatus) {
-                        case 'draft':
-                        case 'taslak':
-                            invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
-                            invStatusClass = 'badge-warning text-dark';
-                            break;
-                        case 'waiting':
-                        case 'processing':
-                        case 'queued':
-                            invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> GİB Kuyruğunda';
-                            invStatusClass = 'badge-info text-white';
-                            break;
-                        case 'approved':
-                        case 'sent':
-                        case 'gönderildi':
-                            invStatusText = '<i class="fas fa-check-double mr-1"></i> GİB Onaylı';
-                            invStatusClass = 'badge-success';
-                            break;
-                        case 'rejected':
-                        case 'reddedildi':
-                            invStatusText = '<i class="fas fa-times-circle mr-1"></i> Reddedildi';
-                            invStatusClass = 'badge-danger';
-                            break;
-                        case 'cancelled':
-                        case 'canceled':
-                        case 'iptal':
-                            invStatusText = '<i class="fas fa-ban mr-1"></i> İptal Edildi';
-                            invStatusClass = 'badge-danger';
-                            break;
-                        case 'failed':
-                        case 'error':
-                            invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> GİB Hatası';
-                            invStatusClass = 'badge-dark';
-                            break;
-                        default:
-                            // Bilinmeyen yeni bir statü gelirse direkt kendisini yazsın
-                            invStatusText = acc.kolaybiStatus || acc.status || 'Bilinmiyor';
-                            invStatusClass = 'badge-light text-dark border';
-                            break;
+                    // 1. Önce Kesin ve Kritik Durumları Yakala (Red, İptal, Hata)
+                    if (kStatus.includes('red') || sysStatus === 'rejected') {
+                        invStatusText = '<i class="fas fa-times-circle mr-1"></i> Reddedildi';
+                        invStatusClass = 'badge-danger';
+                    } else if (kStatus.includes('iptal') || kStatus.includes('cancel') || sysStatus === 'cancelled') {
+                        invStatusText = '<i class="fas fa-ban mr-1"></i> İptal Edildi';
+                        invStatusClass = 'badge-danger';
+                    } else if (kStatus.includes('kabul') || kStatus.includes('onay') || sysStatus === 'approved') {
+                        invStatusText = '<i class="fas fa-check-circle mr-1"></i> Kabul Edildi';
+                        invStatusClass = 'badge-success';
+                    } else if (kStatus.includes('bekliyor') || kStatus.includes('kuyruk') || sysStatus === 'waiting' || sysStatus === 'processing' || sysStatus === 'queued') {
+                        invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> GİB Kuyruğunda';
+                        invStatusClass = 'badge-info text-white';
+                    } else if (sysStatus === 'sent' || kStatus.includes('ulaştı') || kStatus.includes('gönderildi')) {
+                        // Eğer red veya kabul yoksa, ama gönderilmişse "GİB Onaylı / İletildi" göster
+                        invStatusText = '<i class="fas fa-check-double mr-1"></i> GİB Onaylı / İletildi';
+                        invStatusClass = 'badge-success';
+                    } else if (sysStatus === 'draft' || kStatus.includes('taslak')) {
+                        invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
+                        invStatusClass = 'badge-warning text-dark';
+                    } else if (sysStatus === 'error' || sysStatus === 'failed' || kStatus.includes('hata')) {
+                        invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> GİB Hatası';
+                        invStatusClass = 'badge-dark';
                     }
 
                     // Fatura No Linki (Tıklanabilir olması için view-invoice-btn sınıfı var)

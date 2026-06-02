@@ -115,18 +115,37 @@ serve(async (req) => {
 
         const docData = detailRes.data || detailRes;
         
-        const serialNo = docData.serial_no || docData.invoice_no || null;
-        const issueDate = docData.issue_date || docData.order_date || null;
-        const kStatus = docData.e_document_status || docData.status || null;
-        const uuid = docData.uuid || docData.e_document_uuid || null;
+        // KolayBi e-fatura detaylarını genellikle 'e_document' objesi içinde döner
+        const eDoc = docData.e_document || {};
+
+        const serialNo = eDoc.document_number || docData.serial_no || docData.invoice_no || null;
+        const issueDate = eDoc.issue_date || docData.issue_date || docData.order_date || null;
+
+        // Durum için en doğru metni (Örn: "REDDEDİLDİ", "KABUL EDİLDİ", "GİB ONAYLI") önceliklendirerek bul
+        const kStatus = eDoc.status_description || eDoc.status || docData.e_document_status || docData.status_description || docData.status || null;
+        const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
 
         const updates: any = {};
         if (serialNo) updates.invoice_no = serialNo;
         if (issueDate) updates.invoice_date = issueDate;
-        if (kStatus) updates.kolaybi_status = kStatus;
+        if (kStatus) updates.kolaybi_status = String(kStatus);
         if (uuid) updates.kolaybi_uuid = uuid;
-        
-        if (uuid && inv.status === 'draft') updates.status = 'sent';
+
+        // Sistemin kendi ana 'status' kolonunu da KolayBi'den gelen metne göre akıllı güncelleyelim
+        if (kStatus) {
+            const statusUpper = String(kStatus).toUpperCase();
+            if (statusUpper.includes('RED') || statusUpper.includes('REJECT')) {
+                updates.status = 'rejected';
+            } else if (statusUpper.includes('İPTAL') || statusUpper.includes('CANCEL')) {
+                updates.status = 'cancelled';
+            } else if (statusUpper.includes('KABUL') || statusUpper.includes('ONAY') || statusUpper.includes('APPROVED')) {
+                updates.status = 'approved';
+            } else if (uuid && inv.status === 'draft') {
+                updates.status = 'sent';
+            }
+        } else if (uuid && inv.status === 'draft') {
+            updates.status = 'sent';
+        }
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
             
@@ -167,18 +186,33 @@ serve(async (req) => {
 
                 const docData = detailRes.data || detailRes;
                 
-                const serialNo = docData.serial_no || docData.invoice_no || null;
-                const issueDate = docData.issue_date || docData.order_date || null;
-                const kStatus = docData.e_document_status || docData.status || null;
-                const uuid = docData.uuid || docData.e_document_uuid || null;
+                const eDoc = docData.e_document || {};
+
+                const serialNo = eDoc.document_number || docData.serial_no || docData.invoice_no || null;
+                const issueDate = eDoc.issue_date || docData.issue_date || docData.order_date || null;
+                const kStatus = eDoc.status_description || eDoc.status || docData.e_document_status || docData.status_description || docData.status || null;
+                const uuid = eDoc.uuid || docData.uuid || docData.e_document_uuid || null;
 
                 const updates: any = {};
                 if (serialNo) updates.invoice_no = serialNo;
                 if (issueDate) updates.invoice_date = issueDate;
-                if (kStatus) updates.kolaybi_status = kStatus;
+                if (kStatus) updates.kolaybi_status = String(kStatus);
                 if (uuid) updates.kolaybi_uuid = uuid;
 
-                if (uuid && inv.status === 'draft') updates.status = 'sent';
+                if (kStatus) {
+                    const statusUpper = String(kStatus).toUpperCase();
+                    if (statusUpper.includes('RED') || statusUpper.includes('REJECT')) {
+                        updates.status = 'rejected';
+                    } else if (statusUpper.includes('İPTAL') || statusUpper.includes('CANCEL')) {
+                        updates.status = 'cancelled';
+                    } else if (statusUpper.includes('KABUL') || statusUpper.includes('ONAY') || statusUpper.includes('APPROVED')) {
+                        updates.status = 'approved';
+                    } else if (uuid && inv.status === 'draft') {
+                        updates.status = 'sent';
+                    }
+                } else if (uuid && inv.status === 'draft') {
+                    updates.status = 'sent';
+                }
 
                 if (Object.keys(updates).length > 0) {
                     await supabaseClient.from('invoices').update(updates).eq('id', inv.id);

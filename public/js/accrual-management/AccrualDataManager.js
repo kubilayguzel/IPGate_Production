@@ -742,23 +742,42 @@ export class AccrualDataManager {
     }
 
     async autoSyncPendingInvoices() {
-        // 🔥 YENİ EKLENDİ: Eğer veri henüz gelmediyse veya boşsa işlem yapmadan çık (Hata vermesini engeller)
         if (!this.allInvoices || this.allInvoices.length === 0) return false;
 
-        // ETTN (UUID) numarası henüz alınmamış veya taslak olan faturaların ID'lerini bul
+        // Faturanın tekrar sorgulanmasına GEREK OLMAYAN nihai durumlar
+        const finalStatuses = ['approved', 'rejected', 'cancelled', 'failed'];
+
         const pendingIds = this.allInvoices
-            .filter(inv => inv.kolaybiInvoiceId && inv.kolaybiInvoiceId !== 'undefined' && (!inv.kolaybiUuid || inv.status === 'draft'))
+            .filter(inv => {
+                // KolayBi ID'si yoksa geç
+                if (!inv.kolaybiInvoiceId || inv.kolaybiInvoiceId === 'undefined') return false;
+                
+                const s = inv.status;
+                
+                // 1. KURAL: Eğer fatura zaten Kabul, Red veya İptal edilmişse ASLA sorgulama!
+                if (finalStatuses.includes(s)) return false;
+
+                // 2. KURAL: Sadece sonucu henüz belli olmayanları (Taslak, İletildi, Bekliyor) sorgula
+                return !inv.kolaybiUuid || s === 'draft' || s === 'sent' || s === 'waiting' || s === 'processing';
+            })
             .map(inv => inv.id);
 
         if (pendingIds.length > 0) {
-            console.log(`[OTO-SYNC] ${pendingIds.length} adet bekleyen fatura bulundu, arka planda güncelleniyor...`);
+            // 🔥 GÜVENLİK/PERFORMANS: Aynı anda en fazla 30 faturayı sorgula ki KolayBi API'si veya tarayıcı kilitlenmesin
+            const idsToSync = pendingIds.slice(0, 30);
+            
+            console.log(`[OTO-SYNC] Toplam ${pendingIds.length} adet durumu belirsiz fatura var. Performans için ${idsToSync.length} tanesi sorgulanıyor...`);
+            
             try {
-                await this.syncBulkKolaybiInvoices(pendingIds);
-                await this.fetchAllData(); // Arka planda sessizce verileri tazele
-                return true; // Tablonun yenilenmesi için true dönüyoruz
+                // Sadece filtrelenmiş ve limitlenmiş ID'leri gönderiyoruz
+                await this.syncBulkKolaybiInvoices(idsToSync);
+                await this.fetchAllData(); 
+                return true; 
             } catch (e) {
                 console.error("[OTO-SYNC] Otomatik güncelleme hatası:", e);
             }
+        } else {
+            console.log("[OTO-SYNC] Tüm faturalar nihai durumda (Kabul/Red/İptal). Güncellenecek fatura yok.");
         }
         return false;
     }

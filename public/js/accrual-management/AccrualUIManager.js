@@ -363,40 +363,75 @@ export class AccrualUIManager {
                     // Fatura No'yu belirle
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
                     
-                    // Durum Belirleme: Gelişmiş Akıllı Eşleştirme (Türkçe ve İngilizce Kapsayıcı)
-                    let sysStatus = (acc.status || '').toLowerCase(); 
-                    let kStatus = (acc.kolaybiStatus || '').toLowerCase(); 
+                    // Durum Belirleme: Gelişmiş Akıllı Eşleştirme (KolayBi Sözlüğü)
+                    let sysStatus = (acc.status || '').toLowerCase().trim(); 
+                    let kStatus = (acc.kolaybiStatus || '').toLowerCase().trim(); 
 
                     let invStatusText = acc.kolaybiStatus || acc.status || 'Bilinmiyor';
                     let invStatusClass = 'badge-secondary';
 
+                    const statusDictionary = {
+                        'ready': 'Gönderime Hazır',
+                        'preparing': 'Hazırlanıyor',
+                        'in_queue': 'Kuyrukta İşleniyor',
+                        'sending': 'GİB\'e Gönderiliyor',
+                        'sent_to_qnb': 'Entegratöre (QNB) Gönderildi',
+                        'sent_to_provider': 'Entegratöre İletildi',
+                        'sent to provider': 'Entegratöre İletildi',
+                        'sent_to_gib': 'GİB\'e Gönderildi',
+                        'processed_in_gib': 'GİB Tarafından İşlendi',
+                        'sent_to_receiver': 'Alıcıya Ulaştı',
+                        'waiting_gib': 'GİB Onayı Bekleniyor',
+                        'awaiting': 'Durum Bekleniyor',
+                        'failed': 'İşlem Başarısız',
+                        'sending_failed': 'Gönderim Başarısız',
+                        'processing_failed': 'GİB İşleme Hatası',
+                        'queue_failed': 'Kuyruk Hatası',
+                        'cancelled': 'İptal Edildi',
+                        'rejected': 'Karşı Taraf Reddetti',
+                        'declined': 'Karşı Taraf Reddetti',
+                        'approved': 'Kabul Edildi',
+                        'accepted': 'Kabul Edildi',
+                        'draft': 'Taslak',
+                        'ready_to_send': 'Gönderime Hazır'
+                    };
+
+                    // Kelimelerin içinde geçip geçmediğini kontrol eden esnek yardımcı fonksiyon
+                    const isMatch = (str, keywords) => keywords.some(k => str.includes(k));
+
                     // 1. İPTAL ve RED
-                    if (sysStatus === 'rejected' || kStatus.includes('red') || kStatus.includes('reject')) {
+                    if (isMatch(sysStatus, ['reject', 'decline', 'red']) || isMatch(kStatus, ['reject', 'decline', 'red'])) {
                         invStatusText = '<i class="fas fa-times-circle mr-1"></i> Reddedildi';
                         invStatusClass = 'badge-danger';
-                    } else if (sysStatus === 'cancelled' || kStatus.includes('iptal') || kStatus.includes('cancel')) {
+                    } 
+                    else if (isMatch(sysStatus, ['cancel', 'iptal']) || isMatch(kStatus, ['cancel', 'iptal'])) {
                         invStatusText = '<i class="fas fa-ban mr-1"></i> İptal Edildi';
                         invStatusClass = 'badge-danger';
                     } 
                     // 2. BAŞARILI İŞLEMLER
-                    else if (sysStatus === 'approved' || kStatus.includes('kabul') || kStatus.includes('onay') || kStatus.includes('approv')) {
+                    else if (isMatch(sysStatus, ['approv', 'accept', 'kabul', 'onay']) || isMatch(kStatus, ['approv', 'accept', 'kabul', 'onay'])) {
                         invStatusText = '<i class="fas fa-check-circle mr-1"></i> Kabul Edildi';
                         invStatusClass = 'badge-success';
-                    } else if (kStatus.includes('ulaştı') || kStatus === 'sent_to_receiver') {
+                    } 
+                    else if (isMatch(kStatus, ['ulaştı', 'sent_to_receiver', 'delivered'])) {
                         invStatusText = '<i class="fas fa-check-double mr-1"></i> Alıcıya Ulaştı';
                         invStatusClass = 'badge-success';
-                    } else if (kStatus.includes('işlendi') || kStatus === 'processed_in_gib') {
+                    } 
+                    else if (isMatch(kStatus, ['işlendi', 'processed_in_gib', 'processed'])) {
                         invStatusText = '<i class="fas fa-check mr-1"></i> GİB\'de İşlendi';
                         invStatusClass = 'badge-success';
                     }
                     // 3. SÜRECİ DEVAM EDENLER
-                    else if (kStatus.includes('gönderildi') || kStatus === 'sent_to_gib' || sysStatus === 'sent') {
-                        invStatusText = '<i class="fas fa-paper-plane mr-1"></i> GİB\'e Gönderildi';
+                    else if (isMatch(kStatus, ['gönderildi', 'sent_to_gib', 'sent_to_qnb', 'provider']) || sysStatus === 'sent') {
+                        let txt = (kStatus.includes('qnb') || kStatus.includes('provider')) ? 'Entegratöre İletildi' : 'GİB\'e Gönderildi';
+                        invStatusText = `<i class="fas fa-paper-plane mr-1"></i> ${txt}`;
                         invStatusClass = 'badge-primary';
-                    } else if (kStatus.includes('bekliyor') || kStatus === 'waiting_gib' || kStatus === 'awaiting') {
+                    } 
+                    else if (isMatch(kStatus, ['bekliyor', 'waiting', 'awaiting'])) {
                         invStatusText = '<i class="fas fa-hourglass-half mr-1"></i> GİB Cevabı Bekleniyor';
                         invStatusClass = 'badge-info text-white';
-                    } else if (kStatus.includes('kuyruk') || kStatus.includes('hazır') || kStatus === 'in_queue' || sysStatus === 'ready_to_send') {
+                    } 
+                    else if (isMatch(kStatus, ['kuyruk', 'hazır', 'queue', 'preparing', 'ready']) || sysStatus === 'ready_to_send') {
                         invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor / Kuyrukta';
                         invStatusClass = 'badge-warning text-dark';
                     } 
@@ -404,15 +439,19 @@ export class AccrualUIManager {
                     else if (sysStatus === 'draft') {
                         invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
                         invStatusClass = 'badge-secondary';
-                    } else if (kStatus.includes('hata') || kStatus.includes('failed') || kStatus.includes('error')) {
+                    } 
+                    else if (isMatch(kStatus, ['hata', 'fail', 'error']) || isMatch(sysStatus, ['fail', 'error'])) {
                         invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> Gönderim Hatası';
                         invStatusClass = 'badge-dark';
-                    } else {
-                        const formattedRaw = (kStatus || sysStatus).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                        invStatusText = `<i class="fas fa-info-circle mr-1"></i> ${formattedRaw}`;
+                    } 
+                    else {
+                        // Eğer hiçbir şarta uymadıysa SÖZLÜKTEN (Dictionary) direkt Türkçesini al
+                        let translated = statusDictionary[kStatus] || statusDictionary[sysStatus] || (kStatus || sysStatus);
+                        translated = translated.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        invStatusText = `<i class="fas fa-info-circle mr-1"></i> ${translated}`;
                         invStatusClass = 'badge-light border text-dark';
                     }
-                    
+
                     // Fatura No Linki (Tıklanabilir olması için view-invoice-btn sınıfı var)
                     let invoiceNoHtml = `<span class="font-weight-bold text-primary">${displayInvoiceNo}</span>`;
                     if (acc.kolaybiUuid) {

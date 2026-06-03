@@ -227,15 +227,16 @@
 
                     <div class="filter-group">
                         <label class="filter-label" style="color: #4e73df; font-weight: bold;">Fatura Durumu</label>
-                        <select id="filterInvoiceStatus" class="filter-select" style="min-width: 140px; border: 1px solid #4e73df;">
-                            <option value="all">Tümü</option>
-                            <option value="draft">Taslak</option>
-                            <option value="waiting">GİB Kuyruğunda</option>
-                            <option value="approved">GİB Onaylı</option>
-                            <option value="rejected">Reddedildi</option>
-                            <option value="cancelled">İptal Edildi</option>
-                            <option value="failed">Hata / İletilemedi</option>
-                        </select>
+                            <select id="filterInvoiceStatus" class="form-control shadow-sm border-0" style="min-width: 190px; height: auto; padding-top: 5px; padding-bottom: 5px;">
+                                <option value="all">Fatura Durumu (Tümü)</option>
+                                <option value="draft">Taslak</option>
+                                <option value="waiting">İşleniyor / Bekliyor</option>
+                                <option value="sent">Gönderildi (GİB / Ent.)</option>
+                                <option value="approved">Kabul Edildi / Ulaştı</option>
+                                <option value="rejected">Reddedildi</option>
+                                <option value="cancelled">İptal Edildi</option>
+                                <option value="failed">Hatalı / Başarısız</option>
+                            </select>
                     </div>
                 </div>
 
@@ -283,24 +284,33 @@
             </div>
 
             <div class="accruals-container">
-                <div class="accruals-header">
-                    <div id="bulkActions" class="d-flex align-items-center ml-auto" style="display: none !important; gap: 10px;">
-                        <button id="bulkSendAdvisorBtn" class="action-btn" style="background-color: #6f42c1; display: none;">
-                            <i class="fas fa-file-archive mr-1"></i> Müşavire Gönder (ZIP)
+                <div class="accruals-header border-0 pb-0" style="display: flex; justify-content: flex-end; padding: 15px 30px 0 30px;">
+                    <div id="bulkActions" class="align-items-center bg-white p-2 rounded shadow-sm border" style="display: none; gap: 10px; flex-direction: row; flex-wrap: nowrap;">
+                        
+                        <span class="text-muted mr-2 font-weight-bold" style="white-space: nowrap;">
+                            <i class="fas fa-tasks"></i> Toplu İşlemler:
+                        </span>
+                        
+                        <button id="bulkCreateInvoiceBtn" class="btn btn-sm btn-primary shadow-sm font-weight-bold" style="display: none; white-space: nowrap;">
+                            <i class="fas fa-file-invoice"></i> KolayBi Fatura Kes
+                        </button>
+                        
+                        <button id="bulkMarkPaidBtn" class="btn btn-sm btn-success shadow-sm font-weight-bold" style="display: none; white-space: nowrap;">
+                            <i class="fas fa-check-circle"></i> Seçilenleri Ödendi Yap
+                        </button>
+                        
+                        <button id="bulkMarkUnpaidBtn" class="btn btn-sm btn-danger shadow-sm font-weight-bold" style="display: none; white-space: nowrap;">
+                            <i class="fas fa-times-circle"></i> Seçilenleri Ödenmedi Yap
+                        </button>
+                        
+                        <button id="bulkSendAdvisorBtn" class="btn btn-sm btn-info shadow-sm font-weight-bold text-white" style="display: none; white-space: nowrap;">
+                            <i class="fas fa-envelope"></i> Müşavire Gönder (ZIP)
+                        </button>
+                        
+                        <button id="btnSyncAllInvoices" class="btn btn-sm btn-primary shadow-sm font-weight-bold" style="display: none; white-space: nowrap;">
+                            <i class="fas fa-sync-alt"></i> Tüm Bekleyenleri Güncelle
                         </button>
 
-                        <button id="bulkCreateInvoiceBtn" class="action-btn" style="background-color: #17a2b8;">
-                            <i class="fas fa-file-invoice-dollar mr-1"></i> KolayBi Fatura Kes
-                        </button>
-                        <button id="btnSyncAllInvoices" class="btn btn-sm btn-primary shadow-sm font-weight-bold ml-2">
-                            <i class="fas fa-sync-alt mr-2"></i> Tüm Bekleyen Faturaları Güncelle
-                        </button>
-                        <button id="bulkMarkPaidBtn" class="action-btn">
-                            <i class="fas fa-check mr-1"></i> Seçilenleri Ödendi İşaretle
-                        </button>
-                        <button id="bulkMarkUnpaidBtn" class="action-btn" style="background-color: #dc3545;">
-                            <i class="fas fa-times mr-1"></i> Seçilenleri Ödenmedi Yap
-                        </button>
                     </div>
                 </div>
 

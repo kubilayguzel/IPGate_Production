@@ -230,10 +230,44 @@ export class AccrualDataManager {
     filterAndSort(criteria, sort) {
         const { tab, filters } = criteria;
 
-        // 🔥 YENİ: Eğer aktif sekme faturalar ise, accruals yerine faturaları döndür
+        // 🔥 YENİ: Eğer aktif sekme faturalar ise, accruals yerine faturaları döndür ve filtrele
         if (tab === 'invoices') {
             let invData = [...(this.allInvoices || [])];
-            // Burada istersen faturaya özel filtreleme kuralları (Müşteri adına göre arama vb.) ekleyebilirsin.
+            
+            if (filters) {
+                // 1. Fatura Durumu Filtresi
+                if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
+                    const searchStatus = filters.invoiceStatus.toLowerCase();
+                    invData = invData.filter(inv => {
+                        const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
+                        let normalized = s;
+                        if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
+                        if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready', 'in_queue', 'preparing'].some(k=>s.includes(k))) normalized = 'waiting';
+                        if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
+                        if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
+                        if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';
+                        if (['error', 'fail', 'hata'].some(k=>s.includes(k))) normalized = 'failed';
+                        if (['gönderildi', 'sent', 'provider', 'qnb'].some(k=>s.includes(k))) normalized = 'sent';
+                        return normalized === searchStatus;
+                    });
+                }
+                
+                // 2. Müşteri (Cari) Arama
+                if (filters.party) {
+                    const searchVal = filters.party.toLowerCase();
+                    invData = invData.filter(inv => (inv.clientName || '').toLowerCase().includes(searchVal));
+                }
+                
+                // 3. Fatura No / ID Arama
+                if (filters.fileNo) {
+                    const searchVal = filters.fileNo.toLowerCase();
+                    invData = invData.filter(inv => 
+                        (inv.invoiceNo || '').toLowerCase().includes(searchVal) || 
+                        (inv.kolaybiInvoiceId || '').toLowerCase().includes(searchVal) ||
+                        (inv.id || '').toLowerCase().includes(searchVal)
+                    );
+                }
+            }
             return invData;
         }
 
@@ -312,7 +346,6 @@ export class AccrualDataManager {
                 });
             }
 
-            // 🔥 YENİ: Fatura Durumu Filtresi (HEMEN ALTINA EKLİYORUZ)
             if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
                 const searchStatus = filters.invoiceStatus.toLowerCase();
                 data = data.filter(item => {
@@ -324,12 +357,13 @@ export class AccrualDataManager {
                     return linkedInvoices.some(inv => {
                         const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
                         let normalized = s;
-                        if (['taslak'].includes(s)) normalized = 'draft';
-                        if (['processing', 'queued', 'waiting'].includes(s)) normalized = 'waiting';
-                        if (['gönderildi', 'sent', 'approved'].includes(s)) normalized = 'approved';
-                        if (['reddedildi', 'rejected'].includes(s)) normalized = 'rejected';
-                        if (['canceled', 'iptal', 'cancelled'].includes(s)) normalized = 'cancelled';
-                        if (['error', 'failed'].includes(s)) normalized = 'failed';
+                        if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
+                        if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready'].some(k=>s.includes(k))) normalized = 'waiting';
+                        if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
+                        if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
+                        if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';
+                        if (['error', 'fail', 'hata'].some(k=>s.includes(k))) normalized = 'failed';
+                        if (['gönderildi', 'sent', 'provider', 'qnb'].some(k=>s.includes(k))) normalized = 'sent';
                         return normalized === searchStatus;
                     });
                 });

@@ -315,12 +315,33 @@ export class AccrualUIManager {
                 const editBtnStyle = 'cursor: pointer;';
                 const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
 
+                // 🔥 Yurtdışı Müşterisi Tespiti (CountryCode TR veya Türkiye değilse)
+                let isForeignClient = false;
+                const partyId = acc.serviceInvoiceParty?.id || acc.tpInvoiceParty?.id;
+                if (partyId && lookups.persons) {
+                    const person = lookups.persons.find(p => p.id === partyId);
+                    if (person && person.countryCode) {
+                        const code = person.countryCode.toUpperCase().trim();
+                        if (code !== 'TR' && code !== 'TÜRKİYE' && code !== 'TURKEY') {
+                            isForeignClient = true;
+                        }
+                    }
+                }
+
+                // 🔥 Debit Note Butonu Sadece Yurtdışı Müşterilerine Görünür
+                const debitNoteBtn = isForeignClient ? `
+                    <div class="dropdown-divider mt-2 mb-2"></div>
+                    <button class="btn btn-sm btn-outline-dark w-100 generate-debit-note-btn text-left" data-id="${acc.id}" style="font-size: 0.85em;">
+                        <i class="fas fa-file-invoice mr-2 text-primary" style="pointer-events: none;"></i> Debit Note Üret
+                    </button>
+                ` : '';
+
                 const actionMenuHtml = `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
                         </button>
-                        <div class="dropdown-menu dropdown-menu-right shadow-sm border-0 p-2" style="min-width: auto;">
+                        <div class="dropdown-menu dropdown-menu-right shadow-sm border-0 p-2" style="min-width: 150px;">
                             <div class="d-flex justify-content-center align-items-center" style="gap: 5px;">
                                 <button class="btn btn-sm btn-light text-primary view-btn action-btn" data-id="${acc.id}" title="Görüntüle">
                                     <i class="fas fa-eye" style="pointer-events: none;"></i>
@@ -332,6 +353,7 @@ export class AccrualUIManager {
                                     <i class="fas fa-trash-alt" style="pointer-events: none;"></i>
                                 </button>
                             </div>
+                            ${debitNoteBtn}
                         </div>
                     </div>
                 `;
@@ -654,7 +676,7 @@ export class AccrualUIManager {
         }).join('');
 
         if (targetBody) targetBody.innerHTML = rowsHtml;
-        this.updateBulkActionsVisibility(selectedIds.size > 0);
+        this.updateBulkActionsVisibility(selectedIds.size > 0, activeTab);
     }
 
     initEditModal(accrual, personList, epatsDocument = null) {
@@ -1067,8 +1089,42 @@ export class AccrualUIManager {
         this.taskDetailManager.showError(msg);
     }
 
-    updateBulkActionsVisibility(isVisible) {
-        if(this.bulkActions) this.bulkActions.style.display = isVisible ? 'flex' : 'none';
+    updateBulkActionsVisibility(hasSelection, activeTab = 'main') {
+        if (!this.bulkActions) return;
+        
+        const btnCreateInvoice = document.getElementById('bulkCreateInvoiceBtn');
+        const btnMarkPaid = document.getElementById('bulkMarkPaidBtn');
+        const btnMarkUnpaid = document.getElementById('bulkMarkUnpaidBtn');
+        const btnSendAdvisor = document.getElementById('bulkSendAdvisorBtn');
+        const btnSyncAll = document.getElementById('btnSyncAllInvoices');
+
+        if (activeTab === 'invoices') {
+            // Faturalar sekmesi: Sadece "Tüm Bekleyenleri Güncelle" aktif (seçimden bağımsız hep görünür)
+            this.bulkActions.style.display = 'flex';
+            if (btnCreateInvoice) btnCreateInvoice.style.display = 'none';
+            if (btnMarkPaid) btnMarkPaid.style.display = 'none';
+            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'none';
+            if (btnSendAdvisor) btnSendAdvisor.style.display = 'none';
+            if (btnSyncAll) btnSyncAll.style.display = 'inline-block';
+        } else if (activeTab === 'foreign') {
+            // Yurtdışı sekmesi: Seçim yapıldığında ilgili 3 buton görünür
+            this.bulkActions.style.display = hasSelection ? 'flex' : 'none';
+            if (btnCreateInvoice) btnCreateInvoice.style.display = 'none';
+            if (btnMarkPaid) btnMarkPaid.style.display = 'inline-block';
+            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'inline-block';
+            if (btnSendAdvisor) btnSendAdvisor.style.display = 'inline-block';
+            if (btnSyncAll) btnSyncAll.style.display = 'none';
+        } else if (activeTab === 'recursive') {
+            this.bulkActions.style.display = 'none';
+        } else {
+            // Ana (Tüm Tahakkuklar) sekmesi
+            this.bulkActions.style.display = hasSelection ? 'flex' : 'none';
+            if (btnCreateInvoice) btnCreateInvoice.style.display = 'inline-block';
+            if (btnMarkPaid) btnMarkPaid.style.display = 'inline-block';
+            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'inline-block';
+            if (btnSendAdvisor) btnSendAdvisor.style.display = 'none';
+            if (btnSyncAll) btnSyncAll.style.display = 'none';
+        }
     }
 
     toggleLoading(show) {

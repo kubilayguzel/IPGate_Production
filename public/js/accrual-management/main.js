@@ -7,6 +7,7 @@ import { showNotification } from '../../utils.js';
 
 import { AccrualDataManager } from './AccrualDataManager.js';
 import { AccrualUIManager } from './AccrualUIManager.js';
+import { DebitNoteManager } from './DebitNoteManager.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const user = await waitForAuthUser({ requireAuth: true, redirectTo: 'index.html', graceMs: 1200 });
@@ -83,7 +84,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 transactionTypes: this.dataManager.allTransactionTypes,
                 ipRecords: this.dataManager.allIpRecords,
                 ipRecordsMap: this.dataManager.ipRecordsMap,
-                selectedIds: this.state.selectedIds
+                selectedIds: this.state.selectedIds,
+                persons: this.dataManager.allPersons
             };
 
             this.uiManager.renderTable(pageData, lookups, this.state.activeTab);
@@ -685,42 +687,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             $('a[data-toggle="tab"]').on('shown.bs.tab', (e) => {
                 const targetHref = $(e.target).attr("href");
-                const sendAdvisorBtn = document.getElementById('bulkSendAdvisorBtn');
                 
-                // 🔥 YENİ: Filtre ve sayfalama alanlarını seçiyoruz
                 const paginationControls = document.getElementById('paginationControls');
                 const filterSection = document.querySelector('.filter-section');
 
-                // Sekme değiştiğinde filtre ve sayfalamayı varsayılan olarak geri getiriyoruz
                 if (paginationControls) paginationControls.style.display = 'flex';
                 if (filterSection) filterSection.style.display = 'block';
 
                 if (targetHref === '#content-foreign') {
                     this.state.activeTab = 'foreign';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'inline-block';
                 }
                 else if (targetHref === '#content-invoices') {
                     this.state.activeTab = 'invoices';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
                 }
                 else if (targetHref === '#content-recursive') {
                     this.state.activeTab = 'recursive';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
                     
-                    // 🔥 ÇÖZÜM: Tekrarlayan sekmesinde genel sayfalamayı ve filtreyi tamamen gizle!
                     if (paginationControls) paginationControls.style.display = 'none';
                     if (filterSection) filterSection.style.display = 'none';
                     
                     this.state.selectedIds.clear();
+                    this.uiManager.updateBulkActionsVisibility(false, this.state.activeTab);
                     this.loadRecursiveData();
-                    return; // renderPage'in çalışmasını engelleyerek hatalı sayfalama yüklenmesini durdur
+                    return; 
                 }
                 else {
                     this.state.activeTab = 'main';
-                    if(sendAdvisorBtn) sendAdvisorBtn.style.display = 'none';
                 }
                 
                 this.state.selectedIds.clear(); 
+                document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
+                const selectAllCb = document.getElementById('selectAllCheckbox');
+                if (selectAllCb) selectAllCb.checked = false;
+                const selectAllCbForeign = document.getElementById('selectAllCheckboxForeign');
+                if (selectAllCbForeign) selectAllCbForeign.checked = false;
+                
+                this.uiManager.updateBulkActionsVisibility(false, this.state.activeTab);
                 this.renderPage();
             });
 
@@ -751,8 +753,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             const toggleSelection = (checked, id) => {
-                 if(checked) this.state.selectedIds.add(id); else this.state.selectedIds.delete(id);
-                 this.uiManager.updateBulkActionsVisibility(this.state.selectedIds.size > 0);
+                 if (id) {
+                     if(checked) this.state.selectedIds.add(id); else this.state.selectedIds.delete(id);
+                 }
+                 this.uiManager.updateBulkActionsVisibility(this.state.selectedIds.size > 0, this.state.activeTab);
             };
 
             const selectAll = (checked) => { document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = checked; toggleSelection(checked, cb.dataset.id); }); };
@@ -813,6 +817,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                         this.renderPage();
                         this.uiManager.toggleLoading(false);
                         showNotification('Silindi', 'success');
+                    }
+                }
+                // 🔥 YENİ: DEBIT NOTE OLUŞTURMA İSTEĞİ (HEMEN ALTINA EKLENDİ)
+                const debitNoteBtn = e.target.closest('.generate-debit-note-btn');
+                if (debitNoteBtn) {
+                    e.preventDefault();
+                    const accId = debitNoteBtn.dataset.id;
+                    const accrual = this.dataManager.allAccruals.find(a => a.id === accId);
+                    if (!accrual) return;
+
+                    const partyId = accrual.serviceInvoiceParty?.id || accrual.tpInvoiceParty?.id;
+                    const person = this.dataManager.allPersons.find(p => p.id === partyId);
+
+                    if (confirm('Bu tahakkuk için otomatik olarak İngilizce Debit Note (PDF) oluşturulup dosya eklerine kaydedilecek. Onaylıyor musunuz?')) {
+                        const success = await DebitNoteManager.generateAndSave(accrual, person, this.uiManager);
+                        if (success) await this.loadData(); // İşlem bitince tabloyu ve belgeleri yenile
                     }
                 }
             };

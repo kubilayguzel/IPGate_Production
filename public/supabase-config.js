@@ -1962,7 +1962,8 @@ export const accrualService = {
                     vat_rate: accrualData.vatRate || 0,
                     apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
                     is_foreign_transaction: accrualData.isForeignTransaction || false,
-                    description: accrualData.description || null 
+                    description: accrualData.description || null,
+                    invoice_description: accrualData.invoiceDescription || accrualData.invoice_description || null 
                 };
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
                 const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
@@ -2014,6 +2015,7 @@ export const accrualService = {
                 apply_vat_to_official_fee: updateData.applyVatToOfficialFee,
                 is_foreign_transaction: updateData.isForeignTransaction,
                 description: updateData.description,
+                invoice_description: updateData.invoiceDescription || updateData.invoice_description || null,
                 updated_at: new Date().toISOString()
             };
             Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });

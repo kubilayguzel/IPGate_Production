@@ -837,6 +837,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             if(this.uiManager.tableBody) this.uiManager.tableBody.addEventListener('click', handleActionClick);
             if(this.uiManager.foreignTableBody) this.uiManager.foreignTableBody.addEventListener('click', handleActionClick);
 
+            // 🔥 YENİ: Görüntüle Modalı İçindeki Belge Silme Olayı
+            document.getElementById('viewAccrualDetailModal')?.addEventListener('click', async (e) => {
+                const delBtn = e.target.closest('.delete-document-btn');
+                if (delBtn) {
+                    e.preventDefault();
+                    if (confirm('Bu belgeyi (Debit Note vb.) sistemden tamamen silmek istediğinize emin misiniz?')) {
+                        this.uiManager.toggleLoading(true);
+                        try {
+                            const docId = delBtn.dataset.id;
+                            const docUrl = delBtn.dataset.url;
+                            const accId = delBtn.dataset.accrualId; // 🔥 YENİ
+
+                            const res = await this.dataManager.deleteDocument(docId, docUrl, accId);
+                            if (res && res.success === false) {
+                                throw new Error(res.error || "Sunucu hatası, belge silinemedi.");
+                            }
+
+                            showNotification('Belge başarıyla silindi.', 'success');
+                            this.uiManager.closeModal('viewAccrualDetailModal');
+                            await this.loadData();
+                        } catch(err) {
+                            showNotification('Hata: ' + err.message, 'error');
+                        } finally {
+                            this.uiManager.toggleLoading(false);
+                        }
+                    }
+                }
+            });
+
             // YENİ: INVOICE SILME (İPTAL) BUTONU DİNLEYİCİSİ
             const handleInvoiceActionClick = async (e) => {
                 const cancelBtn = e.target.closest('.cancel-invoice-btn');

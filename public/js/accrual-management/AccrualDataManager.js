@@ -77,11 +77,12 @@ export class AccrualDataManager {
                     invoiceId2: row.invoice_id_2 || null,
                     subject: row.subject || d.subject || '',
 
-                    files: row.accrual_documents && row.accrual_documents.length > 0 
-                        ? row.accrual_documents.map(doc => ({
+                    files: [
+                        ...(row.files || d.files || []),
+                        ...(row.accrual_documents ? row.accrual_documents.map(doc => ({
                             id: doc.id, name: doc.document_name, url: doc.document_url, type: doc.document_type
-                        })) 
-                        : (row.files || d.files || []),
+                        })) : [])
+                    ],
                     
                     officialFee: { amount: row.official_fee_amount || 0, currency: row.official_fee_currency || 'TRY' },
                     serviceFee: { amount: row.service_fee_amount || 0, currency: row.service_fee_currency || 'TRY' },

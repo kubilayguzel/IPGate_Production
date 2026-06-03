@@ -799,7 +799,7 @@ export class AccrualUIManager {
                     </div>
                     <div class="d-flex align-items-center">
                         <a href="${f.content || f.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i> İndir</a>
-                        <button type="button" class="btn btn-sm btn-outline-danger delete-document-btn ml-1" data-id="${f.id}" data-url="${f.content || f.url}" title="Belgeyi Sil">
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-document-btn ml-1" data-id="${f.id}" data-url="${f.content || f.url}" data-accrual-id="${accrual.id}" title="Belgeyi Sil">
                             <i class="fas fa-trash-alt" style="pointer-events: none;"></i>
                         </button>
                     </div>

@@ -818,17 +818,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                         this.uiManager.toggleLoading(false);
                         showNotification('Silindi', 'success');
                     }
-                }
-                // 🔥 YENİ: DEBIT NOTE OLUŞTURMA İSTEĞİ (HEMEN ALTINA EKLENDİ)
-                const debitNoteBtn = e.target.closest('.generate-debit-note-btn');
-                if (debitNoteBtn) {
-                    e.preventDefault();
-                    const accId = debitNoteBtn.dataset.id;
-                    const accrual = this.dataManager.allAccruals.find(a => a.id === accId);
+                } else if (btn.classList.contains('generate-debit-note-btn')) {
+                    // 🔥 DEBIT NOTE OLUŞTURMA İŞLEMİ
+                    const accrual = this.dataManager.allAccruals.find(a => a.id === id);
                     if (!accrual) return;
 
-                    const partyId = accrual.serviceInvoiceParty?.id || accrual.tpInvoiceParty?.id;
-                    const person = this.dataManager.allPersons.find(p => p.id === partyId);
+                    // SADECE "Müvekkil/TP" bilgisini alıyoruz
+                    const partyId = accrual.tpInvoiceParty?.id;
+                    const person = this.dataManager.allPersons.find(p => p.id === partyId) || { name: accrual.tpInvoiceParty?.name || 'Bilinmeyen Müşteri' };
 
                     if (confirm('Bu tahakkuk için otomatik olarak İngilizce Debit Note (PDF) oluşturulup dosya eklerine kaydedilecek. Onaylıyor musunuz?')) {
                         const success = await DebitNoteManager.generateAndSave(accrual, person, this.uiManager);

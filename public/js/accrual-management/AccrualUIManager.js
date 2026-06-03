@@ -315,23 +315,24 @@ export class AccrualUIManager {
                 const editBtnStyle = 'cursor: pointer;';
                 const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
 
-                // 🔥 Yurtdışı Müşterisi Tespiti (CountryCode TR veya Türkiye değilse)
+                // 🔥 SADECE "Fatura Kesilecek Kişi (Müvekkil/TP)" Kontrolü
                 let isForeignClient = false;
-                const partyId = acc.serviceInvoiceParty?.id || acc.tpInvoiceParty?.id;
+                const partyId = acc.tpInvoiceParty?.id; // Sadece Müvekkil alanına bak!
                 if (partyId && lookups.persons) {
                     const person = lookups.persons.find(p => p.id === partyId);
                     if (person && person.countryCode) {
                         const code = person.countryCode.toUpperCase().trim();
-                        if (code !== 'TR' && code !== 'TÜRKİYE' && code !== 'TURKEY') {
+                        // Ülke kodu BOŞ DEĞİLSE ve TR değilse yabancı say
+                        if (code !== '' && code !== 'TR' && code !== 'TÜRKİYE' && code !== 'TURKEY') {
                             isForeignClient = true;
                         }
                     }
                 }
 
-                // 🔥 Debit Note Butonu Sadece Yurtdışı Müşterilerine Görünür
+                // 🔥 Debit Note Butonu (Renk ve tasarım düzeltildi)
                 const debitNoteBtn = isForeignClient ? `
                     <div class="dropdown-divider mt-2 mb-2"></div>
-                    <button class="btn btn-sm btn-outline-dark w-100 generate-debit-note-btn text-left" data-id="${acc.id}" style="font-size: 0.85em;">
+                    <button class="dropdown-item generate-debit-note-btn action-btn font-weight-bold text-dark" data-id="${acc.id}" style="font-size: 0.85em; cursor: pointer;">
                         <i class="fas fa-file-invoice mr-2 text-primary" style="pointer-events: none;"></i> Debit Note Üret
                     </button>
                 ` : '';
@@ -796,7 +797,12 @@ export class AccrualUIManager {
                         <i class="fas fa-file-pdf text-danger fa-lg mr-3"></i>
                         <span class="text-dark font-weight-bold" style="font-size: 0.95em;">${f.name}</span>
                     </div>
-                    <a href="${f.content || f.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i> İndir</a>
+                    <div class="d-flex align-items-center">
+                        <a href="${f.content || f.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i> İndir</a>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-document-btn ml-1" data-id="${f.id}" data-url="${f.content || f.url}" title="Belgeyi Sil">
+                            <i class="fas fa-trash-alt" style="pointer-events: none;"></i>
+                        </button>
+                    </div>
                 </div>
             `).join('');
         } else {

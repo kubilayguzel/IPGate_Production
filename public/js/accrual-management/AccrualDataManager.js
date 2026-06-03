@@ -728,6 +728,11 @@ export class AccrualDataManager {
         await this.fetchAllData();
     }
 
+    // Tahakkukun içindeki spesifik bir belgeyi silme fonksiyonu
+    async deleteDocument(documentId, fileUrl) {
+        return await accrualService.deleteDocumentFully(documentId, fileUrl);
+    }
+
     // 🔥 YENİ: Müşavire gönderim durumunu güncelleme
     async markAsSentToAdvisor(accrualIds) {
         if (!accrualIds || accrualIds.length === 0) return;

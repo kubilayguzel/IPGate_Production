@@ -1963,7 +1963,8 @@ export const accrualService = {
                     apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
                     is_foreign_transaction: accrualData.isForeignTransaction || false,
                     description: accrualData.description || null,
-                    invoice_description: accrualData.invoiceDescription || accrualData.invoice_description || null 
+                    invoice_description: accrualData.invoice_description || accrualData.invoiceDescription || null,
+                    foreign_status: 'unpaid' // 🔥 YENİ EKLENDİ
                 };
                 Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
                 const { data, error } = await supabase.from('accruals').insert(payload).select('id').single();
@@ -2016,6 +2017,7 @@ export const accrualService = {
                 is_foreign_transaction: updateData.isForeignTransaction,
                 description: updateData.description,
                 invoice_description: updateData.invoiceDescription || updateData.invoice_description || null,
+                foreign_status: updateData.foreign_status,
                 updated_at: new Date().toISOString()
             };
             Object.keys(payload).forEach(key => { if (payload[key] === undefined) delete payload[key]; });
@@ -2090,6 +2092,7 @@ export const accrualService = {
             vatRate: acc.vat_rate,
             applyVatToOfficialFee: acc.apply_vat_to_official_fee,
             isForeignTransaction: acc.is_foreign_transaction,
+            foreignStatus: acc.foreign_status || 'unpaid',
             tpeInvoiceNo: acc.tpe_invoice_no,
             evrekaInvoiceNo: acc.evreka_invoice_no,
             orderCode: acc.order_code,

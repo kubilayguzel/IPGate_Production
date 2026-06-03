@@ -610,26 +610,26 @@ export class AccrualUIManager {
                     });
 
                     // 5. Saf Yurtdışı Statüsü
+                    // 🔥 YENİ: Tamamen Bağımsız Yurtdışı Statüsü (Müşteriden bağımsız)
                     let fStatusTxt = 'Ödenmedi';
                     let fStatusCls = 'status-unpaid bg-danger text-white';
                     
-                    if (acc.status === 'paid' || (Object.keys(expectedForeignTotals).length > 0 && isFullyPaidForeign)) {
+                    if (acc.foreignStatus === 'paid') {
                         fStatusTxt = 'Ödendi';
                         fStatusCls = 'status-paid bg-success text-white';
-                    } else if (acc.status === 'partially_paid' || (hasAnyForeignDebt && Object.keys(expectedForeignTotals).some(c => remainingForeignTotals[c] < expectedForeignTotals[c]))) {
-                        fStatusTxt = 'K.Ödendi';
-                        fStatusCls = 'status-partially-paid bg-warning text-dark';
                     }
 
                     const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
                     
-                    // 6. Saf Kalan Tutar HTML'i
+                    // 🔥 YENİ: Kalan Tutar HTML'i (Bizim yurtdışına olan borcumuz, Sadece ödenmediyse göster)
                     const remTexts = [];
-                    Object.entries(remainingForeignTotals).forEach(([c, a]) => {
-                        if (a > 0.01) remTexts.push(this._formatMoney(a, c)); // Örn: 150 EUR + 2720 TRY
-                    });
+                    if (acc.foreignStatus !== 'paid') {
+                        Object.entries(expectedForeignTotals).forEach(([c, a]) => {
+                            if (a > 0.01) remTexts.push(this._formatMoney(a, c)); 
+                        });
+                    }
 
-                    const foreignRemainingHtml = remTexts.length === 0
+                    const foreignRemainingHtml = (acc.foreignStatus === 'paid' || remTexts.length === 0)
                         ? `<span class="text-success font-weight-bold">Tamamlandı</span>` 
                         : `<span class="text-danger font-weight-bold">${remTexts.join(' + ')}</span>`;
 

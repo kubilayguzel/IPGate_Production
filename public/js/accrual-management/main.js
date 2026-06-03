@@ -863,9 +863,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (confirm(`${this.state.selectedIds.size} adet kaydı "Ödenmedi" durumuna getirmek istiyor musunuz?`)) {
                     this.uiManager.toggleLoading(true);
                     try {
-                        await this.dataManager.batchUpdateStatus(this.state.selectedIds, 'unpaid');
+                        // 🔥 YENİ EKLENDİ (this.state.activeTab === 'foreign')
+                        await this.dataManager.batchUpdateStatus(this.state.selectedIds, 'unpaid', this.state.activeTab === 'foreign');
                         this.state.selectedIds.clear(); 
-                        this.renderPage(); 
+                        this.renderPage();
                         showNotification('Güncellendi', 'success');
                     } catch (e) { showNotification('Hata: ' + e.message, 'error'); } 
                     finally { this.uiManager.toggleLoading(false); }
@@ -1137,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 this.uiManager.toggleLoading(true);
                 try {
-                    await this.dataManager.savePayment(this.state.selectedIds, { date, receiptFiles: this.uploadedPaymentReceipts, singlePaymentDetails: singleDetails });
+                    await this.dataManager.savePayment(this.state.selectedIds, { date, receiptFiles: this.uploadedPaymentReceipts, singlePaymentDetails: singleDetails, isForeignTab: this.state.activeTab === 'foreign' });
                     this.uiManager.closeModal('markPaidModal');
                     this.state.selectedIds.clear();
                     this.renderPage();

@@ -486,10 +486,10 @@ export class AccrualDataManager {
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
-            invoice_description: formData.invoiceDescription || null,
+            invoice_description: formData.invoice_description || formData.invoiceDescription || null, // 🔥 ÇÖZÜM: İki ihtimal de eklendi
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
-            order_code: formData.orderCode || null, // 🔥 YENİ
+            order_code: formData.orderCode || null,
         };
 
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
@@ -564,8 +564,8 @@ export class AccrualDataManager {
 
         const payload = {
             ...formData,
-            description: formData.description || null, // 🔥 GÜNCELLEMEDE KAYBOLAN NOT ALANI EKLENDİ
-            invoice_description: formData.invoiceDescription || null, // 🔥 GÜNCELLEMEDE KAYBOLAN FATURA AÇIKLAMASI EKLENDİ
+            description: formData.description || null, 
+            invoice_description: formData.invoice_description || formData.invoiceDescription || null, // 🔥 ÇÖZÜM: Veri eşleştirme hatası giderildi
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,
@@ -600,7 +600,8 @@ export class AccrualDataManager {
     }
 
     async savePayment(selectedIds, paymentData) {
-        const { date, receiptFiles, singlePaymentDetails } = paymentData;
+        // 🔥 YENİ: isForeignTab parametresi eklendi
+        const { date, receiptFiles, singlePaymentDetails, isForeignTab } = paymentData;
         const ids = Array.from(selectedIds);
 
         const promises = ids.map(async (id) => {
@@ -609,35 +610,40 @@ export class AccrualDataManager {
 
             let updates = {};
 
-            if (ids.length === 1 && singlePaymentDetails) {
-                updates.paymentDate = date;
-                const { payFullOfficial, payFullService, manualOfficial, manualService } = singlePaymentDetails;
-                const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
+            if (isForeignTab) {
+                // 🔥 Sadece yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz
+                updates.foreign_status = 'paid';
+            } else {
+                // Mevcut müşteri (Tahakkuk) ödeme mantığı
+                if (ids.length === 1 && singlePaymentDetails) {
+                    updates.paymentDate = date;
+                    const { payFullOfficial, payFullService, manualOfficial, manualService } = singlePaymentDetails;
+                    const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
 
-                const offTarget = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
-                const newPaidOff = payFullOfficial ? offTarget : (parseFloat(manualOfficial) || 0);
+                    const offTarget = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
+                    const newPaidOff = payFullOfficial ? offTarget : (parseFloat(manualOfficial) || 0);
 
-                const srvTarget = (acc.serviceFee?.amount || 0) * vatMultiplier;
-                const newPaidSrv = payFullService ? srvTarget : (parseFloat(manualService) || 0);
+                    const srvTarget = (acc.serviceFee?.amount || 0) * vatMultiplier;
+                    const newPaidSrv = payFullService ? srvTarget : (parseFloat(manualService) || 0);
 
-                const remOff = Math.max(0, offTarget - newPaidOff);
-                const remSrv = Math.max(0, srvTarget - newPaidSrv);
+                    const remOff = Math.max(0, offTarget - newPaidOff);
+                    const remSrv = Math.max(0, srvTarget - newPaidSrv);
 
-                const remMap = {};
-                if (remOff > 0.01) remMap[acc.officialFee?.currency || 'TRY'] = (remMap[acc.officialFee?.currency] || 0) + remOff;
-                if (remSrv > 0.01) remMap[acc.serviceFee?.currency || 'TRY'] = (remMap[acc.serviceFee?.currency] || 0) + remSrv;
-                
-                // 🔥 Yeni Dizi (Array) olarak kaydediyoruz
-                updates.remainingAmount = Object.entries(remMap).map(([c, a]) => ({ amount: a, currency: c }));
+                    const remMap = {};
+                    if (remOff > 0.01) remMap[acc.officialFee?.currency || 'TRY'] = (remMap[acc.officialFee?.currency] || 0) + remOff;
+                    if (remSrv > 0.01) remMap[acc.serviceFee?.currency || 'TRY'] = (remMap[acc.serviceFee?.currency] || 0) + remSrv;
+                    
+                    updates.remainingAmount = Object.entries(remMap).map(([c, a]) => ({ amount: a, currency: c }));
 
-                if (updates.remainingAmount.length === 0) updates.status = 'paid';
-                else if (newPaidOff > 0 || newPaidSrv > 0) updates.status = 'partially_paid';
-                else updates.status = 'unpaid';
-            }
-            else {
-                updates.status = 'paid';
-                updates.remainingAmount = [];
-                updates.paymentDate = date;
+                    if (updates.remainingAmount.length === 0) updates.status = 'paid';
+                    else if (newPaidOff > 0 || newPaidSrv > 0) updates.status = 'partially_paid';
+                    else updates.status = 'unpaid';
+                }
+                else {
+                    updates.status = 'paid';
+                    updates.remainingAmount = [];
+                    updates.paymentDate = date;
+                }
             }
             return accrualService.updateAccrual(id, updates);
         });
@@ -646,15 +652,22 @@ export class AccrualDataManager {
         await this.fetchAllData();
     }
 
-    async batchUpdateStatus(selectedIds, newStatus) {
+    async batchUpdateStatus(selectedIds, newStatus, isForeignTab = false) {
         const ids = Array.from(selectedIds);
         const promises = ids.map(async (id) => {
             const acc = this.allAccruals.find(a => a.id === id);
             if (!acc) return;
-            const updates = { status: newStatus };
-            if (newStatus === 'unpaid') {
-                updates.paymentDate = null;
-                updates.remainingAmount = acc.totalAmount; // Array olarak geri yüklüyoruz
+            
+            const updates = {};
+            if (isForeignTab) {
+                // 🔥 Yurtdışı sekmesinden gelirse sadece yurtdışı statüsünü güncelle
+                updates.foreign_status = newStatus;
+            } else {
+                updates.status = newStatus;
+                if (newStatus === 'unpaid') {
+                    updates.paymentDate = null;
+                    updates.remainingAmount = acc.totalAmount;
+                }
             }
             return accrualService.updateAccrual(id, updates);
         });

@@ -946,37 +946,83 @@ export class AccrualUIManager {
                 let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
                 if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
 
+                // Split inputları (Dinamik alanları) tutacağımız obje
+                let groupedInputs = {};
+
                 if (foreignItems.length > 0) {
                     foreignItems.forEach(i => {
                         const c = i.currency || 'EUR';
                         const amt = Number(i.total_amount) || 0;
                         const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
-                        expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + (amt * vatMult);
+                        const finalAmt = amt * vatMult;
+                        
+                        expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + finalAmt;
+
+                        // Split inputs için etiket belirleme
+                        const lowerName = (i.item_name || '').toLowerCase();
+                        const isService = lowerName.includes('vekil') || lowerName.includes('hizmet');
+                        const labelStr = isService ? 'Yurtdışı Vekil Hizmet Ücreti' : 'Resmi Ücret Tutarı';
+                        const rawType = isService ? 'service' : 'official';
+                        
+                        // Örn: official_TRY veya service_EUR olarak grupla
+                        const key = rawType + '_' + c;
+                        if (!groupedInputs[key]) {
+                            groupedInputs[key] = { label: labelStr, curr: c, amount: 0, rawType: rawType };
+                        }
+                        groupedInputs[key].amount += finalAmt;
                     });
                 } else {
                     const c = acc.officialFee?.currency || 'EUR';
                     const amt = parseFloat(acc.officialFee?.amount) || 0;
                     const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
-                    if(amt > 0) expectedForeignTotals[c] = amt * vatMult;
+                    if(amt > 0) {
+                        expectedForeignTotals[c] = amt * vatMult;
+                        groupedInputs['official_' + c] = { label: 'Resmi Ücret Tutarı', curr: c, amount: amt * vatMult, rawType: 'official' };
+                    }
                 }
 
-                // Dövizleri arayüze yan yana bas (Örn: 3.915 TRY + 223 USD)
                 const remTexts = [];
                 Object.entries(expectedForeignTotals).forEach(([c, a]) => {
                     remTexts.push(this._formatMoney(a, c));
                 });
                 
                 document.getElementById('foreignTotalBadge').textContent = remTexts.length > 0 ? remTexts.join(' + ') : '0 EUR';
-                
-                const currencies = Object.keys(expectedForeignTotals);
-                const displayCurr = currencies.length > 0 ? currencies.join(', ') : 'EUR';
-                document.querySelectorAll('.foreign-currency-label').forEach(el => el.textContent = displayCurr);
-
-                document.getElementById('manualForeignOfficial').value = acc.paidOfficialAmount || 0;
-                document.getElementById('manualForeignService').value = acc.paidServiceAmount || 0;
 
                 const payFullCb = document.getElementById('payFullForeign');
                 const splitInputs = document.getElementById('foreignSplitInputs');
+                
+                // 🔥 Tamamını Öde tiki kalkınca açılacak dövize duyarlı yeni giriş alanları
+                if (splitInputs) {
+                    let html = '';
+                    let offCount = 0;
+                    let srvCount = 0;
+                    
+                    Object.values(groupedInputs).forEach((g) => {
+                        let safeId = '';
+                        if (g.rawType === 'official') {
+                            safeId = offCount === 0 ? 'manualForeignOfficial' : 'manualForeignOfficial_' + offCount;
+                            offCount++;
+                        } else {
+                            safeId = srvCount === 0 ? 'manualForeignService' : 'manualForeignService_' + srvCount;
+                            srvCount++;
+                        }
+                        
+                        html += `
+                            <div class="form-group mb-3">
+                                <label class="small text-muted font-weight-bold">${g.label} <span class="text-info">(${g.curr})</span></label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" id="${safeId}" class="form-control" value="0" max="${g.amount.toFixed(2)}">
+                                    <div class="input-group-append">
+                                        <span class="input-group-text font-weight-bold">${g.curr}</span>
+                                    </div>
+                                </div>
+                                <small class="text-success mt-1 d-block">Tahakkuktaki Tutar: ${this._formatMoney(g.amount, g.curr)}</small>
+                            </div>
+                        `;
+                    });
+                    
+                    splitInputs.innerHTML = html;
+                }
                 
                 if(payFullCb) payFullCb.checked = true;
                 if(splitInputs) splitInputs.style.display = 'none';

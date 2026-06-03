@@ -1129,8 +1129,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let singleDetails = null;
                 if (this.state.selectedIds.size === 1) {
                      if (this.state.activeTab === 'foreign') {
-                        const isFull = document.getElementById('payFullForeign').checked;
-                        singleDetails = { isForeignMode: true, payFullOfficial: isFull, payFullService: isFull, manualOfficial: document.getElementById('manualForeignOfficial').value, manualService: document.getElementById('manualForeignService').value };
+                        const isFull = document.getElementById('payFullForeign')?.checked;
+                        
+                        // 🔥 ÇÖZÜM: Alanlar dinamik oluştuğu için ekranda var olup olmadıklarına (null check) bakarak okuyoruz.
+                        const offEl = document.getElementById('manualForeignOfficial');
+                        const srvEl = document.getElementById('manualForeignService');
+                        
+                        singleDetails = { 
+                            isForeignMode: true, 
+                            payFullOfficial: isFull, 
+                            payFullService: isFull, 
+                            manualOfficial: offEl ? offEl.value : 0, 
+                            manualService: srvEl ? srvEl.value : 0 
+                        };
                      } else {
                         singleDetails = { isForeignMode: false, payFullOfficial: document.getElementById('payFullOfficial').checked, payFullService: document.getElementById('payFullService').checked, manualOfficial: document.getElementById('manualOfficialAmount').value, manualService: document.getElementById('manualServiceAmount').value };
                      }

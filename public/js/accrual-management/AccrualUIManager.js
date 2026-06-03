@@ -941,28 +941,36 @@ export class AccrualUIManager {
             if (activeTab === 'foreign') {
                 if(foreignArea) foreignArea.style.display = 'block';
 
-                // 🔥 ÇÖZÜM 2: Yurtdışı kalemlerini bulup doğru döviz ve tutarı hesaplıyoruz (Tablo ile birebir uyumlu)
+                // 🔥 ÇOKLU DÖVİZ (TRY, USD vb.) İÇİN AKILLI HESAPLAMA SİSTEMİ
+                let expectedForeignTotals = {}; 
                 let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
                 if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
-                
-                let offAmt = 0;
-                let offCurr = 'EUR'; // Varsayılan
 
                 if (foreignItems.length > 0) {
-                    offCurr = foreignItems[0].currency || 'EUR';
                     foreignItems.forEach(i => {
+                        const c = i.currency || 'EUR';
+                        const amt = Number(i.total_amount) || 0;
                         const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
-                        offAmt += (Number(i.total_amount) || 0) * vatMult;
+                        expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + (amt * vatMult);
                     });
                 } else {
-                    offAmt = parseFloat(acc.officialFee?.amount) || 0;
-                    offCurr = acc.officialFee?.currency || 'EUR';
+                    const c = acc.officialFee?.currency || 'EUR';
+                    const amt = parseFloat(acc.officialFee?.amount) || 0;
                     const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
-                    offAmt = offAmt * vatMult;
+                    if(amt > 0) expectedForeignTotals[c] = amt * vatMult;
                 }
+
+                // Dövizleri arayüze yan yana bas (Örn: 3.915 TRY + 223 USD)
+                const remTexts = [];
+                Object.entries(expectedForeignTotals).forEach(([c, a]) => {
+                    remTexts.push(this._formatMoney(a, c));
+                });
                 
-                document.getElementById('foreignTotalBadge').textContent = `${this._formatMoney(offAmt, offCurr)}`;
-                document.querySelectorAll('.foreign-currency-label').forEach(el => el.textContent = offCurr);
+                document.getElementById('foreignTotalBadge').textContent = remTexts.length > 0 ? remTexts.join(' + ') : '0 EUR';
+                
+                const currencies = Object.keys(expectedForeignTotals);
+                const displayCurr = currencies.length > 0 ? currencies.join(', ') : 'EUR';
+                document.querySelectorAll('.foreign-currency-label').forEach(el => el.textContent = displayCurr);
 
                 document.getElementById('manualForeignOfficial').value = acc.paidOfficialAmount || 0;
                 document.getElementById('manualForeignService').value = acc.paidServiceAmount || 0;

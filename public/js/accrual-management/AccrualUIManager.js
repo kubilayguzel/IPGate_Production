@@ -941,8 +941,25 @@ export class AccrualUIManager {
             if (activeTab === 'foreign') {
                 if(foreignArea) foreignArea.style.display = 'block';
 
-                const offAmt = acc.officialFee?.amount || 0;
-                const offCurr = acc.officialFee?.currency || 'EUR';
+                // 🔥 ÇÖZÜM 2: Yurtdışı kalemlerini bulup doğru döviz ve tutarı hesaplıyoruz (Tablo ile birebir uyumlu)
+                let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
+                if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
+                
+                let offAmt = 0;
+                let offCurr = 'EUR'; // Varsayılan
+
+                if (foreignItems.length > 0) {
+                    offCurr = foreignItems[0].currency || 'EUR';
+                    foreignItems.forEach(i => {
+                        const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
+                        offAmt += (Number(i.total_amount) || 0) * vatMult;
+                    });
+                } else {
+                    offAmt = parseFloat(acc.officialFee?.amount) || 0;
+                    offCurr = acc.officialFee?.currency || 'EUR';
+                    const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
+                    offAmt = offAmt * vatMult;
+                }
                 
                 document.getElementById('foreignTotalBadge').textContent = `${this._formatMoney(offAmt, offCurr)}`;
                 document.querySelectorAll('.foreign-currency-label').forEach(el => el.textContent = offCurr);

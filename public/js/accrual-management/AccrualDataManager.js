@@ -63,6 +63,7 @@ export class AccrualDataManager {
                     createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
                     updatedAt: row.updated_at || d.updatedAt,
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
+                    reignTransaction: row.is_foreign_transaction ?? d.isForeign,
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     orderCode: row.order_code || d.orderCode || null,

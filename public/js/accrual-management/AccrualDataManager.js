@@ -486,6 +486,7 @@ export class AccrualDataManager {
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
+            invoice_description: formData.invoiceDescription || null,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null, // 🔥 YENİ
@@ -563,6 +564,8 @@ export class AccrualDataManager {
 
         const payload = {
             ...formData,
+            description: formData.description || null, // 🔥 GÜNCELLEMEDE KAYBOLAN NOT ALANI EKLENDİ
+            invoice_description: formData.invoiceDescription || null, // 🔥 GÜNCELLEMEDE KAYBOLAN FATURA AÇIKLAMASI EKLENDİ
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,
@@ -744,25 +747,22 @@ export class AccrualDataManager {
     async autoSyncPendingInvoices() {
         if (!this.allInvoices || this.allInvoices.length === 0) return false;
 
-        // KolayBi API dökümanına göre nihai (tekrar sorgulanmayacak) durumlar
-        const finalStatuses = ['approved', 'rejected', 'cancelled', 'failed'];
+        // 🔥 GÜNCELLEME: Tüm nihai kelimeler (Kabul, Red, İptal) İngilizce ve Türkçe olarak eklendi
+        const finalKeywords = ['approved', 'rejected', 'cancelled', 'failed', 'accept', 'decline', 'kabul', 'red', 'iptal'];
 
         const pendingIds = this.allInvoices
             .filter(inv => {
                 const kId = String(inv.kolaybiInvoiceId);
-                if (!inv.kolaybiInvoiceId || kId === 'undefined' || kId === 'null') {
-                    return false; // Fatura henüz kesilmemiş
-                }
+                if (!inv.kolaybiInvoiceId || kId === 'undefined' || kId === 'null') return false;
                 
-                const s = (inv.status || 'draft').toLowerCase().trim();
+                const s = (inv.status || '').toLowerCase().trim();
+                const ks = (inv.kolaybiStatus || '').toLowerCase().trim();
                 
-                // Eğer fatura 'approved', 'rejected' veya 'cancelled' ise sorgulamayı atla
-                if (finalStatuses.includes(s)) {
-                    return false;
-                }
+                // Eğer faturanın sistem VEYA kolaybi statüsünde bu kesin kelimeler geçiyorsa sorgulama!
+                const isFinal = finalKeywords.some(word => s.includes(word) || ks.includes(word));
+                if (isFinal) return false;
 
-                // Geri kalan her şeyi sorgula (Örn: sent, sent_to_receiver, waiting_gib, taslak vb.)
-                return true;
+                return true; // Diğer belirsiz durumları sorgula
             })
             .map(inv => inv.id);
 

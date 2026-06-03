@@ -351,6 +351,13 @@
                         "is_nullable": "YES",
                         "column_default": "'EVREKA'::text",
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "invoice_description",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",

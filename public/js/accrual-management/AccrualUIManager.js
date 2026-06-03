@@ -415,7 +415,7 @@ export class AccrualUIManager {
                     } 
                     else if (isMatch(kStatus, ['ulaştı', 'sent_to_receiver', 'delivered'])) {
                         invStatusText = '<i class="fas fa-check-double mr-1"></i> Alıcıya Ulaştı';
-                        invStatusClass = 'badge-success';
+                        invStatusClass = 'badge-info text-white'; // 🔥 GÜNCELLEME: Rengi mavi/turkuaz yapıldı
                     } 
                     else if (isMatch(kStatus, ['işlendi', 'processed_in_gib', 'processed'])) {
                         invStatusText = '<i class="fas fa-check mr-1"></i> GİB\'de İşlendi';

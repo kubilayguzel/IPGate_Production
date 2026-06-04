@@ -6,56 +6,80 @@ export class DebitNoteManager {
     static async generateAndSave(accrual, person, uiManager) {
         uiManager.toggleLoading(true);
         try {
-            // 1. html2pdf kütüphanesini dinamik yükle (PDF oluşturmak için)
+            // 1. html2pdf kütüphanesini dinamik yükle
             await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
-            // 2. Note No: Yıl - TahakkukNo - SıraNo Üretimi (Sayaç Motoru)
+            // 2. Note No Üretimi (Sayaç Motoru)
             const currentYear = new Date().getFullYear();
             const counterId = `debit_notes_${currentYear}`;
             let sequenceNo = 1;
             
             try {
-                // Veritabanından bu yıla ait en son kaçıncı Debit Note'u kestiğimizi soruyoruz
                 const { data: counterData } = await supabase.from('counters').select('last_id').eq('id', counterId).maybeSingle();
-                sequenceNo = (counterData?.last_id || 0) + 1; // Üzerine 1 ekle
-                // Sayacı güncelle ki bir sonraki işlemde aynısını vermesin
+                sequenceNo = (counterData?.last_id || 0) + 1;
                 await supabase.from('counters').upsert({ id: counterId, last_id: sequenceNo }, { onConflict: 'id' });
             } catch(e) {
-                console.warn("Sayaç güncellenemedi, zaman damgası kullanılacak.");
+                console.warn("Sayaç güncellenemedi.");
                 sequenceNo = Date.now().toString().slice(-4);
             }
 
-            // Örnek: 2026-720-1
             const noteNo = `${currentYear}-${accrual.id}-${sequenceNo}`;
 
-            // 3. Kurları ve Toplamları Hesapla
-            let expectedForeignTotals = {}; 
-            let foreignItems = (accrual.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
-            if (foreignItems.length === 0) foreignItems = (accrual.items || []).filter(i => i.fee_type !== 'Hizmet');
+            // 3. Kalemleri Çek
+            let billableItems = accrual.items || [];
             
-            if (foreignItems.length > 0) {
-                foreignItems.forEach(i => {
+            if (billableItems.length === 0) {
+                if (accrual.officialFee && accrual.officialFee.amount > 0) {
+                    billableItems.push({ fee_type: 'TP Harç', item_name: 'Official Fee', unit_price: accrual.officialFee.amount, quantity: 1, total_amount: accrual.officialFee.amount, currency: accrual.officialFee.currency });
+                }
+                if (accrual.serviceFee && accrual.serviceFee.amount > 0) {
+                    billableItems.push({ fee_type: 'Hizmet', item_name: 'Service Fee', unit_price: accrual.serviceFee.amount, quantity: 1, total_amount: accrual.serviceFee.amount, currency: accrual.serviceFee.currency });
+                }
+            }
+
+            // 4. Kurları ve Toplamları Hesapla
+            let expectedForeignTotals = {}; 
+            
+            if (billableItems.length > 0) {
+                billableItems.forEach(i => {
                     const c = i.currency || 'EUR';
                     const amt = Number(i.total_amount) || 0;
-                    const vatMult = accrual.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || accrual.vatRate || 0) / 100)) : 1;
-                    expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + (amt * vatMult);
+                    const vatRate = Number(i.vat_rate || 0);
+                    const finalAmt = amt * (1 + (vatRate / 100));
+                    expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + finalAmt;
                 });
             }
 
             const balanceStrs = Object.entries(expectedForeignTotals).map(([c, a]) => uiManager._formatMoney(a, c));
             const balanceDisplay = balanceStrs.length > 0 ? balanceStrs.join(' + ') : '0.00 EUR';
 
-            // 4. Tablo Satırlarını Oluştur (Kapsamlı İngilizce Çeviri ile)
+            // 5. Tablo Satırlarını Oluştur ve İNGİLİZCE ÇEVİRİ
             let tableRowsHtml = '';
-            if (foreignItems.length > 0) {
-                foreignItems.forEach((item, index) => {
+            if (billableItems.length > 0) {
+                billableItems.forEach((item, index) => {
                     const qty = Number(item.quantity) || 1;
                     const rate = Number(item.unit_price) || 0;
                     const amount = Number(item.total_amount) || 0;
                     const cur = item.currency || 'EUR';
                     
-                    // İngilizce Çeviri Motoruna Gönder
-                    const englishItemName = this._translateToEnglish(item.item_name || '-');
+                    // 🔥 HARİKA FİKİR: fee_type bazlı net İngilizce isimlendirme
+                    let englishItemName = item.item_name || '-';
+                    const fType = item.fee_type || '';
+                    
+                    if (fType.includes('TP Hizmet') || fType.includes('TP Harç') || fType.includes('Resmi')) {
+                        englishItemName = 'TURKPATENT Official Fee';
+                    } else if (fType.includes('Hizmet') || fType.includes('Hukuk')) {
+                        englishItemName = 'EVREKA Service Fee';
+                    } else if (fType.includes('Yurtdışı Maliyet')) {
+                        englishItemName = 'Foreign Attorney / Official Fee';
+                    } else if (fType.includes('Masraf')) {
+                        englishItemName = 'Disbursements / Expenses';
+                    } else if (fType.includes('Kur Farkı')) {
+                        englishItemName = 'Exchange Rate Difference';
+                    } else {
+                        // Hiçbirine uymazsa kelime kelime çeviri motoruna yolla (Yedek kural)
+                        englishItemName = this._translateToEnglish(englishItemName); 
+                    }
                     
                     tableRowsHtml += `
                         <tr>
@@ -69,9 +93,8 @@ export class DebitNoteManager {
                 });
             }
 
-            // 🔥 ÇÖZÜM 5 (LOGO): Logoyu hatasız basmak için Base64 formatına çeviriyoruz. 
-            // html2pdf, Base64 formattaki resimleri daha sağlıklı pdf'e basar.
-            const logoUrl = new URL('evreka-logo.png', window.location.href).href;
+            // 6. Logoyu Garantili Yoldan Çek ve Base64'e Çevir
+            const logoUrl = window.location.origin + '/evreka-logo.png';
             const base64Logo = await this._getBase64Image(logoUrl);
             const logoHtml = base64Logo 
                 ? `<img src="${base64Logo}" alt="EVREKA" style="max-height: 55px; object-fit: contain; margin-bottom: 10px;">` 
@@ -79,7 +102,7 @@ export class DebitNoteManager {
 
             const subjectText = this._translateToEnglish(accrual.invoiceDescription || accrual.description || accrual.subject || accrual.taskTitle || 'Professional Services');
 
-            // 5. PDF İçin HTML Tasarımı (Sizin özel adres bilgileriniz ve banka detayı korundu)
+            // 7. PDF İçin HTML Tasarımı
             const container = document.createElement('div');
             container.innerHTML = `
                 <div id="debitNoteContent" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #333; font-size: 14px; background: white; width: 800px; margin: 0 auto;">
@@ -128,11 +151,21 @@ export class DebitNoteManager {
                         <tbody>${tableRowsHtml}</tbody>
                     </table>
 
-                    <div style="display: flex; justify-content: flex-end; margin-bottom: 40px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 40px; margin-top: 20px;">
+                        <div style="width: 55%; font-size: 13px; line-height: 1.6; color: #555;">
+                            <h4 style="color: #333; margin-bottom: 8px; margin-top: 0; font-size: 14px;">Bank details for payment via wire transfer</h4>
+                            <strong>Beneficiary:</strong> EVREKA PATENT DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Turkey<br>
+                            <strong>IBAN (EUR):</strong> TR 6200 0100 1983 9142 7604 5002<br>
+                            <strong>IBAN (USD):</strong> TR 3500 0100 1983 9142 7604 5003<br>
+                            <strong>SWIFT:</strong> TCZBTR2A<br>
+                            <strong>Bank Name:</strong> T.C. Ziraat Bankası<br>
+                            <strong>Bank Branch:</strong> Keklikpınarı / ANKARA<br>
+                        </div>
+                        
                         <table style="width: 40%; border-collapse: collapse;">
                             <tr>
-                                <td style="padding: 10px; border-bottom: 1px solid #ddd;">Sub Total</td>
-                                <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right;">${balanceDisplay}</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd; color: #555;">Sub Total</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #555;">${balanceDisplay}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 10px; font-weight: bold; font-size: 16px; border-top: 2px solid #333;">Balance Due</td>
@@ -141,24 +174,14 @@ export class DebitNoteManager {
                         </table>
                     </div>
 
-                    <div style="font-size: 13px; line-height: 1.8; color: #555; border-top: 1px solid #ddd; padding-top: 20px; clear: both;">
-                        <h4 style="color: #333; margin-bottom: 10px; margin-top: 0; font-size: 14px;">Bank details for payment via wire transfer</h4>
-                        <strong>Beneficiary:</strong> EVREKA PATENT DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Turkey<br>
-                        <strong>IBAN (EUR):</strong> TR 6200 0100 1983 9142 7604 5002<br>
-                        <strong>IBAN (USD):</strong> TR 3500 0100 1983 9142 7604 5003<br>
-                        <strong>SWIFT:</strong> TCZBTR2A<br>
-                        <strong>Bank Name:</strong> T.C. Ziraat Bankası<br>
-                        <strong>Bank Branch:</strong> Keklikpınarı / ANKARA<br>
-                    </div>
                 </div>
             `;
 
-            // HTML'i ekranda gizlice oluştur (html2pdf'in görebilmesi için)
             container.style.position = 'absolute';
             container.style.left = '-9999px';
             document.body.appendChild(container);
 
-            // 6. html2pdf ile PDF Blob üret
+            // 8. PDF Üret
             const opt = {
                 margin: 0,
                 filename: `Debit_Note_${noteNo}.pdf`,
@@ -170,7 +193,7 @@ export class DebitNoteManager {
             const pdfBlob = await html2pdf().set(opt).from(container.querySelector('#debitNoteContent')).output('blob');
             document.body.removeChild(container);
 
-            // 7. Supabase Storage'a Yükle
+            // 9. Storage'a Yükle ve Kaydet
             const fileName = `debit_note_${noteNo}_${Date.now()}.pdf`;
             const filePath = `accruals/${accrual.id}/${fileName}`;
 
@@ -179,7 +202,6 @@ export class DebitNoteManager {
 
             const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
 
-            // 8. Accrual Documents tablosuna kaydet
             const { error: dbError } = await supabase.from('accrual_documents').insert({
                 accrual_id: String(accrual.id),
                 document_name: `Debit Note #${noteNo}.pdf`,
@@ -191,7 +213,7 @@ export class DebitNoteManager {
 
             showNotification('Debit Note başarıyla oluşturuldu ve tahakkuka eklendi.', 'success');
             
-            // 🔥 YENİ: Başarıyla oluşturulduktan sonra YENİ SEKMEYE PDF'i gönder
+            // 10. İndirme/Görüntüleme: Yeni sekmede aç
             window.open(urlData.publicUrl, '_blank');
 
             return true;
@@ -205,7 +227,6 @@ export class DebitNoteManager {
         }
     }
 
-    // 🔥 ÇÖZÜM 5 (LOGO): Resmi Base64'e çeviren yardımcı fonksiyon
     static async _getBase64Image(url) {
         try {
             const response = await fetch(url);
@@ -222,37 +243,31 @@ export class DebitNoteManager {
         }
     }
 
-    // 🔥 ÇÖZÜM 3 (ÇEVİRİ): Türkçe Karakterlere Dirençli Gelişmiş Çeviri Motoru
     static _translateToEnglish(text) {
         if (!text) return '-';
         let t = text;
         
         const dict = {
-            'yurtdışı maliyet': 'Foreign Cost',
-            'yurtdışı vekil ücreti': 'Foreign Attorney Fee',
-            'yurtdışı resmi ücret': 'Foreign Official Fee',
-            'resmi ücret tutarı': 'Official Fee Amount',
-            'resmi ücret': 'Official Fee',
-            'hizmet bedeli': 'Service Fee',
-            'vekil ücreti': 'Attorney Fee',
-            'hizmet ücreti': 'Service Fee',
-            'hukuk danışmanlık': 'Legal Consultancy',
-            'markasının yenilenmesi': 'Trademark Renewal',
-            'marka yenileme': 'Trademark Renewal',
-            'marka tescili': 'Trademark Registration',
-            'marka tescil': 'Trademark Registration',
-            'başvurusu': 'Application',
-            'sayılı': 'No.',
-            'markası': 'Trademark',
-            'patent': 'Patent',
-            'tasarım': 'Design',
-            'masraf': 'Disbursements / Expenses'
+            'karara itiraz': 'Appeal against Decision',
+            'yayına itiraz': 'Opposition to Publication',
+            'itiraz': 'Opposition / Appeal',
+            'savunma': 'Defense',
+            'devir': 'Assignment',
+            'unvan değişikliği': 'Change of Name',
+            'adres değişikliği': 'Change of Address',
+            'sureti': 'Certified Copy',
+            'suret': 'Certified Copy',
+            'rüçhan': 'Priority',
+            'yenileme': 'Renewal',
+            'tescili': 'Registration',
+            'tescil': 'Registration',
+            'başvuru': 'Application',
+            'marka': 'Trademark'
         };
 
         const keys = Object.keys(dict).sort((a, b) => b.length - a.length);
         
         keys.forEach(k => {
-            // Türkçe ı, İ, ş, ğ gibi harfleri regex içinde esnek yakala
             const regexStr = k.split('').map(char => {
                 if (char === 'i' || char === 'İ') return '[iİIı]';
                 if (char === 'ı' || char === 'I') return '[ıIİi]';
@@ -261,6 +276,7 @@ export class DebitNoteManager {
                 if (char === 'ü' || char === 'Ü') return '[üÜuU]';
                 if (char === 'ö' || char === 'Ö') return '[öÖoO]';
                 if (char === 'ç' || char === 'Ç') return '[çÇcC]';
+                if (char === ' ') return '\\s+';
                 return char;
             }).join('');
             
@@ -268,7 +284,7 @@ export class DebitNoteManager {
             t = t.replace(regex, dict[k]);
         });
         
-        return t;
+        return t.trim();
     }
 
     static _loadScript(src) {

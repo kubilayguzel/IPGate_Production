@@ -30,43 +30,36 @@ export class DebitNoteManager {
             
             if (billableItems.length === 0) {
                 if (accrual.officialFee && accrual.officialFee.amount > 0) {
-                    billableItems.push({ fee_type: 'TP Harç', item_name: 'Official Fee', unit_price: accrual.officialFee.amount, quantity: 1, total_amount: accrual.officialFee.amount, currency: accrual.officialFee.currency });
+                    billableItems.push({ fee_type: 'TP Harç', item_name: 'Official Fee', unit_price: accrual.officialFee.amount, quantity: 1, total_amount: accrual.officialFee.amount, currency: accrual.officialFee.currency, vat_rate: 0 });
                 }
                 if (accrual.serviceFee && accrual.serviceFee.amount > 0) {
-                    billableItems.push({ fee_type: 'Hizmet', item_name: 'Service Fee', unit_price: accrual.serviceFee.amount, quantity: 1, total_amount: accrual.serviceFee.amount, currency: accrual.serviceFee.currency });
+                    billableItems.push({ fee_type: 'Hizmet', item_name: 'Service Fee', unit_price: accrual.serviceFee.amount, quantity: 1, total_amount: accrual.serviceFee.amount, currency: accrual.serviceFee.currency, vat_rate: accrual.vatRate || 20 });
                 }
             }
 
-            // 4. Kurları ve Toplamları Hesapla
-            let expectedForeignTotals = {}; 
-            
-            if (billableItems.length > 0) {
-                billableItems.forEach(i => {
-                    const c = i.currency || 'EUR';
-                    const amt = Number(i.total_amount) || 0;
-                    const vatRate = Number(i.vat_rate || 0);
-                    const finalAmt = amt * (1 + (vatRate / 100));
-                    expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + finalAmt;
-                });
-            }
-
-            const balanceStrs = Object.entries(expectedForeignTotals).map(([c, a]) => uiManager._formatMoney(a, c));
-            const balanceDisplay = balanceStrs.length > 0 ? balanceStrs.join(' + ') : '0.00 EUR';
-
-            // 5. Tablo Satırlarını Oluştur ve İNGİLİZCE ÇEVİRİ
+            // 4. Tablo Satırlarını Oluştur ve Genel Toplamı Hesapla
             let tableRowsHtml = '';
+            let expectedForeignTotals = {}; 
+
             if (billableItems.length > 0) {
                 billableItems.forEach((item, index) => {
                     const qty = Number(item.quantity) || 1;
                     const rate = Number(item.unit_price) || 0;
-                    const amount = Number(item.total_amount) || 0;
                     const cur = item.currency || 'EUR';
                     
-                    // 🔥 HARİKA FİKİR: fee_type bazlı net İngilizce isimlendirme
+                    const isTP = item.fee_type && (item.fee_type.includes('TP Hizmet') || item.fee_type.includes('TP Harç') || item.fee_type.includes('Resmi'));
+                    const vatRate = isTP ? 0 : Number(item.vat_rate || 0);
+                    
+                    const baseAmount = rate * qty;
+                    const taxAmount = baseAmount * (vatRate / 100);
+                    const finalAmount = baseAmount + taxAmount;
+
+                    expectedForeignTotals[cur] = (expectedForeignTotals[cur] || 0) + finalAmount;
+                    
                     let englishItemName = item.item_name || '-';
                     const fType = item.fee_type || '';
                     
-                    if (fType.includes('TP Hizmet') || fType.includes('TP Harç') || fType.includes('Resmi')) {
+                    if (isTP) {
                         englishItemName = 'TURKPATENT Official Fee';
                     } else if (fType.includes('Hizmet') || fType.includes('Hukuk')) {
                         englishItemName = 'EVREKA Service Fee';
@@ -77,103 +70,118 @@ export class DebitNoteManager {
                     } else if (fType.includes('Kur Farkı')) {
                         englishItemName = 'Exchange Rate Difference';
                     } else {
-                        // Hiçbirine uymazsa kelime kelime çeviri motoruna yolla (Yedek kural)
                         englishItemName = this._translateToEnglish(englishItemName); 
                     }
                     
+                    // Tipografi uygulandı: İnce Font (#666, 12px)
                     tableRowsHtml += `
                         <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center;">${index + 1}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${englishItemName}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center;">${qty}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right;">${rate.toFixed(2)} ${cur}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right;">${amount.toFixed(2)} ${cur}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center; color: #666; font-size: 12px;">${index + 1}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; color: #666; font-size: 12px;">${englishItemName}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center; color: #666; font-size: 12px;">${qty}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #666; font-size: 12px;">${rate.toFixed(2)} ${cur}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #666; font-size: 12px;">%${vatRate}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #666; font-size: 12px;">${finalAmount.toFixed(2)} ${cur}</td>
                         </tr>
                     `;
                 });
             }
 
-            // 6. Logoyu Garantili Yoldan Çek ve Base64'e Çevir
+            const balanceStrs = Object.entries(expectedForeignTotals).map(([c, a]) => uiManager._formatMoney(a, c));
+            const balanceDisplay = balanceStrs.length > 0 ? balanceStrs.join(' + ') : '0.00 EUR';
+
+            // 5. Logoyu Çek
             const logoUrl = window.location.origin + '/evreka-logo.png';
             const base64Logo = await this._getBase64Image(logoUrl);
             const logoHtml = base64Logo 
-                ? `<img src="${base64Logo}" alt="EVREKA" style="max-height: 55px; object-fit: contain; margin-bottom: 10px;">` 
+                ? `<img src="${base64Logo}" alt="EVREKA" style="max-height: 55px; object-fit: contain; margin-bottom: 15px;">` 
                 : `<h1 style="margin: 0; font-size: 28px; color: #1e3c72; letter-spacing: 2px;">EVREKA</h1>`;
 
             const subjectText = this._translateToEnglish(accrual.invoiceDescription || accrual.description || accrual.subject || accrual.taskTitle || 'Professional Services');
 
-            // 7. PDF İçin HTML Tasarımı
+            // 6. PDF İçin HTML Tasarımı (Tipografi + Banka Konumu Güncellendi)
             const container = document.createElement('div');
             container.innerHTML = `
-                <div id="debitNoteContent" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #333; font-size: 14px; background: white; width: 800px; margin: 0 auto;">
+                <div id="debitNoteContent" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; background: white; width: 800px; margin: 0 auto; box-sizing: border-box;">
                     
                     <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
                         <div>
                             ${logoHtml}
-                            <p style="font-weight: bold; margin-bottom: 10px; font-size:13px; color:#333;">EVREKA Intellectual Property & Law</p>
-                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Tax Number:3830788579</p>
-                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Address: YDA CENTER, Kızılırmak Mahallesi Dumlupınar Bulvarı</p>
+                            <p style="margin: 0 0 10px 0; color: #333; font-size: 13px; font-weight: bold;">EVREKA Intellectual Property & Law</p>
+                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Tax Number: 3830788579</p>
+                            <p style="margin: 2px 0; color: #666; font-size: 12px;">YDA CENTER, Kızılırmak Mahallesi Dumlupınar Bulvarı</p>
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">1443. Cadde 9/A3 Lobi 8.Kat No:281 Çankaya/ANKARA</p>
-                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Ankara, 06680, Türkiye</p>
+                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Türkiye</p>
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">info@evrekagroup.com</p>
                         </div>
                         <div style="text-align: left;">
-                            <h2 style="font-size: 24px; color: #333; margin-bottom: 5px; font-weight: normal; letter-spacing: 1px;">DEBIT NOTE</h2>
-                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                                <tr><th style="text-align: left; padding: 5px 15px 5px 0; color: #555;">Note No.:</th><td style="padding: 5px 0;">${noteNo}</td></tr>
-                                <tr><th style="text-align: left; padding: 5px 15px 5px 0; color: #555;">Note Date:</th><td style="padding: 5px 0;">${new Date().toLocaleDateString('en-GB')}</td></tr>
-                                <tr><th style="text-align: left; padding: 5px 15px 5px 0; color: #555;">Terms:</th><td style="padding: 5px 0;">Due on Receipt</td></tr>
+                            <h2 style="font-size: 20px; color: #333; margin-top: 0; margin-bottom: 15px; font-weight: bold; letter-spacing: 1.5px;">DEBIT NOTE</h2>
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td style="padding: 5px 15px 5px 0; color: #333; font-size: 13px; font-weight: bold;">Note No.:</td>
+                                    <td style="padding: 5px 0; color: #666; font-size: 12px;">${noteNo}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 5px 15px 5px 0; color: #333; font-size: 13px; font-weight: bold;">Note Date:</td>
+                                    <td style="padding: 5px 0; color: #666; font-size: 12px;">${new Date().toLocaleDateString('en-GB')}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 5px 15px 5px 0; color: #333; font-size: 13px; font-weight: bold;">Terms:</td>
+                                    <td style="padding: 5px 0; color: #666; font-size: 12px;">Due on Receipt</td>
+                                </tr>
                             </table>
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 40px; width: 50%;">
-                        <p style="margin-bottom: 5px; color: #777;">To:</p>
-                        <strong style="display: block; margin-bottom: 10px; font-size: 16px;">${person.name}</strong>
-                        <p style="margin: 0; line-height: 1.5;">${person.address || ''}</p>
-                        <p style="margin: 0; line-height: 1.5;">${person.countryCode || ''}</p>
+                    <div style="margin-bottom: 40px; width: 60%;">
+                        <p style="margin: 0 0 5px 0; color: #666; font-size: 12px;">To:</p>
+                        <p style="margin: 0 0 5px 0; color: #333; font-size: 13px; font-weight: bold;">${person.name}</p>
+                        <p style="margin: 0; line-height: 1.5; color: #666; font-size: 12px;">${person.address || ''}</p>
+                        <p style="margin: 0; line-height: 1.5; color: #666; font-size: 12px;">${person.countryCode || ''}</p>
                     </div>
 
-                    <div style="background-color: #f9f9f9; padding: 15px; margin-bottom: 30px; border-left: 4px solid #1e3c72; line-height: 1.5;">
+                    <div style="background-color: #f9f9f9; padding: 15px; margin-bottom: 30px; border-left: 4px solid #1e3c72; line-height: 1.5; color: #666; font-size: 12px;">
                         ${subjectText}
                     </div>
 
                     <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
                         <thead>
                             <tr>
-                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: center; width: 5%;">#</th>
-                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: left; width: 55%;">Item & Description</th>
-                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: center; width: 10%;">Qty</th>
-                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: right; width: 15%;">Rate</th>
-                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: right; width: 15%;">Amount</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: center; width: 5%; color: #333; font-size: 13px; font-weight: bold;">#</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: left; width: 45%; color: #333; font-size: 13px; font-weight: bold;">Item & Description</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: center; width: 10%; color: #333; font-size: 13px; font-weight: bold;">Qty</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: right; width: 15%; color: #333; font-size: 13px; font-weight: bold;">Rate</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: right; width: 10%; color: #333; font-size: 13px; font-weight: bold;">Tax</th>
+                                <th style="background-color: #f4f4f4; padding: 10px; border-bottom: 2px solid #ddd; border-top: 2px solid #ddd; text-align: right; width: 15%; color: #333; font-size: 13px; font-weight: bold;">Amount</th>
                             </tr>
                         </thead>
                         <tbody>${tableRowsHtml}</tbody>
                     </table>
 
-                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 40px; margin-top: 20px;">
-                        <div style="width: 55%; font-size: 13px; line-height: 1.6; color: #555;">
-                            <h4 style="color: #333; margin-bottom: 8px; margin-top: 0; font-size: 14px;">Bank details for payment via wire transfer</h4>
-                            <strong>Beneficiary:</strong> EVREKA PATENT DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Turkey<br>
-                            <strong>IBAN (EUR):</strong> TR 6200 0100 1983 9142 7604 5002<br>
-                            <strong>IBAN (USD):</strong> TR 3500 0100 1983 9142 7604 5003<br>
-                            <strong>SWIFT:</strong> TCZBTR2A<br>
-                            <strong>Bank Name:</strong> T.C. Ziraat Bankası<br>
-                            <strong>Bank Branch:</strong> Keklikpınarı / ANKARA<br>
-                        </div>
-                        
+                    <!-- Toplam Tablosu (Sağa dayalı) -->
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 30px;">
                         <table style="width: 40%; border-collapse: collapse;">
                             <tr>
-                                <td style="padding: 10px; border-bottom: 1px solid #ddd; color: #555;">Sub Total</td>
-                                <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #555;">${balanceDisplay}</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd; color: #666; font-size: 12px;">Sub Total</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: #666; font-size: 12px;">${balanceDisplay}</td>
                             </tr>
                             <tr>
-                                <td style="padding: 10px; font-weight: bold; font-size: 16px; border-top: 2px solid #333;">Balance Due</td>
-                                <td style="padding: 10px; font-weight: bold; font-size: 16px; border-top: 2px solid #333; text-align: right;">${balanceDisplay}</td>
+                                <td style="padding: 10px; color: #333; font-size: 13px; font-weight: bold; border-top: 2px solid #333;">Balance Due</td>
+                                <td style="padding: 10px; color: #333; font-size: 14px; font-weight: bold; border-top: 2px solid #333; text-align: right;">${balanceDisplay}</td>
                             </tr>
                         </table>
                     </div>
 
+                    <!-- Banka Detayları (Tamamen Balance Due Altında) -->
+                    <div style="line-height: 1.6; padding-top: 20px; border-top: 1px solid #eee;">
+                        <p style="margin: 0 0 8px 0; color: #333; font-size: 13px; font-weight: bold;">Bank details for payment via wire transfer</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Beneficiary:</strong> EVREKA PATENT DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Turkey</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (EUR):</strong> TR 6200 0100 1983 9142 7604 5002</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (USD):</strong> TR 3500 0100 1983 9142 7604 5003</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">SWIFT:</strong> TCZBTR2A</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Name:</strong> T.C. Ziraat Bankası</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Branch:</strong> Keklikpınarı / ANKARA</p>
+                    </div>
                 </div>
             `;
 
@@ -181,7 +189,7 @@ export class DebitNoteManager {
             container.style.left = '-9999px';
             document.body.appendChild(container);
 
-            // 8. PDF Üret
+            // 7. PDF Üret
             const opt = {
                 margin: 0,
                 filename: `Debit_Note_${noteNo}.pdf`,
@@ -193,7 +201,7 @@ export class DebitNoteManager {
             const pdfBlob = await html2pdf().set(opt).from(container.querySelector('#debitNoteContent')).output('blob');
             document.body.removeChild(container);
 
-            // 9. Storage'a Yükle ve Kaydet
+            // 8. Storage'a Yükle ve Kaydet
             const fileName = `debit_note_${noteNo}_${Date.now()}.pdf`;
             const filePath = `accruals/${accrual.id}/${fileName}`;
 
@@ -213,7 +221,7 @@ export class DebitNoteManager {
 
             showNotification('Debit Note başarıyla oluşturuldu ve tahakkuka eklendi.', 'success');
             
-            // 10. İndirme/Görüntüleme: Yeni sekmede aç
+            // 9. İndirme/Görüntüleme: Yeni sekmede aç
             window.open(urlData.publicUrl, '_blank');
 
             return true;

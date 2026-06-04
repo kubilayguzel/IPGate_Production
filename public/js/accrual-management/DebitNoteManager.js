@@ -55,7 +55,7 @@ export class DebitNoteManager {
                         <div>
                             <h1 style="margin: 0; font-size: 28px; color: #1e3c72; letter-spacing: 2px;">EVREKA</h1>
                             <p style="font-weight: bold; margin-bottom: 10px; font-size:13px; color:#333;">Intellectual Property & Law</p>
-                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Business Number: [VERGİ_NO]</p>
+                            <p style="margin: 2px 0; color: #666; font-size: 12px;">Tax Number:3830788579</p>
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">Kavaklıdere Mah. Tunalı Hilmi Cad.</p>
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">Ankara, 06680, Türkiye</p>
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">info@evrekagroup.com</p>

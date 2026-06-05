@@ -371,16 +371,24 @@ serve(async (req: Request) => {
 
                     // 1. ANA İŞLEM (PARENT TASK) TESPİTİ
                     let parentTaskTypeId = null;
-                    if (associatedTxId) {
+
+                    // 🔥 ÖNCELİK 1: Kullanıcının arayüzden indeksleme sırasında elle seçtiği Parent Task (Üst Görev)
+                    if (record.details?.parent_task_id) {
+                        const { data: parentTask } = await supabaseAdmin.from('tasks').select('task_type_id').eq('id', String(record.details.parent_task_id)).maybeSingle();
+                        if (parentTask) parentTaskTypeId = String(parentTask.task_type_id);
+                        console.log(`[DEBUG-MAIL-VARIANT] Kullanıcı seçimi (parent_task_id) üzerinden Parent Tipi bulundu: ${parentTaskTypeId}`);
+                    }
+
+                    // 🔥 ÖNCELİK 2: Eğer manuel seçilmemişse, işlem (transaction) hiyerarşisinden bul (Fallback)
+                    if (!parentTaskTypeId && associatedTxId) {
                         const { data: currentTx } = await supabaseAdmin.from('transactions').select('parent_id').eq('id', associatedTxId).maybeSingle();
                         if (currentTx?.parent_id) {
                             const { data: parentTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', currentTx.parent_id).maybeSingle();
-                            if (parentTx) parentTaskTypeId = String(parentTx.transaction_type_id);
+                            if (parentTx) {
+                                parentTaskTypeId = String(parentTx.transaction_type_id);
+                                console.log(`[DEBUG-MAIL-VARIANT] İşlem ağacı üzerinden Parent Tipi bulundu: ${parentTaskTypeId}`);
+                            }
                         }
-                    }
-                    if (!parentTaskTypeId && record.details?.parent_task_id) {
-                        const { data: parentTask } = await supabaseAdmin.from('tasks').select('task_type_id').eq('id', String(record.details.parent_task_id)).maybeSingle();
-                        if (parentTask) parentTaskTypeId = String(parentTask.task_type_id);
                     }
 
                     // =========================================================================

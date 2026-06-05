@@ -595,6 +595,69 @@ export class TaskSubmitHandler {
         // 🔥 ÇÖZÜM 3: selectedCountries state'den çekildi
         const { selectedApplicants, priorities, uploadedFiles, selectedCountries } = state;
         
+        // --- 🔥 YENİ: SONRAKİ BELİRLEME KONTROLÜ VE MOTORU ---
+        let origin = document.getElementById('originSelect')?.value || 'TÜRKPATENT';
+        const isWipoAripo = ['WIPO', 'ARIPO'].includes(origin);
+        const isSubsequent = isWipoAripo && document.getElementById('subsequentYes')?.checked;
+
+        if (isSubsequent) {
+            if (!state.selectedSubsequentParent) {
+                showNotification("Lütfen bağlanacak WIPO/ARIPO ana kaydını arayıp seçin.", "warning");
+                return null;
+            }
+            if (!selectedCountries || selectedCountries.length === 0) {
+                showNotification("Sonraki belirleme için en az bir ülke seçmelisiniz.", "warning");
+                return null;
+            }
+
+            const parentId = state.selectedSubsequentParent.id;
+            const parentWipoIr = state.selectedSubsequentParent.wipoIR || state.selectedSubsequentParent.wipo_ir || state.selectedSubsequentParent.application_number;
+            const parentAripoIr = state.selectedSubsequentParent.aripoIR || state.selectedSubsequentParent.aripo_ir || state.selectedSubsequentParent.application_number;
+
+            state.createdChildRecordIds = [];
+
+            // Sadece alt kayıtları (child) oluştur
+            for (const country of selectedCountries) {
+                const childId = this.generateUUID();
+                const childCountryCode = typeof country === 'object' ? (country.code || country.id || country.name) : country;
+                
+                const childData = {
+                    id: childId,
+                    title: state.selectedSubsequentParent.title || state.selectedSubsequentParent.brand_name || taskData.title,
+                    brandText: state.selectedSubsequentParent.brandText || state.selectedSubsequentParent.brand_name || taskData.title,
+                    type: 'trademark',
+                    recordOwnerType: 'self',
+                    portfoyStatus: 'active',
+                    status: 'filed',
+                    applicationDate: new Date().toISOString().split('T')[0],
+                    applicationNumber: null,
+                    parentId: parentId,
+                    transactionHierarchy: 'child',
+                    countryCode: childCountryCode,
+                    origin: origin,
+                    wipoIR: origin === 'WIPO' ? parentWipoIr : null,
+                    aripoIR: origin === 'ARIPO' ? parentAripoIr : null,
+                    createdFrom: 'create_task',
+                    applicants: selectedApplicants.map(p => ({ id: p.id }))
+                };
+                
+                const childResult = await ipRecordsService.createRecordFromDataEntry(childData);
+                if (childResult.success) {
+                    console.log(`✅ ${childCountryCode} için alt kayıt başarıyla oluşturuldu (ID: ${childId})`);
+                    state.createdChildRecordIds.push(childId);
+                }
+            }
+
+            // Task'in detaylarına is_subsequent_designation bayrağını ekle
+            if (taskData && taskData.details) {
+                taskData.details.is_subsequent_designation = true;
+            }
+
+            // Yeni Parent OLUŞTURMUYORUZ. Var olan Parent'ın ID'sini döndürüyoruz ki Görev (Task) buna bağlansın!
+            return parentId;
+        }
+        // --- SONRAKİ BELİRLEME BİTİŞ ---
+
         const newRecordId = this.generateUUID();
 
         let brandImageUrl = null;
@@ -642,7 +705,6 @@ export class TaskSubmitHandler {
         }
 
         // 🔥 ÇÖZÜM 1: Ülke ve Menşe (Origin) atamaları WIPO/ARIPO'ya uygun hale getirildi
-        let origin = document.getElementById('originSelect')?.value || 'TÜRKPATENT';
         let originCountry = 'TR'; 
         
         if (origin === 'Yurtdışı Ulusal' || origin === 'FOREIGN_NATIONAL') {

@@ -503,10 +503,12 @@ class CreateTaskController {
         const singleWrapper = document.getElementById('singleCountrySelectWrapper');
         const multiWrapper = document.getElementById('multiCountrySelectWrapper');
         const title = document.getElementById('countrySelectionTitle');
+        const subWrapper = document.getElementById('subsequentDesignationWrapper'); // 🔥 YENİ
         
         if (!container || !singleWrapper || !multiWrapper) return;
 
         container.style.display = 'none'; singleWrapper.style.display = 'none'; multiWrapper.style.display = 'none';
+        if (subWrapper) subWrapper.style.display = 'none'; // 🔥 YENİ
 
         const t = this.state.selectedTaskType;
         const isApplication = (t && (t.alias === 'Başvuru' || t.name === 'Başvuru'));
@@ -522,7 +524,18 @@ class CreateTaskController {
         else if (['WIPO', 'ARIPO'].includes(val)) {
             container.style.display = 'block'; multiWrapper.style.display = 'block';
             if(title) title.textContent = `Seçim Yapılacak Ülkeler (${val})`;
+            
+            // 🔥 YENİ: Sadece Marka Başvurusunda Sonraki Belirleme Çıkar
+            if (isApplication && subWrapper) {
+                subWrapper.style.display = 'block';
+                document.getElementById('subsequentNo').checked = true;
+                document.getElementById('subsequentSearchContainer').style.display = 'none';
+                this.state.selectedSubsequentParent = null;
+                document.getElementById('selectedSubsequentParentContainer').style.display = 'none';
+                document.getElementById('subsequentParentSearch').value = '';
+            }
             this.setupMultiCountrySelect(); 
+            this.setupSubsequentSearch(); // 🔥 YENİ: Arama motorunu başlat
         }
     }
 
@@ -1116,6 +1129,97 @@ class CreateTaskController {
         this.state.priorities = [];
         this.state.selectedWipoAripoChildren = [];
         this.state.selectedCountries = [];
+    }
+
+    // 🔥 YENİ: WIPO / ARIPO Ana Kaydı Arama Motoru
+    setupSubsequentSearch() {
+        const input = document.getElementById('subsequentParentSearch');
+        const results = document.getElementById('subsequentParentResults');
+        if (!input || !results) return;
+
+        let timer;
+        input.addEventListener('input', (e) => {
+            const term = e.target.value.trim().toLowerCase();
+            clearTimeout(timer);
+            if (term.length < 2) { results.style.display = 'none'; return; }
+            
+            timer = setTimeout(() => {
+                const origin = document.getElementById('originSelect').value;
+                const items = this.state.allIpRecords.filter(r => {
+                    const isCorrectOrigin = r.origin === origin;
+                    
+                    // 🔥 KESİN GÜVENLİK: Eğer hiyerarşisi 'child' ise veya bir üst kayda (parent_id) bağlıysa bu kesinlikle alt kayıttır.
+                    const isChild = r.transaction_hierarchy === 'child' || 
+                                    r.transactionHierarchy === 'child' || 
+                                    !!r.parent_id || 
+                                    !!r.parentId ||
+                                    (r.country_code && r.country_code !== ''); // WIPO/ARIPO Parent kayıtlarında ülke kodu boş olur, alt kayıtlarda (TR, US vb.) dolu olur.
+                    
+                    // Eğer Child DEĞİLSE, demek ki Parent'tır.
+                    const isParent = !isChild;
+                    
+                    const titleMatch = (r.title || r.brand_name || '').toLowerCase().includes(term);
+                    const irMatch = (r.wipo_ir || r.aripo_ir || r.wipoIR || r.aripoIR || r.application_number || '').toLowerCase().includes(term);
+                    
+                    return isCorrectOrigin && isParent && (titleMatch || irMatch);
+                }).slice(0, 10);
+
+                if (items.length === 0) {
+                    results.innerHTML = '<div class="p-2 text-muted">Uygun kayıt bulunamadı.</div>';
+                } else {
+                    results.innerHTML = items.map(item => {
+                        const title = item.title || item.brand_name || '-';
+                        const irNo = item.wipoIR || item.aripoIR || item.application_number || '-';
+                        return `<div class="search-result-item p-2 border-bottom" style="cursor:pointer;" data-id="${item.id}">
+                                    <strong>${title}</strong><br><small>IR No: ${irNo}</small>
+                                </div>`;
+                    }).join('');
+                }
+                results.style.display = 'block';
+                
+                results.querySelectorAll('.search-result-item').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const record = items.find(i => i.id === el.dataset.id);
+                        this.state.selectedSubsequentParent = record;
+                        
+                        document.getElementById('selectedSubsequentParentLabel').textContent = record.title || record.brand_name;
+                        document.getElementById('selectedSubsequentParentNumber').textContent = record.wipoIR || record.aripoIR || record.application_number;
+                        document.getElementById('selectedSubsequentParentContainer').style.display = 'block';
+                        
+                        input.value = ''; results.style.display = 'none';
+                        this.validator.checkCompleteness(this.state);
+                    });
+                });
+            }, 300);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (results.style.display === 'block' && e.target !== input && !results.contains(e.target)) {
+                results.style.display = 'none';
+            }
+        });
+        
+        // Radyo Buton ve Kaldırma (Clear) Click Dinleyicileri
+        document.addEventListener('click', (e) => {
+            if (e.target.name === 'isSubsequent') {
+                const searchContainer = document.getElementById('subsequentSearchContainer');
+                if (e.target.value === 'yes') {
+                    searchContainer.style.display = 'block';
+                } else {
+                    searchContainer.style.display = 'none';
+                    this.state.selectedSubsequentParent = null;
+                    document.getElementById('selectedSubsequentParentContainer').style.display = 'none';
+                    document.getElementById('subsequentParentSearch').value = '';
+                }
+                this.validator.checkCompleteness(this.state);
+            }
+            if (e.target.closest('#clearSubsequentParent')) {
+                this.state.selectedSubsequentParent = null;
+                document.getElementById('selectedSubsequentParentContainer').style.display = 'none';
+                document.getElementById('subsequentParentSearch').value = '';
+                this.validator.checkCompleteness(this.state);
+            }
+        });
     }
 }
 

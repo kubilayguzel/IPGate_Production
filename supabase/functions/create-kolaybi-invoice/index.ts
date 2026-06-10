@@ -63,6 +63,19 @@ serve(async (req) => {
         
         invoicesToDelete = [...new Set(invoicesToDelete)].filter(Boolean);
 
+        // 🔥 ÇÖZÜM: Önce tahakkukların bağını kopar (Foreign Key kısıtlamasına takılmamak için)
+        if (allLinkedAccruals && allLinkedAccruals.length > 0) {
+            const accrualIdsToUpdate = allLinkedAccruals.map((a: any) => a.id);
+            const { error: updateError } = await supabaseClient.from('accruals')
+                .update({ invoice_id: null, invoice_id_2: null })
+                .in('id', accrualIdsToUpdate);
+            
+            if (updateError) {
+                throw new Error("Tahakkuk bağlantıları koparılırken hata oluştu: " + updateError.message);
+            }
+        }
+
+        // Tahakkuklar serbest kaldığına göre artık faturalar güvenle silinebilir
         const accessToken = await getKolaybiToken();
         for (const invId of invoicesToDelete) {
             const { data: inv } = await supabaseClient.from('invoices').select('*').eq('id', invId).single();
@@ -77,14 +90,11 @@ serve(async (req) => {
                     console.error(`KolayBi silme hatası (ID: ${inv.kolaybi_invoice_id}):`, e);
                 }
             }
-            await supabaseClient.from('invoices').delete().eq('id', invId);
-        }
-
-        if (allLinkedAccruals && allLinkedAccruals.length > 0) {
-            const accrualIdsToUpdate = allLinkedAccruals.map(a => a.id);
-            await supabaseClient.from('accruals')
-                .update({ invoice_id: null, invoice_id_2: null })
-                .in('id', accrualIdsToUpdate);
+            
+            const { error: delError } = await supabaseClient.from('invoices').delete().eq('id', invId);
+            if (delError) {
+                console.error(`Supabase fatura silme hatası (ID: ${invId}):`, delError);
+            }
         }
 
         return new Response(JSON.stringify({ 
@@ -158,13 +168,17 @@ serve(async (req) => {
         if (issueDate) updates.invoice_date = issueDate;
         if (uuid) updates.kolaybi_uuid = uuid;
 
-        // 🔥 Akıllı Durum Analizi (Hem İngilizce API kodları hem Türkçe "Kabul Edildi" metinlerini kapsar)
         const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
-        
+        const rawComm = String(commStatusVal || '').toUpperCase();
+        const rawEDoc = String(eDocStatus || '').toUpperCase();
+                
         if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
             updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
         } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
             updates.status = 'approved';
+        } else if (rawComm === 'NEW' || rawComm === 'DRAFT' || rawEDoc === 'READY' || rawStatus.includes('TASLAK')) {
+        // 🔥 ÇÖZÜM: KolayBi'nin yeni (new) ve gönderime hazır (ready) statülerini 'draft' (Taslak) olarak mühürlüyoruz.
+            updates.status = 'draft'; 
         } else if (commStatusVal) {
             updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
         } else if (uuid && inv.status === 'draft') {
@@ -195,7 +209,7 @@ serve(async (req) => {
     }
     
     // ==============================================================================
-    // İŞLEM 5: TOPLU SENKRONİZASYON 
+    // İŞLEM 5: TOPLU SENKRONİZASYON (Optimize Edilmiş Hızlı Sürüm)
     // ==============================================================================
     if (action === 'sync_bulk') {
         const { invoiceIds } = body;
@@ -208,89 +222,94 @@ serve(async (req) => {
         const getHeaders = { 'Authorization': `Bearer ${accessToken}`, 'Channel': channel };
 
         let successCount = 0;
-        for (const inv of invoices) {
-            if (!inv.kolaybi_invoice_id || inv.kolaybi_invoice_id === 'undefined') continue;
-            
-            try {
-                const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
-                const detailResText = await detailReq.text();
-                let detailRes;
-                try { detailRes = JSON.parse(detailResText); } catch(e) { continue; }
 
-                if (!detailReq.ok || detailRes.success === false) {
-                    const errMsg = detailRes.message || "";
-                    if (errMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                        await supabaseClient.from('accruals')
-                            .update({ invoice_id: null, invoice_id_2: null, evreka_invoice_no: null })
-                            .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
-                        await supabaseClient.from('invoices').delete().eq('id', inv.id);
+        // 🚀 ÇÖZÜM: Timeout (Zaman Aşımı) yememek için faturaları ardışık değil, 10'arlı paketler halinde paralel işliyoruz!
+        const chunkSize = 10;
+        for (let i = 0; i < invoices.length; i += chunkSize) {
+            const chunk = invoices.slice(i, i + chunkSize);
+            
+            await Promise.all(chunk.map(async (inv) => {
+                if (!inv.kolaybi_invoice_id || inv.kolaybi_invoice_id === 'undefined') return;
+                
+                try {
+                    const detailReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices/${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+                    const detailResText = await detailReq.text();
+                    let detailRes;
+                    try { detailRes = JSON.parse(detailResText); } catch(e) { return; }
+
+                    if (!detailReq.ok || detailRes.success === false) {
+                        const errMsg = detailRes.message || "";
+                        if (errMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
+                            await supabaseClient.from('accruals')
+                                .update({ invoice_id: null, invoice_id_2: null, evreka_invoice_no: null })
+                                .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
+                            await supabaseClient.from('invoices').delete().eq('id', inv.id);
+                            successCount++;
+                        }
+                        return;
+                    }
+
+                    const docData = detailRes.data || detailRes;
+                    
+                    let listItem = null;
+                    try {
+                        const listReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices?id=${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
+                        if (listReq.ok) {
+                            const listRes = await listReq.json();
+                            const items = listRes.data?.data || listRes.data || [];
+                            listItem = items.find((j: any) => String(j.id) === String(inv.kolaybi_invoice_id));
+                            if (!listItem && items.length > 0) listItem = items[0];
+                        }
+                    } catch(e) {}
+
+                    const combinedData = { ...docData, ...listItem };
+                    
+                    const commStatusObj = combinedData.commercial_doc_status || {};
+                    const commStatusVal = commStatusObj.value || combinedData.status || null; 
+                    const eDocStatus = combinedData.e_document_status || null; 
+
+                    const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
+                    const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
+                    const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
+
+                    const updates: any = {};
+                    if (serialNo) updates.invoice_no = serialNo;
+                    if (issueDate) updates.invoice_date = issueDate;
+                    if (uuid) updates.kolaybi_uuid = uuid;
+
+                    const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
+                    const rawComm = String(commStatusVal || '').toUpperCase();
+                    const rawEDoc = String(eDocStatus || '').toUpperCase();
+                    
+                    if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
+                        updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
+                    } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
+                        updates.status = 'approved';
+                    } else if (rawComm === 'NEW' || rawComm === 'DRAFT' || rawEDoc === 'READY' || rawStatus.includes('TASLAK')) {
+                        updates.status = 'draft'; 
+                    } else if (commStatusVal) {
+                        updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
+                    } else if (uuid && inv.status === 'draft') {
+                        updates.status = 'sent';
+                    }
+
+                    if (eDocStatus) updates.kolaybi_status = eDocStatus;
+                    else if (commStatusVal) updates.kolaybi_status = typeof commStatusVal === 'string' ? commStatusVal : null;
+
+                    if (Object.keys(updates).length > 0) {
+                        await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
+                        
+                        if (serialNo) {
+                            await supabaseClient.from('accruals')
+                                .update({ evreka_invoice_no: serialNo })
+                                .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
+                        }
                         successCount++;
                     }
-                    continue;
+                } catch (e) {
+                    console.error(`Fatura senkronize edilemedi (ID: ${inv.id}):`, e);
                 }
-
-                const docData = detailRes.data || detailRes;
-                
-                // 🔥 ÇÖZÜM: Statü bilgisini gizleyen KolayBi'ye karşı, "Liste" API'sine gidip asıl statüyü oradan çekiyoruz!
-                let listItem = null;
-                try {
-                    const listReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices?id=${inv.kolaybi_invoice_id}`, { method: 'GET', headers: getHeaders });
-                    if (listReq.ok) {
-                        const listRes = await listReq.json();
-                        const items = listRes.data?.data || listRes.data || [];
-                        listItem = items.find((i: any) => String(i.id) === String(inv.kolaybi_invoice_id));
-                        if (!listItem && items.length > 0) listItem = items[0];
-                    }
-                } catch(e) {
-                    console.error("Liste API Hatası:", e);
-                }
-
-                // Hem detaydan hem listeden gelen veriyi birleştir
-                const combinedData = { ...docData, ...listItem };
-                
-                const commStatusObj = combinedData.commercial_doc_status || {};
-                const commStatusVal = commStatusObj.value || combinedData.status || null; 
-                const eDocStatus = combinedData.e_document_status || null; 
-
-                const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
-                const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
-                const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
-
-                const updates: any = {};
-                if (serialNo) updates.invoice_no = serialNo;
-                if (issueDate) updates.invoice_date = issueDate;
-                if (uuid) updates.kolaybi_uuid = uuid;
-
-                // 🔥 Akıllı Durum Analizi (Hem İngilizce API kodları hem Türkçe "Kabul Edildi" metinlerini kapsar)
-                const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
-                
-                if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
-                    updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
-                } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
-                    updates.status = 'approved';
-                } else if (commStatusVal) {
-                    updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
-                } else if (uuid && inv.status === 'draft') {
-                    updates.status = 'sent';
-                }
-
-                // Arayüzde detayı göstermek için orjinal KolayBi metnini sakla
-                if (eDocStatus) updates.kolaybi_status = eDocStatus;
-                else if (commStatusVal) updates.kolaybi_status = typeof commStatusVal === 'string' ? commStatusVal : null;
-
-                if (Object.keys(updates).length > 0) {
-                    await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
-                    
-                    if (serialNo) {
-                        await supabaseClient.from('accruals')
-                            .update({ evreka_invoice_no: serialNo })
-                            .or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
-                    }
-                    successCount++;
-                }
-            } catch (e) {
-                console.error(`Fatura senkronize edilemedi (ID: ${inv.id}):`, e);
-            }
+            }));
         }
 
         return new Response(JSON.stringify({ success: true, message: `${successCount} adet fatura başarıyla güncellendi.` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -630,7 +649,8 @@ serve(async (req) => {
             invoiceParams.append("document_scenario", currentScenario); 
             
             invoiceParams.append("document_type", docType); 
-            invoiceParams.append("description", finalInvoiceNote);
+            
+            // ⚠️ DİKKAT: description (açıklama) satırını buradan sildik! En altta kura göre hesaplayıp ekleyeceğiz.
             
             let itemIndex = 0;
             let calculatedGrandTotal = 0;
@@ -660,6 +680,25 @@ serve(async (req) => {
 
             invoiceParams.append("currency", invoiceCurrency);
 
+            // 🔥 YASAL ZORUNLULUK ÇÖZÜMÜ: Döviz faturası ise Kuru çek, formatla ve KolayBi'ye hem UBL hem Açıklama için gönder
+            let localDescription = finalInvoiceNote; 
+            if (invoiceCurrency !== 'TRY') {
+                const currentExchangeRate = await getTcmbRate(invoiceCurrency);
+                const formattedRate = currentExchangeRate.toFixed(4); // Kur muhasebe standartlarına göre 4 ondalık basamaklı olmalı
+                
+                // Bu parametre, GİB formatındaki o Alt TL tablosunu otomatik çizmesi için KolayBi'ye verilir!
+                invoiceParams.append("exchange_rate", formattedRate); 
+                
+                const tryGrandTotal = (calculatedGrandTotal * currentExchangeRate).toFixed(2);
+                
+                // Ayrıca not kısmına da yazılır (Çifte Güvenlik)
+                localDescription += `\nFatura Kuru: 1 ${invoiceCurrency} = ${formattedRate} TL`;
+                localDescription += `\nÖdenecek Toplam TL Karşılığı: ${tryGrandTotal} TL`;
+            }
+            
+            // Açıklama tek bir seferde ve güncel haliyle ekleniyor!
+            invoiceParams.append("description", localDescription);
+
             const requestBodyString = invoiceParams.toString();
             const invoiceReq = await fetch(`${KOLAYBI_BASE_URL}/kolaybi/v1/invoices`, { method: 'POST', headers: apiHeadersForm, body: requestBodyString });
             const invoiceResText = await invoiceReq.text();
@@ -669,17 +708,13 @@ serve(async (req) => {
             if (!invoiceReq.ok || invoiceRes.success === false) {
                 const errorMessage = invoiceRes.message || "";
                 
-                // 🔥 ÇÖZÜM 3 (AKILLI RETRY): Şahıs şirketi e-Fatura mükellefi çıkarsa, anında TICARIFATURA olarak tekrar dene!
                 if (errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && currentScenario === "EARSIVFATURA") {
                     console.log(`[OTOMATİK DÜZELTME] Müşteri e-Fatura mükellefi çıktı. TICARIFATURA ile tekrar deneniyor...`);
                     return await createInvoiceInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA");
                 }
 
                 const decodedRequest = decodeURIComponent(requestBodyString).replace(/&/g, '\n');
-                const detailedErrors = invoiceRes.errors ? JSON.stringify(invoiceRes.errors) : "";
-                const responseData = invoiceRes.data ? JSON.stringify(invoiceRes.data) : "";
-                
-                throw new Error(`[${docType} - ${invoiceCurrency}] Fatura Oluşturma Hatası: ${errorMessage} | 🚨 HATA DETAYI: ${detailedErrors} ${responseData} \n\n📌 GİDEN İSTEK:\n${decodedRequest}`);
+                throw new Error(`[${docType} - ${invoiceCurrency}] Fatura Oluşturma Hatası: ${errorMessage}`);
             }
             
             return {

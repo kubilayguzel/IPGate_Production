@@ -347,6 +347,7 @@ export class PersonModalManager {
         this.isEdit = !!personId;
         this.currentPersonId = personId || crypto.randomUUID(); 
         this.tempCallback = callback; 
+        this.originalPersonData = null; // 🔥 GÜVENLİK 1: Önceki açılıştan kalan verileri temizle
         this.resetForm();
 
         await this.loadInitialData();
@@ -428,6 +429,7 @@ export class PersonModalManager {
             const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
             
             const personData = {
+                ...(this.isEdit && this.originalPersonData ? this.originalPersonData : {}),
                 id: this.currentPersonId,
                 name: nameVal,
                 type: document.getElementById('personType').value,
@@ -854,6 +856,7 @@ export class PersonModalManager {
         }
         
         const p = res.data;
+        this.originalPersonData = p; // 🔥 GÜVENLİK 2: Tarife (price_list) gibi formda olmayan verileri hafızaya alıyoruz!
 
         document.getElementById('personType').value = p.type || 'gercek';
         document.getElementById('personType').dispatchEvent(new Event('change'));

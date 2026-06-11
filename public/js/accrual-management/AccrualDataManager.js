@@ -504,10 +504,11 @@ export class AccrualDataManager {
         const session = await authService.getCurrentSession();
         const dbUser = this.allUsers.find(u => u.email === session?.user?.email);
 
-    const finalAccrual = {
+        const finalAccrual = {
             id: newAccrualId,
             task_id: null, // Serbest tahakkuklarda task_id olmaz
             status: 'unpaid',
+            department: formData.department || 'EVREKA', // 🔥 ÇÖZÜM: Departman bilgisi veritabanına eklendi!
             accrual_type: formData.type || 'Masraf',
             tp_invoice_party_id: formData.tpInvoicePartyId || null,
             service_invoice_party_id: formData.serviceInvoicePartyId || null,
@@ -522,7 +523,7 @@ export class AccrualDataManager {
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
-            invoice_description: formData.invoice_description || formData.invoiceDescription || null, // 🔥 ÇÖZÜM: İki ihtimal de eklendi
+            invoice_description: formData.invoice_description || formData.invoiceDescription || null, 
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,

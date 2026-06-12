@@ -239,18 +239,24 @@ export class AccrualDataManager {
                 // 1. Fatura Durumu Filtresi
                 if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
                     const searchStatus = filters.invoiceStatus.toLowerCase();
-                    invData = invData.filter(inv => {
-                        const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
-                        let normalized = s;
-                        if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
-                        if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready', 'in_queue', 'preparing'].some(k=>s.includes(k))) normalized = 'waiting';
-                        if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
-                        if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
-                        if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';
-                        if (['error', 'fail', 'hata'].some(k=>s.includes(k))) normalized = 'failed';
-                        if (['gönderildi', 'sent', 'provider', 'qnb'].some(k=>s.includes(k))) normalized = 'sent';
-                        return normalized === searchStatus;
-                    });
+                    
+                    // 🔥 YENİ: Faturalar sekmesinde "Fatura Kesilmedi" filtresi seçilirse sonuç boş döner 
+                    if (searchStatus === 'not_invoiced') {
+                        invData = [];
+                    } else {
+                        invData = invData.filter(inv => {
+                            const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
+                            let normalized = s;
+                            if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
+                            if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready', 'in_queue', 'preparing'].some(k=>s.includes(k))) normalized = 'waiting';
+                            if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
+                            if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
+                            if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';
+                            if (['error', 'fail', 'hata'].some(k=>s.includes(k))) normalized = 'failed';
+                            if (['gönderildi', 'sent', 'provider', 'qnb'].some(k=>s.includes(k))) normalized = 'sent';
+                            return normalized === searchStatus;
+                        });
+                    }
                 }
                 
                 // 2. Müşteri (Cari) Arama
@@ -353,6 +359,28 @@ export class AccrualDataManager {
                     const linkedInvoices = this.allInvoices.filter(inv => 
                         inv.id === String(item.invoiceId) || inv.id === String(item.invoiceId2)
                     );
+                    
+                    // 🔥 YENİ: Fatura Kesilmedi Opsiyonu (Akıllı Kontrol)
+                    if (searchStatus === 'not_invoiced') {
+                        // Eğer hiç faturası yoksa doğrudan listele
+                        if (linkedInvoices.length === 0) return true;
+                        
+                        // Faturası var ama Tümü "İptal", "Red" veya "Hatalı" ise yine listele (Yeniden kesilmesi lazım demektir)
+                        const hasActiveInvoice = linkedInvoices.some(inv => {
+                            const s = (inv.status || '').toLowerCase();
+                            const ks = (inv.kolaybiStatus || '').toLowerCase();
+                            
+                            const isDeclined = ks === 'declined' || s === 'declined' || ks.includes('decline');
+                            const isRejected = ks === 'rejected' || s === 'rejected' || ks.includes('red') || s.includes('red');
+                            const isCancelled = ks === 'cancelled' || s === 'cancelled' || ks.includes('iptal') || s.includes('iptal');
+                            const isFailed = ks === 'failed' || s === 'failed' || ks.includes('hata') || s.includes('hata');
+                            
+                            return !(isDeclined || isRejected || isCancelled || isFailed);
+                        });
+                        
+                        return !hasActiveInvoice;
+                    }
+
                     if (linkedInvoices.length === 0) return false;
 
                     return linkedInvoices.some(inv => {

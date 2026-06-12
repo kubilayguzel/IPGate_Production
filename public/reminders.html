@@ -95,6 +95,7 @@
                     <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">&times;</button>
                 </div>
                 <form id="reminderForm" class="p-4">
+                    <input type="hidden" id="editReminderId" value="">
                     <div class="form-group mb-3"><label class="small font-weight-bold">Başlık</label><input type="text" id="reminderTitle" class="form-control" required></div>
                     <div class="form-row mb-3">
                         <div class="form-group col-md-6"><label class="small font-weight-bold">Kategori</label><select id="reminderCategory" class="form-control"><option value="KİŞİSEL NOT">Genel Not</option><option value="TOPLANTI">Toplantı</option></select></div>
@@ -289,10 +290,11 @@
 
                         tempArr.push({
                             id: `manual_${r.id}_${threshold}`, realId: r.id, type: 'manual', threshold,
-                            title: r.title, dueDate: rDueDate, diff, message: r.description || r.title,
+                            title: r.title, dueDate: rDueDate, rawDescription: r.description || '', diff, message: r.description || r.title,
                             status: archive ? 'completed' : 'active', 
                             isRead: archive ? true : this.isRead('manual', r.id, threshold),
-                            link: '#'
+                            link: '#',
+                            category: r.category || 'KİŞİSEL NOT' // Düzenleme formu için kategori
                         });
                     });
 
@@ -476,6 +478,7 @@
                         </td>
                         <td class="text-right pr-4">
                             ${(item.status !== 'completed' && !isFuture) ? `<button class="btn btn-action btn-light text-primary read-toggle-btn mr-1" title="Oku/Okunmadı"><i class="fas ${item.isRead ? 'fa-envelope' : 'fa-envelope-open'}"></i></button>` : ''}
+                            ${(item.type === 'manual' && item.status !== 'completed') ? `<button class="btn btn-action btn-light text-success edit-btn mr-1" title="Düzenle"><i class="fas fa-edit"></i></button>` : ''}
                             ${item.status !== 'completed' ? `<button class="btn btn-action btn-light text-danger archive-btn mr-1" title="Arşivle"><i class="fas fa-archive"></i></button>` : ''}
                             ${item.link !== '#' ? `<a href="${item.link}" class="btn btn-action btn-primary"><i class="fas fa-arrow-right"></i></a>` : ''}
                         </td>
@@ -526,20 +529,80 @@
                         if (item.type === 'manual') await reminderService.updateReminder(item.realId, { status: 'completed' });
                         item.status = 'completed';
                     }
+                    if (e.target.closest('.edit-btn')) {
+                        document.getElementById('editReminderId').value = item.realId;
+                        document.getElementById('reminderTitle').value = item.title || '';
+                        document.getElementById('reminderCategory').value = item.category || 'KİŞİSEL NOT';
+                        
+                        // 🔥 HATA BURADAYDI: Orijinal formatToTRDate fonksiyonunuza geri dönüyoruz, takvim eklentiniz (datepicker) artık bozulmayacak.
+                        document.getElementById('reminderDueDate').value = formatToTRDate(item.dueDate) || '';
+                        document.getElementById('reminderDescription').value = item.rawDescription || '';
+                        
+                        document.querySelector('#reminderModal .modal-title').textContent = 'Notu Düzenle';
+                        
+                        const formElement = document.getElementById('reminderForm');
+                        if (formElement) {
+                            const titleInput = document.getElementById('reminderTitle');
+                            if (titleInput) titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+
+                        if (window.$) $('#reminderModal').modal('show');
+                    }
                 });
 
-                document.getElementById('addReminderBtn').onclick = () => { document.getElementById('reminderForm').reset(); if(window.$) $('#reminderModal').modal('show'); };
-                document.getElementById('reminderForm').onsubmit = async (e) => {
-                    e.preventDefault();
-                    const btn = e.target.querySelector('button[type="submit"]'); btn.disabled = true;
-                    await reminderService.addReminder({ 
-                        title: document.getElementById('reminderTitle').value, description: document.getElementById('reminderDescription').value, 
-                        dueDate: document.getElementById('reminderDueDate').value, category: document.getElementById('reminderCategory').value, userId: this.currentUser.id 
-                    });
-                    showNotification("Kaydedildi.", "success");
-                    if(window.$) $('#reminderModal').modal('hide');
-                    await this.loadAllSources();
+                document.getElementById('addReminderBtn').onclick = () => { 
+                    document.getElementById('reminderForm').reset(); 
+                    document.getElementById('editReminderId').value = ''; // Eski ID'yi temizle
+                    document.querySelector('#reminderModal .modal-title').textContent = 'Yeni Not Ekle';
+                    if(window.$) $('#reminderModal').modal('show'); 
                 };
+
+                // Olası çakışmaları engellemek için form elementini yeniliyoruz
+                const reminderForm = document.getElementById('reminderForm');
+                const newReminderForm = reminderForm.cloneNode(true);
+                reminderForm.parentNode.replaceChild(newReminderForm, reminderForm);
+
+                newReminderForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const btn = e.target.querySelector('button[type="submit"]'); 
+                    if(btn) btn.disabled = true;
+                    
+                    const editId = document.getElementById('editReminderId').value;
+                    // 🔥 ÇÖZÜM: Ekranda 27.06.2026 yazan tarihi Supabase'in kabul edeceği 2026-06-27 formatına çeviriyoruz.
+                    let rawDate = document.getElementById('reminderDueDate').value;
+                    let dbDate = rawDate;
+                    if (rawDate && rawDate.includes('.')) {
+                        dbDate = rawDate.split('.').reverse().join('-'); 
+                    }
+
+                    const payload = { 
+                        title: document.getElementById('reminderTitle').value, 
+                        description: document.getElementById('reminderDescription').value, 
+                        due_date: dbDate, // Veritabanı sütun adı (Update için)
+                        dueDate: dbDate,  // Servis adı (Yeni Ekleme için)
+                        category: document.getElementById('reminderCategory').value
+                    };
+
+                    try {
+                        if (editId && editId.trim() !== '') {
+                            // 🔥 ID VARSA GÜNCELLEME İŞLEMİ YAP
+                            await reminderService.updateReminder(editId, payload);
+                            showNotification("Not başarıyla güncellendi.", "success");
+                        } else {
+                            // 🔥 ID YOKSA YENİ EKLEME İŞLEMİ YAP
+                            payload.userId = this.currentUser.id;
+                            await reminderService.addReminder(payload);
+                            showNotification("Yeni not başarıyla eklendi.", "success");
+                        }
+                    } catch (err) {
+                        console.error("Not kaydetme hatası:", err);
+                        showNotification("İşlem sırasında hata oluştu.", "error");
+                    } finally {
+                        if(btn) btn.disabled = false;
+                        if(window.$) $('#reminderModal').modal('hide');
+                        await this.loadAllSources();
+                    }
+                });
             }
 
             async loadPendingUsers() {

@@ -930,12 +930,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         .map(id => this.dataManager.allAccruals.find(a => a.id === id))
                         .filter(Boolean);
 
-                    // 2. KONTROL: Zaten Faturalandırılmış mı?
-                    const alreadyInvoiced = selectedAccruals.some(acc => acc.invoiceId || acc.invoice_id);
-                    if (alreadyInvoiced) {
-                        showNotification('Hata: Seçilen tahakkuklardan bazıları zaten faturalandırılmış!', 'error');
-                        return;
-                    }
+                    // 2. KONTROL: Fatura Kesilebilir mi? (Eğer tüm faturaları sorunsuz aktifse engelle)
+                    // (Reddedilmiş veya iptal edilmiş faturalar varsa tekrar kesilmesine izin veriyoruz, backend akıllıca sadece eksikleri kesecek)
+                    // Bu sebeple katı engeli kaldırıp arkaplanın (Backend'in) akıllı filtresine güveniyoruz.
 
                     // 3. KONTROL: Müşteriler (Cari Hesaplar) Aynı mı?
                     const getPartyId = (acc) => acc.serviceInvoicePartyId || acc.service_invoice_party_id || acc.tpInvoicePartyId || acc.tp_invoice_party_id;

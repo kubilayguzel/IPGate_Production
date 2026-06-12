@@ -46,44 +46,38 @@ serve(async (req) => {
         if (invError || !invoiceData) throw new Error("Fatura veritabanında bulunamadı.");
         if (invoiceData.status !== 'draft') throw new Error("Sadece 'Taslak' durumundaki faturalar iptal edilebilir.");
 
-        // 1. Tahakkuklardan sadece bu spesifik faturanın bağını kopar (Diğer taslak/onaylı faturalara dokunma!)
-        // 🔥 ÇÖZÜM: .or syntax'ındaki hataları önlemek için iki ayrı güvenli sorgu atıp birleştiriyoruz.
-        const { data: d1, error: err1 } = await supabaseClient.from('accruals').select('id, invoice_id, invoice_id_2').eq('invoice_id', invoiceId);
-        const { data: d2, error: err2 } = await supabaseClient.from('accruals').select('id, invoice_id, invoice_id_2').ilike('invoice_id_2', `%${invoiceId}%`);
-        
-        if (err1) throw new Error(`Bağlı tahakkuklar (1) sorgulanamadı: ${err1.message}`);
-        if (err2) throw new Error(`Bağlı tahakkuklar (2) sorgulanamadı: ${err2.message}`);
+        // 1. Tahakkuklardan sadece bu spesifik faturanın bağını kopar
+        // 🔥 ÇÖZÜM: invoice_id_2 sütunu UUID olduğu için ILIKE yerine güvenli olan .eq kullanıyoruz. 
+        const { data: allAccruals, error: accErr } = await supabaseClient
+            .from('accruals')
+            .select('id, invoice_id, invoice_id_2')
+            .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
+            
+        if (accErr) throw new Error(`Bağlı tahakkuklar sorgulanamadı: ${accErr.message}`);
 
-        const allAccruals = [...(d1 || []), ...(d2 || [])];
-        const linkedAccruals = Array.from(new Map(allAccruals.map(item => [item.id, item])).values());
-
-        if (linkedAccruals.length > 0) {
-            for (const acc of linkedAccruals) {
+        if (allAccruals && allAccruals.length > 0) {
+            for (const acc of allAccruals) {
                 let updates: any = {};
                 
+                // Eğer silinen fatura birinci faturaysa
                 if (acc.invoice_id === invoiceId) {
                     updates.invoice_id = null;
                 }
-                if (acc.invoice_id_2) {
-                    const parts = acc.invoice_id_2.split(',').map((p:string) => p.trim());
-                    const newParts = parts.filter((p:string) => p !== invoiceId);
-                    if (newParts.length !== parts.length) {
-                        updates.invoice_id_2 = newParts.length > 0 ? newParts.join(',') : null;
-                    }
+                // Eğer silinen fatura ikinci faturaysa
+                if (acc.invoice_id_2 === invoiceId) {
+                    updates.invoice_id_2 = null;
                 }
                 
-                // Eğer invoice_id boşaldıysa ve invoice_id_2'de aktif başka fatura varsa, onu ana ID'ye kaydır
+                // Eğer birinci fatura silindiyse ve ikinci fatura hala duruyorsa, onu ana (birinci) sıraya kaydır
                 if (updates.hasOwnProperty('invoice_id') && updates.invoice_id === null) {
                     const currentInvoiceId2 = updates.hasOwnProperty('invoice_id_2') ? updates.invoice_id_2 : acc.invoice_id_2;
-                    if (currentInvoiceId2) {
-                        const parts = currentInvoiceId2.split(',').map((p:string) => p.trim());
-                        updates.invoice_id = parts[0];
-                        updates.invoice_id_2 = parts.length > 1 ? parts.slice(1).join(',') : null;
+                    if (currentInvoiceId2 && currentInvoiceId2 !== invoiceId) {
+                        updates.invoice_id = currentInvoiceId2;
+                        updates.invoice_id_2 = null;
                     }
                 }
 
                 if (Object.keys(updates).length > 0) {
-                    // 🔥 ÇÖZÜM: Güncelleme hatasını yakalıyoruz. FK kısıtlamasının silinmesini engelleyen sorunu net tespit edeceğiz.
                     const { error: updErr } = await supabaseClient.from('accruals').update(updates).eq('id', acc.id);
                     if (updErr) {
                         throw new Error(`Tahakkuk (${acc.id}) bağlantısı koparılırken hata: ${updErr.message}`);
@@ -108,7 +102,6 @@ serve(async (req) => {
         // 3. Veritabanından faturayı sil
         const { error: delError } = await supabaseClient.from('invoices').delete().eq('id', invoiceId);
         if (delError) {
-            // 🔥 ÇÖZÜM: Gerçek veritabanı hatasını da (eğer farklı bir sorun varsa) ekrana basıyoruz.
             throw new Error(`Veritabanından silinirken hata oluştu: ${delError.message}`);
         }
 

@@ -358,19 +358,26 @@
                         "is_nullable": "YES",
                         "column_default": null,
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "foreign_status",
+                        "is_nullable": "YES",
+                        "column_default": "'unpaid'::text",
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",
                 "foreign_keys": [
                     {
-                        "column_name": "invoice_id_2",
-                        "constraint_name": "accruals_invoice_id_2_fkey",
+                        "column_name": "invoice_id",
+                        "constraint_name": "accruals_invoice_id_fkey",
                         "foreign_table_name": "invoices",
                         "foreign_column_name": "id"
                     },
                     {
-                        "column_name": "invoice_id",
-                        "constraint_name": "accruals_invoice_id_fkey",
+                        "column_name": "invoice_id_2",
+                        "constraint_name": "accruals_invoice_id_2_fkey",
                         "foreign_table_name": "invoices",
                         "foreign_column_name": "id"
                     }
@@ -1435,15 +1442,15 @@
                 "table_name": "ip_record_applicants",
                 "foreign_keys": [
                     {
-                        "column_name": "person_id",
-                        "constraint_name": "fk_ip_record_applicants_person",
-                        "foreign_table_name": "persons",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "ip_record_id",
                         "constraint_name": "ip_record_applicants_ip_record_id_fkey",
                         "foreign_table_name": "ip_records",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "person_id",
+                        "constraint_name": "fk_ip_record_applicants_person",
+                        "foreign_table_name": "persons",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -2515,12 +2522,6 @@
                 ],
                 "table_name": "monitoring_trademark_records",
                 "foreign_keys": [
-                    {
-                        "column_name": "monitored_trademark_id",
-                        "constraint_name": "fk_monitored_trademark_id",
-                        "foreign_table_name": "monitoring_trademarks",
-                        "foreign_column_name": "id"
-                    },
                     {
                         "column_name": "bulletin_record_id",
                         "constraint_name": "fk_bulletin_record_id",

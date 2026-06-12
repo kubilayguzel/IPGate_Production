@@ -346,6 +346,9 @@ export class AccrualFormManager {
         const tbody = document.getElementById(`${this.prefix}LineItemsBody`);
         const tr = document.createElement('tr');
         
+        // 🔥 ÇÖZÜM: Çift tırnak ve tek tırnak işaretlerinin HTML'i bozmasını engelliyoruz (Encode işlemi)
+        const safeItemName = (item.item_name || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        
         tr.innerHTML = `
             <td>
                 <select class="form-control form-control-sm item-type font-weight-bold border-0 bg-transparent" style="height: 35px !important; padding: 4px 8px !important; font-size: 0.9rem;">
@@ -365,7 +368,7 @@ export class AccrualFormManager {
                     }
                 </select>
             </td>
-            <td><input type="text" class="form-control form-control-sm item-name" value="${item.item_name || ''}" placeholder="Açıklama giriniz..."></td>
+            <td><input type="text" class="form-control form-control-sm item-name" value="${safeItemName}" placeholder="Açıklama giriniz..."></td>
             <td><input type="number" class="form-control form-control-sm item-qty text-center" value="${item.quantity || 1}" min="0.1" step="0.1"></td>
             <td><input type="number" class="form-control form-control-sm item-price text-right" value="${item.unit_price || 0}" min="0" step="0.01"></td>
             <td><input type="number" class="form-control form-control-sm item-vat text-center" value="${item.vat_rate !== undefined ? item.vat_rate : 20}" min="0" step="1"></td>

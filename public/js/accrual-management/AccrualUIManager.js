@@ -275,26 +275,55 @@ export class AccrualUIManager {
                     efnHtml = `<div class="d-flex flex-column align-items-start">${efnBadges.join('')}</div>`;
                 }
 
+                // 🔥 YENİ: SADECE "Fatura Kesilecek Kişi (Müvekkil/TP)" Kontrolü ve Tevkifat Durumu
+                let isForeignClient = false;
+                let isTevkifatli = false;
+                const partyId = acc.tpInvoiceParty?.id; // Sadece Müvekkil alanına bak!
+                if (partyId && lookups.persons) {
+                    const person = lookups.persons.find(p => String(p.id) === String(partyId));
+                    if (person) {
+                        if (person.has_tevkifat === true) isTevkifatli = true;
+                        
+                        if (person.countryCode) {
+                            const code = person.countryCode.toUpperCase().trim();
+                            if (code !== '' && code !== 'TR' && code !== 'TÜRKİYE' && code !== 'TURKEY') {
+                                isForeignClient = true;
+                            }
+                        }
+                    }
+                }
+
                 const items = acc.items || [];
-                
                 let srvItems = [];
                 let offItems = [];
 
-                // 🔥 ÇÖZÜM: Tahakkuk Türü "Hizmet" ise kalemleri tiplerine göre ayır.
-                // Eğer "Hizmet" DEĞİLSE (Örn: Masraf, Kur Farkı), içindeki hiçbir şey Hizmet olamaz, hepsi Yansıtma'ya gider!
                 if (accType === 'Hizmet') {
                     srvItems = items.filter(i => i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
                     offItems = items.filter(i => i.fee_type !== 'Hizmet' && i.fee_type !== 'Hukuk Danışmanlık');
                 } else {
-                    srvItems = []; // Hizmet ücreti sıfırlanır
-                    offItems = items; // Tüm kalemler (içinde ne olursa olsun) Yansıtma'ya atılır
+                    srvItems = [];
+                    offItems = items;
                 }
+
+                // 🔥 ÇÖZÜM: Canlı Tevkifat Hesaplaması (Ana Listede doğru göstermek için)
+                let dynamicTotalMap = {};
 
                 // 1. Hizmet Ücreti Toplamı
                 const srvMap = {};
                 srvItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    srvMap[curr] = (srvMap[curr] || 0) + (Number(i.total_amount) || 0);
+                    let amt = Number(i.total_amount) || 0;
+                    
+                    // TEVKİFAT DÜZELTMESİ (Ekranda anında eziyoruz, veritabanını ellemiyoruz)
+                    if (isTevkifatli && (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık')) {
+                        const qty = Number(i.quantity) || 1;
+                        const price = Number(i.unit_price) || 0;
+                        const vat = Number(i.vat_rate) || 0;
+                        amt = (qty * price) * (1 + (vat * 0.1) / 100); // 9/10 indirim
+                    }
+                    
+                    srvMap[curr] = (srvMap[curr] || 0) + amt;
+                    dynamicTotalMap[curr] = (dynamicTotalMap[curr] || 0) + amt;
                 });
                 const serviceStr = Object.keys(srvMap).length > 0 
                     ? Object.entries(srvMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
@@ -304,30 +333,23 @@ export class AccrualUIManager {
                 const offMap = {};
                 offItems.forEach(i => {
                     const curr = i.currency || 'TRY';
-                    offMap[curr] = (offMap[curr] || 0) + (Number(i.total_amount) || 0);
+                    let amt = Number(i.total_amount) || 0;
+                    offMap[curr] = (offMap[curr] || 0) + amt;
+                    dynamicTotalMap[curr] = (dynamicTotalMap[curr] || 0) + amt;
                 });
                 const officialStr = Object.keys(offMap).length > 0 
                     ? Object.entries(offMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
                     : '-';
 
-                // Artık ödenmiş olanlar da düzenlenebilecek, o yüzden disabled kilidini kaldırıyoruz
+                // 🔥 Dinamik Toplam Tutar
+                let displayTotalAmount = acc.totalAmount;
+                if (items.length > 0) {
+                    displayTotalAmount = Object.entries(dynamicTotalMap).map(([curr, amt]) => ({ amount: amt, currency: curr }));
+                }
+
                 const editBtnClass = 'btn btn-sm btn-light text-warning edit-btn action-btn';
                 const editBtnStyle = 'cursor: pointer;';
                 const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
-
-                // 🔥 SADECE "Fatura Kesilecek Kişi (Müvekkil/TP)" Kontrolü
-                let isForeignClient = false;
-                const partyId = acc.tpInvoiceParty?.id; // Sadece Müvekkil alanına bak!
-                if (partyId && lookups.persons) {
-                    const person = lookups.persons.find(p => p.id === partyId);
-                    if (person && person.countryCode) {
-                        const code = person.countryCode.toUpperCase().trim();
-                        // Ülke kodu BOŞ DEĞİLSE ve TR değilse yabancı say
-                        if (code !== '' && code !== 'TR' && code !== 'TÜRKİYE' && code !== 'TURKEY') {
-                            isForeignClient = true;
-                        }
-                    }
-                }
 
                 // 🔥 Debit Note Butonu (Renk ve tasarım düzeltildi)
                 const debitNoteBtn = isForeignClient ? `
@@ -362,9 +384,9 @@ export class AccrualUIManager {
                 // Ortak Dizi (Array) Kalan Tutar Hesaplaması
                 let rem = acc.remainingAmount;
                 
-                // 🔥 ÇÖZÜM: Eğer status 'unpaid' ise ve remainingAmount boş ise, kalan tutar doğrudan totalAmount'tur.
+                // 🔥 ÇÖZÜM: Eğer status 'unpaid' ise, kalan tutar dinamik hesapladığımız displayTotalAmount'tur.
                 if (acc.status === 'unpaid' && (!rem || (Array.isArray(rem) && rem.length === 0))) {
-                    rem = acc.totalAmount;
+                    rem = displayTotalAmount;
                 }
 
                 // Sadece statüsü 'paid' olanlar tam ödenmiş sayılır
@@ -381,7 +403,7 @@ export class AccrualUIManager {
                     // 🔥 ÇÖZÜM 1: Kesim Tarihi (Sisteme kayıt) ve Fatura Tarihi (Resmi) olarak 2'ye ayrıldı
                     const kesimTarihi = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
                     const faturaTarihi = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : '-'; 
-                    const invTotal = this._formatMoney(acc.totalAmount, acc.currency);
+                    const invTotal = this._formatMoney(displayTotalAmount); // 🔥 GÜNCELLENDİ
                     
                     // Fatura No'yu belirle
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');
@@ -544,8 +566,7 @@ export class AccrualUIManager {
 
                         <td class="align-middle">
                             <div class="font-weight-bold text-primary mb-1" style="font-size: 1.15em;">
-                                ${this._formatMoney(acc.totalAmount)}
-                            </div>
+                                ${this._formatMoney(displayTotalAmount)} </div>
                             <div class="d-flex flex-column text-muted" style="font-size: 0.8em; gap: 2px;">
                                 <span><i class="fas fa-briefcase text-secondary" style="width:14px"></i> Hizm: <span class="font-weight-bold">${serviceStr}</span></span>
                                 <span><i class="fas fa-university text-secondary" style="width:14px"></i> Yans: <span class="font-weight-bold">${officialStr}</span></span>

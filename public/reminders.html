@@ -561,18 +561,14 @@
                     if(window.$) $('#reminderModal').modal('show'); 
                 };
 
-                // Olası çakışmaları engellemek için form elementini yeniliyoruz
-                const reminderForm = document.getElementById('reminderForm');
-                const newReminderForm = reminderForm.cloneNode(true);
-                reminderForm.parentNode.replaceChild(newReminderForm, reminderForm);
-
-                newReminderForm.addEventListener('submit', async (e) => {
+                document.getElementById('reminderForm').onsubmit = async (e) => {
                     e.preventDefault();
                     const btn = e.target.querySelector('button[type="submit"]'); 
                     if(btn) btn.disabled = true;
                     
                     const editId = document.getElementById('editReminderId').value;
-                    // 🔥 ÇÖZÜM: Ekranda 27.06.2026 yazan tarihi Supabase'in kabul edeceği 2026-06-27 formatına çeviriyoruz.
+                    
+                    // Tarihi Supabase'in anlayacağı şekle çeviriyoruz
                     let rawDate = document.getElementById('reminderDueDate').value;
                     let dbDate = rawDate;
                     if (rawDate && rawDate.includes('.')) {
@@ -582,18 +578,16 @@
                     const payload = { 
                         title: document.getElementById('reminderTitle').value, 
                         description: document.getElementById('reminderDescription').value, 
-                        due_date: dbDate, // Veritabanı sütun adı (Update için)
-                        dueDate: dbDate,  // Servis adı (Yeni Ekleme için)
+                        due_date: dbDate, // Güncelleme için DB sütun adı
+                        dueDate: dbDate,  // Yeni Ekleme için API değişken adı
                         category: document.getElementById('reminderCategory').value
                     };
 
                     try {
                         if (editId && editId.trim() !== '') {
-                            // 🔥 ID VARSA GÜNCELLEME İŞLEMİ YAP
                             await reminderService.updateReminder(editId, payload);
                             showNotification("Not başarıyla güncellendi.", "success");
                         } else {
-                            // 🔥 ID YOKSA YENİ EKLEME İŞLEMİ YAP
                             payload.userId = this.currentUser.id;
                             await reminderService.addReminder(payload);
                             showNotification("Yeni not başarıyla eklendi.", "success");
@@ -606,7 +600,7 @@
                         if(window.$) $('#reminderModal').modal('hide');
                         await this.loadAllSources();
                     }
-                });
+                };
             }
 
             async loadPendingUsers() {

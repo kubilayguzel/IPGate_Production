@@ -534,12 +534,16 @@
                         document.getElementById('reminderTitle').value = item.title || '';
                         document.getElementById('reminderCategory').value = item.category || 'KİŞİSEL NOT';
                         
-                        // 🔥 HATA BURADAYDI: Orijinal formatToTRDate fonksiyonunuza geri dönüyoruz, takvim eklentiniz (datepicker) artık bozulmayacak.
-                        document.getElementById('reminderDueDate').value = formatToTRDate(item.dueDate) || '';
-                        document.getElementById('reminderDescription').value = item.rawDescription || '';
+                        const dateInput = document.getElementById('reminderDueDate');
+                        dateInput.value = formatToTRDate(item.dueDate) || '';
                         
+                        document.getElementById('reminderDescription').value = item.rawDescription || '';
                         document.querySelector('#reminderModal .modal-title').textContent = 'Notu Düzenle';
                         
+                        // 🔥 TAKVİM ÇÖZÜMÜ: Eklentiyi uyandırmak için event tetikliyoruz
+                        dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+
                         const formElement = document.getElementById('reminderForm');
                         if (formElement) {
                             const titleInput = document.getElementById('reminderTitle');

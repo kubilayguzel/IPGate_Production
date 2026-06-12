@@ -2419,10 +2419,22 @@ export const reminderService = {
     async updateReminder(id, updates) {
         const payload = { updated_at: new Date().toISOString() };
         
+        // 🔥 ÇÖZÜM: Formdan gelen başlık, açıklama ve tarih bilgilerini artık kapıdan çevirmiyor, veritabanına yazıyoruz!
+        if (updates.title !== undefined) payload.title = updates.title;
+        
+        if (updates.due_date !== undefined) payload.due_date = updates.due_date;
+        else if (updates.dueDate !== undefined) payload.due_date = updates.dueDate;
+        
+        // Kategoriyi ve açıklamayı birleştirerek (orijinal formatında) yaz
+        if (updates.description !== undefined && updates.category !== undefined) {
+            payload.description = `[${updates.category}] ${updates.description}`;
+        }
+        
         if (updates.status) payload.status = updates.status;
         if (updates.isRead !== undefined) {
             payload.status = updates.isRead ? 'read' : 'active';
         }
+        
         // İşlem tamamlandıysa üstüne yazmasın
         if (updates.status === 'completed') payload.status = 'completed';
 

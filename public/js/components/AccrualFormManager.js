@@ -247,7 +247,10 @@ export class AccrualFormManager {
                 this.updateLineItemTypes(e.target.value);
             });
         }
-        document.getElementById(`${p}IsForeignTransaction`)?.addEventListener('change', () => this.handleForeignToggle());
+        document.getElementById(`${p}IsForeignTransaction`)?.addEventListener('change', () => {
+            this.handleForeignToggle();
+            this.recalculateAllRows();
+        });
         document.getElementById(`${p}ForeignInvoiceFile`)?.addEventListener('change', (e) => {
             const nameEl = document.getElementById(`${p}ForeignInvoiceFileName`);
             if (nameEl) nameEl.textContent = e.target.files[0] ? e.target.files[0].name : '';
@@ -260,14 +263,13 @@ export class AccrualFormManager {
                 if (this.onAutoCalc) {
                     this.onAutoCalc();
                 } else {
-                    // 🔥 ÇÖZÜM 1: Formun o anki güncel halini (seçili müvekkili) alıyoruz
                     const currentFormData = this.getData();
                     const activeFormData = currentFormData.success ? currentFormData.data : null;
                     
                     document.dispatchEvent(new CustomEvent('accrual-auto-calc-request', { 
                         detail: { 
                             accrualData: this.currentData,
-                            formData: activeFormData // Güncel veriyi gönderiyoruz
+                            formData: activeFormData 
                         } 
                     }));
                 }
@@ -277,8 +279,12 @@ export class AccrualFormManager {
         this.setupSearch(`${p}TpInvoiceParty`, (person) => { 
             this.selectedTpParty = person; 
             this.checkSasRequirement(person);
+            this.recalculateAllRows();
         });
-        this.setupSearch(`${p}ForeignPaymentParty`, (person) => { this.selectedForeignParty = person; });
+        this.setupSearch(`${p}ForeignPaymentParty`, (person) => { 
+            this.selectedForeignParty = person; 
+            this.recalculateAllRows();
+        });
     }
 
     updateLineItemTypes(department) {
@@ -411,11 +417,18 @@ export class AccrualFormManager {
             const price = parseFloat(tr.querySelector('.item-price').value) || 0;
             const vat = parseFloat(tr.querySelector('.item-vat').value) || 0;
             const currency = tr.querySelector('.item-currency').value;
+            const type = tr.querySelector('.item-type').value;
             
+            // 🔥 ÇÖZÜM 1: Satırlarda KDV oranını ne girdiysen onu göster (%20 ise %20 hesaplar)
             const total = Number(((qty * price) * (1 + vat / 100)).toFixed(2));
             tr.querySelector('.item-total').textContent = new Intl.NumberFormat('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits:2}).format(total);
-            tr.dataset.rawTotal = total;
+            
+            // calculateTotal'da kullanmak için ham verileri satıra gömüyoruz
+            tr.dataset.rawQty = qty;
+            tr.dataset.rawPrice = price;
+            tr.dataset.rawVat = vat;
             tr.dataset.currency = currency;
+            tr.dataset.type = type;
             
             this.calculateTotal(); 
             updateRowStyle(); 
@@ -429,16 +442,44 @@ export class AccrualFormManager {
         updateRowStyle();
     }
 
+    recalculateAllRows() {
+        const tbody = document.getElementById(`${this.prefix}LineItemsBody`);
+        if (tbody) {
+            tbody.querySelectorAll('tr').forEach(tr => {
+                const qtyInp = tr.querySelector('.item-qty');
+                if (qtyInp) qtyInp.dispatchEvent(new Event('input'));
+            });
+        }
+    }
+
     calculateTotal() {
         const p = this.prefix;
         const tbody = document.getElementById(`${p}LineItemsBody`);
         const totalsMap = {}; 
 
+        // 🔥 ÇÖZÜM 2: Tevkifatı satırlarda değil, sadece Genel Toplamda (Listede) uyguluyoruz!
+        const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
+        let activeParty = isForeign && this.selectedForeignParty ? this.selectedForeignParty : this.selectedTpParty;
+        let isTevkifatli = activeParty ? (activeParty.has_tevkifat === true) : false;
+        let hasTevkifatApplied = false;
+
         tbody.querySelectorAll('tr').forEach(tr => {
-            const total = parseFloat(tr.dataset.rawTotal) || 0;
+            const qty = parseFloat(tr.dataset.rawQty) || 0;
+            const price = parseFloat(tr.dataset.rawPrice) || 0;
+            const vat = parseFloat(tr.dataset.rawVat) || 0;
             const curr = tr.dataset.currency || 'TRY';
-            if (total > 0) {
-                totalsMap[curr] = (totalsMap[curr] || 0) + total;
+            const type = tr.dataset.type || 'Hizmet';
+            
+            let effectiveVat = vat;
+            if (isTevkifatli && (type === 'Hizmet' || type === 'Hukuk Danışmanlık')) {
+                effectiveVat = vat * 0.1; // Sadece genel toplamda 9/10 kesinti uygulanır
+                hasTevkifatApplied = true;
+            }
+
+            const actualAccrualTotal = (qty * price) * (1 + effectiveVat / 100);
+
+            if (actualAccrualTotal > 0) {
+                totalsMap[curr] = (totalsMap[curr] || 0) + actualAccrualTotal;
             }
         });
 
@@ -449,10 +490,12 @@ export class AccrualFormManager {
             return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + ' ' + curr;
         });
 
+        let noteHtml = hasTevkifatApplied ? ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı Tahsilat)</small>' : '';
+
         if (parts.length === 0) {
             valueSpan.innerHTML = '0.00 TRY';
         } else {
-            valueSpan.innerHTML = `<span class="text-primary font-weight-bold">${parts.join(' + ')}</span>`;
+            valueSpan.innerHTML = `<span class="text-primary font-weight-bold">${parts.join(' + ')}</span>${noteHtml}`;
         }
     }
 
@@ -663,16 +706,18 @@ export class AccrualFormManager {
         }
 
         if (data.tpInvoiceParty) {
-            this.selectedTpParty = data.tpInvoiceParty;
-            this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);
+            // 🔥 ÇÖZÜM 1: Sadece ismini değil, müşterinin tevkifatlı olup olmadığı bilgisini de ana hafızadan çekiyoruz!
             const fullPerson = this.allPersons.find(p => String(p.id) === String(data.tpInvoiceParty.id));
-            this.checkSasRequirement(fullPerson || data.tpInvoiceParty);
+            this.selectedTpParty = fullPerson || data.tpInvoiceParty; 
+            this.manualSelectDisplay(`${p}TpInvoiceParty`, data.tpInvoiceParty);
+            this.checkSasRequirement(this.selectedTpParty);
         }
         
         let isForeign = false;
         if (data.serviceInvoiceParty && (!data.tpInvoiceParty || data.serviceInvoiceParty.id !== data.tpInvoiceParty.id)) {
             isForeign = true;
-            this.selectedForeignParty = data.serviceInvoiceParty;
+            const fullForeignPerson = this.allPersons.find(p => String(p.id) === String(data.serviceInvoiceParty.id));
+            this.selectedForeignParty = fullForeignPerson || data.serviceInvoiceParty; 
             this.manualSelectDisplay(`${p}ForeignPaymentParty`, data.serviceInvoiceParty);
         } else if (data.isForeignTransaction) {
             isForeign = true;
@@ -683,6 +728,7 @@ export class AccrualFormManager {
         }
         
         this.handleForeignToggle();
+        this.recalculateAllRows();
         this.calculateTotal();
         this.setReadOnlyState(data.status === 'paid');
     }
@@ -735,6 +781,12 @@ export class AccrualFormManager {
         let fallbackSrvAmount = 0;
         const totalsMap = {};
 
+        // 🔥 YENİ: Tevkifat kontrolü için aktif müşteriyi belirliyoruz
+        const isForeignForData = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
+        const tpPartyForData = this.selectedTpParty;
+        const servicePartyForData = isForeignForData && this.selectedForeignParty ? this.selectedForeignParty : tpPartyForData;
+        let isTevkifatliData = servicePartyForData ? (servicePartyForData.has_tevkifat === true) : false;
+
         document.querySelectorAll(`#${p}LineItemsBody tr`).forEach(tr => {
             const fee_type = tr.querySelector('.item-type').value;
             const item_name = tr.querySelector('.item-name').value.trim();
@@ -744,10 +796,21 @@ export class AccrualFormManager {
             const currency = tr.querySelector('.item-currency').value;
 
             if (item_name && quantity > 0) {
-                const total_amount = (quantity * unit_price) * (1 + vat_rate / 100);
+                // Fatura kalemleri için normal KDV'li (örn: %20) toplam tutar kaydedilir
+                const item_normal_total = Number(((quantity * unit_price) * (1 + vat_rate / 100)).toFixed(2));
                 
-                items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount, currency });
-                totalsMap[currency] = (totalsMap[currency] || 0) + total_amount;
+                // Tahakkuk Listesi Genel Toplamı için Tevkifatlı (örn: %2) tutar hesaplanır
+                let effectiveVat = vat_rate;
+                if (isTevkifatliData && (fee_type === 'Hizmet' || fee_type === 'Hukuk Danışmanlık')) {
+                    effectiveVat = vat_rate * 0.1; 
+                }
+                const accrual_actual_total = Number(((quantity * unit_price) * (1 + effectiveVat / 100)).toFixed(2));
+                
+                // 🔥 ÇÖZÜM 3: Satırlarda normal_total gösterilir
+                items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount: item_normal_total, currency });
+                
+                // Ana listede (totalsMap) gerçek tahsil edilecek tutar gösterilir
+                totalsMap[currency] = (totalsMap[currency] || 0) + accrual_actual_total;
 
                 const preVatAmount = quantity * unit_price;
                 if (fee_type.includes('Harç') || fee_type === 'Yurtdışı Maliyet') fallbackOffAmount += preVatAmount;
@@ -778,12 +841,18 @@ export class AccrualFormManager {
 
         const totalAmountArray = Object.entries(totalsMap).map(([curr, amt]) => ({ amount: amt, currency: curr }));
 
+        // 🔥 ÇÖZÜM 2: Eğer tahakkuk henüz hiç ödenmediyse, fiyattaki (Tevkifat) değişikliği doğrudan Kalan Tutara da (Listeye) yansıt!
+        let finalRemaining = this.originalRemainingAmount || totalAmountArray;
+        if (!this.currentData || this.currentData.status === 'unpaid') {
+            finalRemaining = totalAmountArray;
+        }
+
         return {
             success: true,
             data: {
-                structure: structure,    // 🔥 EKLENDİ
-                period: period,          // 🔥 EKLENDİ
-                startDate: startDate,    // 🔥 EKLENDİ
+                structure: structure,    
+                period: period,          
+                startDate: startDate,    
 
                 type: accrualType, 
                 accrualType: accrualType, 
@@ -799,7 +868,7 @@ export class AccrualFormManager {
                 applyVatToOfficialFee: false, 
                 
                 totalAmount: totalAmountArray, 
-                remainingAmount: this.originalRemainingAmount || totalAmountArray,
+                remainingAmount: finalRemaining,
                 
                 tpInvoicePartyId: tpParty ? tpParty.id : null,
                 serviceInvoicePartyId: serviceParty ? serviceParty.id : null,

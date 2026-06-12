@@ -2583,19 +2583,23 @@ export const feeCalculationService = {
             let clientCustomFees = {};
             let clientDiscountRate = 0; 
             let activePriceListId = null;
+            let isTevkifatli = false; // 🔥 YENİ: Tevkifat kontrol değişkeni
 
             if (clientId) {
                 console.log(`[CALCULATION ENGINE] 🔍 Müvekkil (${clientId}) için Özel Tarife ve İskonto aranıyor...`);
                 
                 // 5.1 Önce müvekkilin bir price_list_id'si veya discount_rate'i var mı ona bak
                 const { data: personData } = await supabase.from('persons')
-                    .select('price_list_id')
+                    .select('price_list_id, has_tevkifat') // 🔥 YENİ: has_tevkifat eklendi
                     .eq('id', String(clientId))
                     .maybeSingle();
 
-                if (personData && personData.price_list_id) {
-                    activePriceListId = personData.price_list_id;
-                    console.log(`[CALCULATION ENGINE] 💡 Müvekkile atanmış ÖZEL TARİFE LİSTESİ BULUNDU (ID: ${activePriceListId})`);
+                if (personData) {
+                    isTevkifatli = personData.has_tevkifat === true; // 🔥 YENİ: Müşteri tevkifatlı mı?
+                    if (personData.price_list_id) {
+                        activePriceListId = personData.price_list_id;
+                        console.log(`[CALCULATION ENGINE] 💡 Müvekkile atanmış ÖZEL TARİFE LİSTESİ BULUNDU (ID: ${activePriceListId})`);
+                    }
                 }
 
                 // 5.2 İskonto oranını çek
@@ -2695,9 +2699,15 @@ export const feeCalculationService = {
                 if (quantity > 0) {
                     const vatRate = (tariff.fee_type === 'TP Harç') ? 0 : 20;
                     
+                    // 🔥 YENİ: Tevkifat Hesabı
+                    let effectiveVat = vatRate;
+                    if (isTevkifatli && tariff.fee_type === 'Hizmet') {
+                        effectiveVat = vatRate * 0.1; // %20 olan KDV'nin sadece 1/10'u tahsil edilir (%2)
+                    }
+
                     // Kayan nokta hatasına karşı güvenlik (2 Hane Sabitleme)
                     const safeUnitPrice = Number(parseFloat(unitPrice).toFixed(2));
-                    const safeTotalAmount = Number((safeUnitPrice * quantity).toFixed(2));
+                    const safeTotalAmount = Number((safeUnitPrice * quantity * (1 + effectiveVat / 100)).toFixed(2)); // 🔥 YENİ HESAPLAMA
 
                     accrualItems.push({
                         fee_id: tariff.id,
@@ -2705,8 +2715,8 @@ export const feeCalculationService = {
                         item_name: tariff.name,
                         quantity: quantity,
                         unit_price: safeUnitPrice,
-                        vat_rate: vatRate,
-                        total_amount: safeTotalAmount,
+                        vat_rate: vatRate, // KDV oranını formda/faturada %20 görünsün diye bozmuyoruz
+                        total_amount: safeTotalAmount, // Ancak ödenecek genel toplamı Tevkifat'a göre güncelliyoruz
                         currency: currency,
                         is_custom_price: isCustomPrice
                     });

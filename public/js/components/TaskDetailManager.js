@@ -257,6 +257,78 @@ export class TaskDetailManager {
         const brandCategory = tmDetails.brand_category || fullRecord.brandCategory || details.brandCategory || '-';
         const origin = fullRecord.origin || details.origin || '-';
         
+        // 🔥 YENİ: WIPO/ARIPO için Alt Ülkeleri (Designated Countries) Çekme ve HTML Oluşturma
+        let childCountriesHtml = '';
+        if (origin.toUpperCase().includes('WIPO') || origin.toUpperCase().includes('ARIPO')) {
+            let countriesList = [];
+            
+            // 1. Önce task.details içine bakalım (Görev oluşturulurken json'a kaydedilmiş olabilir)
+            if (details.designatedCountries && Array.isArray(details.designatedCountries)) {
+                countriesList = details.designatedCountries;
+            } else if (details.countries && Array.isArray(details.countries)) {
+                countriesList = details.countries;
+            }
+            
+            // 2. Eğer JSON'da yoksa veritabanından parent_id ile çocuk kayıtları (child records) bulalım
+            if (countriesList.length === 0 && targetRecordId) {
+                try {
+                    const { data: children } = await supabase.from('ip_records')
+                        .select('country_code')
+                        .eq('parent_id', targetRecordId)
+                        .eq('transaction_hierarchy', 'child');
+                    
+                    if (children && children.length > 0) {
+                        countriesList = children.map(c => c.country_code).filter(Boolean);
+                    }
+                } catch (e) {
+                    console.error("Alt ülkeler çekilirken hata:", e);
+                }
+            }
+
+            if (countriesList.length > 0) {
+                const badges = countriesList.map(c => {
+                    let code = '';
+                    let name = '';
+
+                    // Eğer obje olarak geldiyse {code: 'CN', name: 'Çin'}
+                    if (typeof c === 'object') {
+                        code = c.code || c.countryCode || '';
+                        name = c.name || '';
+                    } 
+                    // Eğer sadece metin (string) olarak geldiyse ('CN' veya 'Çin')
+                    else if (typeof c === 'string') {
+                        let str = c.trim();
+                        // 2 harfli bir ülke koduysa (Örn: CN, US, DE)
+                        if (str.length === 2) {
+                            code = str.toUpperCase();
+                            try {
+                                // JavaScript'in yerleşik çevirmeni ile 2 harfli kodu Türkçe isme çevir
+                                name = new Intl.DisplayNames(['tr'], { type: 'region' }).of(code);
+                            } catch(e) {
+                                name = code;
+                            }
+                        } else {
+                            name = str;
+                        }
+                    }
+
+                    // Formatlama Mantığı: Çin (CN)
+                    let displayName = name;
+                    if (code && name && code.toUpperCase() !== name.toUpperCase() && !name.includes('(')) {
+                        displayName = `${name} (${code})`;
+                    } else if (code && !name) {
+                        displayName = code;
+                    }
+
+                    return `<span class="badge badge-info shadow-sm p-1 px-2" style="font-size: 0.85rem;">${displayName}</span>`;
+                }).join(' ');
+                
+                childCountriesHtml = `<tr><th class="pl-4 py-3 align-middle text-info"><i class="fas fa-globe mr-2"></i>Alt Ülkeler</th><td class="py-3 align-middle"><div class="d-flex flex-wrap" style="gap: 5px;">${badges}</div></td></tr>`;
+            } else {
+                childCountriesHtml = `<tr><th class="pl-4 py-3 align-middle text-info"><i class="fas fa-globe mr-2"></i>Alt Ülkeler</th><td class="py-3 align-middle text-muted font-italic small">Alt ülke kaydı bulunamadı</td></tr>`;
+            }
+        }
+
         let nonLatin = '-';
         if (tmDetails.non_latin_alphabet !== undefined) nonLatin = tmDetails.non_latin_alphabet ? 'Evet' : 'Hayır';
         else if (details.nonLatinAlphabet) nonLatin = details.nonLatinAlphabet;
@@ -382,7 +454,8 @@ export class TaskDetailManager {
                             <table class="table table-striped table-hover mb-0 border-0" style="font-size: 1.05rem;">
                                 <tbody>
                                     <tr><th style="width: 35%;" class="pl-4 py-3">Marka Adı</th><td class="text-primary font-weight-bold py-3" style="font-size: 1.3em;">${brandName}</td></tr>
-                                    <tr><th class="pl-4 py-3 align-middle">Menşe</th><td class="py-3 align-middle">${origin}</td></tr>
+                                    <tr><th class="pl-4 py-3 align-middle">Menşe</th><td class="py-3 align-middle font-weight-bold text-dark">${origin}</td></tr>
+                                    ${childCountriesHtml}
                                     <tr><th class="pl-4 py-3 align-middle">Marka Tipi / Türü</th><td class="py-3 align-middle">${brandType} <span class="mx-2 text-muted">/</span> ${brandCategory}</td></tr>
                                     <tr><th class="pl-4 py-3 align-middle">Latin Dışı Karakter</th><td class="py-3 align-middle font-weight-bold ${nonLatin === 'Evet' ? 'text-danger' : 'text-success'}">${nonLatin}</td></tr>
                                     <tr><th class="pl-4 py-3 align-middle">Önyazı Talebi</th><td class="py-3 align-middle">${coverLetter}</td></tr>

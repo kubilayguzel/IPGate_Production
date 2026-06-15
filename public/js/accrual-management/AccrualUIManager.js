@@ -384,8 +384,8 @@ export class AccrualUIManager {
                 // Ortak Dizi (Array) Kalan Tutar Hesaplaması
                 let rem = acc.remainingAmount;
                 
-                // 🔥 ÇÖZÜM: Eğer status 'unpaid' ise, kalan tutar dinamik hesapladığımız displayTotalAmount'tur.
-                if (acc.status === 'unpaid' && (!rem || (Array.isArray(rem) && rem.length === 0))) {
+                // 🔥 ÇÖZÜM: Eğer status 'unpaid' (ödenmedi) ise, Kalan Tutarı HER ZAMAN dinamik (Tevkifatlı) hesapladığımız displayTotalAmount'a eşitliyoruz.
+                if (acc.status === 'unpaid') {
                     rem = displayTotalAmount;
                 }
 
@@ -403,7 +403,9 @@ export class AccrualUIManager {
                     // 🔥 ÇÖZÜM 1: Kesim Tarihi (Sisteme kayıt) ve Fatura Tarihi (Resmi) olarak 2'ye ayrıldı
                     const kesimTarihi = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
                     const faturaTarihi = acc.invoiceDate ? new Date(acc.invoiceDate).toLocaleDateString('tr-TR') : '-'; 
-                    const invTotal = this._formatMoney(displayTotalAmount); // 🔥 GÜNCELLENDİ
+                    
+                    // 🔥 DÜZELTME 1: Faturalar sekmesinde, faturanın kendi döviz cinsini (acc.currency) ve tutarını kullanmalıyız.
+                    const invTotal = this._formatMoney(acc.totalAmount, acc.currency);
                     
                     // Fatura No'yu belirle
                     const displayInvoiceNo = acc.invoiceNo && acc.invoiceNo !== '-' ? acc.invoiceNo : (acc.kolaybiInvoiceId && acc.kolaybiInvoiceId !== 'undefined' ? acc.kolaybiInvoiceId : '-');

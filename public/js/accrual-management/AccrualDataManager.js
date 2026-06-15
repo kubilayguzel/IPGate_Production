@@ -115,13 +115,15 @@ export class AccrualDataManager {
                 createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
                 
                 accruals: this.allAccruals
-                    .filter(a => String(a.invoiceId) === String(row.id) || String(a.invoiceId2) === String(row.id))
+                    // 🔥 DÜZELTME 2.1: invoiceId2 içinde birden fazla fatura ID'si (virgülle ayrılmış) olabileceği için includes kullanıyoruz
+                    .filter(a => String(a.invoiceId) === String(row.id) || (a.invoiceId2 && String(a.invoiceId2).includes(String(row.id))))
                     .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
             })) : [];
             // 🔥 KESİN ÇÖZÜM: Tahakkuka bağlı olan tüm faturaları (invoice_id ve invoice_id_2) bul ve numaralarını birleştir
             this.allAccruals.forEach(acc => {
                 const linkedInvoices = this.allInvoices.filter(inv => 
-                    inv.id === String(acc.invoiceId) || inv.id === String(acc.invoiceId2)
+                    // 🔥 DÜZELTME 2.2: includes ile 3 veya daha fazla faturayı da kusursuz yakalıyoruz
+                    inv.id === String(acc.invoiceId) || (acc.invoiceId2 && String(acc.invoiceId2).includes(inv.id))
                 );
 
                 if (linkedInvoices.length > 0) {
@@ -357,7 +359,8 @@ export class AccrualDataManager {
                 const searchStatus = filters.invoiceStatus.toLowerCase();
                 data = data.filter(item => {
                     const linkedInvoices = this.allInvoices.filter(inv => 
-                        inv.id === String(item.invoiceId) || inv.id === String(item.invoiceId2)
+                        // 🔥 DÜZELTME 2.3: Filtreleme yaparken de çoklu faturaları kaçırmamak için
+                        inv.id === String(item.invoiceId) || (item.invoiceId2 && String(item.invoiceId2).includes(inv.id))
                     );
                     
                     // 🔥 YENİ: Fatura Kesilmedi Opsiyonu (Akıllı Kontrol)

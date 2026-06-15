@@ -103,10 +103,64 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 dataToExport = [...allFilteredData];
             }
-
             if (dataToExport.length === 0) { showNotification('Aktarılacak veri bulunamadı.', 'warning'); return; }
 
             this.uiManager.toggleLoading(true);
+
+            // 🔥 ÇÖZÜM: EXCEL'E DÖKMEDEN ÖNCE TÜM VERİLERİ TEVKİFATA GÖRE DİNAMİK OLARAK GÜNCELLİYORUZ
+            dataToExport.forEach(acc => {
+                let isTevkifatli = false;
+                const partyId = acc.tpInvoiceParty?.id || acc.tp_invoice_party_id;
+                if (partyId) {
+                    const person = this.dataManager.allPersons.find(p => String(p.id) === String(partyId));
+                    if (person && person.has_tevkifat === true) isTevkifatli = true;
+                }
+
+                if (acc.items && acc.items.length > 0) {
+                    let totalMap = {};
+                    let offAmt = 0; let srvAmt = 0; let vatAmt = 0;
+                    
+                    acc.items.forEach(i => {
+                        const qty = Number(i.quantity) || 1;
+                        const price = Number(i.unit_price) || 0;
+                        const vat = Number(i.vat_rate) || 0;
+                        const curr = i.currency || 'TRY';
+                        const isSrv = (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
+
+                        let effectiveVat = vat;
+                        if (isTevkifatli && isSrv) effectiveVat = vat * 0.1; // 9/10 Tevkifat indirimi
+
+                        const net = qty * price;
+                        const itemVat = net * (effectiveVat / 100);
+                        const itemTotal = net + itemVat;
+
+                        if (isSrv) srvAmt += net;
+                        else offAmt += net;
+
+                        vatAmt += itemVat;
+                        totalMap[curr] = (totalMap[curr] || 0) + itemTotal;
+                        
+                        i.dynamic_total_amount = itemTotal; // Excel Kalem sekmeleri için
+                    });
+
+                    acc.dynamicOfficialFee = offAmt;
+                    acc.dynamicServiceFee = srvAmt;
+                    acc.dynamicVatAmount = vatAmt;
+                    acc.dynamicTotalAmount = Object.entries(totalMap).map(([c, a]) => ({ amount: a, currency: c }));
+                    
+                    if (acc.status === 'unpaid') acc.dynamicRemainingAmount = acc.dynamicTotalAmount;
+                    else if (acc.status === 'paid') acc.dynamicRemainingAmount = [];
+                    else acc.dynamicRemainingAmount = acc.remainingAmount;
+                } else {
+                    // Kalemsiz çok eski veriler için varsayılanlar
+                    acc.dynamicOfficialFee = acc.officialFee?.amount || 0;
+                    acc.dynamicServiceFee = acc.serviceFee?.amount || 0;
+                    const baseVat = acc.dynamicServiceFee + (acc.applyVatToOfficialFee ? acc.dynamicOfficialFee : 0);
+                    acc.dynamicVatAmount = baseVat * ((acc.vatRate || 0) / 100);
+                    acc.dynamicTotalAmount = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
+                    acc.dynamicRemainingAmount = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
+                }
+            });
 
             try {
                 // 1. Canlı Kur Çekimi (Merkez Bankası / Global API)
@@ -191,18 +245,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (acc.status === 'unpaid' || acc.status === 'partial') unpaidCount++;
                     else if (acc.status === 'paid') paidCount++;
 
-                    const officialAmt = acc.officialFee?.amount || 0; const officialCurr = acc.officialFee?.currency || 'TRY';
-                    const serviceAmt = acc.serviceFee?.amount || 0; const serviceCurr = acc.serviceFee?.currency || 'TRY';
-                    const vatRate = acc.vatRate || 0;
-                    const baseForVat = serviceAmt + (acc.applyVatToOfficialFee ? officialAmt : 0);
-                    const vatAmt = baseForVat * (vatRate / 100);
+                    // 🔥 ÇÖZÜM: Veritabanındaki eski sayılar yerine yukarıda hesapladığımız dinamik sayıları al
+                    const officialAmt = acc.dynamicOfficialFee; 
+                    const officialCurr = acc.officialFee?.currency || 'TRY';
+                    const serviceAmt = acc.dynamicServiceFee; 
+                    const serviceCurr = acc.serviceFee?.currency || 'TRY';
+                    const vatAmt = acc.dynamicVatAmount;
 
                     grandTotals.official.add(officialAmt, officialCurr);
                     grandTotals.service.add(serviceAmt, serviceCurr);
                     grandTotals.vat.add(vatAmt, serviceCurr);
 
-                    const totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
-                    const remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
+                    const totalArr = acc.dynamicTotalAmount;
+                    const remArr = acc.dynamicRemainingAmount;
 
                     totalArr.forEach(t => grandTotals.total.add(t.amount, t.currency));
                     remArr.forEach(r => grandTotals.remaining.add(r.amount, r.currency));
@@ -296,12 +351,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         let fieldText = '-';
                         if (typeObj?.ipType) fieldText = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım', 'suit': 'Dava' }[typeObj.ipType] || typeObj.ipType;
 
-                        const officialAmt = acc.officialFee?.amount || 0; const officialCurr = acc.officialFee?.currency || 'TRY';
-                        const serviceAmt = acc.serviceFee?.amount || 0; const serviceCurr = acc.serviceFee?.currency || 'TRY';
-                        const vatAmt = (serviceAmt + (acc.applyVatToOfficialFee ? officialAmt : 0)) * ((acc.vatRate || 0) / 100);
+                        // 🔥 ÇÖZÜM: Burada da veritabanı ham değerleri yerine dinamik (Tevkifatlı) değerleri alıyoruz
+                        const officialAmt = acc.dynamicOfficialFee;
+                        const officialCurr = acc.officialFee?.currency || 'TRY';
+                        const serviceAmt = acc.dynamicServiceFee;
+                        const serviceCurr = acc.serviceFee?.currency || 'TRY';
+                        const vatAmt = acc.dynamicVatAmount;
 
-                        const totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
-                        const remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
+                        const totalArr = acc.dynamicTotalAmount;
+                        const remArr = acc.dynamicRemainingAmount;
 
                         totalArr.forEach(t => monthTotals.total.add(t.amount, t.currency));
                         remArr.forEach(r => monthTotals.remaining.add(r.amount, r.currency));
@@ -447,11 +505,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const evrekaList = dataToExport.filter(a => a.department === 'EVREKA');
                 let evrekaSumMap = {};
 
-                evrekaList.forEach(acc => {
+                hukukList.forEach(acc => {
                     const items = acc.items || [];
                     items.forEach(item => {
                         const itemCurr = item.currency || acc.currency || 'TRY';
-                        const itemTotal = Number(item.total_amount) || 0;
+                        const itemTotal = Number(item.dynamic_total_amount || item.total_amount) || 0; // 🔥 ÇÖZÜM
 
                         if (!evrekaSumMap[itemCurr]) evrekaSumMap[itemCurr] = 0;
                         evrekaSumMap[itemCurr] += itemTotal;

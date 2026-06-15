@@ -302,10 +302,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             if (this.activeTab === 'opposition') {
                 oppCols.forEach(col => col.style.display = 'table-cell');
-                genCols.forEach(col => col.style.display = 'none'); // İtirazda Tip ve Son Tarih gizlenir
+                genCols.forEach(col => col.style.display = 'none'); 
             } else {
                 oppCols.forEach(col => col.style.display = 'none');
-                genCols.forEach(col => col.style.display = 'table-cell'); // Genel sekmede geri gelir
+                genCols.forEach(col => col.style.display = 'table-cell'); 
             }
 
             tbody.innerHTML = '';
@@ -322,13 +322,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             let html = '';
-            currentData.forEach(task => {
+
+            // Tekil Satır Oluşturma Yardımcısı (isHidden parametresi eklendi)
+            const generateRowHtml = (task, groupClass = '', groupId = '', isHidden = false) => {
                 const statusClass = `status-${task.status.replace(/ /g, '_').toLowerCase()}`;
                 
                 const opDate = formatToTRDate(task.operationalDueObj);
                 const offDate = formatToTRDate(task.officialDueObj);
 
-                // 🔥 KESİN ÇÖZÜM: Timezone kaymasını engellemek için yerel tarih üretici
                 const toLocalISOString = (d) => {
                     if (!d) return '';
                     const y = d.getFullYear();
@@ -368,17 +369,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const typeCol = this.activeTab !== 'opposition' ? `<td class="col-type general-only-col" title="${task.taskTypeDisplayName}">${task.taskTypeDisplayName}</td>` : '';
                 const opDateCol = this.activeTab !== 'opposition' ? `<td class="col-date general-only-col" data-field="operationalDue" data-date="${opISO}">${opDate}</td>` : '';
 
-                // 🔥 YENİ: Başvuru Numarası Linki (Eklentiyi Tetikler)
                 let appLink = `portfolio-detail.html?id=${task.ip_record_id || task.related_ip_record_id || task.relatedIpRecordId || ''}`;
                 
-                // Eğer "Yayına İtiraz (20)" ise eklentiyi tetikleyecek TPE linkini ver!
                 if (String(task.taskType) === '20') {
                     appLink = `https://opts.turkpatent.gov.tr/trademark#bn=${encodeURIComponent(task.applicationNumber)}`;
                 }
 
-                html += `
-                    <tr class="task-row ${statusClass}" data-status="${task.status}">
-                        <td class="col-check text-center"><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
+                // 🔥 ÇÖZÜM: isHidden true ise satırı gizli başlat
+                const displayStyle = isHidden ? 'style="display: none;"' : '';
+
+                return `
+                    <tr class="task-row ${statusClass} ${groupClass}" data-status="${task.status}" ${displayStyle}>
+                        <td class="col-check text-center"><input type="checkbox" class="task-checkbox" data-group-id="${groupId}" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
                         <td class="col-id">${task.id}</td>
                         <td class="col-appno">
                             <a href="${appLink}" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">
@@ -397,10 +399,67 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <td class="col-actions text-center" style="overflow:visible;">${actionMenuHtml}</td>
                     </tr>
                 `;
-            });
+            };
+
+            // 🔥 ÇÖZÜM: Yayına İtiraz sekmesindeysek Müşteri ve Bülten Tarihine göre Akordeon (Grup) oluştur
+            if (this.activeTab === 'opposition') {
+                const grouped = {};
+                let gIndex = 0;
+                
+                currentData.forEach(task => {
+                    const key = `${task.applicantName}###${task.bulletinDate}`;
+                    if (!grouped[key]) {
+                        gIndex++;
+                        grouped[key] = { 
+                            id: `g${gIndex}`, 
+                            applicantName: task.applicantName, 
+                            bulletinDate: task.bulletinDate, 
+                            tasks: [] 
+                        };
+                    }
+                    grouped[key].tasks.push(task);
+                });
+
+                Object.values(grouped).forEach(group => {
+                    let formattedGroupBulletinDate = group.bulletinDate;
+                    if (formattedGroupBulletinDate && formattedGroupBulletinDate !== '-') {
+                        formattedGroupBulletinDate = formatToTRDate(new Date(formattedGroupBulletinDate)) || formattedGroupBulletinDate;
+                    }
+
+                    // Grup başlığındaki onay kutusu için, tüm çocuk görevlerin seçili olup olmadığına bakıyoruz
+                    const allSelected = group.tasks.length > 0 && group.tasks.every(t => this.selectedTaskIds.has(String(t.id)));
+
+                    // Grup Başlık Satırı
+                    html += `
+                        <tr class="group-header-row bg-light" style="cursor:pointer; border-bottom: 2px solid #dee2e6; border-top: 2px solid #dee2e6;" data-group-id="${group.id}">
+                            <td class="col-check text-center" style="vertical-align: middle;">
+                                <input type="checkbox" class="group-checkbox" data-group-id="${group.id}" ${allSelected ? 'checked' : ''}>
+                            </td>
+                            <td colspan="9" class="text-left align-middle font-weight-bold text-dark" style="padding: 12px 10px;">
+                                <i class="fas fa-user-tie text-primary mr-2"></i> ${group.applicantName} 
+                                <span class="text-muted ml-3 mr-3">|</span> 
+                                <i class="far fa-calendar-alt text-secondary mr-2"></i> Bülten: ${formattedGroupBulletinDate}
+                                <span class="badge badge-info ml-3 py-1 px-2" style="font-size: 0.85em;">${group.tasks.length} İtiraz Bildirimi</span>
+                                <i class="fas fa-chevron-right float-right mt-1 text-muted group-toggle-icon"></i>
+                            </td>
+                        </tr>
+                    `;
+
+                    // Grup altındaki görevler
+                    group.tasks.forEach(task => {
+                        // 🔥 ÇÖZÜM: isHidden değerine true gönderilerek çocukların gizli başlatılması sağlandı
+                        html += generateRowHtml(task, `group-child-${group.id}`, group.id, true);
+                    });
+                });
+            } else {
+                currentData.forEach(task => {
+                    html += generateRowHtml(task);
+                });
+            }
 
             tbody.innerHTML = html;
             this.attachCheckboxListeners(); 
+            this.attachGroupToggleListeners(); // YENİ EKLENDİ
 
             if (window.DeadlineHighlighter) {
                 setTimeout(() => window.DeadlineHighlighter.refresh('triggeredTasks'), 50);
@@ -408,10 +467,38 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.$) $('.dropdown-toggle').dropdown();
         }
 
-        // YENİ: Checkbox Dinleyicileri
+        // YENİ: Akordeon (Grup) Daraltma / Genişletme Dinleyicileri
+        attachGroupToggleListeners() {
+            document.querySelectorAll('.group-header-row').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    // Tıklanan şey checkbox ise akordeon mantığını çalıştırma
+                    if (e.target.type === 'checkbox') return;
+                    
+                    const groupId = row.dataset.groupId;
+                    const children = document.querySelectorAll(`.group-child-${groupId}`);
+                    if (children.length === 0) return;
+                    
+                    const icon = row.querySelector('.group-toggle-icon');
+                    const isHidden = children[0].style.display === 'none';
+                    
+                    children.forEach(child => {
+                        child.style.display = isHidden ? 'table-row' : 'none';
+                    });
+                    
+                    if (icon) {
+                        icon.className = isHidden 
+                            ? 'fas fa-chevron-down float-right mt-1 text-muted group-toggle-icon' 
+                            : 'fas fa-chevron-right float-right mt-1 text-muted group-toggle-icon';
+                    }
+                });
+            });
+        }
+
+        // YENİ: Checkbox Dinleyicileri (Grup Kutularını ve Ana Kutuyu Destekler)
         attachCheckboxListeners() {
             const selectAllCb = document.getElementById('selectAllTasks');
             const rowCbs = document.querySelectorAll('.task-checkbox');
+            const groupCbs = document.querySelectorAll('.group-checkbox');
 
             if (selectAllCb) {
                 const newSelectAll = selectAllCb.cloneNode(true);
@@ -424,19 +511,52 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (isChecked) this.selectedTaskIds.add(cb.value);
                         else this.selectedTaskIds.delete(cb.value);
                     });
+                    groupCbs.forEach(gcb => gcb.checked = isChecked);
                     this.updateBatchActionsButton();
                 });
             }
 
+            // Akordeon (Grup) Checkbox Dinleyicisi
+            groupCbs.forEach(gcb => {
+                gcb.addEventListener('change', (e) => {
+                    const isChecked = e.target.checked;
+                    const groupId = e.target.dataset.groupId;
+                    const childCbs = document.querySelectorAll(`.task-checkbox[data-group-id="${groupId}"]`);
+                    
+                    childCbs.forEach(cb => {
+                        cb.checked = isChecked;
+                        if (isChecked) this.selectedTaskIds.add(cb.value);
+                        else this.selectedTaskIds.delete(cb.value);
+                    });
+
+                    if (selectAllCb) {
+                        selectAllCb.checked = Array.from(document.querySelectorAll('.task-checkbox')).every(c => c.checked);
+                    }
+                    this.updateBatchActionsButton();
+                });
+            });
+
+            // Tekil Satır (Çocuk) Checkbox Dinleyicisi
             rowCbs.forEach(cb => {
                 cb.addEventListener('change', (e) => {
                     if (e.target.checked) this.selectedTaskIds.add(e.target.value);
                     else this.selectedTaskIds.delete(e.target.value);
                     
+                    // Ait olduğu grubun (Akordeon) onay kutusunu senkronize et
+                    const groupId = cb.dataset.groupId;
+                    if (groupId) {
+                        const groupCb = document.querySelector(`.group-checkbox[data-group-id="${groupId}"]`);
+                        if (groupCb) {
+                            const siblings = document.querySelectorAll(`.task-checkbox[data-group-id="${groupId}"]`);
+                            groupCb.checked = Array.from(siblings).every(c => c.checked);
+                        }
+                    }
+
                     if (selectAllCb) selectAllCb.checked = Array.from(rowCbs).every(c => c.checked);
                     this.updateBatchActionsButton();
                 });
             });
+            
             this.updateBatchActionsButton();
         }
 

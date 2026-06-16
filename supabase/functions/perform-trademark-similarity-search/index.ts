@@ -266,6 +266,19 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
+    // 🔥 YENİ: 2 HARFLİ SONEK KALKANI (Kentsa, Floransa Kuralı) 🔥
+    if (s1.length === 2 && s2.length >= 2) {
+        const words2 = s2.split(' ').filter(w => w.length > 0);
+        for (const w of words2) {
+            // Eğer kelime "sa" ile tam bitiyorsa (floransa, kentsa)
+            // Ortalarda geçiyorsa (insan) bu şarta takılmaz ve pas geçilir!
+            if (w.length > 2 && w.endsWith(s1)) {
+                // Sadece kelime sonunda geçiyorsa yüksek bir bonus (%82) veriyoruz
+                substringBonus = Math.max(substringBonus, 0.82); 
+            }
+        }
+    }
+
     const computeCoreScore = (a: string, b: string) => {
         if (!a || !b) return 0.0;
         if (a === b) return 1.0;
@@ -559,7 +572,16 @@ serve(async (req) => {
                             });
 
                             for (const searchItem of mark.searchTerms) {
-                                let isExactPrefixSuffix = searchItem.cleanedSearchName.length >= 3 && cleanedHitName.includes(searchItem.cleanedSearchName);
+                                let isExactPrefixSuffix = false;
+                                const sTerm = searchItem.cleanedSearchName;
+                                
+                                if (sTerm.length >= 3) {
+                                    isExactPrefixSuffix = cleanedHitName.includes(sTerm);
+                                } else if (sTerm.length === 2) {
+                                    // 🔥 2 HARF KURALI: Kelime ortasında (insan) geçiyorsa pas geç, 
+                                    // ama kelimeyle bitiyorsa (floransa) veya ayrıysa (çe sa) filtreyi geçirt!
+                                    isExactPrefixSuffix = cleanedHitName.split(' ').some(w => w.endsWith(sTerm));
+                                }
 
                                 if (!hasPoolMatch && !isExactPrefixSuffix) continue;
 

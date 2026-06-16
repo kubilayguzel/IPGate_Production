@@ -249,8 +249,8 @@ export class AccrualDataManager {
                         invData = invData.filter(inv => {
                             const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
                             let normalized = s;
-                            if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
-                            if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready', 'in_queue', 'preparing'].some(k=>s.includes(k))) normalized = 'waiting';
+                            if (['taslak', 'draft', 'hazır', 'ready', 'preparing', 'ready_to_send'].some(k=>s.includes(k))) normalized = 'draft';
+                            if (['processing', 'queued', 'waiting', 'bekliyor', 'in_queue', 'sending', 'işleniyor'].some(k=>s.includes(k))) normalized = 'waiting';
                             if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
                             if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
                             if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';
@@ -389,8 +389,8 @@ export class AccrualDataManager {
                     return linkedInvoices.some(inv => {
                         const s = (inv.kolaybiStatus || inv.status || 'draft').toLowerCase();
                         let normalized = s;
-                        if (['taslak', 'draft'].some(k=>s.includes(k))) normalized = 'draft';
-                        if (['processing', 'queued', 'waiting', 'bekliyor', 'hazır', 'ready'].some(k=>s.includes(k))) normalized = 'waiting';
+                        if (['taslak', 'draft', 'hazır', 'ready', 'preparing', 'ready_to_send'].some(k=>s.includes(k))) normalized = 'draft';
+                        if (['processing', 'queued', 'waiting', 'bekliyor', 'in_queue', 'sending', 'işleniyor'].some(k=>s.includes(k))) normalized = 'waiting';
                         if (['ulaştı', 'işlendi', 'kabul', 'onay', 'accept', 'approv', 'processed'].some(k=>s.includes(k))) normalized = 'approved';
                         if (['red', 'reject', 'decline'].some(k=>s.includes(k))) normalized = 'rejected';
                         if (['iptal', 'cancel'].some(k=>s.includes(k))) normalized = 'cancelled';

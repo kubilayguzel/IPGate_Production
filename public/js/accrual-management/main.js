@@ -505,7 +505,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const evrekaList = dataToExport.filter(a => a.department === 'EVREKA');
                 let evrekaSumMap = {};
 
-                hukukList.forEach(acc => {
+                evrekaList.forEach(acc => { // 🔥 ÇÖZÜM: Burası evrekaList olarak düzeltildi
                     const items = acc.items || [];
                     items.forEach(item => {
                         const itemCurr = item.currency || acc.currency || 'TRY';

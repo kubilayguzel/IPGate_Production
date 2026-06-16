@@ -478,15 +478,15 @@ export class AccrualUIManager {
                         invStatusText = '<i class="fas fa-hourglass-half mr-1"></i> GİB Cevabı Bekleniyor';
                         invStatusClass = 'badge-info text-white';
                     } 
-                    else if (isMatch(kStatus, ['kuyruk', 'hazır', 'queue', 'preparing', 'ready']) || sysStatus === 'ready_to_send') {
+                    else if (isMatch(kStatus, ['kuyruk', 'queue', 'processing', 'işleniyor', 'sending'])) {
                         invStatusText = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor / Kuyrukta';
                         invStatusClass = 'badge-warning text-dark';
                     } 
                     // 4. TASLAK ve HATALAR
-                    else if (sysStatus === 'draft') {
+                    else if (sysStatus === 'draft' || sysStatus === 'ready_to_send' || isMatch(kStatus, ['taslak', 'draft', 'hazır', 'ready', 'preparing'])) {
                         invStatusText = '<i class="fas fa-file-alt mr-1"></i> Taslak';
                         invStatusClass = 'badge-secondary';
-                    } 
+                    }
                     else if (isMatch(kStatus, ['hata', 'fail', 'error']) || isMatch(sysStatus, ['fail', 'error'])) {
                         invStatusText = '<i class="fas fa-exclamation-triangle mr-1"></i> Gönderim Hatası';
                         invStatusClass = 'badge-dark';

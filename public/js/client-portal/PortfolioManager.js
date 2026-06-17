@@ -28,6 +28,7 @@ export class PortfolioManager {
                     transaction_hierarchy, 
                     parent_id,
                     created_at,
+                    record_owner_type,
                     ip_record_trademark_details (brand_name, brand_image_url),
                     ip_record_classes (class_no, items),
                     ip_record_applicants!inner (
@@ -83,10 +84,11 @@ export class PortfolioManager {
                     renewalDate: record.renewal_date,
                     status: record.status,
                     classes: classesArray.join(', ') || '-',
-                    fullClasses: niceClassesData, // 🔥 EKLENEN YENİ SATIR: Eşya listesi detayları
+                    fullClasses: niceClassesData,
                     transactionHierarchy: record.transaction_hierarchy,
                     parentId: record.parent_id,
-                    applicants: applicantsArray
+                    applicants: applicantsArray,
+                    recordOwnerType: record.record_owner_type || 'self'
                 };
             });
         } catch (error) {

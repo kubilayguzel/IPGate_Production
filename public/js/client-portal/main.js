@@ -650,7 +650,117 @@ class ClientPortalController {
         this.renderHelper.renderDavaTable(filtered.slice(0, 10), 0);
     }
 
+    // 1. Akordeonlu Tablo Çizici Fonksiyon
+    renderObjectionTabloRows(dataSlice, startIndex, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (dataSlice.length === 0) { 
+            tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted py-4">İtiraz kaydı bulunamadı.</td></tr>`; 
+            return; 
+        }
+
+        dataSlice.forEach((item, index) => {
+            const hasChildren = item.childrenData && item.childrenData.length > 0;
+            const imgHtml = item.brandImageUrl ? `<img src="${item.brandImageUrl}" class="brand-thumb" style="max-height:60px; object-fit:contain; border-radius:4px; padding:2px; border:1px solid #ddd;">` : '-';
+            
+            let docBtn = '<span class="badge badge-light">Yok</span>';
+            if (item.allParentDocs && item.allParentDocs.length > 0) {
+                const doc = item.allParentDocs[0];
+                docBtn = `<a href="${doc.document_url || doc.url}" target="_blank" class="btn btn-sm btn-outline-info" title="Evrak İndir"><i class="fas fa-file-download"></i></a>`;
+            }
+
+            const row = document.createElement('tr');
+            
+            if (hasChildren) {
+                row.classList.add('accordion-header-row');
+                row.setAttribute('data-toggle', 'collapse');
+                row.setAttribute('data-target', `#accordion-itiraz-${item.id}`);
+                row.style.cursor = 'pointer';
+            }
+
+            row.innerHTML = `
+                <td>${hasChildren ? '<i class="fas fa-chevron-right mr-2 text-primary" style="font-size:0.8em;"></i>' : ''}${startIndex + index + 1}</td>
+                <td class="col-origin">${item.origin || 'TÜRKPATENT'}</td>
+                <td class="col-sample text-center">${imgHtml}</td>
+                <td style="max-width: 150px;" class="text-truncate font-weight-bold" title="${item.title}">${item.title}</td>
+                <td>${item.transactionTypeName}</td>
+                <td>${item.applicationNumber}</td>
+                <td style="max-width: 150px;" class="text-truncate" title="${item.applicantName}">${item.applicantName}</td>
+                <td>${item.bulletinDate !== '-' ? this.renderHelper.formatDate(item.bulletinDate) : '-'}</td>
+                <td>${item.bulletinNo}</td>
+                <td>${item.epatsDate !== '-' ? this.renderHelper.formatDate(item.epatsDate) : '-'}</td>
+                <td><span class="badge badge-${item.statusBadge} px-2 py-1">${item.statusText}</span></td>
+                <td class="text-center" onclick="event.stopPropagation();">${docBtn}</td>
+            `;
+            tbody.appendChild(row);
+
+            if (hasChildren) {
+                const detailRow = document.createElement('tr');
+                const childHtml = item.childrenData.map((child, cIdx) => {
+                    const childTypeObj = this.state.transactionTypes.get(String(child.transaction_type_id)) || {};
+                    const cType = childTypeObj.alias || childTypeObj.name || 'Alt İşlem (Karar/Tebliğ)';
+                    
+                    let cDocBtn = '<span class="badge badge-light">Yok</span>';
+                    if (child.transaction_documents && child.transaction_documents.length > 0) {
+                        const cDoc = child.transaction_documents[0];
+                        cDocBtn = `<a href="${cDoc.document_url || cDoc.url}" target="_blank" class="btn btn-xs btn-primary"><i class="fas fa-download mr-1"></i> İndir</a>`;
+                    }
+                    
+                    return `<tr>
+                        <td style="width: 3%;"></td>
+                        <td style="width: 6%;" class="text-muted text-right pr-3"><i class="fas fa-level-up-alt fa-rotate-90 mr-1 opacity-50"></i>${startIndex + index + 1}.${cIdx + 1}</td>
+                        <td colspan="6" class="font-weight-bold text-secondary">${cType}</td>
+                        <td colspan="2"><i class="far fa-clock mr-1 opacity-50"></i>${this.renderHelper.formatDate(child.created_at)}</td>
+                        <td><span class="badge badge-light border">İşlendi</span></td>
+                        <td class="text-center">${cDocBtn}</td>
+                    </tr>`;
+                }).join('');
+
+                detailRow.innerHTML = `<td colspan="12" class="p-0 border-0">
+                    <div class="collapse" id="accordion-itiraz-${item.id}">
+                        <table class="table mb-0 bg-light" style="table-layout: fixed; width: 100%; font-size: 0.9em; box-shadow: inset 0 3px 6px rgba(0,0,0,0.04);">
+                            <tbody>${childHtml}</tbody>
+                        </table>
+                    </div>
+                </td>`;
+                tbody.appendChild(detailRow);
+            }
+        });
+    }
+
+    // 2. Ana Veri İşleyici
     async prepareAndRenderObjections() {
+        const targetIds = this.state.selectedClientId === 'ALL' ? this.state.linkedClients.map(c => c.id) : [this.state.selectedClientId];
+        if (targetIds.length === 0) return;
+
+        // View'u çağırıyoruz (Görsel brandImageUrl ile gelecek)
+        const { data: itirazData, error } = await supabase
+            .from('v_tasks_dashboard')
+            .select('*')
+            .in('task_owner_id', targetIds)
+            .in('task_type_id', ['7', '19', '20'])
+            .in('status', ['open', 'completed']); // Sadece başlamış ve tamamlanmış işler
+
+        if (error) {
+            console.error("İtirazlar View'dan çekilemedi:", error);
+            return;
+        }
+
+        if (!itirazData || itirazData.length === 0) {
+            this.renderObjectionTabloRows([], 0, 'dava-itiraz-tbody-self');
+            this.renderObjectionTabloRows([], 0, 'dava-itiraz-tbody-third');
+            return;
+        }
+
+        // İtirazlara ait İŞLEMLERİ (Karar analizi ve Akordeon için) ve EVRAKLARI çek
+        const taskIds = itirazData.map(t => t.id);
+        const { data: allTransactions } = await supabase
+            .from('transactions')
+            .select('*, transaction_documents(*)')
+            .in('task_id', taskIds);
+
         const REQUEST_RESULT_STATUS = {
             '24': 'Eksiklik Bildirimi', '28': 'Kabul', '29': 'Kısmi Kabul', '30': 'Ret',
             '31': 'B.S - Kabul', '32': 'B.S - Kısmi Kabul','33': 'B.S - Ret',
@@ -658,87 +768,96 @@ class ClientPortalController {
             '50': 'Kabul', '51': 'Kısmi Kabul', '52': 'Ret'
         };
 
-        const PARENT_TYPES = ['7', '19', '20'];
-        const objectionTasks = this.state.tasks.filter(t => PARENT_TYPES.includes(String(t.taskType)));
-        
-        if (objectionTasks.length === 0) { this.renderHelper.renderObjectionTable([]); return; }
-
-        const ipRecordIds = [...new Set(objectionTasks.map(t => t.relatedIpRecordId).filter(Boolean))];
-        const { data: transactionsData } = await supabase.from('transactions').select('*, transaction_documents(*)').in('ip_record_id', ipRecordIds);
-        const allTransactions = transactionsData || [];
         const rows = [];
 
-        objectionTasks.forEach(task => {
-            const ipRecord = this.state.portfolios.find(p => p.id === task.relatedIpRecordId) || {};
-            const taskTxs = allTransactions.filter(tx => tx.ip_record_id === task.relatedIpRecordId);
-            
-            let parentTx = task.details?.triggeringTransactionId ? taskTxs.find(tx => String(tx.id) === String(task.details.triggeringTransactionId)) : taskTxs.filter(tx => String(tx.transaction_type_id) === String(task.taskType)).sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
-            if (!parentTx) parentTx = { id: 'virt-'+task.id, transaction_type_id: task.taskType, created_at: task.createdAt, isVirtual: true };
+        // Veriyi Arayüz İçin Formatlama ve Karar Hesaplama
+        itirazData.forEach(task => {
+            let parsedDetails = {};
+            try { parsedDetails = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {}); } catch(e) {}
 
-            // Önce alt işlemleri (child) buluyoruz
+            // --- A) ALT İŞLEMLERİ (AKORDEON) VE KARAR DURUMUNU BULMA ---
+            const taskTxs = (allTransactions || []).filter(tx => tx.task_id === task.id);
+
+            let parentTx = parsedDetails.triggeringTransactionId 
+                ? taskTxs.find(tx => String(tx.id) === String(parsedDetails.triggeringTransactionId))
+                : taskTxs.filter(tx => String(tx.transaction_type_id) === String(task.task_type_id)).sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
+            
+            if (!parentTx) {
+                parentTx = { id: 'virt-'+task.id, transaction_type_id: task.task_type_id, created_at: task.created_at, isVirtual: true, transaction_documents: [] };
+            }
+            
             const childrenTxs = parentTx.isVirtual ? [] : taskTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id);
 
-            // 🔥 ÇÖZÜM 3: Durumu Alt İşlemlerden (Child 50, 51, 52) Kontrol Etme
-            let computedStatus = 'Karar Bekleniyor', badgeColor = 'secondary';
+            let computedStatus = 'Kurumda İşlemde', badgeColor = 'primary';
             const decisionChild = childrenTxs.find(c => ['50', '51', '52'].includes(String(c.transaction_type_id)));
-            
+
             if (decisionChild) {
                 const tId = String(decisionChild.transaction_type_id);
                 if (tId === '50') { computedStatus = 'Kabul'; badgeColor = 'success'; }
                 else if (tId === '51') { computedStatus = 'Kısmen Kabul'; badgeColor = 'warning'; }
                 else if (tId === '52') { computedStatus = 'Ret'; badgeColor = 'danger'; }
             } else {
-                // Eğer alt karar işlemi yoksa eski yönteme (Ana işlemin sonucuna veya Onay Bekliyor durumuna) bak
                 const rr = parentTx.request_result;
                 if (rr && REQUEST_RESULT_STATUS[String(rr)]) {
                     computedStatus = REQUEST_RESULT_STATUS[String(rr)];
                     if (computedStatus.includes('Ret')) badgeColor = 'danger';
                     else if (computedStatus.includes('Kabul')) badgeColor = 'success';
                     else badgeColor = 'info';
-                } else if ((task.status || '').includes('awaiting')) { 
-                    computedStatus = 'Onay Bekliyor'; badgeColor = 'warning'; 
+                } else if (task.status === 'completed') {
+                    computedStatus = 'Tamamlandı'; badgeColor = 'success';
                 }
             }
 
-            // 🔥 ÇÖZÜM: Karşı tarafın (Bülten) markası portföyde yoksa, eksik bilgileri Görev'in (Task) JSON detayından çek!
-            const originVal = ipRecord.origin || task.details?.origin || 'TÜRKPATENT';
-            const imgVal = ipRecord.brandImageUrl || task.brandImageUrl || task.details?.competitorBrandImage || task.details?.brandInfo?.brandImage || '';
-            const titleVal = ipRecord.title || task.recordTitle || task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
-            const appNoVal = ipRecord.applicationNumber || task.appNo || task.details?.targetAppNo || task.details?.brandInfo?.applicationNo || '-';
-            
-            // 🔥 ÇÖZÜM 1: Başvuru Sahibi ("Karşı Taraf / Müvekkil" yazısını kaldırıp asıl ismi alma)
-            // Sırasıyla olası yerlerden ismi ara, bulamazsan ipRecord'un kendisine (Müvekkile) bak
-            let applicantVal = task.details?.competitorOwner || task.details?.brandInfo?.applicantName || task.details?.applicantName;
-            if (!applicantVal && ipRecord.applicants && ipRecord.applicants.length > 0) {
-                applicantVal = ipRecord.applicants.map(a => a.name).join(', ');
-            }
-            if (!applicantVal) applicantVal = '-'; // Hiçbiri yoksa tire koy
+            // --- B) 3. TARAF BİLGİLERİ VE GÖRSEL AYARLAMALARI ---
+            const isThirdParty = String(task.task_type_id) === '20' || task.recordOwnerType !== 'self';
 
-            const bDateVal = task.details?.brandInfo?.opposedMarkBulletinDate || task.details?.bulletinDate || '-';
-            const bNoVal = task.details?.brandInfo?.opposedMarkBulletinNo || task.details?.bulletinNo || '-';
+            let titleVal = task.iprecordTitle || '-';
+            let appNoVal = task.iprecordApplicationNo || '-';
+            let applicantVal = task.iprecordApplicantName || '-';
+
+            if (isThirdParty) {
+                appNoVal = parsedDetails.targetAppNo || appNoVal;
+                applicantVal = task.opposedMarkOwner || parsedDetails.opposed_mark_owner || parsedDetails.competitorOwner || '-';
+                titleVal = parsedDetails.objectionTarget || '-';
+                
+                if (titleVal === '-' && task.title && task.title.includes('Yayına İtiraz:')) {
+                    const match = task.title.match(/Yayına İtiraz:\s*(.*?)\s*(?:\(Bülten|$)/);
+                    if (match && match[1]) titleVal = match[1].trim();
+                }
+            }
+
+            let typeName = 'İtiraz İşlemi';
+            if (String(task.task_type_id) === '20' || String(task.task_type_id) === '19') typeName = 'Yayına İtiraz';
+            else if (String(task.task_type_id) === '7') typeName = 'Karara İtiraz';
 
             rows.push({
                 id: task.id, 
-                recordId: task.relatedIpRecordId, 
-                origin: originVal, 
-                brandImageUrl: imgVal,
+                recordId: task.ip_record_id, 
+                origin: 'TÜRKPATENT', 
+                brandImageUrl: task.brandImageUrl || '', // 🔥 VIEW'DAN DOĞRUDAN GELEN GÖRSEL
                 title: titleVal, 
-                transactionTypeName: task.taskTypeDisplay, 
+                transactionTypeName: typeName, 
                 applicationNumber: appNoVal,
                 applicantName: applicantVal, 
-                bulletinDate: bDateVal,
-                bulletinNo: bNoVal, 
-                epatsDate: parentTx.created_at,
+                bulletinDate: task.bulletinDate || parsedDetails.bulletin_date || '-',
+                bulletinNo: task.bulletinNo || parsedDetails.bulletin_no || '-', 
+                epatsDate: parentTx.created_at || task.created_at, 
                 statusText: computedStatus, 
                 statusBadge: badgeColor, 
                 allParentDocs: parentTx.transaction_documents || [],
-                childrenData: childrenTxs
+                childrenData: childrenTxs,
+                recordOwnerType: isThirdParty ? 'third_party' : 'self'
             });
         });
 
-        let filtered = rows.filter(item => {
+        // 5. Verileri İki Sekmeye Böl (Self ve Third Party)
+        let selfRows = rows.filter(item => item.recordOwnerType === 'self');
+        let thirdRows = rows.filter(item => item.recordOwnerType === 'third_party');
+
+        // --- Bize Gelen İtirazlar Filtresi ---
+        let filteredSelf = selfRows.filter(item => {
             for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
-                if (!key.startsWith('dava-itiraz-list-')) continue;
+                if (!key.startsWith('dava-itiraz-list-self-')) continue;
                 const colIdx = key.split('-').pop();
                 let cellValue = '';
                 if (colIdx == '3') cellValue = item.title || '';
@@ -750,18 +869,49 @@ class ClientPortalController {
             return true;
         });
 
-        this.state.filteredObjections = filtered;
-        if (!this.state.paginations.objection) {
-            this.state.paginations.objection = new Pagination({
-                itemsPerPage: 10, containerId: 'davaItirazPagination',
+        // --- Bizim Yaptığımız İtirazlar Filtresi ---
+        let filteredThird = thirdRows.filter(item => {
+            for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
+                if (!key.startsWith('dava-itiraz-list-third-')) continue;
+                const colIdx = key.split('-').pop();
+                let cellValue = '';
+                if (colIdx == '3') cellValue = item.title || '';
+                else if (colIdx == '4') cellValue = item.transactionTypeName || '';
+                else if (colIdx == '6') cellValue = item.applicantName || '';
+                else if (colIdx == '10') cellValue = item.statusText || '';
+                if (!selectedValues.includes(cellValue.trim())) return false;
+            }
+            return true;
+        });
+
+        this.state.filteredObjectionsSelf = filteredSelf;
+        this.state.filteredObjectionsThird = filteredThird;
+
+        // Sayfalama (Bize Gelenler)
+        if (!this.state.paginations.objectionSelf) {
+            this.state.paginations.objectionSelf = new Pagination({
+                itemsPerPage: 10, containerId: 'davaItirazPaginationSelf',
                 onPageChange: (page, perPage) => {
                     const start = (page - 1) * perPage;
-                    this.renderHelper.renderObjectionTable(this.state.filteredObjections.slice(start, start + perPage), start);
+                    this.renderObjectionTabloRows(this.state.filteredObjectionsSelf.slice(start, start + perPage), start, 'dava-itiraz-tbody-self');
                 }
             });
         }
-        this.state.paginations.objection.update(filtered.length);
-        this.renderHelper.renderObjectionTable(filtered.slice(0, 10), 0);
+        this.state.paginations.objectionSelf.update(filteredSelf.length);
+        this.renderObjectionTabloRows(filteredSelf.slice(0, 10), 0, 'dava-itiraz-tbody-self');
+
+        // Sayfalama (Bizim Yaptıklarımız / 3. Taraf)
+        if (!this.state.paginations.objectionThird) {
+            this.state.paginations.objectionThird = new Pagination({
+                itemsPerPage: 10, containerId: 'davaItirazPaginationThird',
+                onPageChange: (page, perPage) => {
+                    const start = (page - 1) * perPage;
+                    this.renderObjectionTabloRows(this.state.filteredObjectionsThird.slice(start, start + perPage), start, 'dava-itiraz-tbody-third');
+                }
+            });
+        }
+        this.state.paginations.objectionThird.update(filteredThird.length);
+        this.renderObjectionTabloRows(filteredThird.slice(0, 10), 0, 'dava-itiraz-tbody-third');
     }
 
     filterInvoices() {
@@ -1368,7 +1518,8 @@ class ClientPortalController {
 
         let sourceData = [];
         if (tableId === 'marka-list') sourceData = this.state.portfolios;
-        else if (tableId === 'dava-itiraz-list') sourceData = this.state.filteredObjections || []; 
+        else if (tableId === 'dava-itiraz-list-self') sourceData = this.state.filteredObjectionsSelf || []; 
+        else if (tableId === 'dava-itiraz-list-third') sourceData = this.state.filteredObjectionsThird || []; 
         else if (tableId === 'dava-list') sourceData = this.state.suits;
 
         const uniqueValues = new Set();
@@ -1387,7 +1538,7 @@ class ClientPortalController {
                     val = STATUS_TR[st] || item.status || 'Bilinmiyor';
                 }
                 else if (colIdx == 10) val = item.classes || '-';
-            } else if (tableId === 'dava-itiraz-list') {
+            } else if (tableId === 'dava-itiraz-list-self' || tableId === 'dava-itiraz-list-third') {
                 if (colIdx == 3) val = item.title || '';
                 else if (colIdx == 4) val = item.transactionTypeName || '';
                 else if (colIdx == 6) val = item.applicantName || '';
@@ -1484,9 +1635,9 @@ class ClientPortalController {
                 if (columnIndex === 10) return (item.classes || '').toLowerCase(); 
                 return item.id || '';
             };
-        } else if (listId === 'dava-itiraz-list') {
-            dataObj = this.state.filteredObjections;
-            renderFn = (slice, start) => this.renderHelper.renderObjectionTable(slice, start);
+        } else if (listId === 'dava-itiraz-list-self' || listId === 'dava-itiraz-list-third') {
+            dataObj = listId === 'dava-itiraz-list-self' ? this.state.filteredObjectionsSelf : this.state.filteredObjectionsThird;
+            renderFn = (slice, start) => this.renderObjectionTabloRows(slice, start, listId === 'dava-itiraz-list-self' ? 'dava-itiraz-tbody-self' : 'dava-itiraz-tbody-third');
             getValueFn = (item) => {
                 if (columnIndex === 1) return (item.origin || '').toLowerCase();
                 if (columnIndex === 3) return (item.title || '').toLowerCase();
@@ -1565,7 +1716,11 @@ class ClientPortalController {
             return 0;
         });
 
-        const paginationObj = this.state.paginations[listId.replace('-list', '').replace('s', '')];
+        let paginationObj;
+        if(listId === 'dava-itiraz-list-self') paginationObj = this.state.paginations.objectionSelf;
+        else if(listId === 'dava-itiraz-list-third') paginationObj = this.state.paginations.objectionThird;
+        else paginationObj = this.state.paginations[listId.replace('-list', '').replace('s', '')]; 
+
         if (paginationObj) {
             paginationObj.currentPage = 1;
             const perPage = paginationObj.itemsPerPage || 10;

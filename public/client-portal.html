@@ -124,19 +124,19 @@
     
     /* Kolon Genişlikleri */
 
-    #dava-itiraz-list table { table-layout: fixed; width: 100%; }
-    #dava-itiraz-list th:nth-child(1), #dava-itiraz-list td:nth-child(1) { width: 3%; }
-    #dava-itiraz-list th:nth-child(2), #dava-itiraz-list td:nth-child(2) { width: 6%; }
-    #dava-itiraz-list th:nth-child(3), #dava-itiraz-list td:nth-child(3) { width: 8%; }
-    #dava-itiraz-list th:nth-child(4), #dava-itiraz-list td:nth-child(4) { width: 10%; word-wrap: break-word; white-space: normal; }
-    #dava-itiraz-list th:nth-child(5), #dava-itiraz-list td:nth-child(5) { width: 12%; word-wrap: break-word; white-space: normal; }
-    #dava-itiraz-list th:nth-child(6), #dava-itiraz-list td:nth-child(6) { width: 7%; }
-    #dava-itiraz-list th:nth-child(7), #dava-itiraz-list td:nth-child(7) { width: 20%; word-wrap: break-word; white-space: normal; }
-    #dava-itiraz-list th:nth-child(8), #dava-itiraz-list td:nth-child(8) { width: 8%; }
-    #dava-itiraz-list th:nth-child(9), #dava-itiraz-list td:nth-child(9) { width: 6%; }
-    #dava-itiraz-list th:nth-child(10), #dava-itiraz-list td:nth-child(10) { width: 8%; }
-    #dava-itiraz-list th:nth-child(11), #dava-itiraz-list td:nth-child(11) { width: 10%; }
-    #dava-itiraz-list th:nth-child(12), #dava-itiraz-list td:nth-child(12) { width: 6%; }
+    .itiraz-table { table-layout: fixed; width: 100%; }
+    .itiraz-table th:nth-child(1), .itiraz-table td:nth-child(1) { width: 3%; }
+    .itiraz-table th:nth-child(2), .itiraz-table td:nth-child(2) { width: 6%; }
+    .itiraz-table th:nth-child(3), .itiraz-table td:nth-child(3) { width: 8%; }
+    .itiraz-table th:nth-child(4), .itiraz-table td:nth-child(4) { width: 10%; word-wrap: break-word; white-space: normal; }
+    .itiraz-table th:nth-child(5), .itiraz-table td:nth-child(5) { width: 12%; word-wrap: break-word; white-space: normal; }
+    .itiraz-table th:nth-child(6), .itiraz-table td:nth-child(6) { width: 7%; }
+    .itiraz-table th:nth-child(7), .itiraz-table td:nth-child(7) { width: 20%; word-wrap: break-word; white-space: normal; }
+    .itiraz-table th:nth-child(8), .itiraz-table td:nth-child(8) { width: 8%; }
+    .itiraz-table th:nth-child(9), .itiraz-table td:nth-child(9) { width: 6%; }
+    .itiraz-table th:nth-child(10), .itiraz-table td:nth-child(10) { width: 8%; }
+    .itiraz-table th:nth-child(11), .itiraz-table td:nth-child(11) { width: 10%; }
+    .itiraz-table th:nth-child(12), .itiraz-table td:nth-child(12) { width: 6%; }
 
     .border-left-primary { border-left: 4px solid #4e73df !important; }
     .border-left-success { border-left: 4px solid #1cc88a !important; }
@@ -310,26 +310,56 @@
                 <div class="tab-pane fade" id="tasarim-list"><table class="table table-hover"><thead><tr><th>#</th><th class="text-center">Görsel</th><th>Tasarım Adı</th><th>Başvuru No</th><th>Durum</th><th>Sınıflar</th></tr></thead><tbody></tbody></table></div>
                 
                 <div class="tab-pane fade" id="dava-itiraz-list">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th class="sortable" data-sort="index"># <i class="fas fa-sort"></i></th>
-                                <th class="col-origin sortable" data-sort="text">Menşe <i class="fas fa-sort"></i></th>
-                                <th class="text-center">Marka Örneği</th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="3">M/T/B Adı <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list" data-col="3"></i></th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="4">İşlem Tipi <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list" data-col="4"></i></th>
-                                <th class="sortable" data-sort="text">Başvuru No <i class="fas fa-sort"></i></th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="6">Başvuru Sahibi <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list" data-col="6"></i></th>
-                                <th class="sortable" data-sort="date">Bülten Tarihi <i class="fas fa-sort"></i></th>
-                                <th class="sortable" data-sort="text">Bülten No <i class="fas fa-sort"></i></th>
-                                <th class="sortable" data-sort="date">İşlem Tarihi <i class="fas fa-sort"></i></th>
-                                <th class="sortable filterable" data-sort="text" data-col-idx="10">Durum <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list" data-col="10"></i></th>
-                                <th>Evrak</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dava-itiraz-tbody"></tbody>
-                    </table>
-                    <div id="davaItirazPagination"></div>
+                    <ul class="nav nav-pills mb-3 mt-2 bg-white p-2 shadow-sm rounded" id="itirazPills" role="tablist">
+                        <li class="nav-item"><a class="nav-link active font-weight-bold" data-toggle="pill" href="#itiraz-self"><i class="fas fa-shield-alt mr-2"></i> Portföyüme Gelen İtirazlar</a></li>
+                        <li class="nav-item"><a class="nav-link font-weight-bold" data-toggle="pill" href="#itiraz-third"><i class="fas fa-gavel mr-2"></i> 3. Taraf İtirazları</a></li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="itiraz-self">
+                            <table class="table table-hover itiraz-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable" data-sort="index"># <i class="fas fa-sort"></i></th>
+                                        <th class="col-origin sortable" data-sort="text">Menşe <i class="fas fa-sort"></i></th>
+                                        <th class="text-center">Marka Örneği</th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="3">M/T/B Adı <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-self" data-col="3"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="4">İşlem Tipi <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-self" data-col="4"></i></th>
+                                        <th class="sortable" data-sort="text">Başvuru No <i class="fas fa-sort"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="6">İtiraz Eden <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-self" data-col="6"></i></th>
+                                        <th class="sortable" data-sort="date">Bülten Tarihi <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="text">Bülten No <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="date">İşlem Tarihi <i class="fas fa-sort"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="10">Durum <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-self" data-col="10"></i></th>
+                                        <th>Evrak</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dava-itiraz-tbody-self"></tbody>
+                            </table>
+                            <div id="davaItirazPaginationSelf"></div>
+                        </div>
+                        <div class="tab-pane fade" id="itiraz-third">
+                            <table class="table table-hover itiraz-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable" data-sort="index"># <i class="fas fa-sort"></i></th>
+                                        <th class="col-origin sortable" data-sort="text">Menşe <i class="fas fa-sort"></i></th>
+                                        <th class="text-center">Marka Örneği</th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="3">M/T/B Adı <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-third" data-col="3"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="4">İşlem Tipi <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-third" data-col="4"></i></th>
+                                        <th class="sortable" data-sort="text">Başvuru No <i class="fas fa-sort"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="6">İtiraz Edilen <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-third" data-col="6"></i></th>
+                                        <th class="sortable" data-sort="date">Bülten Tarihi <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="text">Bülten No <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="date">İşlem Tarihi <i class="fas fa-sort"></i></th>
+                                        <th class="sortable filterable" data-sort="text" data-col-idx="10">Durum <i class="fas fa-sort"></i> <i class="fas fa-filter filter-icon" data-table="dava-itiraz-list-third" data-col="10"></i></th>
+                                        <th>Evrak</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dava-itiraz-tbody-third"></tbody>
+                            </table>
+                            <div id="davaItirazPaginationThird"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="tab-pane fade" id="dava-list">

@@ -679,9 +679,10 @@ export class AccrualDataManager {
             let updates = {};
 
             if (isForeignTab) {
-                // 🔥 Sadece yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz
-                updates.foreign_status = 'paid';
-            } else {
+                    // 🔥 Yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz ve Tarihi Kaydediyoruz
+                    updates.foreign_status = 'paid';
+                    updates.payment_date = date.includes('.') ? date.split('.').reverse().join('-') : date;
+                } else {
                 // Mevcut müşteri (Tahakkuk) ödeme mantığı
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = date;
@@ -730,6 +731,9 @@ export class AccrualDataManager {
             if (isForeignTab) {
                 // 🔥 Yurtdışı sekmesinden gelirse sadece yurtdışı statüsünü güncelle
                 updates.foreign_status = newStatus;
+                if (newStatus === 'unpaid') {
+                    updates.payment_date = null; // Ödenmedi yapıldığında eski tarihi temizle
+                }
             } else {
                 updates.status = newStatus;
                 if (newStatus === 'unpaid') {

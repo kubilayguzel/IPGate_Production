@@ -656,6 +656,7 @@ export class AccrualUIManager {
                     });
 
                     // 5. Saf Yurtdışı Statüsü
+                    // 5. Saf Yurtdışı Statüsü
                     // 🔥 YENİ: Tamamen Bağımsız Yurtdışı Statüsü (Müşteriden bağımsız)
                     let fStatusTxt = 'Ödenmedi';
                     let fStatusCls = 'status-unpaid bg-danger text-white';
@@ -666,6 +667,13 @@ export class AccrualUIManager {
                     }
 
                     const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
+
+                    // 🔥 ÇÖZÜM: Sadece statü "Ödendi" ise tarihi göster (Eski hatalı kayıtları listede gizler)
+                    let fPaymentDateHtml = '-';
+                    if (acc.foreignStatus === 'paid' && acc.paymentDate) {
+                        if (acc.paymentDate.includes('.')) fPaymentDateHtml = acc.paymentDate;
+                        else fPaymentDateHtml = new Date(acc.paymentDate).toLocaleDateString('tr-TR');
+                    }
                     
                     // 🔥 YENİ: Kalan Tutar HTML'i (Bizim yurtdışına olan borcumuz, Sadece ödenmediyse göster)
                     const remTexts = [];
@@ -684,7 +692,7 @@ export class AccrualUIManager {
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td><a href="#" class="view-btn text-primary font-weight-bold" data-id="${acc.id}" title="Tahakkuk Detayını Görüntüle">#${acc.id}</a></td>
                         <td>${foreignStatusHtml}</td>
-                        <td class="text-secondary"><i class="far fa-calendar-alt mr-1"></i>${acc.paymentDate ? new Date(acc.paymentDate).toLocaleDateString('tr-TR') : '-'}</td>
+                        <td class="text-secondary"><i class="far fa-calendar-alt mr-1"></i>${fPaymentDateHtml}</td>
                         <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>
                         <td>${paymentParty}</td>
                         <td>${officialStr}</td>
@@ -956,8 +964,8 @@ export class AccrualUIManager {
                             <div class="card-body p-3">
                                 <p class="mb-3"><strong>Oluşturma:</strong> <span class="ml-2">${dFmt(accrual.createdAt)}</span></p>
                                 ${accrual.isForeignTransaction 
-                                    ? `<p class="mb-0 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>` 
-                                    : `<p class="mb-0"><strong>Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>`}
+                                    ? (accrual.foreignStatus === 'paid' && accrual.paymentDate ? `<p class="mb-0 mt-2 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${dFmt(accrual.paymentDate)}</span></p>` : '') 
+                                    : `<p class="mb-0 mt-2"><strong>Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>`}
                             </div>
                         </div>
                     </div>

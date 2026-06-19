@@ -1232,7 +1232,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                      if (this.state.activeTab === 'foreign') {
                         const isFull = document.getElementById('payFullForeign')?.checked;
                         
-                        // 🔥 ÇÖZÜM: Alanlar dinamik oluştuğu için ekranda var olup olmadıklarına (null check) bakarak okuyoruz.
                         const offEl = document.getElementById('manualForeignOfficial');
                         const srvEl = document.getElementById('manualForeignService');
                         
@@ -1253,9 +1252,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await this.dataManager.savePayment(this.state.selectedIds, { date, receiptFiles: this.uploadedPaymentReceipts, singlePaymentDetails: singleDetails, isForeignTab: this.state.activeTab === 'foreign' });
                     this.uiManager.closeModal('markPaidModal');
                     this.state.selectedIds.clear();
+                    
+                    // 🔥 ÇÖZÜM 2: DOSYA INPUTUNU TEMİZLİYORUZ (Aynı dosyayı tekrar seçebilmek için)
+                    const fileInput = document.getElementById('paymentReceiptFile');
+                    if (fileInput) fileInput.value = '';
+                    this.uploadedPaymentReceipts = [];
+                    
                     this.renderPage();
-                    showNotification('Ödeme işlendi', 'success');
-                } catch(e) { showNotification(e.message, 'error'); }
+                    showNotification('Ödeme işlendi ve dekont kaydedildi.', 'success');
+                } catch(e) { 
+                    // Yükleme veya veritabanı hatası fırlatılırsa kırmızı bildirim olarak gösterilecek
+                    showNotification(e.message, 'error'); 
+                }
                 finally { this.uiManager.toggleLoading(false); }
             });
 

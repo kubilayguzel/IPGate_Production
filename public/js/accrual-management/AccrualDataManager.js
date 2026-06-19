@@ -668,24 +668,32 @@ export class AccrualDataManager {
     }
 
     async savePayment(selectedIds, paymentData) {
-        // 🔥 YENİ: isForeignTab parametresi eklendi
         const { date, receiptFiles, singlePaymentDetails, isForeignTab } = paymentData;
         const ids = Array.from(selectedIds);
 
-        const promises = ids.map(async (id) => {
+        // Tarih formatını (GG.AA.YYYY) PostgreSQL formatına (YYYY-MM-DD) çeviriyoruz
+        let formattedDate = null;
+        if (date) {
+            const parts = date.split('.');
+            if (parts.length === 3) formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            else formattedDate = date; 
+        }
+
+        // 🔥 ÇÖZÜM 1: Eşzamanlı (.map) yerine Sıralı (for...of) işlem yapıyoruz. 
+        // Böylece aynı dekontu birden fazla tahakkuka eklerken Storage akışı çökmez.
+        for (const id of ids) {
             const acc = this.allAccruals.find(a => a.id === id);
-            if (!acc) return;
+            if (!acc) continue;
 
             let updates = {};
 
+            // 1. Statü ve Bakiye Güncellemeleri
             if (isForeignTab) {
-                    // 🔥 Yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz ve Tarihi Kaydediyoruz
-                    updates.foreign_status = 'paid';
-                    updates.payment_date = date.includes('.') ? date.split('.').reverse().join('-') : date;
-                } else {
-                // Mevcut müşteri (Tahakkuk) ödeme mantığı
+                updates.foreign_status = 'paid';
+                if (formattedDate) updates.paymentDate = formattedDate;
+            } else {
                 if (ids.length === 1 && singlePaymentDetails) {
-                    updates.paymentDate = date;
+                    updates.paymentDate = formattedDate;
                     const { payFullOfficial, payFullService, manualOfficial, manualService } = singlePaymentDetails;
                     const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
 
@@ -711,13 +719,57 @@ export class AccrualDataManager {
                 else {
                     updates.status = 'paid';
                     updates.remainingAmount = [];
-                    updates.paymentDate = date;
+                    updates.paymentDate = formattedDate;
                 }
             }
-            return accrualService.updateAccrual(id, updates);
-        });
 
-        await Promise.all(promises);
+            // 2. Dekont Yükleme ve Kaydetme İşlemi (Hata denetimli)
+            if (receiptFiles && receiptFiles.length > 0) {
+                const docInserts = [];
+                
+                for (const fileObj of receiptFiles) {
+                    const file = fileObj.file || fileObj;
+                    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                    const cleanPath = `accruals/${id}/${Date.now()}_${cleanFileName}`;
+
+                    // Supabase Storage Yüklemesi
+                    const { error: uploadError } = await supabase.storage
+                        .from('documents')
+                        .upload(cleanPath, file, { cacheControl: '3600', upsert: true });
+
+                    // Eğer yükleme başarısız olursa SESSİZ KALMA, ekrana hata fırlat!
+                    if (uploadError) {
+                        console.error('Dekont storage yükleme hatası:', uploadError);
+                        throw new Error('Dekont sunucuya yüklenemedi: ' + uploadError.message);
+                    }
+
+                    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(cleanPath);
+                    if (urlData && urlData.publicUrl) {
+                        docInserts.push({
+                            accrual_id: String(id),
+                            document_name: file.name,
+                            document_url: urlData.publicUrl,
+                            document_type: 'Ödeme Dekontu'
+                        });
+                    }
+                }
+                
+                // Veritabanı (Tablo) Kaydı
+                if (docInserts.length > 0) {
+                    const { error: dbError } = await supabase.from('accrual_documents').insert(docInserts);
+                    if (dbError) {
+                        console.error('Dekont DB kayıt hatası:', dbError);
+                        throw new Error('Dekont veritabanına kaydedilemedi: ' + dbError.message);
+                    }
+                }
+            }
+
+            // 3. Tahakkuk Güncellemesi
+            const res = await accrualService.updateAccrual(id, updates);
+            if (!res.success) throw new Error('Tahakkuk statüsü güncellenemedi: ' + res.error);
+        }
+
+        // Tüm satırlar sorunsuz bittiyse verileri tazele
         await this.fetchAllData();
     }
 

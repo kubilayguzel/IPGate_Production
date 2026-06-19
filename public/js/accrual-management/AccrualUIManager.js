@@ -821,13 +821,15 @@ export class AccrualUIManager {
         else if(accrual.status === 'unpaid') { statusText = 'Ödenmedi'; statusBadge = 'badge-danger'; }
         else if(accrual.status === 'partially_paid') { statusText = 'Kısmen Ödendi'; statusBadge = 'badge-warning text-dark'; }
 
+        // 🔥 DEKONT ROZETİ VE LİSTELEME MANTIĞI BURADA
         let filesHtml = '';
         if (accrual.files && accrual.files.length > 0) {
             filesHtml = accrual.files.map(f => `
                 <div class="d-flex align-items-center justify-content-between p-2 mb-2 border rounded bg-light">
                     <div class="d-flex align-items-center">
-                        <i class="fas fa-file-pdf text-danger fa-lg mr-3"></i>
-                        <span class="text-dark font-weight-bold" style="font-size: 0.95em;">${f.name}</span>
+                        <i class="fas ${f.type === 'Ödeme Dekontu' ? 'fa-receipt text-success' : 'fa-file-pdf text-danger'} fa-lg mr-3"></i>
+                        <span class="text-dark font-weight-bold" style="font-size: 0.95em;">${f.type === 'Ödeme Dekontu' ? 'Ödeme Dekontu' : f.name}</span>
+                        ${f.type === 'Ödeme Dekontu' ? '<span class="badge badge-success ml-2">Dekont</span>' : ''}
                     </div>
                     <div class="d-flex align-items-center">
                         <a href="${f.content || f.url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i> İndir</a>
@@ -844,7 +846,7 @@ export class AccrualUIManager {
         const tfn = accrual.tpeInvoiceNo || '-';
         const efn = accrual.evrekaInvoiceNo || '-';
         const description = accrual.description || '-';
-        const orderCode = accrual.orderCode || '-'; // 🔥 YENİ
+        const orderCode = accrual.orderCode || '-';
         const tpParty = accrual.tpInvoiceParty?.name || '-';
         const foreignParty = accrual.serviceInvoiceParty?.name || '-';
         const applyVatToOfficial = accrual.applyVatToOfficialFee ? 'Evet' : 'Hayır';
@@ -873,7 +875,6 @@ export class AccrualUIManager {
                 </div>`;
             }).join('');
         } else {
-            // Eğer çok eski bir tahakkuksa ve içinde item yoksa eski görünümü koru
             itemsHtml = `
                 <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
                     <span class="text-secondary">Resmi Ücret:</span>
@@ -964,8 +965,8 @@ export class AccrualUIManager {
                             <div class="card-body p-3">
                                 <p class="mb-3"><strong>Oluşturma:</strong> <span class="ml-2">${dFmt(accrual.createdAt)}</span></p>
                                 ${accrual.isForeignTransaction 
-                                    ? (accrual.foreignStatus === 'paid' && accrual.paymentDate ? `<p class="mb-0 mt-2 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${dFmt(accrual.paymentDate)}</span></p>` : '') 
-                                    : `<p class="mb-0 mt-2"><strong>Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>`}
+                                    ? `<p class="mb-0 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>` 
+                                    : `<p class="mb-0"><strong>Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>`}
                             </div>
                         </div>
                     </div>

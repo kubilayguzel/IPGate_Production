@@ -175,12 +175,14 @@ export class DebitNoteManager {
                     <!-- Banka Detayları (Tamamen Balance Due Altında) -->
                     <div style="line-height: 1.6; padding-top: 20px; border-top: 1px solid #eee;">
                         <p style="margin: 0 0 8px 0; color: #333; font-size: 13px; font-weight: bold;">Bank details for payment via wire transfer</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Beneficiary:</strong> EVREKA PATENT DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Turkey</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (EUR):</strong> TR 6200 0100 1983 9142 7604 5002</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (USD):</strong> TR 3500 0100 1983 9142 7604 5003</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">SWIFT:</strong> TCZBTR2A</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Name:</strong> T.C. Ziraat Bankası</p>
-                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Branch:</strong> Keklikpınarı / ANKARA</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Beneficiary:</strong> EVREKA GROUP DANIŞMANLIK LİMİTED ŞİRKETİ, Ankara, Türkiye</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (EUR):</strong> TR 0800 0150 0158 0480 2654 1634</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (USD):</strong> TR 3200 0150 0158 0480 2335 7274</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (CHF):</strong> TR 5600 0150 0158 0480 2654 1643</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">IBAN (GBP):</strong> TR 4000 0150 0158 0480 2654 1640</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">SWIFT:</strong> TVBATR2A</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Name:</strong> Türkiye Vakıflar Bankası T.A.O.</p>
+                        <p style="margin: 2px 0; color: #666; font-size: 12px;"><strong style="color: #333; font-weight: bold;">Bank Branch:</strong> Abidinpaşa / ANKARA</p>
                     </div>
                 </div>
             `;

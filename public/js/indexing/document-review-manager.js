@@ -1046,6 +1046,7 @@ export class DocumentReviewManager {
                 if (newParentResult.success) newParentTxId = newParentResult.id;
             }
 
+            // 🔥 1. YAPI KORUNDU: Evrak her zaman otomatik oluşan 20'ye (varsa) bağlanır.
             const finalParentId = newParentTxId || parentTxId;
 
             let finalPdfUrl = this.pdfData.fileUrl || this.pdfData.download_url;
@@ -1072,6 +1073,16 @@ export class DocumentReviewManager {
                 }
             }
 
+            // 🔥 2. MAİL MOTORUNA GİDECEK BİLGİ: Arayüzden seçilen asıl parent (Örn: 2) tipini buluyoruz.
+            const selectedParentTx = this.currentTransactions.find(t => String(t.id) === String(parentTxId));
+            const origParentTypeId = selectedParentTx ? (selectedParentTx.transaction_type_id || selectedParentTx.type) : null;
+            
+            let systemNote = notes || '';
+            if (origParentTypeId) {
+                // Notların arasına sadece sistemin okuyacağı bir etiket bırakıyoruz
+                systemNote += systemNote ? `\n[Kaynak İşlem: ${origParentTypeId}]` : `[Kaynak İşlem: ${origParentTypeId}]`;
+            }
+
             const transactionData = {
                 type: childTypeId,
                 transactionHierarchy: 'child',
@@ -1079,6 +1090,7 @@ export class DocumentReviewManager {
                 description: childTypeObj.alias || childTypeObj.name,
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
                 taskId: typeof overrideTaskId !== 'undefined' ? overrideTaskId : null,
+                notes: systemNote, // 🔥 Arayüzdeki seçim Mail Motoru için not olarak eklendi!
                 documents: [{
                     name: this.pdfData.fileName || 'Resmi Yazı.pdf',
                     url: finalPdfUrl,

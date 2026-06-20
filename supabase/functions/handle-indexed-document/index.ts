@@ -324,12 +324,26 @@ serve(async (req: Request) => {
     let finalBody = "Sistemimize yeni bir evrak eklenmiştir.";
     let templateId = null;
 
-    // 🔥 1. ANA İŞLEM TİPİNİ BUL (Parent Task Type ID - Aşağıdaki Varyantlar için lazım olacak)
+    // 🔥 1. ANA İŞLEM TİPİNİ BUL
     let parentTaskTypeId = null;
-    if (transactionData && transactionData.parent_id) {
-        const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
-        if (pTx && pTx.transaction_type_id) {
-            parentTaskTypeId = String(pTx.transaction_type_id);
+
+    if (transactionData) {
+        // 🔥 YENİ SİSTEM: Arayüzden seçilen Orijinal Parent bilgisini işlem notundan (system note) yakalıyoruz
+        if (transactionData.note && transactionData.note.includes('[Kaynak İşlem:')) {
+            const match = transactionData.note.match(/\[Kaynak İşlem:\s*(\d+)\]/);
+            if (match && match[1]) {
+                parentTaskTypeId = match[1];
+                console.log(`[HANDLE_INDEXED] 🎯 Arayüzden Seçilen Orijinal Parent Tipi Notlardan Okundu: ${parentTaskTypeId}`);
+            }
+        } 
+        
+        // Eğer notta yoksa (eski veya farklı tipteki işlemler vs.), DB'deki fiziksel ebeveynine bak (Fallback)
+        if (!parentTaskTypeId && transactionData.parent_id) {
+            const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id, type').eq('id', transactionData.parent_id).maybeSingle();
+            if (pTx) {
+                parentTaskTypeId = String(pTx.transaction_type_id || pTx.type || '');
+                console.log(`[HANDLE_INDEXED] 🎯 Veritabanındaki Ebeveyn Tipi (Fallback): ${parentTaskTypeId}`);
+            }
         }
     }
 
@@ -354,17 +368,11 @@ serve(async (req: Request) => {
             const activeConditions = [`owner_${recordOwnerType}`];
             
             if (parentTaskTypeId) {
-                // Standart Ebeveyn Kuralı
+                // Seçilen Parent neyse doğrudan onun varyantlarını dinamik olarak havuza ekle
+                // Örn 2 seçildiyse: parent_2 ve parent_2_self
+                // Örn 20 seçildiyse: parent_20 ve parent_20_self
                 activeConditions.push(`parent_${parentTaskTypeId}`);
-                
-                // 🚀 ÖZEL DURUM (İTİRAZ BİLDİRİMİ İÇİN): 
-                // Eğer indekslenen evrak tipi 27 (İtiraz Bildirimi) ve Ana İşlem 20 (Yayına İtiraz) ise
-                if (txTypeId === '27' && parentTaskTypeId === '20') {
-                    // İtirazın kime karşı olduğuna karar ver (marka bizimse self, rakipse third_party)
-                    const specCondition = `parent_20_${recordOwnerType}`;
-                    activeConditions.push(specCondition);
-                    console.log(`[HANDLE_INDEXED_VARIANT] 🚀 ÖZEL YİDK TESPİTİ YAPILDI: Şartlara '${specCondition}' eklendi!`);
-                }
+                activeConditions.push(`parent_${parentTaskTypeId}_${recordOwnerType}`);
             }
 
             console.log(`[HANDLE_INDEXED_VARIANT] 🔍 Şablon: ${templateId}, Aranacak Şartlar:`, activeConditions);
@@ -376,27 +384,22 @@ serve(async (req: Request) => {
                 .eq('template_id', templateId)
                 .in('condition_key', activeConditions);
 
-            console.log(`[HANDLE_INDEXED_VARIANT] 🎯 Veritabanından Dönen Eşleşmeler: `, variants?.map((v: any) => v.condition_key));
+            console.log(`[HANDLE_INDEXED_VARIANT] 🎯 Veritabanından dönen Eşleşmeler: `, variants?.map((v: any) => v.condition_key));
 
             if (variants && variants.length > 0) {
-                // Öncelik Sıralaması:
-                // 1. En Spesifik Ebeveyn (Örn: parent_20_self)
-                // 2. Standart Ebeveyn (Örn: parent_2)
-                // 3. Aidiyet (owner_self)
-                
                 const specParentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}_${recordOwnerType}`);
                 const parentVariant = variants.find((v: any) => v.condition_key === `parent_${parentTaskTypeId}`);
                 const ownerVariant = variants.find((v: any) => v.condition_key === `owner_${recordOwnerType}`);
 
                 if (specParentVariant) {
                     rawBody = specParentVariant.body;
-                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ En Spesifik Varyant Seçildi: ${specParentVariant.condition_key}`);
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Seçilen Varyant: ${specParentVariant.condition_key} (En Spesifik)`);
                 } else if (parentVariant) {
                     rawBody = parentVariant.body;
-                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Standart Parent Varyant Seçildi: ${parentVariant.condition_key}`);
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Seçilen Varyant: ${parentVariant.condition_key} (Standart Parent)`);
                 } else if (ownerVariant) {
                     rawBody = ownerVariant.body;
-                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Owner Varyant Seçildi: ${ownerVariant.condition_key}`);
+                    console.log(`[HANDLE_INDEXED_VARIANT] ✅ Seçilen Varyant: ${ownerVariant.condition_key} (Sadece Aidiyet)`);
                 }
             } else { 
                 console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);

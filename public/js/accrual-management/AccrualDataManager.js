@@ -91,6 +91,7 @@ export class AccrualDataManager {
                     vatRate: row.vat_rate || d.vatRate || 20,
                     applyVatToOfficialFee: row.apply_vat_to_official_fee ?? d.applyVatToOfficialFee ?? false,
                     paymentDate: row.payment_date || d.paymentDate || null,
+                    foreignPaymentDate: row.foreign_payment_date || null, // 🔥 YENİ: Yurtdışı ödeme tarihi
                     tpInvoiceParty: row.tp_invoice_party_id ? { id: row.tp_invoice_party_id, name: getPersonName(row.tp_invoice_party_id) } : d.tpInvoiceParty,
                     serviceInvoiceParty: row.service_invoice_party_id ? { id: row.service_invoice_party_id, name: getPersonName(row.service_invoice_party_id) } : d.serviceInvoiceParty,
                 };
@@ -687,10 +688,10 @@ export class AccrualDataManager {
 
             let updates = {};
 
-            // 1. Statü ve Bakiye Güncellemeleri
             if (isForeignTab) {
+                // 🔥 Sadece yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz
                 updates.foreign_status = 'paid';
-                if (formattedDate) updates.paymentDate = formattedDate;
+                if (formattedDate) updates.foreign_payment_date = formattedDate; // 🔥 DÜZELTME: Artık kendi tarih sütununa yazıyor
             } else {
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = formattedDate;
@@ -765,8 +766,20 @@ export class AccrualDataManager {
             }
 
             // 3. Tahakkuk Güncellemesi
-            const res = await accrualService.updateAccrual(id, updates);
-            if (!res.success) throw new Error('Tahakkuk statüsü güncellenemedi: ' + res.error);
+            if (isForeignTab) {
+                // 🔥 ÇÖZÜM: accrualService yeni eklediğimiz sütunu tanımadığı için veriyi siliyor.
+                // Bu yüzden Yurtdışı sekmesinden gelen güncellemeleri DOĞRUDAN veritabanına yazıyoruz.
+                const { error: dbUpdateError } = await supabase.from('accruals').update({
+                    foreign_status: updates.foreign_status,
+                    foreign_payment_date: updates.foreign_payment_date
+                }).eq('id', id);
+
+                if (dbUpdateError) throw new Error('Yurtdışı ödemesi kaydedilemedi: ' + dbUpdateError.message);
+            } else {
+                // Normal tahakkuk ödemeleri mevcut servisten geçmeye devam eder
+                const res = await accrualService.updateAccrual(id, updates);
+                if (!res.success) throw new Error('Tahakkuk statüsü güncellenemedi: ' + res.error);
+            }
         }
 
         // Tüm satırlar sorunsuz bittiyse verileri tazele
@@ -779,21 +792,20 @@ export class AccrualDataManager {
             const acc = this.allAccruals.find(a => a.id === id);
             if (!acc) return;
             
-            const updates = {};
             if (isForeignTab) {
-                // 🔥 Yurtdışı sekmesinden gelirse sadece yurtdışı statüsünü güncelle
-                updates.foreign_status = newStatus;
-                if (newStatus === 'unpaid') {
-                    updates.payment_date = null; // Ödenmedi yapıldığında eski tarihi temizle
-                }
+                // 🔥 Yurtdışı iptallerinde de filtreyi aşıp Supabase'e doğrudan gidiyoruz
+                const payload = { foreign_status: newStatus };
+                if (newStatus === 'unpaid') payload.foreign_payment_date = null; // Ödenmedi olursa tarihi sil
+                
+                return supabase.from('accruals').update(payload).eq('id', id);
             } else {
-                updates.status = newStatus;
+                const updates = { status: newStatus };
                 if (newStatus === 'unpaid') {
                     updates.paymentDate = null;
                     updates.remainingAmount = acc.totalAmount;
                 }
+                return accrualService.updateAccrual(id, updates);
             }
-            return accrualService.updateAccrual(id, updates);
         });
 
         await Promise.all(promises);

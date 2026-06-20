@@ -692,7 +692,7 @@ export class AccrualUIManager {
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td><a href="#" class="view-btn text-primary font-weight-bold" data-id="${acc.id}" title="Tahakkuk Detayını Görüntüle">#${acc.id}</a></td>
                         <td>${foreignStatusHtml}</td>
-                        <td class="text-secondary"><i class="far fa-calendar-alt mr-1"></i>${fPaymentDateHtml}</td>
+                        <td class="text-secondary"><i class="far fa-calendar-alt mr-1"></i>${acc.foreignPaymentDate ? new Date(acc.foreignPaymentDate).toLocaleDateString('tr-TR') : '-'}</td>
                         <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>
                         <td>${paymentParty}</td>
                         <td>${officialStr}</td>
@@ -964,9 +964,10 @@ export class AccrualUIManager {
                             </div>
                             <div class="card-body p-3">
                                 <p class="mb-3"><strong>Oluşturma:</strong> <span class="ml-2">${dFmt(accrual.createdAt)}</span></p>
+                                <p class="${accrual.isForeignTransaction ? 'mb-3' : 'mb-0'}"><strong>Müvekkil Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>
                                 ${accrual.isForeignTransaction 
-                                    ? `<p class="mb-0 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>` 
-                                    : `<p class="mb-0"><strong>Ödeme Tarihi:</strong> <span class="ml-2">${accrual.paymentDate ? dFmt(accrual.paymentDate) : '-'}</span></p>`}
+                                    ? `<p class="mb-0 text-danger"><strong>Yurtdışı Ödeme Tarihi:</strong> <span class="ml-2 font-weight-bold text-dark">${accrual.foreignPaymentDate ? dFmt(accrual.foreignPaymentDate) : '-'}</span></p>` 
+                                    : ''}
                             </div>
                         </div>
                     </div>

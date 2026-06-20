@@ -393,7 +393,13 @@ export class ManuelPdfTransactionManager {
             // --- Portföy Sonuçlarını Çiz ---
             if (portfolioData && portfolioData.length > 0) {
                 hasResults = true;
-                container.innerHTML += `<div class="dropdown-header text-primary font-weight-bold bg-light border-bottom" style="padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;"><i class="fas fa-briefcase mr-1"></i> Müşteri Portföyü</div>`;
+                
+                // 🔥 ÇÖZÜM: innerHTML yerine element oluşturarak ekliyoruz (Event Listener'lar silinmesin diye)
+                const header = document.createElement('div');
+                header.className = 'dropdown-header text-primary font-weight-bold bg-light border-bottom';
+                header.style.cssText = 'padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;';
+                header.innerHTML = '<i class="fas fa-briefcase mr-1"></i> Müşteri Portföyü';
+                container.appendChild(header);
                 
                 portfolioData.forEach(record => {
                     const item = document.createElement('div');
@@ -414,8 +420,9 @@ export class ManuelPdfTransactionManager {
                             <div style="font-size: 0.9em; color: #555;"><span class="text-truncate d-inline-block" style="max-width: 250px; vertical-align: bottom;">${title}</span> <span class="badge badge-light border ml-1">${originStr}</span></div>
                         </div>`;
                         
-                    // Tıklandığında ana fonksiyonunuza seçimi gönderin
-                    item.addEventListener('click', () => { 
+                    // 🔥 ÇÖZÜM: 'click' yerine 'mousedown' kullanarak input blur olayının menüyü erken kapatmasını engelliyoruz
+                    item.addEventListener('mousedown', (e) => { 
+                        e.preventDefault();
                         this.selectRecord({
                             id: record.id,
                             title: title,
@@ -435,8 +442,18 @@ export class ManuelPdfTransactionManager {
             // --- Bülten Sonuçlarını Çiz ---
             if (bulletinData && bulletinData.length > 0) {
                 hasResults = true;
-                if (portfolioData && portfolioData.length > 0) container.innerHTML += `<div class="dropdown-divider my-0"></div>`;
-                container.innerHTML += `<div class="dropdown-header text-danger font-weight-bold bg-light border-bottom" style="padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;"><i class="fas fa-newspaper mr-1"></i> TPE Bülten Kayıtları</div>`;
+                
+                if (portfolioData && portfolioData.length > 0) {
+                    const divider = document.createElement('div');
+                    divider.className = 'dropdown-divider my-0';
+                    container.appendChild(divider);
+                }
+                
+                const header = document.createElement('div');
+                header.className = 'dropdown-header text-danger font-weight-bold bg-light border-bottom';
+                header.style.cssText = 'padding: 8px 15px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;';
+                header.innerHTML = '<i class="fas fa-newspaper mr-1"></i> TPE Bülten Kayıtları';
+                container.appendChild(header);
                 
                 bulletinData.forEach(record => {
                     const item = document.createElement('div');
@@ -455,8 +472,8 @@ export class ManuelPdfTransactionManager {
                             <div style="font-size: 0.9em; color: #555;"><span class="text-truncate d-inline-block" style="max-width: 200px; vertical-align: bottom;">${title}</span> <span class="badge badge-secondary ml-1 float-right mt-1">Bülten: ${record.bulletin_id || '-'}</span></div>
                         </div>`;
                         
-                    // Tıklandığında bülten kaydını mevcut yapıya uygun olarak gönder
-                    item.addEventListener('click', () => { 
+                    item.addEventListener('mousedown', (e) => { 
+                        e.preventDefault();
                         this.selectRecord({
                             id: record.id,
                             title: title,

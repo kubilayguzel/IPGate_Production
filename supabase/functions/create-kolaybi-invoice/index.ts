@@ -586,43 +586,12 @@ serve(async (req) => {
             try { const addrRes = JSON.parse(addrResText); if (addrRes.data && addrRes.data.id) kolaybiAddressId = addrRes.data.id; } catch(e) {}
         }
 
-        let productId = null; 
-        try {
-            const productsReq = await fetch(`${config.baseUrl}/kolaybi/v1/products?limit=1`, { method: 'GET', headers: getHeaders });
-            if (productsReq.ok) {
-                const productsRes = await productsReq.json();
-                if (productsRes.data && productsRes.data.length > 0) {
-                    productId = productsRes.data[0].id; 
-                }
-            }
-            
-            // 🔥 ÇÖZÜM: Yeni hesapta hiç hizmet kartı yoksa "Kayıt bulunamadı" hatasını önlemek için otomatik oluştur.
-            if (!productId) {
-                const prodParams = new URLSearchParams();
-                prodParams.append("name", "Danışmanlık / Hizmet Bedeli");
-                prodParams.append("unit", "ADET");
-                prodParams.append("product_type", "2"); // 1: Ürün, 2: Hizmet
-                prodParams.append("vat_rate", "20");
-                prodParams.append("currency", "TRY");
-                
-                const newProdReq = await fetch(`${config.baseUrl}/kolaybi/v1/products`, { 
-                    method: 'POST', 
-                    headers: apiHeadersForm, 
-                    body: prodParams.toString() 
-                });
-                
-                if (newProdReq.ok) {
-                    const newProdRes = await newProdReq.json();
-                    if (newProdRes.data && newProdRes.data.id) {
-                        productId = newProdRes.data.id;
-                    }
-                }
-            }
-        } catch(e) {
-            console.error("Hizmet çekme/oluşturma hatası:", e);
+        let productId = 1; 
+        const productsReq = await fetch(`${config.baseUrl}/kolaybi/v1/products`, { method: 'GET', headers: getHeaders });
+        if (productsReq.ok) {
+            const productsRes = await productsReq.json();
+            if (productsRes.data && productsRes.data.length > 0) productId = productsRes.data[0].id; 
         }
-
-        if (!productId) productId = 1; // Güvenlik amaçlı son çare
 
         let jobDetailsLines: string[] = [];
         accruals.forEach((acc: any) => {

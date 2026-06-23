@@ -723,6 +723,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             this.accrualFormManager.showEpatsDoc(epatsDoc);
+
+            // 🔥 3. DÜZELTME: "Ek Tahakkuk Ekle" (myTaskAcc öneki) için Müvekkil Otomatik Doldurma
+            const taskOwnerId = this.currentTaskForAccrual.task_owner_id || this.currentTaskForAccrual.relatedPartyId;
+            if (taskOwnerId && this.allPersons) {
+                const foundPerson = this.allPersons.find(p => String(p.id) === String(taskOwnerId));
+                if (foundPerson) {
+                    setTimeout(() => {
+                        this.accrualFormManager.selectedTpParty = foundPerson;
+                        this.accrualFormManager.manualSelectDisplay('myTaskAccTpInvoiceParty', foundPerson);
+                        this.accrualFormManager.checkSasRequirement(foundPerson);
+                        this.accrualFormManager.calculateTotal();
+                    }, 50);
+                }
+            }
+
             document.getElementById('createMyTaskAccrualModal').classList.add('show');
         }
 
@@ -778,7 +793,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if(this.completeTaskFormManager) {
                 this.completeTaskFormManager.reset();
                 
-                // 🔥 ÇÖZÜM: Yeni mimariye uygun Parent Task ID bulma
                 let detailsObj = {};
                 if (task.details) {
                     if (typeof task.details === 'string') {
@@ -788,33 +802,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // 🔥 ÇÖZÜM 1 & 2: Asıl İşin (Parent) ID'sini tüm olası yerlerde arıyoruz
                 const parentId = task.related_task_id || task.relatedTaskId || detailsObj.parent_task_id || detailsObj.relatedTaskId;
                 
-                // Başlangıçta evrak alanını temizle
                 this.completeTaskFormManager.showEpatsDoc(null);
 
-                // Eğer asıl işin ID'sini bulduysak, EPATS belgesini her delikten arayarak çekiyoruz
                 if (parentId) {
                     try {
-                        const { data: pTask } = await supabase.from('tasks').select('details, documents').eq('id', String(parentId)).single();
+                        const { data: pTask } = await supabase.from('tasks').select('details').eq('id', String(parentId)).single();
                         
                         let epatsDoc = null;
                         
-                        // 1. Parent Task'ın "documents" array'inde ara
-                        if (pTask && pTask.documents && Array.isArray(pTask.documents)) {
-                            epatsDoc = pTask.documents.find(d => d.type === 'epats_document');
-                        }
-                        
-                        // 2. Parent Task'ın "details" JSON'ının içindeki documents array'inde ara
-                        if (!epatsDoc && pTask && pTask.details) {
+                        if (pTask && pTask.details) {
                             let pDetails = typeof pTask.details === 'string' ? JSON.parse(pTask.details) : pTask.details;
                             if (pDetails.documents && Array.isArray(pDetails.documents)) {
                                 epatsDoc = pDetails.documents.find(d => d.type === 'epats_document');
                             }
                         }
 
-                        // 3. Eğer JSON içinde yoksa, eski usül "task_documents" tablosuna DB sorgusu at
                         if (!epatsDoc) {
                             const { data: docData } = await supabase
                                 .from('task_documents')
@@ -828,7 +832,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
 
-                        // EPATS belgesini bulduysak düzenle formuna (modala) aktar
                         if (epatsDoc) {
                             this.completeTaskFormManager.showEpatsDoc(epatsDoc);
                         }
@@ -837,16 +840,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                // --- Mevcut Tahakkuk Verilerini Forma Doldurma Kısmı (Aynı Kalıyor) ---
                 const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id; 
                 if (targetAccrualId) {
                     try {
-                        // 🔥 ÇÖZÜM 3: İşlerim ekranında da belge ve açıklamaları çekebilmek için JOIN eklendi!
                         const { data: accSnap } = await supabase.from('accruals').select('*, accrual_documents(*)').eq('id', String(targetAccrualId)).single();
                         if (accSnap) {
                             const mappedAcc = {
                                 ...accSnap,
-                                // DB'den gelen belgeleri formun anlayacağı "files" objesine atıyoruz
                                 files: accSnap.accrual_documents ? accSnap.accrual_documents.map(d => ({
                                     id: d.id, name: d.document_name, url: d.document_url, type: d.document_type
                                 })) : [],
@@ -861,9 +861,38 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 isForeignTransaction: accSnap.is_foreign_transaction
                             };
                             this.completeTaskFormManager.setData(mappedAcc);
+
+                            // 🔥 YENİ EKLENEN ÇÖZÜM: Tahakkuk veritabanında var ama Fatura Tarafı (Kişi) BOŞSA, görev sahibini otomatik ata!
+                            if (!accSnap.tp_invoice_party_id) {
+                                const taskOwnerId = task.task_owner_id || task.relatedPartyId || detailsObj.relatedPartyId || detailsObj.applicant_id;
+                                if (taskOwnerId && this.allPersons) {
+                                    const foundPerson = this.allPersons.find(p => String(p.id) === String(taskOwnerId));
+                                    if (foundPerson) {
+                                        setTimeout(() => {
+                                            this.completeTaskFormManager.selectedTpParty = foundPerson;
+                                            this.completeTaskFormManager.manualSelectDisplay('compTpInvoiceParty', foundPerson);
+                                            this.completeTaskFormManager.checkSasRequirement(foundPerson);
+                                            this.completeTaskFormManager.calculateTotal();
+                                        }, 50);
+                                    }
+                                }
+                            }
                         }
                     } catch (e) {
                         console.warn('Target accrual fetch error:', e);
+                    }
+                } else {
+                    const taskOwnerId = task.task_owner_id || task.relatedPartyId || detailsObj.relatedPartyId || detailsObj.applicant_id;
+                    if (taskOwnerId && this.allPersons) {
+                        const foundPerson = this.allPersons.find(p => String(p.id) === String(taskOwnerId));
+                        if (foundPerson) {
+                            setTimeout(() => {
+                                this.completeTaskFormManager.selectedTpParty = foundPerson;
+                                this.completeTaskFormManager.manualSelectDisplay('compTpInvoiceParty', foundPerson);
+                                this.completeTaskFormManager.checkSasRequirement(foundPerson);
+                                this.completeTaskFormManager.calculateTotal();
+                            }, 50);
+                        }
                     }
                 }
             }

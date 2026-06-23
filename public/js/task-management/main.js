@@ -989,7 +989,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if(this.completeTaskFormManager) {
                 this.completeTaskFormManager.reset();
                 
-                // 🔥 ÇÖZÜM: Yeni mimariye uygun Parent Task ID bulma
                 let detailsObj = {};
                 if (task.details) {
                     if (typeof task.details === 'string') {
@@ -999,56 +998,84 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // Asıl İşin (Parent) ID'sini bul
-                const parentId = task.related_task_id || task.relatedTaskId || detailsObj.parent_task_id;
+                const parentId = task.related_task_id || task.relatedTaskId || detailsObj.parent_task_id || detailsObj.relatedTaskId;
                 
-                // Başlangıçta evrak alanını temizle
                 this.completeTaskFormManager.showEpatsDoc(null);
 
-                // Eğer asıl işin ID'sini bulduysak, task_documents tablosuna gidip PDF'i çekiyoruz
                 if (parentId) {
                     try {
-                        const { data: docData } = await supabase
-                            .from('task_documents')
-                            .select('document_name, document_url, document_type')
-                            .eq('task_id', String(parentId))
-                            .order('uploaded_at', { ascending: false });
+                        // 🔥 1. DÜZELTME: Veritabanı şemasında olmayan 'documents' kolonu select sorgusundan çıkarıldı! (400 Hatası Çözümü)
+                        const { data: pTask } = await supabase.from('tasks').select('details').eq('id', String(parentId)).single();
+                        
+                        let epatsDoc = null;
+                        
+                        if (pTask && pTask.details) {
+                            let pDetails = typeof pTask.details === 'string' ? JSON.parse(pTask.details) : pTask.details;
+                            if (pDetails.documents && Array.isArray(pDetails.documents)) {
+                                epatsDoc = pDetails.documents.find(d => d.type === 'epats_document');
+                            }
+                        }
 
-                        if (docData && docData.length > 0) {
-                            // Öncelik EPATS belgesi, yoksa ilk belge
-                            const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
-                            
-                            // Bulunan belgeyi forma gönderiyoruz
-                            this.completeTaskFormManager.showEpatsDoc({
-                                url: targetDoc.document_url,
-                                name: targetDoc.document_name
-                            });
+                        if (!epatsDoc) {
+                            const { data: docData } = await supabase
+                                .from('task_documents')
+                                .select('document_name, document_url, document_type')
+                                .eq('task_id', String(parentId))
+                                .order('uploaded_at', { ascending: false });
+
+                            if (docData && docData.length > 0) {
+                                const targetDoc = docData.find(d => d.document_type === 'epats_document') || docData[0];
+                                epatsDoc = { name: targetDoc.document_name, url: targetDoc.document_url, type: 'epats_document' };
+                            }
+                        }
+
+                        if (epatsDoc) {
+                            this.completeTaskFormManager.showEpatsDoc(epatsDoc);
                         }
                     } catch (e) { 
                         console.warn('Belge çekilirken hata oluştu:', e); 
                     }
                 }
 
-                // --- Mevcut Tahakkuk Verilerini Forma Doldurma Kısmı (Aynı Kalıyor) ---
                 const targetAccrualId = task.targetAccrualId || task.target_accrual_id || detailsObj.target_accrual_id; 
                 if (targetAccrualId) {
                     try {
-                        const { data: accSnap } = await supabase.from('accruals').select('*').eq('id', String(targetAccrualId)).single();
+                        const { data: accSnap } = await supabase.from('accruals').select('*, accrual_documents(*)').eq('id', String(targetAccrualId)).single();
                         if (accSnap) {
                             const mappedAcc = {
                                 ...accSnap,
+                                files: accSnap.accrual_documents ? accSnap.accrual_documents.map(d => ({
+                                    id: d.id, name: d.document_name, url: d.document_url, type: d.document_type
+                                })) : [],
                                 totalAmount: accSnap.total_amount,
                                 remainingAmount: accSnap.remaining_amount,
-                                officialFee: accSnap.official_fee,
-                                serviceFee: accSnap.service_fee,
+                                officialFee: { amount: accSnap.official_fee_amount, currency: accSnap.official_fee_currency },
+                                serviceFee: { amount: accSnap.service_fee_amount, currency: accSnap.service_fee_currency },
                                 vatRate: accSnap.vat_rate,
                                 tpeInvoiceNo: accSnap.tpe_invoice_no,
-                                evrekaInvoiceNo: accSnap.evreka_invoice_no
+                                evrekaInvoiceNo: accSnap.evreka_invoice_no,
+                                description: accSnap.description,
+                                isForeignTransaction: accSnap.is_foreign_transaction
                             };
                             this.completeTaskFormManager.setData(mappedAcc);
                         }
                     } catch (e) {
                         console.warn('Target accrual fetch error:', e);
+                    }
+                } else {
+                    // 🔥 2. DÜZELTME: Veritabanı şemasındaki `task_owner_id` kullanılarak kişi formu otomatik dolduruluyor
+                    const taskOwnerId = task.task_owner_id || task.relatedPartyId || detailsObj.relatedPartyId || detailsObj.applicant_id;
+                    if (taskOwnerId && this.allPersons) {
+                        const foundPerson = this.allPersons.find(p => String(p.id) === String(taskOwnerId));
+                        if (foundPerson) {
+                            setTimeout(() => {
+                                // 'comp' öneki İşlerim sayfasındaki modal için kullanılır
+                                this.completeTaskFormManager.selectedTpParty = foundPerson;
+                                this.completeTaskFormManager.manualSelectDisplay('compTpInvoiceParty', foundPerson);
+                                this.completeTaskFormManager.checkSasRequirement(foundPerson);
+                                this.completeTaskFormManager.calculateTotal();
+                            }, 50);
+                        }
                     }
                 }
             }

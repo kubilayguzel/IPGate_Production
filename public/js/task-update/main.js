@@ -701,7 +701,7 @@ class TaskUpdateController {
                     // Modalı render ettikten hemen sonra ufak bir gecikme ile arayüzü dolduruyoruz (Select2 vb. kütüphanelerin hazır olması için)
                     setTimeout(() => {
                         this.accrualManager.selectedTpParty = foundPerson;
-                        this.accrualManager.manualSelectDisplay('editTpInvoiceParty', foundPerson);
+                        this.accrualManager.manualSelectDisplay('taskUpdateTpInvoiceParty', foundPerson);
                         this.accrualManager.checkSasRequirement(foundPerson);
                         this.accrualManager.calculateTotal();
                     }, 50);

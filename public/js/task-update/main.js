@@ -673,12 +673,40 @@ class TaskUpdateController {
             
             this.dataManager.getAccrualsByTaskId(this.taskId).then(accruals => {
                 const acc = accruals.find(a => a.id === accId);
-                if (acc) this.accrualManager.setData(acc);
+                if (acc) {
+                    // 🔥 OTOMASYON 1: Düzenlenen tahakkukun faturası kesilecek kişisi (Müvekkili) BOŞSA, işin sahibini otomatik ata!
+                    if (!acc.tpInvoiceParty || !acc.tpInvoiceParty.id) {
+                        if (this.selectedPersonId && this.masterData.persons) {
+                            const foundPerson = this.masterData.persons.find(p => String(p.id) === String(this.selectedPersonId));
+                            if (foundPerson) {
+                                console.log("[OTOMASYON] Boş olan tahakkuk müvekkili işin sahibine göre dolduruldu:", foundPerson.name);
+                                acc.tpInvoiceParty = foundPerson;
+                            }
+                        }
+                    }
+                    this.accrualManager.setData(acc);
+                }
             });
         } else {
             delete modalEl.dataset.editingId;
             const titleEl = document.querySelector('#accrualModal .modal-title');
             if(titleEl) titleEl.textContent = 'Yeni Tahakkuk Ekle';
+
+            // 🔥 OTOMASYON 2: YENİ (sıfırdan) tahakkuk ekleniyorsa işin sahibini formda otomatik olarak seçili hale getir!
+            if (this.selectedPersonId && this.masterData.persons) {
+                const foundPerson = this.masterData.persons.find(p => String(p.id) === String(this.selectedPersonId));
+                if (foundPerson) {
+                    console.log("[OTOMASYON] Yeni tahakkuk formu işin sahibine göre dolduruldu:", foundPerson.name);
+                    
+                    // Modalı render ettikten hemen sonra ufak bir gecikme ile arayüzü dolduruyoruz (Select2 vb. kütüphanelerin hazır olması için)
+                    setTimeout(() => {
+                        this.accrualManager.selectedTpParty = foundPerson;
+                        this.accrualManager.manualSelectDisplay('editTpInvoiceParty', foundPerson);
+                        this.accrualManager.checkSasRequirement(foundPerson);
+                        this.accrualManager.calculateTotal();
+                    }, 50);
+                }
+            }
         }
         if (window.$) $('#accrualModal').modal('show');
     }

@@ -27,7 +27,7 @@ serve(async (req) => {
                 baseUrl: "https://ofis-sandbox-api.kolaybi.com", 
                 channel: "evrekagroupsmm", 
                 authPayload: { api_key: Deno.env.get("KOLAYBI_HUKUK_API_KEY") ?? "2e000fbf-920d-4c5b-9a42-b9422f734c01" }, 
-                endpointBase: "/kolaybi/v1/smms", 
+                endpointBase: "/kolaybi/v1/invoices", // 🔥 /smms yerine /invoices yapıyoruz
                 isSmm: true
             };
         } else {
@@ -708,13 +708,17 @@ serve(async (req) => {
             
             const turkeyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
             
-            let currentScenario: string | undefined;
+            // 🔥 ORTAK TARİHLER: Hem Fatura hem de SMM aynı uç noktayı (/invoices) kullandığı için ikisi de bu tarihleri bekler.
+            invoiceParams.append("order_date", turkeyDate);
+            invoiceParams.append("issue_date", turkeyDate);
 
             if (config.isSmm) {
-                invoiceParams.append("issue_date", turkeyDate); 
+                // 🔥 SMM İÇİN SADECE TYPE: Destek ekibinin dediği gibi sadece type'ı gönderiyoruz. 
+                // document_scenario veya document_type EKLEMİYORUZ (Eklersek model çöker).
+                invoiceParams.append("type", "self_employment_receipt");
             } else {
-                currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
-                invoiceParams.append("order_date", turkeyDate);
+                // FATURA İÇİN SENARYOLAR
+                const currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
                 invoiceParams.append("type", "sale_invoice"); 
                 invoiceParams.append("document_scenario", currentScenario); 
                 invoiceParams.append("document_type", docType); 
@@ -738,8 +742,7 @@ serve(async (req) => {
                 }
 
                 if (config.isSmm) {
-                    invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "0"); 
-                    invoiceParams.append(`items[${itemIndex}][withholding_rate]`, "0"); 
+                    // 🔥 STOPAJI GİZLEDİK: Buradaki "0" değerini zorla göndermek KolayBi'nin matematik modelini çökertiyordu, bu yüzden sildik.
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
                 } else {
                     if (docType === 'TEVKIFAT') {
@@ -779,7 +782,7 @@ serve(async (req) => {
 
             if (!invoiceReq.ok || invoiceRes.success === false) {
                 const errorMessage = invoiceRes.message || "";
-                if (!config.isSmm && errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && currentScenario === "EARSIVFATURA") {
+                if (!config.isSmm && errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && (!forceScenario)) {
                     return await createDocumentInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA");
                 }
                 const displayType = config.isSmm ? "SMM" : docType;
@@ -792,7 +795,7 @@ serve(async (req) => {
                 serialNo: invoiceRes.data?.serial_no || invoiceRes.data?.invoice_no || invoiceRes.data?.receipt_no || invoiceRes.data?.document_no || null
             };
         };
-
+        
         let createdKolaybiDocIds: string[] = []; 
         let localInvoiceIds: string[] = [];
 

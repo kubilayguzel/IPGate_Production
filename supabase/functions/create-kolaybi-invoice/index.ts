@@ -55,7 +55,7 @@ serve(async (req) => {
         const { data, error } = await supabaseClient
             .from("accruals")
             .select("department, invoice_id, invoice_id_2")
-            .or(`invoice_id.eq.${invoiceId},invoice_id_2.ilike.%${invoiceId}%`);
+            .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
 
         if (error) throw new Error(`Departman sorgulanamadı: ${error.message}`);
 
@@ -83,7 +83,7 @@ serve(async (req) => {
         const config = getKolaybiConfig(department);
         const accessToken = await getKolaybiToken(config);
 
-        const { data: allAccruals } = await supabaseClient.from('accruals').select('id, invoice_id, invoice_id_2').or(`invoice_id.eq.${invoiceId},invoice_id_2.ilike.%${invoiceId}%`);
+        const { data: allAccruals } = await supabaseClient.from('accruals').select('id, invoice_id, invoice_id_2').or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
 
         if (allAccruals && allAccruals.length > 0) {
             for (const acc of allAccruals) {
@@ -207,7 +207,7 @@ serve(async (req) => {
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
             if (serialNo) {
-                const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${invoiceId},invoice_id_2.ilike.%${invoiceId}%`);
+                const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
                 if (allAccrualsReq.data && allAccrualsReq.data.length > 0) {
                      const accIds = allAccrualsReq.data.map(a => a.id);
                      await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).in('id', accIds);
@@ -316,7 +316,7 @@ serve(async (req) => {
                     if (Object.keys(updates).length > 0) {
                         await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
                         if (serialNo) {
-                            const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${inv.id},invoice_id_2.ilike.%${inv.id}%`);
+                            const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
                             if (allAccrualsReq.data && allAccrualsReq.data.length > 0) {
                                 const accIds = allAccrualsReq.data.map(a => a.id);
                                 await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).in('id', accIds);

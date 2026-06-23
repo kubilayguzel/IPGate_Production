@@ -16,15 +16,9 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
     
-    // Normal kullanıcı işlemleri için Client
+    // Oturum açmış kullanıcının yetkisiyle (Senin JWT token'ın) çalışacak tek ve asıl istemci
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: req.headers.get('Authorization')! } }
-    });
-
-    // 🔥 GÜÇLENDİRME 1: Arka plan sistem güncellemeleri için Admin Client (Bypass RLS)
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? supabaseAnonKey;
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false }
     });
 
     const getKolaybiConfig = (department: string) => {
@@ -58,9 +52,8 @@ serve(async (req) => {
         return authData.data || authData.access_token || authData.token;
     };
 
-    // 🔥 GÜÇLENDİRME 2: Köprü tablosu her ihtimale karşı Admin yetkisiyle okunuyor
     const getDepartmentForInvoice = async (invoiceId: string) => {
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await supabaseClient
             .from('accrual_invoices')
             .select('accruals ( department )')
             .eq('invoice_id', invoiceId)
@@ -77,7 +70,7 @@ serve(async (req) => {
     // ==============================================================================
     if (action === 'delete') {
         const { invoiceId } = body;
-        if (!invoiceId) throw new Error("Fatura ID (invoiceId) gerekli.");
+        if (!invoiceId) throw new Error("Fatura ID gerekli.");
 
         const { data: invoiceData, error: invError } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
         if (invError || !invoiceData) throw new Error("Fatura veritabanında bulunamadı.");
@@ -99,7 +92,6 @@ serve(async (req) => {
         }
         
         await supabaseClient.from('invoices').delete().eq('id', invoiceId);
-        
         return new Response(JSON.stringify({ success: true, message: "Seçilen taslak belge başarıyla iptal edildi." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
@@ -108,7 +100,7 @@ serve(async (req) => {
     // ==============================================================================
     if (action === 'sync') {
         const { invoiceId } = body;
-        if (!invoiceId) throw new Error("Fatura ID (invoiceId) gerekli.");
+        if (!invoiceId) throw new Error("Fatura ID gerekli.");
 
         const { data: inv } = await supabaseClient.from('invoices').select('*').eq('id', invoiceId).single();
         if (!inv || !inv.kolaybi_invoice_id) throw new Error("KolayBi Fatura/SMM ID bulunamadı.");
@@ -126,7 +118,7 @@ serve(async (req) => {
         if (!detailReq.ok || detailRes.success === false) {
             const errorMsg = detailRes.message || JSON.stringify(detailRes);
             if (errorMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                await supabaseAdmin.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", invoiceId);
+                await supabaseClient.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", invoiceId);
                 throw new Error("Belge KolayBi hesabında bulunamadı. Yerel kayıt güvenlik amacıyla silinmedi.");
             }
             throw new Error(`Belge detayı alınamadı: ${errorMsg}`);
@@ -149,7 +141,6 @@ serve(async (req) => {
         const commStatusVal = commStatusObj.value || combinedData.status || null; 
         const eDocStatus = combinedData.e_document_status || null; 
 
-        // 🔥 GÜÇLENDİRME 3: KolayBi API'nin dönme ihtimali olan tüm Numara parametreleri kapsama alındı
         const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || combinedData.receipt_no || combinedData.document_no || null;
         const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
         const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
@@ -181,12 +172,14 @@ serve(async (req) => {
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
             
-            // 🔥 GÜÇLENDİRME 4: Fatura numarası Admin yetkisiyle tahakkuklara tek tek yazılır (Tip engeline takılmaz)
             if (serialNo) {
-                const { data: links } = await supabaseAdmin.from('accrual_invoices').select('accrual_id').eq('invoice_id', invoiceId);
+                const { data: links, error: linkError } = await supabaseClient.from('accrual_invoices').select('accrual_id').eq('invoice_id', invoiceId);
+                if (linkError) throw new Error(`Veritabanı hatası (Köprü okuma): ${linkError.message}`);
+
                 if (links && links.length > 0) {
                      for (const link of links) {
-                         await supabaseAdmin.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
+                         const { error: accUpdErr } = await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
+                         if (accUpdErr) throw new Error(`Tahakkuk güncellenirken hata: ${accUpdErr.message}`);
                      }
                 }
             }
@@ -207,8 +200,7 @@ serve(async (req) => {
 
         let successCount = 0;
         
-        // Admin yetkisiyle tüm köprüleri okuyoruz
-        const { data: allLinked } = await supabaseAdmin.from('accrual_invoices').select('invoice_id, accrual_id, accruals(department)');
+        const { data: allLinked } = await supabaseClient.from('accrual_invoices').select('invoice_id, accrual_id, accruals(department)');
         let tokens: Record<string, string> = {};
         
         const chunkSize = 10;
@@ -242,7 +234,7 @@ serve(async (req) => {
                     if (!detailReq.ok || detailRes.success === false) {
                         const errMsg = detailRes.message || "";
                         if (errMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                            await supabaseAdmin.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", inv.id);
+                            await supabaseClient.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", inv.id);
                         }
                         return;
                     }
@@ -298,7 +290,7 @@ serve(async (req) => {
                         if (serialNo && allLinked) {
                             const subLinks = allLinked.filter(l => String(l.invoice_id) === String(inv.id));
                             for (const link of subLinks) {
-                                await supabaseAdmin.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
+                                await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
                             }
                         }
                         successCount++;
@@ -627,10 +619,14 @@ serve(async (req) => {
         const finalInvoiceNote = noteLines.join('\n');
         const isTevkifatli = clientData.has_tevkifat === true;
 
-        const { data: linkedInvoices } = await supabaseAdmin
+        const { data: linkedInvoices, error: linkReadError } = await supabaseClient
             .from('accrual_invoices')
             .select('accrual_id, invoice_id')
             .in('accrual_id', accrualIds);
+            
+        if (linkReadError) {
+            throw new Error(`Bağlı faturalar okunurken veritabanı hatası: ${linkReadError.message}`);
+        }
 
         const existingInvoiceIds = new Set<string>();
         if (linkedInvoices) linkedInvoices.forEach(l => existingInvoiceIds.add(l.invoice_id));
@@ -774,12 +770,10 @@ serve(async (req) => {
             invoiceParams.append("description", localDescription);
 
             const requestBodyString = invoiceParams.toString();
-            console.log(`[DEBUG] 🚀 GÖNDERİLEN ${config.isSmm ? 'SMM' : 'FATURA'} PAKETİ:`, requestBodyString);
-
+            
             const invoiceReq = await fetch(`${config.baseUrl}${config.endpointBase}`, { method: 'POST', headers: apiHeadersForm, body: requestBodyString });
             const invoiceResText = await invoiceReq.text();
-            console.log(`[DEBUG] 🎯 YANIT:`, invoiceResText);
-
+            
             let invoiceRes;
             try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Belge API Yanıtı Okunamadı: ${invoiceResText}`); }
 
@@ -795,7 +789,6 @@ serve(async (req) => {
             return {
                 kolaybiId: invoiceRes.data?.document_id || invoiceRes.data?.id || invoiceRes.document_id || invoiceRes.id,
                 total: calculatedGrandTotal,
-                // Oluşturulma aşamasında numara hazır geldiyse diye yakalıyoruz
                 serialNo: invoiceRes.data?.serial_no || invoiceRes.data?.invoice_no || invoiceRes.data?.receipt_no || invoiceRes.data?.document_no || null
             };
         };
@@ -815,7 +808,7 @@ serve(async (req) => {
                 if (result && result.kolaybiId) {
                     createdKolaybiDocIds.push(String(result.kolaybiId));
                     
-                    const { data: inv } = await supabaseClient.from('invoices').insert({
+                    const { data: inv, error: invInsError } = await supabaseClient.from('invoices').insert({
                         kolaybi_invoice_id: String(result.kolaybiId), 
                         status: 'draft', 
                         total_amount: result.total, 
@@ -824,14 +817,18 @@ serve(async (req) => {
                         invoice_no: result.serialNo || null
                     }).select().single();
                     
+                    if (invInsError) {
+                        throw new Error(`Fatura veritabanına kaydedilemedi: ${invInsError.message}`);
+                    }
+                    
                     if (inv && inv.id) {
                         localInvoiceIds.push(inv.id);
                     }
 
-                    // 🔥 GÜÇLENDİRME 5: Fatura numarası oluşturulurken Kolaybi verdiyse anında tahakkuka yazılıyor!
                     if (result.serialNo) {
                         for (const accId of accrualIds) {
-                            await supabaseAdmin.from('accruals').update({ evreka_invoice_no: result.serialNo }).eq('id', accId);
+                            const { error: accUpdErr } = await supabaseClient.from('accruals').update({ evreka_invoice_no: result.serialNo }).eq('id', accId);
+                            if (accUpdErr) throw new Error(`Tahakkuk güncellenirken hata: ${accUpdErr.message}`);
                         }
                     }
                 }
@@ -839,6 +836,7 @@ serve(async (req) => {
 
             if (localInvoiceIds.length === 0) throw new Error("Fatura edilecek geçerli kalem bulunamadı.");
 
+            // 🔥 YENİ KÖPRÜ TABLOSUNA BAĞLANTIYI KAYDETME EKRANI (Hata fırlatacak şekilde güçlendirildi)
             const junctionInserts: any[] = [];
             for (const accId of accrualIds) {
                 for (const invId of localInvoiceIds) {
@@ -847,8 +845,10 @@ serve(async (req) => {
             }
 
             if (junctionInserts.length > 0) {
-                const { error: junctionError } = await supabaseAdmin.from('accrual_invoices').insert(junctionInserts);
-                if (junctionError) console.error("Köprü tablosuna yazılırken hata:", junctionError);
+                const { error: junctionError } = await supabaseClient.from('accrual_invoices').insert(junctionInserts);
+                if (junctionError) {
+                    throw new Error(`Köprü tablosuna (accrual_invoices) yazılırken veritabanı hatası: ${junctionError.message}`);
+                }
             }
 
             return new Response(JSON.stringify({ 

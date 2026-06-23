@@ -15,8 +15,16 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    
+    // Normal kullanıcı işlemleri için Client
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: req.headers.get('Authorization')! } }
+    });
+
+    // 🔥 GÜÇLENDİRME 1: Arka plan sistem güncellemeleri için Admin Client (Bypass RLS)
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? supabaseAnonKey;
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false }
     });
 
     const getKolaybiConfig = (department: string) => {
@@ -25,7 +33,7 @@ serve(async (req) => {
                 baseUrl: "https://ofis-sandbox-api.kolaybi.com", 
                 channel: "evrekagroupsmm", 
                 authPayload: { api_key: Deno.env.get("KOLAYBI_HUKUK_API_KEY") ?? "2e000fbf-920d-4c5b-9a42-b9422f734c01" }, 
-                endpointBase: "/kolaybi/v1/smms", // 🔥 DOĞRU UÇ NOKTAYA GERİ DÖNDÜK!
+                endpointBase: "/kolaybi/v1/smms", 
                 isSmm: true
             };
         } else {
@@ -50,22 +58,18 @@ serve(async (req) => {
         return authData.data || authData.access_token || authData.token;
     };
 
-    // 🔥 2. DEPARTMAN TESPİTİ DÜZELTİLDİ (Virgüllü ID'ler ve Exact Match)
+    // 🔥 GÜÇLENDİRME 2: Köprü tablosu her ihtimale karşı Admin yetkisiyle okunuyor
     const getDepartmentForInvoice = async (invoiceId: string) => {
-        const { data, error } = await supabaseClient
-            .from("accruals")
-            .select("department, invoice_id, invoice_id_2")
-            .or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
+        const { data, error } = await supabaseAdmin
+            .from('accrual_invoices')
+            .select('accruals ( department )')
+            .eq('invoice_id', invoiceId)
+            .limit(1)
+            .maybeSingle();
 
-        if (error) throw new Error(`Departman sorgulanamadı: ${error.message}`);
-
-        const exactMatch = data?.find((row: any) => {
-            const secondaryIds = String(row.invoice_id_2 || "").split(",").map((id) => id.trim()).filter(Boolean);
-            return String(row.invoice_id) === String(invoiceId) || secondaryIds.includes(String(invoiceId));
-        });
-
-        if (!exactMatch?.department) throw new Error("Belgenin bağlı olduğu departman bulunamadı.");
-        return exactMatch.department;
+        if (error || !data || !data.accruals) return 'EVREKA';
+        const accObj: any = Array.isArray(data.accruals) ? data.accruals[0] : data.accruals;
+        return accObj?.department || 'EVREKA';
     };
 
     // ==============================================================================
@@ -83,36 +87,6 @@ serve(async (req) => {
         const config = getKolaybiConfig(department);
         const accessToken = await getKolaybiToken(config);
 
-        const { data: allAccruals } = await supabaseClient.from('accruals').select('id, invoice_id, invoice_id_2').or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
-
-        if (allAccruals && allAccruals.length > 0) {
-            for (const acc of allAccruals) {
-                let updates: any = {};
-                if (String(acc.invoice_id) === String(invoiceId)) updates.invoice_id = null;
-                
-                if (acc.invoice_id_2) {
-                    const secondaryIds = acc.invoice_id_2.split(",").map((id:string) => id.trim()).filter(Boolean);
-                    if (secondaryIds.includes(String(invoiceId))) {
-                        const newSecondary = secondaryIds.filter((id:string) => id !== String(invoiceId));
-                        updates.invoice_id_2 = newSecondary.length > 0 ? newSecondary.join(',') : null;
-                    }
-                }
-                
-                if (updates.hasOwnProperty('invoice_id') && updates.invoice_id === null) {
-                    const currentInvoiceId2 = updates.hasOwnProperty('invoice_id_2') ? updates.invoice_id_2 : acc.invoice_id_2;
-                    if (currentInvoiceId2) {
-                        const firstSecId = currentInvoiceId2.split(',')[0].trim();
-                        updates.invoice_id = firstSecId;
-                        const rest = currentInvoiceId2.split(',').slice(1).map((i:string)=>i.trim()).filter(Boolean);
-                        updates.invoice_id_2 = rest.length > 0 ? rest.join(',') : null;
-                    }
-                }
-                if (Object.keys(updates).length > 0) {
-                    await supabaseClient.from('accruals').update(updates).eq('id', acc.id);
-                }
-            }
-        }
-
         if (invoiceData.kolaybi_invoice_id && invoiceData.kolaybi_invoice_id !== 'undefined') {
             try {
                 await fetch(`${config.baseUrl}${config.endpointBase}/${invoiceData.kolaybi_invoice_id}`, {
@@ -125,11 +99,12 @@ serve(async (req) => {
         }
         
         await supabaseClient.from('invoices').delete().eq('id', invoiceId);
+        
         return new Response(JSON.stringify({ success: true, message: "Seçilen taslak belge başarıyla iptal edildi." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // ==============================================================================
-    // İŞLEM 3: FATURA SENKRONİZASYONU (GÜVENLİ)
+    // İŞLEM 3: FATURA SENKRONİZASYONU
     // ==============================================================================
     if (action === 'sync') {
         const { invoiceId } = body;
@@ -148,11 +123,10 @@ serve(async (req) => {
         let detailRes;
         try { detailRes = JSON.parse(detailResText); } catch(e) { throw new Error("Belge detayı API yanıtı okunamadı."); }
 
-        // 🔥 3. YEREL KAYDI OTOMATİK SİLME RİSKİ KALDIRILDI
         if (!detailReq.ok || detailRes.success === false) {
             const errorMsg = detailRes.message || JSON.stringify(detailRes);
             if (errorMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                await supabaseClient.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", invoiceId);
+                await supabaseAdmin.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", invoiceId);
                 throw new Error("Belge KolayBi hesabında bulunamadı. Yerel kayıt güvenlik amacıyla silinmedi.");
             }
             throw new Error(`Belge detayı alınamadı: ${errorMsg}`);
@@ -161,7 +135,6 @@ serve(async (req) => {
         const docData = detailRes.data || detailRes;
         let listItem = null;
         try {
-            // 🔥 4. SADECE BELGE TİPİNE GÖRE LİSTELEME VE EXACT MATCH
             const invoiceType = config.isSmm ? "self_employment_receipt" : "sale_invoice";
             const listReq = await fetch(`${config.baseUrl}${config.endpointBase}?type=${encodeURIComponent(invoiceType)}`, { method: 'GET', headers: getHeaders });
             if (listReq.ok) {
@@ -176,7 +149,8 @@ serve(async (req) => {
         const commStatusVal = commStatusObj.value || combinedData.status || null; 
         const eDocStatus = combinedData.e_document_status || null; 
 
-        const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
+        // 🔥 GÜÇLENDİRME 3: KolayBi API'nin dönme ihtimali olan tüm Numara parametreleri kapsama alındı
+        const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || combinedData.receipt_no || combinedData.document_no || null;
         const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
         const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
 
@@ -206,11 +180,14 @@ serve(async (req) => {
 
         if (Object.keys(updates).length > 0) {
             await supabaseClient.from('invoices').update(updates).eq('id', invoiceId);
+            
+            // 🔥 GÜÇLENDİRME 4: Fatura numarası Admin yetkisiyle tahakkuklara tek tek yazılır (Tip engeline takılmaz)
             if (serialNo) {
-                const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${invoiceId},invoice_id_2.eq.${invoiceId}`);
-                if (allAccrualsReq.data && allAccrualsReq.data.length > 0) {
-                     const accIds = allAccrualsReq.data.map(a => a.id);
-                     await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).in('id', accIds);
+                const { data: links } = await supabaseAdmin.from('accrual_invoices').select('accrual_id').eq('invoice_id', invoiceId);
+                if (links && links.length > 0) {
+                     for (const link of links) {
+                         await supabaseAdmin.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
+                     }
                 }
             }
         }
@@ -219,7 +196,7 @@ serve(async (req) => {
     }
     
     // ==============================================================================
-    // İŞLEM 5: TOPLU SENKRONİZASYON (GÜVENLİ)
+    // İŞLEM 5: TOPLU SENKRONİZASYON 
     // ==============================================================================
     if (action === 'sync_bulk') {
         const { invoiceIds } = body;
@@ -229,7 +206,9 @@ serve(async (req) => {
         if (!invoices || invoices.length === 0) return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
         let successCount = 0;
-        const { data: allLinkedAccruals } = await supabaseClient.from('accruals').select('department, invoice_id, invoice_id_2');
+        
+        // Admin yetkisiyle tüm köprüleri okuyoruz
+        const { data: allLinked } = await supabaseAdmin.from('accrual_invoices').select('invoice_id, accrual_id, accruals(department)');
         let tokens: Record<string, string> = {};
         
         const chunkSize = 10;
@@ -241,12 +220,12 @@ serve(async (req) => {
                 
                 try {
                     let department = 'EVREKA';
-                    if (allLinkedAccruals) {
-                        const exactMatch = allLinkedAccruals.find(a => {
-                            const secondaryIds = String(a.invoice_id_2 || "").split(",").map(id => id.trim()).filter(Boolean);
-                            return String(a.invoice_id) === String(inv.id) || secondaryIds.includes(String(inv.id));
-                        });
-                        if (exactMatch && exactMatch.department) department = exactMatch.department;
+                    if (allLinked) {
+                        const link = allLinked.find(l => String(l.invoice_id) === String(inv.id));
+                        if (link && link.accruals) {
+                             const accObj: any = Array.isArray(link.accruals) ? link.accruals[0] : link.accruals;
+                             if (accObj?.department) department = accObj.department;
+                        }
                     }
 
                     const config = getKolaybiConfig(department);
@@ -263,7 +242,7 @@ serve(async (req) => {
                     if (!detailReq.ok || detailRes.success === false) {
                         const errMsg = detailRes.message || "";
                         if (errMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                            await supabaseClient.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", inv.id);
+                            await supabaseAdmin.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", inv.id);
                         }
                         return;
                     }
@@ -285,7 +264,7 @@ serve(async (req) => {
                     const commStatusVal = commStatusObj.value || combinedData.status || null; 
                     const eDocStatus = combinedData.e_document_status || null; 
 
-                    const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || null;
+                    const serialNo = combinedData.header?.serial_no || combinedData.serial_no || combinedData.invoice_no || combinedData.receipt_no || combinedData.document_no || null;
                     const issueDate = combinedData.header?.issue_date || combinedData.issue_date || combinedData.order_date || null;
                     const uuid = combinedData.uuid || combinedData.e_document_uuid || null;
 
@@ -315,11 +294,11 @@ serve(async (req) => {
 
                     if (Object.keys(updates).length > 0) {
                         await supabaseClient.from('invoices').update(updates).eq('id', inv.id);
-                        if (serialNo) {
-                            const allAccrualsReq = await supabaseClient.from('accruals').select('id').or(`invoice_id.eq.${inv.id},invoice_id_2.eq.${inv.id}`);
-                            if (allAccrualsReq.data && allAccrualsReq.data.length > 0) {
-                                const accIds = allAccrualsReq.data.map(a => a.id);
-                                await supabaseClient.from('accruals').update({ evreka_invoice_no: serialNo }).in('id', accIds);
+                        
+                        if (serialNo && allLinked) {
+                            const subLinks = allLinked.filter(l => String(l.invoice_id) === String(inv.id));
+                            for (const link of subLinks) {
+                                await supabaseAdmin.from('accruals').update({ evreka_invoice_no: serialNo }).eq('id', link.accrual_id);
                             }
                         }
                         successCount++;
@@ -362,7 +341,7 @@ serve(async (req) => {
     }
 
     // ==============================================================================
-    // İŞLEM 2: FATURA / SMM OLUŞTURMA (CREATE) - TAMAMEN GÜVENLİ VE KUSURSUZ YAPI 
+    // İŞLEM 2: FATURA / SMM OLUŞTURMA (CREATE) 
     // ==============================================================================
     if (action === 'create') {
         const { accrualIds, mergeStrategy } = body;
@@ -447,13 +426,12 @@ serve(async (req) => {
         const { data: clientData, error: clientError } = await supabaseClient.from('persons').select('*').eq('id', clientId).single();
         if (clientError || !clientData) throw new Error("Müşteri bilgileri veritabanında bulunamadı.");
 
-        // 🔥 5. KİMLİK NUMARASI ZORUNLULUĞU (Güvenlik Düzeltmesi)
         let identityNo = (clientData.tax_no || clientData.tckn || "").replace(/\s+/g, '');
         if (!/^\d{10,11}$/.test(identityNo)) {
-            throw new Error(`${clientData.name} için geçerli bir VKN veya TCKN girilmelidir. Lütfen Cari Kartını güncelleyin.`);
+            throw new Error(`${clientData.name} için geçerli bir VKN veya TCKN girilmelidir.`);
         }
         if (identityNo.length === 10 && !clientData.tax_office?.trim()) {
-            throw new Error(`${clientData.name} kurumsal bir müşteri (10 haneli VKN). Lütfen cari kartına Vergi Dairesi bilgisini giriniz.`);
+            throw new Error(`${clientData.name} kurumsal bir müşteri (10 haneli VKN). Lütfen Vergi Dairesini giriniz.`);
         }
 
         const cityName = clientData.province?.trim() || "Ankara";
@@ -518,14 +496,13 @@ serve(async (req) => {
         let kolaybiContactId = null;
         let kolaybiAddressId = null;
 
-        // 🔥 6. CARİ ARAMA KONTROLÜ DÜZELTİLDİ
         const searchUrl = `${config.baseUrl}/kolaybi/v1/associates?identity_no=${encodeURIComponent(identityNo)}`;
         const searchReq = await fetch(searchUrl, { method: 'GET', headers: getHeaders });
         const searchText = await searchReq.text();
         
         let searchRes: any;
         try { searchRes = JSON.parse(searchText); } catch { throw new Error(`Cari arama yanıtı okunamadı: ${searchText}`); }
-        if (!searchReq.ok || searchRes.success === false) throw new Error(`Cari arama hatası: ${searchRes.message || searchText}`);
+        if (!searchReq.ok || searchRes.success === false) throw new Error(`Cari arama hatası.`);
         
         const list = Array.isArray(searchRes.data) ? searchRes.data : (searchRes.data?.data || []);
         const foundAssociate = list.find((a: any) => String(a.identity_no) === identityNo || String(a.tax_number) === identityNo);
@@ -569,7 +546,6 @@ serve(async (req) => {
 
         if (!kolaybiContactId) throw new Error("KolayBi Cari ID'si alınamadı.");
 
-        // 🔥 7. ADRES EKSİKSE OLUŞTURMA ZORUNLULUĞU GETİRİLDİ
         if (!kolaybiAddressId) {
             const addressParams = new URLSearchParams();
             addressParams.append("associate_id", String(kolaybiContactId));
@@ -582,12 +558,12 @@ serve(async (req) => {
             const addressReq = await fetch(`${config.baseUrl}/kolaybi/v1/address/create`, { method: 'POST', headers: apiHeadersForm, body: addressParams.toString() });
             const addressText = await addressReq.text();
             let addressRes: any;
-            try { addressRes = JSON.parse(addressText); } catch { throw new Error(`Adres oluşturma yanıtı okunamadı: ${addressText}`); }
-            if (!addressReq.ok || addressRes.success === false) throw new Error(`KolayBi adres oluşturma hatası: ${addressRes.message || addressText}`);
+            try { addressRes = JSON.parse(addressText); } catch { throw new Error(`Adres oluşturma yanıtı okunamadı.`); }
+            if (!addressReq.ok || addressRes.success === false) throw new Error(`KolayBi adres oluşturma hatası.`);
             kolaybiAddressId = addressRes.data?.id || addressRes.id || null;
         }
 
-        if (!kolaybiAddressId) throw new Error("KolayBi fatura adresi bulunamadı veya oluşturulamadı.");
+        if (!kolaybiAddressId) throw new Error("KolayBi fatura adresi bulunamadı.");
 
         let productId = null; 
         const productsReq = await fetch(`${config.baseUrl}/kolaybi/v1/products?limit=50`, { method: 'GET', headers: getHeaders });
@@ -617,7 +593,7 @@ serve(async (req) => {
         }
         
         if (!productId && config.isSmm) {
-            throw new Error("KolayBi hesabınızda geçerli bir 'HİZMET' kalemi bulunamadı. Lütfen KolayBi arayüzünden Ürünler/Hizmetler kısmına girip manuel bir hizmet ekleyin.");
+            throw new Error("KolayBi hesabınızda geçerli bir 'HİZMET' kalemi bulunamadı.");
         } else if (!productId) {
             productId = 1; 
         }
@@ -651,11 +627,13 @@ serve(async (req) => {
         const finalInvoiceNote = noteLines.join('\n');
         const isTevkifatli = clientData.has_tevkifat === true;
 
+        const { data: linkedInvoices } = await supabaseAdmin
+            .from('accrual_invoices')
+            .select('accrual_id, invoice_id')
+            .in('accrual_id', accrualIds);
+
         const existingInvoiceIds = new Set<string>();
-        accruals.forEach((acc: any) => {
-            if (acc.invoice_id) existingInvoiceIds.add(acc.invoice_id);
-            if (acc.invoice_id_2) acc.invoice_id_2.split(',').forEach((id:string) => { if (id.trim()) existingInvoiceIds.add(id.trim()); });
-        });
+        if (linkedInvoices) linkedInvoices.forEach(l => existingInvoiceIds.add(l.invoice_id));
 
         const accrualActiveCurrencies: Record<string, Set<string>> = {};
         let existingInvoices: any[] = [];
@@ -666,12 +644,10 @@ serve(async (req) => {
                 existingInvoices = invs;
                 accruals.forEach((acc: any) => {
                     accrualActiveCurrencies[acc.id] = new Set<string>();
-                    const ids: string[] = [];
-                    if (acc.invoice_id) ids.push(acc.invoice_id);
-                    if (acc.invoice_id_2) acc.invoice_id_2.split(',').forEach((id:string) => { if(id.trim()) ids.push(id.trim()); });
-
-                    ids.forEach(id => {
-                        const inv = existingInvoices.find(i => i.id === id);
+                    const myLinks = linkedInvoices?.filter(l => l.accrual_id === acc.id) || [];
+                    
+                    myLinks.forEach(link => {
+                        const inv = existingInvoices.find(i => i.id === link.invoice_id);
                         if (inv) {
                             const s = (inv.status || '').toLowerCase().trim();
                             const ks = (inv.kolaybi_status || '').toLowerCase().trim();
@@ -711,7 +687,6 @@ serve(async (req) => {
                     const combinedName = `${feeTypeDisplay} - ${cleanItemName}`;
 
                     let docType = "SATIS";
-                    // 🔥 8. GRUPLAMA DÜZELTMESİ: SMM tevkifat grubu ayrımından çıkarıldı, hep "SATIS" kalacak
                     if (!config.isSmm && isTevkifatli && typeLower === 'hizmet') {
                         docType = "TEVKIFAT";
                         vat = 20; 
@@ -725,7 +700,6 @@ serve(async (req) => {
             }
         });
 
-        // 🔥 5. BELGE OLUŞTURMA MOTORU (EVREKA Korunarak SMM için Uyarlandı)
         const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
             if (items.length === 0) return null;
 
@@ -741,11 +715,8 @@ serve(async (req) => {
             let currentScenario: string | undefined;
 
             if (config.isSmm) {
-                // 🔥 SMM UÇ NOKTASI (/smms) İÇİN MİNİMAL VE KUSURSUZ PAKET
                 invoiceParams.append("issue_date", turkeyDate); 
-                // NOT: SMM uç noktasında 'type', 'document_scenario', 'document_type' ASLA GÖNDERİLMEZ! 
             } else {
-                // EVREKA Departmanı (Fatura) Ayarları - MEVCUT YAPI KORUNDU
                 currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
                 invoiceParams.append("order_date", turkeyDate);
                 invoiceParams.append("type", "sale_invoice"); 
@@ -771,7 +742,6 @@ serve(async (req) => {
                 }
 
                 if (config.isSmm) {
-                    // SMM Kalem Zorunlulukları
                     invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "0"); 
                     invoiceParams.append(`items[${itemIndex}][withholding_rate]`, "0"); 
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
@@ -824,7 +794,9 @@ serve(async (req) => {
             
             return {
                 kolaybiId: invoiceRes.data?.document_id || invoiceRes.data?.id || invoiceRes.document_id || invoiceRes.id,
-                total: calculatedGrandTotal
+                total: calculatedGrandTotal,
+                // Oluşturulma aşamasında numara hazır geldiyse diye yakalıyoruz
+                serialNo: invoiceRes.data?.serial_no || invoiceRes.data?.invoice_no || invoiceRes.data?.receipt_no || invoiceRes.data?.document_no || null
             };
         };
 
@@ -848,49 +820,35 @@ serve(async (req) => {
                         status: 'draft', 
                         total_amount: result.total, 
                         currency: currency, 
-                        client_id: clientId
+                        client_id: clientId,
+                        invoice_no: result.serialNo || null
                     }).select().single();
                     
-                    if (inv && inv.id) localInvoiceIds.push(inv.id);
+                    if (inv && inv.id) {
+                        localInvoiceIds.push(inv.id);
+                    }
+
+                    // 🔥 GÜÇLENDİRME 5: Fatura numarası oluşturulurken Kolaybi verdiyse anında tahakkuka yazılıyor!
+                    if (result.serialNo) {
+                        for (const accId of accrualIds) {
+                            await supabaseAdmin.from('accruals').update({ evreka_invoice_no: result.serialNo }).eq('id', accId);
+                        }
+                    }
                 }
             }
 
             if (localInvoiceIds.length === 0) throw new Error("Fatura edilecek geçerli kalem bulunamadı.");
 
+            const junctionInserts: any[] = [];
             for (const accId of accrualIds) {
-                const acc = accruals.find((a:any) => String(a.id) === String(accId));
-                let activeIds: string[] = [];
-                
-                const checkIsActive = (id: string) => {
-                    const inv = existingInvoices.find(i => i.id === id);
-                    if (!inv) return false;
-                    const s = (inv.status || '').toLowerCase().trim();
-                    const ks = (inv.kolaybi_status || '').toLowerCase().trim();
-                    const isDeclined = ks === 'declined' || s === 'declined' || ks.includes('decline');
-                    const isRejected = ks === 'rejected' || s === 'rejected' || ks.includes('red') || s.includes('red');
-                    const isCancelled = ks === 'cancelled' || s === 'cancelled' || ks.includes('iptal') || s.includes('iptal');
-                    const isFailed = ks === 'failed' || s === 'failed' || ks.includes('hata') || s.includes('hata');
-                    return !(isDeclined || isRejected || isCancelled || isFailed);
-                };
-
-                if (acc.invoice_id && checkIsActive(acc.invoice_id)) activeIds.push(acc.invoice_id);
-                if (acc.invoice_id_2) {
-                    acc.invoice_id_2.split(',').forEach((id:string) => {
-                        const trimmed = id.trim();
-                        if (trimmed && checkIsActive(trimmed)) activeIds.push(trimmed);
-                    });
+                for (const invId of localInvoiceIds) {
+                    junctionInserts.push({ accrual_id: accId, invoice_id: invId });
                 }
+            }
 
-                const allInvoiceIdsForAccrual = [...new Set([...activeIds, ...localInvoiceIds])];
-                const updatePayload: any = { invoice_id: null, invoice_id_2: null };
-                
-                if (allInvoiceIdsForAccrual.length > 0) {
-                    updatePayload.invoice_id = allInvoiceIdsForAccrual[0];
-                    if (allInvoiceIdsForAccrual.length > 1) {
-                        updatePayload.invoice_id_2 = allInvoiceIdsForAccrual.slice(1).join(',');
-                    }
-                }
-                await supabaseClient.from('accruals').update(updatePayload).eq('id', accId);
+            if (junctionInserts.length > 0) {
+                const { error: junctionError } = await supabaseAdmin.from('accrual_invoices').insert(junctionInserts);
+                if (junctionError) console.error("Köprü tablosuna yazılırken hata:", junctionError);
             }
 
             return new Response(JSON.stringify({ 

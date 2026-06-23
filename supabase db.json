@@ -84,6 +84,53 @@
                         "data_type": "uuid",
                         "column_name": "id",
                         "is_nullable": "NO",
+                        "column_default": "gen_random_uuid()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "accrual_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "uuid",
+                        "column_name": "invoice_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "NO",
+                        "column_default": "timezone('utc'::text, now())",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "accrual_invoices",
+                "foreign_keys": [
+                    {
+                        "column_name": "invoice_id",
+                        "constraint_name": "accrual_invoices_invoice_id_fkey",
+                        "foreign_table_name": "invoices",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "accrual_id",
+                        "constraint_name": "accrual_invoices_accrual_id_fkey",
+                        "foreign_table_name": "accruals",
+                        "foreign_column_name": "id"
+                    }
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
                         "column_default": "uuid_generate_v4()",
                         "character_maximum_length": null
                     },
@@ -318,24 +365,10 @@
                         "character_maximum_length": null
                     },
                     {
-                        "data_type": "uuid",
-                        "column_name": "invoice_id",
-                        "is_nullable": "YES",
-                        "column_default": null,
-                        "character_maximum_length": null
-                    },
-                    {
                         "data_type": "boolean",
                         "column_name": "sent_to_advisor",
                         "is_nullable": "YES",
                         "column_default": "false",
-                        "character_maximum_length": null
-                    },
-                    {
-                        "data_type": "uuid",
-                        "column_name": "invoice_id_2",
-                        "is_nullable": "YES",
-                        "column_default": null,
                         "character_maximum_length": null
                     },
                     {
@@ -376,18 +409,6 @@
                 ],
                 "table_name": "accruals",
                 "foreign_keys": [
-                    {
-                        "column_name": "invoice_id",
-                        "constraint_name": "accruals_invoice_id_fkey",
-                        "foreign_table_name": "invoices",
-                        "foreign_column_name": "id"
-                    },
-                    {
-                        "column_name": "invoice_id_2",
-                        "constraint_name": "accruals_invoice_id_2_fkey",
-                        "foreign_table_name": "invoices",
-                        "foreign_column_name": "id"
-                    }
                 ]
             },
             {
@@ -3086,15 +3107,15 @@
                 "table_name": "price_list_items",
                 "foreign_keys": [
                     {
-                        "column_name": "price_list_id",
-                        "constraint_name": "price_list_items_list_id_fkey",
-                        "foreign_table_name": "price_lists",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "fee_id",
                         "constraint_name": "price_list_items_fee_id_fkey",
                         "foreign_table_name": "fee_tariffs",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "price_list_id",
+                        "constraint_name": "price_list_items_list_id_fkey",
+                        "foreign_table_name": "price_lists",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -4474,15 +4495,15 @@
                 "table_name": "transactions",
                 "foreign_keys": [
                     {
-                        "column_name": "task_id",
-                        "constraint_name": "fk_transactions_tasks",
-                        "foreign_table_name": "tasks",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "transaction_type_id",
                         "constraint_name": "fk_transactions_transaction_types",
                         "foreign_table_name": "transaction_types",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "task_id",
+                        "constraint_name": "fk_transactions_tasks",
+                        "foreign_table_name": "tasks",
                         "foreign_column_name": "id"
                     }
                 ]

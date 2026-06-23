@@ -656,29 +656,29 @@ export class AccrualUIManager {
                     });
 
                     // 5. Saf Yurtdışı Statüsü
-                    // 5. Saf Yurtdışı Statüsü
-                    // 🔥 YENİ: Tamamen Bağımsız Yurtdışı Statüsü (Müşteriden bağımsız)
                     let fStatusTxt = 'Ödenmedi';
                     let fStatusCls = 'status-unpaid bg-danger text-white';
                     
                     if (acc.foreignStatus === 'paid') {
                         fStatusTxt = 'Ödendi';
                         fStatusCls = 'status-paid bg-success text-white';
+                    } else if (acc.foreignStatus === 'partially_paid') { // 🔥 EKLENDİ
+                        fStatusTxt = 'K.Ödendi';
+                        fStatusCls = 'status-partially-paid bg-warning text-dark';
                     }
 
                     const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
 
-                    // 🔥 ÇÖZÜM: Sadece statü "Ödendi" ise tarihi göster (Eski hatalı kayıtları listede gizler)
                     let fPaymentDateHtml = '-';
                     if (acc.foreignStatus === 'paid' && acc.paymentDate) {
                         if (acc.paymentDate.includes('.')) fPaymentDateHtml = acc.paymentDate;
                         else fPaymentDateHtml = new Date(acc.paymentDate).toLocaleDateString('tr-TR');
                     }
                     
-                    // 🔥 YENİ: Kalan Tutar HTML'i (Bizim yurtdışına olan borcumuz, Sadece ödenmediyse göster)
                     const remTexts = [];
                     if (acc.foreignStatus !== 'paid') {
-                        Object.entries(expectedForeignTotals).forEach(([c, a]) => {
+                        // 🔥 KESİN ÇÖZÜM: expectedForeignTotals (İlk Fatura) YERİNE remainingForeignTotals (Kalan Bakiye) yazdırılıyor!
+                        Object.entries(remainingForeignTotals).forEach(([c, a]) => {
                             if (a > 0.01) remTexts.push(this._formatMoney(a, c)); 
                         });
                     }
@@ -1075,7 +1075,7 @@ export class AccrualUIManager {
                             <div class="form-group mb-3">
                                 <label class="small text-muted font-weight-bold">${g.label} <span class="text-info">(${g.curr})</span></label>
                                 <div class="input-group input-group-sm">
-                                    <input type="number" id="${safeId}" class="form-control" value="0" max="${g.amount.toFixed(2)}">
+                                    <input type="number" id="${safeId}" class="form-control foreign-manual-input" data-curr="${g.curr}" data-rawtype="${g.rawType}" value="0" max="${g.amount.toFixed(2)}">
                                     <div class="input-group-append">
                                         <span class="input-group-text font-weight-bold">${g.curr}</span>
                                     </div>

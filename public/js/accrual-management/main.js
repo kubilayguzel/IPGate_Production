@@ -1229,18 +1229,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 let singleDetails = null;
                 if (this.state.selectedIds.size === 1) {
-                     if (this.state.activeTab === 'foreign') {
+                    if (this.state.activeTab === 'foreign') {
                         const isFull = document.getElementById('payFullForeign')?.checked;
                         
-                        const offEl = document.getElementById('manualForeignOfficial');
-                        const srvEl = document.getElementById('manualForeignService');
+                        let manualPayments = [];
+                        if (!isFull) {
+                            document.querySelectorAll('.foreign-manual-input').forEach(inp => {
+                                manualPayments.push({
+                                    curr: inp.dataset.curr,
+                                    rawType: inp.dataset.rawtype,
+                                    amount: parseFloat(inp.value) || 0
+                                });
+                            });
+                        }
                         
                         singleDetails = { 
                             isForeignMode: true, 
-                            payFullOfficial: isFull, 
-                            payFullService: isFull, 
-                            manualOfficial: offEl ? offEl.value : 0, 
-                            manualService: srvEl ? srvEl.value : 0 
+                            payFullForeign: isFull, 
+                            manualPayments: manualPayments 
                         };
                      } else {
                         singleDetails = { isForeignMode: false, payFullOfficial: document.getElementById('payFullOfficial').checked, payFullService: document.getElementById('payFullService').checked, manualOfficial: document.getElementById('manualOfficialAmount').value, manualService: document.getElementById('manualServiceAmount').value };

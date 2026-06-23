@@ -653,8 +653,87 @@ export class AccrualDataManager {
             let updates = {};
 
             if (isForeignTab) {
-                updates.foreign_status = 'paid';
-                if (formattedDate) updates.foreign_payment_date = formattedDate; 
+                if (ids.length === 1 && singlePaymentDetails) {
+                    const { payFullForeign, manualPayments } = singlePaymentDetails;
+
+                    let currentRemaining = [];
+                    if (acc.status === 'unpaid') currentRemaining = Array.isArray(acc.totalAmount) ? acc.totalAmount : [];
+                    else if (acc.status === 'partially_paid') currentRemaining = Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [];
+                    else currentRemaining = Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [];
+
+                    let newRemainingMap = {};
+                    currentRemaining.forEach(r => newRemainingMap[r.currency] = parseFloat(r.amount) || 0);
+
+                    if (payFullForeign) {
+                        let expectedForeignTotals = {};
+                        let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
+                        if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
+
+                        if (foreignItems.length > 0) {
+                            foreignItems.forEach(i => {
+                                const c = i.currency || 'EUR';
+                                const amt = Number(i.total_amount) || 0;
+                                const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
+                                expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + (amt * vatMult);
+                            });
+                        } else {
+                            const c = acc.officialFee?.currency || 'EUR';
+                            const amt = parseFloat(acc.officialFee?.amount) || 0;
+                            const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
+                            if (amt > 0) expectedForeignTotals[c] = amt * vatMult;
+                        }
+
+                        Object.entries(expectedForeignTotals).forEach(([c, amt]) => {
+                            if (newRemainingMap[c] !== undefined) {
+                                newRemainingMap[c] = Math.max(0, newRemainingMap[c] - amt);
+                            }
+                        });
+
+                        updates.foreign_status = 'paid';
+                    } else {
+                        if (Object.keys(newRemainingMap).length === 0) {
+                             if (Array.isArray(acc.totalAmount)) {
+                                 acc.totalAmount.forEach(r => newRemainingMap[r.currency] = parseFloat(r.amount) || 0);
+                             }
+                        }
+
+                        manualPayments.forEach(mp => {
+                            if (newRemainingMap[mp.curr] !== undefined) {
+                                newRemainingMap[mp.curr] = Math.max(0, newRemainingMap[mp.curr] - mp.amount);
+                            }
+                        });
+                        updates.foreign_status = 'unpaid'; 
+                    }
+
+                    updates.remainingAmount = [];
+                    Object.entries(newRemainingMap).forEach(([c, a]) => {
+                        if (a > 0.01) updates.remainingAmount.push({ amount: Number(a.toFixed(2)), currency: c });
+                    });
+
+                    if (updates.remainingAmount.length === 0) {
+                        updates.status = 'paid';
+                        updates.foreign_status = 'paid'; 
+                    } else {
+                        let originalTotal = 0, currentRemTotal = 0;
+                        (acc.totalAmount || []).forEach(x => originalTotal += Number(x.amount) || 0);
+                        updates.remainingAmount.forEach(x => currentRemTotal += Number(x.amount) || 0);
+
+                        if (currentRemTotal < originalTotal && currentRemTotal > 0.01) updates.status = 'partially_paid';
+                        else if (currentRemTotal <= 0.01) {
+                            updates.status = 'paid';
+                            updates.foreign_status = 'paid';
+                        } else updates.status = 'unpaid';
+                    }
+                    
+                    if (formattedDate && updates.foreign_status === 'paid') updates.foreign_payment_date = formattedDate;
+                    if (formattedDate) updates.paymentDate = formattedDate;
+                    
+                } else {
+                    updates.foreign_status = 'paid';
+                    updates.status = 'paid';
+                    updates.remainingAmount = [];
+                    if (formattedDate) { updates.foreign_payment_date = formattedDate; updates.paymentDate = formattedDate; }
+                }
             } else {
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = formattedDate;
@@ -679,6 +758,7 @@ export class AccrualDataManager {
                     if (updates.remainingAmount.length === 0) updates.status = 'paid';
                     else if (newPaidOff > 0 || newPaidSrv > 0) updates.status = 'partially_paid';
                     else updates.status = 'unpaid';
+
                 }
                 else {
                     updates.status = 'paid';
@@ -725,12 +805,17 @@ export class AccrualDataManager {
             }
 
             if (isForeignTab) {
-                const { error: dbUpdateError } = await supabase.from('accruals').update({
+                const dbPayload = {
+                    status: updates.status,
                     foreign_status: updates.foreign_status,
-                    foreign_payment_date: updates.foreign_payment_date
-                }).eq('id', id);
+                    remaining_amount: updates.remainingAmount
+                };
+                if (updates.paymentDate) dbPayload.payment_date = updates.paymentDate;
+                if (updates.foreign_payment_date) dbPayload.foreign_payment_date = updates.foreign_payment_date;
 
-                if (dbUpdateError) throw new Error('Yurtdışı ödemesi kaydedilemedi: ' + dbUpdateError.message);
+                const { error: dbUpdateError } = await supabase.from('accruals').update(dbPayload).eq('id', id);
+                if (dbUpdateError) throw new Error('Güncelleme hatası: ' + dbUpdateError.message);
+
             } else {
                 const res = await accrualService.updateAccrual(id, updates);
                 if (!res.success) throw new Error('Tahakkuk statüsü güncellenemedi: ' + res.error);

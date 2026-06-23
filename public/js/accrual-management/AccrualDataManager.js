@@ -18,20 +18,20 @@ export class AccrualDataManager {
         this.allTransactionTypes = [];
         this.processedData = [];
         this.allInvoices = [];
+        this.accrualInvoicesLinks = []; // 🔥 YENİ: Köprü tablosu verileri
     }
 
     async fetchAllData() {
         try {
-            // SADECE accrual ve kalemlerini çekiyoruz.
             const accPromise = supabase.from('accruals').select('*, accrual_documents(*), accrual_items(*)').limit(10000).order('created_at', { ascending: false });
-            
-            // 🔥 ÇÖZÜM: 'accruals(*)' İLİŞKİSİNİ SİLDİK (Ambiguous Join hatasını engellemek için)
-            // Faturaları yalın halde çekiyoruz.
             const invPromise = supabase.from('invoices').select('*').limit(5000).order('created_at', { ascending: false });
+            // 🔥 ÇÖZÜM 1: Artık yeni kurduğumuz köprü tablosunu (accrual_invoices) çekiyoruz!
+            const linksPromise = supabase.from('accrual_invoices').select('*').limit(50000); 
             
-            const [accRes, invRes, usersRes, typesRes, personsRes] = await Promise.all([
+            const [accRes, invRes, linksRes, usersRes, typesRes, personsRes] = await Promise.all([
                 accPromise,
                 invPromise,
+                linksPromise,
                 taskService.getAllUsers(),
                 transactionTypeService.getTransactionTypes(),
                 personService.getPersons() 
@@ -43,6 +43,8 @@ export class AccrualDataManager {
                 ...t, ipType: t.ip_type || t.details?.ipType || t.ipType,
                 isTopLevelSelectable: t.is_top_level_selectable ?? t.details?.isTopLevelSelectable ?? t.isTopLevelSelectable
             })) : [];
+            
+            this.accrualInvoicesLinks = linksRes?.data || []; // 🔥 Köprü verileri hafızaya alındı
 
             const getPersonName = (id) => {
                 if (!id) return null;
@@ -58,24 +60,21 @@ export class AccrualDataManager {
                     taskId: row.task_id || d.taskId,
                     taskTitle: row.task_title || d.taskTitle,
                     type: row.accrual_type || row.type || d.type,
-                    department: row.department || 'EVREKA', // 🔥 YENİ EKLENDİ (Önyüzün rozeti doğru görebilmesi için)
+                    department: row.department || 'EVREKA',
                     status: row.status || d.status,
                     createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
                     updatedAt: row.updated_at || d.updatedAt,
                     isForeignTransaction: row.is_foreign_transaction ?? d.isForeignTransaction ?? false,
-                    foreignStatus: row.foreign_status || 'unpaid', // 🔥 ÇÖZÜM: Hatalı kelime silindi, veritabanı köprüsü onarıldı
+                    foreignStatus: row.foreign_status || 'unpaid', 
                     tpeInvoiceNo: row.tpe_invoice_no || d.tpeInvoiceNo,
                     evrekaInvoiceNo: row.evreka_invoice_no || d.evrekaInvoiceNo,
                     orderCode: row.order_code || d.orderCode || null,
                     description: row.description || d.description || '', 
-                    invoiceDescription: row.invoice_description || d.invoice_description || '', // 🔥 YENİ
+                    invoiceDescription: row.invoice_description || d.invoice_description || '', 
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
-                    
-                    // 🔥 EŞLEŞTİRME İÇİN EKLENEN KISIM: Her iki Fatura ID'sini de JS objesine alıyoruz
-                    invoiceId: row.invoice_id || null,
-                    invoiceId2: row.invoice_id_2 || null,
                     subject: row.subject || d.subject || '',
+                    // 🔥 ESKİ 'invoiceId' VE 'invoiceId2' ALANLARI SİLİNDİ, BUNLARIN YERİNE KÖPRÜ TABLOSU KULLANILACAK
 
                     files: [
                         ...(row.files || d.files || []),
@@ -91,51 +90,56 @@ export class AccrualDataManager {
                     vatRate: row.vat_rate || d.vatRate || 20,
                     applyVatToOfficialFee: row.apply_vat_to_official_fee ?? d.applyVatToOfficialFee ?? false,
                     paymentDate: row.payment_date || d.paymentDate || null,
-                    foreignPaymentDate: row.foreign_payment_date || null, // 🔥 YENİ: Yurtdışı ödeme tarihi
+                    foreignPaymentDate: row.foreign_payment_date || null, 
                     tpInvoiceParty: row.tp_invoice_party_id ? { id: row.tp_invoice_party_id, name: getPersonName(row.tp_invoice_party_id) } : d.tpInvoiceParty,
                     serviceInvoiceParty: row.service_invoice_party_id ? { id: row.service_invoice_party_id, name: getPersonName(row.service_invoice_party_id) } : d.serviceInvoiceParty,
+                    linkedInvoices: [] // Yeni köprü eşleştirmesi için boş alan
                 };
             }) : [];
 
             await this._fetchTasksInBatches();
             await this._fetchIpRecordsInBatches();
 
-            // 🔥 FATURALARI VE TAHAKKUKLARI JAVASCRIPT İLE BİRLEŞTİRİYORUZ
-            this.allInvoices = invRes.data ? invRes.data.map(row => ({
-                id: String(row.id),
-                kolaybiInvoiceId: row.kolaybi_invoice_id,
-                invoiceNo: row.invoice_no || '-',
-                invoiceDate: row.invoice_date || null, // YENİ
-                kolaybiStatus: row.kolaybi_status || null, // YENİ
-                kolaybiUuid: row.kolaybi_uuid || null, // YENİ
-                status: row.status || 'draft',
-                totalAmount: row.total_amount || 0,
-                currency: row.currency || 'TRY',
-                clientId: row.client_id,
-                clientName: getPersonName(row.client_id) || 'Bilinmiyor',
-                createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
-                
-                accruals: this.allAccruals
-                    // 🔥 DÜZELTME 2.1: invoiceId2 içinde birden fazla fatura ID'si (virgülle ayrılmış) olabileceği için includes kullanıyoruz
-                    .filter(a => String(a.invoiceId) === String(row.id) || (a.invoiceId2 && String(a.invoiceId2).includes(String(row.id))))
-                    .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
-            })) : [];
-            // 🔥 KESİN ÇÖZÜM: Tahakkuka bağlı olan tüm faturaları (invoice_id ve invoice_id_2) bul ve numaralarını birleştir
-            this.allAccruals.forEach(acc => {
-                const linkedInvoices = this.allInvoices.filter(inv => 
-                    // 🔥 DÜZELTME 2.2: includes ile 3 veya daha fazla faturayı da kusursuz yakalıyoruz
-                    inv.id === String(acc.invoiceId) || (acc.invoiceId2 && String(acc.invoiceId2).includes(inv.id))
-                );
+            // 🔥 ÇÖZÜM 2: Faturaları tahakkuklarla YENİ KÖPRÜ TABLOSU üzerinden bağlıyoruz
+            this.allInvoices = invRes.data ? invRes.data.map(row => {
+                const myAccrualIds = this.accrualInvoicesLinks
+                    .filter(l => String(l.invoice_id) === String(row.id))
+                    .map(l => String(l.accrual_id));
 
-                if (linkedInvoices.length > 0) {
-                    // Tüm bağlı faturaların numaralarını topla (GIB No varsa onu al, yoksa sistem no'yu al)
-                    const nos = linkedInvoices.map(inv => {
-                        // 🔥 GÜNCELLEME: Sadece resmî "invoiceNo" verisini (Örn: GİB...) alıyoruz
+                return {
+                    id: String(row.id),
+                    kolaybiInvoiceId: row.kolaybi_invoice_id,
+                    invoiceNo: row.invoice_no || '-',
+                    invoiceDate: row.invoice_date || null,
+                    kolaybiStatus: row.kolaybi_status || null, 
+                    kolaybiUuid: row.kolaybi_uuid || null, 
+                    status: row.status || 'draft',
+                    totalAmount: row.total_amount || 0,
+                    currency: row.currency || 'TRY',
+                    clientId: row.client_id,
+                    clientName: getPersonName(row.client_id) || 'Bilinmiyor',
+                    createdAt: row.created_at ? new Date(row.created_at) : new Date(0),
+                    
+                    accruals: this.allAccruals
+                        .filter(a => myAccrualIds.includes(String(a.id)))
+                        .map(a => ({ ...a, task_title: a.taskTitle, total_amount: a.totalAmount }))
+                };
+            }) : [];
+
+            // 🔥 ÇÖZÜM 3: Tahakkuklara bağlı olan fatura numaralarını yazdırıyoruz
+            this.allAccruals.forEach(acc => {
+                const myInvoiceIds = this.accrualInvoicesLinks
+                    .filter(l => String(l.accrual_id) === String(acc.id))
+                    .map(l => String(l.invoice_id));
+
+                acc.linkedInvoices = this.allInvoices.filter(inv => myInvoiceIds.includes(String(inv.id)));
+
+                if (acc.linkedInvoices.length > 0) {
+                    const nos = acc.linkedInvoices.map(inv => {
                         return (inv.invoiceNo && inv.invoiceNo !== '-') ? inv.invoiceNo : null;
-                    }).filter(Boolean); // Boş veya null olanları temizle
+                    }).filter(Boolean); 
 
                     if (nos.length > 0) {
-                        // Numaraları virgül ile birleştirerek tabloya gönder (Örn: GIB...12, GIB...13)
                         acc.evrekaInvoiceNo = nos.join(', '); 
                     }
                 }
@@ -234,16 +238,12 @@ export class AccrualDataManager {
     filterAndSort(criteria, sort) {
         const { tab, filters } = criteria;
 
-        // 🔥 YENİ: Eğer aktif sekme faturalar ise, accruals yerine faturaları döndür ve filtrele
         if (tab === 'invoices') {
             let invData = [...(this.allInvoices || [])];
             
             if (filters) {
-                // 1. Fatura Durumu Filtresi
                 if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
                     const searchStatus = filters.invoiceStatus.toLowerCase();
-                    
-                    // 🔥 YENİ: Faturalar sekmesinde "Fatura Kesilmedi" filtresi seçilirse sonuç boş döner 
                     if (searchStatus === 'not_invoiced') {
                         invData = [];
                     } else {
@@ -261,14 +261,10 @@ export class AccrualDataManager {
                         });
                     }
                 }
-                
-                // 2. Müşteri (Cari) Arama
                 if (filters.party) {
                     const searchVal = filters.party.toLowerCase();
                     invData = invData.filter(inv => (inv.clientName || '').toLowerCase().includes(searchVal));
                 }
-                
-                // 3. Fatura No / ID Arama
                 if (filters.fileNo) {
                     const searchVal = filters.fileNo.toLowerCase();
                     invData = invData.filter(inv => 
@@ -297,12 +293,9 @@ export class AccrualDataManager {
                 const endTime = end.getTime();
                 data = data.filter(item => { const itemDate = item.createdAt ? new Date(item.createdAt).getTime() : 0; return itemDate <= endTime; });
             }
-            // 🔥 YENİ: Departman Filtresi
             if (filters.department && filters.department !== '') {
                 data = data.filter(item => (item.department || 'EVREKA') === filters.department);
             }
-            
-            // 🔥 YENİ: Tür Filtresi
             if (filters.type && filters.type !== '') {
                 data = data.filter(item => {
                     const currentType = item.type || item.accrualType || 'Hizmet';
@@ -345,7 +338,6 @@ export class AccrualDataManager {
                     return (ipRec?.markName || '').toLowerCase().includes(searchVal);
                 });
             }
-            // Sizin Mevcut "İlgili İş (Task)" Filtreniz (Buna dokunmuyoruz)
             if (filters.task) {
                 const searchVal = filters.task.toLowerCase();
                 data = data.filter(item => {
@@ -359,17 +351,12 @@ export class AccrualDataManager {
             if (filters.invoiceStatus && filters.invoiceStatus !== 'all') {
                 const searchStatus = filters.invoiceStatus.toLowerCase();
                 data = data.filter(item => {
-                    const linkedInvoices = this.allInvoices.filter(inv => 
-                        // 🔥 DÜZELTME 2.3: Filtreleme yaparken de çoklu faturaları kaçırmamak için
-                        inv.id === String(item.invoiceId) || (item.invoiceId2 && String(item.invoiceId2).includes(inv.id))
-                    );
+                    // 🔥 ÇÖZÜM 4: Filtrelemede yeni köprü objesini kullanıyoruz
+                    const linkedInvoices = item.linkedInvoices || [];
                     
-                    // 🔥 YENİ: Fatura Kesilmedi Opsiyonu (Akıllı Kontrol)
                     if (searchStatus === 'not_invoiced') {
-                        // Eğer hiç faturası yoksa doğrudan listele
                         if (linkedInvoices.length === 0) return true;
                         
-                        // Faturası var ama Tümü "İptal", "Red" veya "Hatalı" ise yine listele (Yeniden kesilmesi lazım demektir)
                         const hasActiveInvoice = linkedInvoices.some(inv => {
                             const s = (inv.status || '').toLowerCase();
                             const ks = (inv.kolaybiStatus || '').toLowerCase();
@@ -402,7 +389,6 @@ export class AccrualDataManager {
                 });
             }
 
-            // 🔥 YENİ: Açıklama Filtresi (HEMEN ALTINA EKLİYORUZ)
             if (filters.description) {
                 const searchVal = filters.description.toLowerCase();
                 data = data.filter(item => {
@@ -417,20 +403,15 @@ export class AccrualDataManager {
             data.sort((a, b) => {
                 let valA = a[sort.column]; let valB = b[sort.column];
                 
-                // 🔥 ÇÖZÜM: 0. Tahakkuk No Sıralaması (Metin değil, gerçek SAYI olarak)
                 if (sort.column === 'id') {
                     valA = Number(a.id) || 0;
                     valB = Number(b.id) || 0;
                 }
-                
-                // 1. Müvekkil / Taraf Sıralaması
                 else if (sort.column === 'party') {
                     const getP = (item) => item.tpInvoiceParty?.name || item.serviceInvoiceParty?.name || '';
                     valA = getP(a).toLowerCase();
                     valB = getP(b).toLowerCase();
                 }
-                
-                // 2. İş Detayı / Konu Sıralaması
                 else if (sort.column === 'subject') {
                     const getS = (item) => {
                         const task = this.allTasks[String(item.taskId)];
@@ -443,8 +424,6 @@ export class AccrualDataManager {
                     valA = getS(a).toLowerCase();
                     valB = getS(b).toLowerCase();
                 }
-
-                // 3. Genel Toplam Tutar Sıralaması
                 else if (sort.column === 'totalAmount') {
                     const getT = (item) => {
                         if (Array.isArray(item.totalAmount)) return item.totalAmount.reduce((sum, x) => sum + (Number(x.amount)||0), 0);
@@ -453,8 +432,6 @@ export class AccrualDataManager {
                     valA = getT(a);
                     valB = getT(b);
                 }
-
-                // 4. Kalan Bakiye Sıralaması
                 else if (sort.column === 'remainingAmount') {
                     const getR = (item) => {
                         let rem = item.remainingAmount;
@@ -465,8 +442,6 @@ export class AccrualDataManager {
                     valA = getR(a);
                     valB = getR(b);
                 }
-
-                // 5. Hizmet ve Yansıtma Tutarları Sıralaması (Yeni)
                 else if (sort.column === 'serviceFee') {
                     const getSrv = (item) => {
                         if (item.type !== 'Hizmet') return 0;
@@ -485,7 +460,6 @@ export class AccrualDataManager {
                     valA = getOff(a);
                     valB = getOff(b);
                 }
-                
                 else {
                     if (typeof valA === 'string') valA = valA.toLowerCase();
                     if (typeof valB === 'string') valB = valB.toLowerCase();
@@ -512,7 +486,6 @@ export class AccrualDataManager {
                     try { epats = JSON.parse(epats); } catch(e) {}
                 }
 
-                // 🔥 YENİ ŞEMAYA UYUMLU OLARAK EŞLEŞTİRİLDİ
                 const task = { 
                     ...data, 
                     id: String(data.id),
@@ -538,9 +511,9 @@ export class AccrualDataManager {
 
         const finalAccrual = {
             id: newAccrualId,
-            task_id: null, // Serbest tahakkuklarda task_id olmaz
+            task_id: null, 
             status: 'unpaid',
-            department: formData.department || 'EVREKA', // 🔥 ÇÖZÜM: Departman bilgisi veritabanına eklendi!
+            department: formData.department || 'EVREKA', 
             accrual_type: formData.type || 'Masraf',
             tp_invoice_party_id: formData.tpInvoicePartyId || null,
             service_invoice_party_id: formData.serviceInvoicePartyId || null,
@@ -564,7 +537,6 @@ export class AccrualDataManager {
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
         if (accError) throw accError;
 
-        // 🔥 DOĞRU ÇÖZÜM: Tahakkuk kalemlerini accrual_items tablosuna kaydediyoruz
         if (formData.items && formData.items.length > 0) {
             const itemsToInsert = formData.items.map(item => ({
                 accrual_id: String(newAccrualId),
@@ -614,8 +586,6 @@ export class AccrualDataManager {
         const currentAccrual = this.allAccruals.find(a => a.id === accrualId);
         if (!currentAccrual) throw new Error("Tahakkuk bulunamadı.");
 
-        // 🔥 YENİ ÇÖZÜM: Ücretler düzenlendiğinde eski "tek döviz cinsi" hesaplamasını pas geçip, 
-        // formdan gelen KDV'si zaten hesaplanmış çoklu kur Array'ini (formData.totalAmount) doğrudan alıyoruz.
         let newTotalArray = currentAccrual.totalAmount || [];
         
         if (formData.items && formData.items.length > 0) {
@@ -634,20 +604,17 @@ export class AccrualDataManager {
         const payload = {
             ...formData,
             description: formData.description || null, 
-            invoice_description: formData.invoice_description || formData.invoiceDescription || null, // 🔥 ÇÖZÜM: Veri eşleştirme hatası giderildi
+            invoice_description: formData.invoice_description || formData.invoiceDescription || null,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,
             totalAmount: newTotalArray,
-            // Eğer statü 'unpaid' (ödenmedi) ise Kalan Tutar, Toplam Tutar'a eşittir.
-            // Eğer 'paid' (ödendi) ise Kalan Tutar boş dizi [] olmalıdır.
             remainingAmount: (formData.status || currentAccrual.status) === 'unpaid' ? newTotalArray : ((formData.status || currentAccrual.status) === 'paid' ? [] : currentAccrual.remainingAmount),
             files: fileToUpload ? [fileToUpload] : formData.files
         };
 
         const res = await accrualService.updateAccrual(accrualId, payload);
         if (!res.success) throw new Error(res.error);
-        // 🔥 DOĞRU ÇÖZÜM: Düzenleme modunda eski kalemleri silip yenilerini ekliyoruz
         if (formData.items) {
             await supabase.from('accrual_items').delete().eq('accrual_id', String(accrualId));
             
@@ -672,7 +639,6 @@ export class AccrualDataManager {
         const { date, receiptFiles, singlePaymentDetails, isForeignTab } = paymentData;
         const ids = Array.from(selectedIds);
 
-        // Tarih formatını (GG.AA.YYYY) PostgreSQL formatına (YYYY-MM-DD) çeviriyoruz
         let formattedDate = null;
         if (date) {
             const parts = date.split('.');
@@ -680,8 +646,6 @@ export class AccrualDataManager {
             else formattedDate = date; 
         }
 
-        // 🔥 ÇÖZÜM 1: Eşzamanlı (.map) yerine Sıralı (for...of) işlem yapıyoruz. 
-        // Böylece aynı dekontu birden fazla tahakkuka eklerken Storage akışı çökmez.
         for (const id of ids) {
             const acc = this.allAccruals.find(a => a.id === id);
             if (!acc) continue;
@@ -689,9 +653,8 @@ export class AccrualDataManager {
             let updates = {};
 
             if (isForeignTab) {
-                // 🔥 Sadece yurtdışı firmaya olan borcumuzu "Ödendi" yapıyoruz
                 updates.foreign_status = 'paid';
-                if (formattedDate) updates.foreign_payment_date = formattedDate; // 🔥 DÜZELTME: Artık kendi tarih sütununa yazıyor
+                if (formattedDate) updates.foreign_payment_date = formattedDate; 
             } else {
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = formattedDate;
@@ -724,7 +687,6 @@ export class AccrualDataManager {
                 }
             }
 
-            // 2. Dekont Yükleme ve Kaydetme İşlemi (Hata denetimli)
             if (receiptFiles && receiptFiles.length > 0) {
                 const docInserts = [];
                 
@@ -733,12 +695,10 @@ export class AccrualDataManager {
                     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                     const cleanPath = `accruals/${id}/${Date.now()}_${cleanFileName}`;
 
-                    // Supabase Storage Yüklemesi
                     const { error: uploadError } = await supabase.storage
                         .from('documents')
                         .upload(cleanPath, file, { cacheControl: '3600', upsert: true });
 
-                    // Eğer yükleme başarısız olursa SESSİZ KALMA, ekrana hata fırlat!
                     if (uploadError) {
                         console.error('Dekont storage yükleme hatası:', uploadError);
                         throw new Error('Dekont sunucuya yüklenemedi: ' + uploadError.message);
@@ -755,7 +715,6 @@ export class AccrualDataManager {
                     }
                 }
                 
-                // Veritabanı (Tablo) Kaydı
                 if (docInserts.length > 0) {
                     const { error: dbError } = await supabase.from('accrual_documents').insert(docInserts);
                     if (dbError) {
@@ -765,10 +724,7 @@ export class AccrualDataManager {
                 }
             }
 
-            // 3. Tahakkuk Güncellemesi
             if (isForeignTab) {
-                // 🔥 ÇÖZÜM: accrualService yeni eklediğimiz sütunu tanımadığı için veriyi siliyor.
-                // Bu yüzden Yurtdışı sekmesinden gelen güncellemeleri DOĞRUDAN veritabanına yazıyoruz.
                 const { error: dbUpdateError } = await supabase.from('accruals').update({
                     foreign_status: updates.foreign_status,
                     foreign_payment_date: updates.foreign_payment_date
@@ -776,13 +732,11 @@ export class AccrualDataManager {
 
                 if (dbUpdateError) throw new Error('Yurtdışı ödemesi kaydedilemedi: ' + dbUpdateError.message);
             } else {
-                // Normal tahakkuk ödemeleri mevcut servisten geçmeye devam eder
                 const res = await accrualService.updateAccrual(id, updates);
                 if (!res.success) throw new Error('Tahakkuk statüsü güncellenemedi: ' + res.error);
             }
         }
 
-        // Tüm satırlar sorunsuz bittiyse verileri tazele
         await this.fetchAllData();
     }
 
@@ -793,9 +747,8 @@ export class AccrualDataManager {
             if (!acc) return;
             
             if (isForeignTab) {
-                // 🔥 Yurtdışı iptallerinde de filtreyi aşıp Supabase'e doğrudan gidiyoruz
                 const payload = { foreign_status: newStatus };
-                if (newStatus === 'unpaid') payload.foreign_payment_date = null; // Ödenmedi olursa tarihi sil
+                if (newStatus === 'unpaid') payload.foreign_payment_date = null; 
                 
                 return supabase.from('accruals').update(payload).eq('id', id);
             } else {
@@ -813,7 +766,6 @@ export class AccrualDataManager {
     }
 
     async deleteAccrual(id) {
-        // 🔥 YENİ: Tahakkuk silinmeden önce bağlı evrakları Storage'dan fiziksel olarak sil
         const { data: docs } = await supabase.from('accrual_documents').select('document_url').eq('accrual_id', String(id));
         if (docs && docs.length > 0) {
             for (const doc of docs) {
@@ -824,17 +776,14 @@ export class AccrualDataManager {
             }
         }
         
-        // Tahakkuku DB'den sil
         await supabase.from('accruals').delete().eq('id', id);
         await this.fetchAllData();
     }
 
-    // Tahakkukun içindeki spesifik bir belgeyi silme fonksiyonu
     async deleteDocument(documentId, fileUrl) {
         return await accrualService.deleteDocumentFully(documentId, fileUrl);
     }
 
-    // 🔥 YENİ: Müşavire gönderim durumunu güncelleme
     async markAsSentToAdvisor(accrualIds) {
         if (!accrualIds || accrualIds.length === 0) return;
         
@@ -845,7 +794,6 @@ export class AccrualDataManager {
         await Promise.all(promises);
     }
 
-// 🔥 GÜNCEL: mergeStrategy parametresi eklendi ve "Karar Bekleniyor" durumu hatadan muaf tutuldu
     async createKolaybiInvoice(selectedIds, mergeStrategy = null) {
         const ids = Array.from(selectedIds);
         if (ids.length === 0) throw new Error("Fatura kesmek için tahakkuk seçmelisiniz.");
@@ -860,12 +808,10 @@ export class AccrualDataManager {
                 throw new Error(error.message || "Fatura oluşturulurken bir hata oluştu.");
             }
 
-            // Eğer success false ise ama sebebi Karar Beklenmesi ise HATA FIRLATMA!
             if (!data.success && !data.requireMergeDecision) {
                 throw new Error(data.error || data.message || "Beklenmeyen bir hata oluştu.");
             }
 
-            // Verileri tazelemeyi şimdilik atlıyoruz, main.js'de başarılı olunca tazeleyeceğiz
             return data;
 
         } catch (error) {
@@ -901,7 +847,6 @@ export class AccrualDataManager {
     async autoSyncPendingInvoices() {
         if (!this.allInvoices || this.allInvoices.length === 0) return false;
 
-        // 🔥 GÜNCELLEME: Tüm nihai kelimeler (Kabul, Red, İptal) İngilizce ve Türkçe olarak eklendi
         const finalKeywords = ['approved', 'rejected', 'cancelled', 'failed', 'accept', 'decline', 'kabul', 'red', 'iptal'];
 
         const pendingIds = this.allInvoices
@@ -912,11 +857,10 @@ export class AccrualDataManager {
                 const s = (inv.status || '').toLowerCase().trim();
                 const ks = (inv.kolaybiStatus || '').toLowerCase().trim();
                 
-                // Eğer faturanın sistem VEYA kolaybi statüsünde bu kesin kelimeler geçiyorsa sorgulama!
                 const isFinal = finalKeywords.some(word => s.includes(word) || ks.includes(word));
                 if (isFinal) return false;
 
-                return true; // Diğer belirsiz durumları sorgula
+                return true; 
             })
             .map(inv => inv.id);
 
@@ -942,7 +886,7 @@ export class AccrualDataManager {
                 .insert([{
                     person_id: accrualData.personId,
                     type: accrualData.type,
-                    department: accrualData.department, // 🔥 YENİ
+                    department: accrualData.department, 
                     amount: accrualData.amount,
                     currency: accrualData.currency,
                     period: accrualData.period,
@@ -950,7 +894,7 @@ export class AccrualDataManager {
                     next_trigger_date: accrualData.startDate,
                     description: accrualData.description,
                     is_active: true,
-                    items: accrualData.items // 🔥 YENİ
+                    items: accrualData.items 
                 }])
                 .select();
             if (error) throw error;
@@ -991,13 +935,13 @@ export class AccrualDataManager {
                 .update({
                     person_id: accrualData.personId,
                     type: accrualData.type,
-                    department: accrualData.department, // 🔥 YENİ
+                    department: accrualData.department, 
                     amount: accrualData.amount,
                     currency: accrualData.currency,
                     period: accrualData.period,
                     start_date: accrualData.startDate,
                     description: accrualData.description,
-                    items: accrualData.items // 🔥 YENİ
+                    items: accrualData.items 
                 })
                 .eq('id', id)
                 .select();

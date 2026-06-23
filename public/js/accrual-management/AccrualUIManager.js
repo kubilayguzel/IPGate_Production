@@ -632,37 +632,14 @@ export class AccrualUIManager {
                         if(amt > 0) expectedForeignTotals[c] = amt * vatMult;
                     }
 
-                    // 4. Beklenen yurt dışı ödemeleri ile güncel kalan bakiyeyi kıyasla
-                    Object.keys(expectedForeignTotals).forEach(curr => {
-                        const expAmt = expectedForeignTotals[curr];
-                        let remAmt = 0;
-
-                        if (acc.status === 'unpaid') {
-                            remAmt = expAmt; // Hiç ödenmediyse tamamı duruyor
-                        } else if (acc.status === 'paid') {
-                            remAmt = 0; // Tamamı ödendiyse 0
-                        } else if (acc.status === 'partially_paid') {
-                            // Kısmen ödendiyse, genel kalanın içinden bu dövize ait olanı bul
-                            const remObj = Array.isArray(acc.remainingAmount) ? acc.remainingAmount.find(r => r.currency === curr) : null;
-                            remAmt = remObj ? parseFloat(remObj.amount) : 0;
-                            if (remAmt > expAmt) remAmt = expAmt;
-                        }
-
-                        remainingForeignTotals[curr] = remAmt;
-                        if (remAmt > 0.01) {
-                            isFullyPaidForeign = false;
-                            hasAnyForeignDebt = true;
-                        }
-                    });
-
-                    // 5. Saf Yurtdışı Statüsü
+                    // 4. ve 5. Adım: Yeni Veritabanı Kolonundan Kalan Bakiyeyi Oku ve Statüyü Belirle
                     let fStatusTxt = 'Ödenmedi';
                     let fStatusCls = 'status-unpaid bg-danger text-white';
                     
                     if (acc.foreignStatus === 'paid') {
                         fStatusTxt = 'Ödendi';
                         fStatusCls = 'status-paid bg-success text-white';
-                    } else if (acc.foreignStatus === 'partially_paid') { // 🔥 EKLENDİ
+                    } else if (acc.foreignStatus === 'partially_paid') {
                         fStatusTxt = 'K.Ödendi';
                         fStatusCls = 'status-partially-paid bg-warning text-dark';
                     }
@@ -670,16 +647,23 @@ export class AccrualUIManager {
                     const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
 
                     let fPaymentDateHtml = '-';
-                    if (acc.foreignStatus === 'paid' && acc.paymentDate) {
-                        if (acc.paymentDate.includes('.')) fPaymentDateHtml = acc.paymentDate;
-                        else fPaymentDateHtml = new Date(acc.paymentDate).toLocaleDateString('tr-TR');
+                    if ((acc.foreignStatus === 'paid' || acc.foreignStatus === 'partially_paid') && acc.foreignPaymentDate) {
+                        if (acc.foreignPaymentDate.includes('.')) fPaymentDateHtml = acc.foreignPaymentDate;
+                        else fPaymentDateHtml = new Date(acc.foreignPaymentDate).toLocaleDateString('tr-TR');
                     }
                     
                     const remTexts = [];
                     if (acc.foreignStatus !== 'paid') {
-                        // 🔥 KESİN ÇÖZÜM: expectedForeignTotals (İlk Fatura) YERİNE remainingForeignTotals (Kalan Bakiye) yazdırılıyor!
-                        Object.entries(remainingForeignTotals).forEach(([c, a]) => {
-                            if (a > 0.01) remTexts.push(this._formatMoney(a, c)); 
+                        // Yeni veritabanı kolonu: foreignRemainingAmount (Eski veriler için fallback olarak expectedForeignTotals kullanılır)
+                        let remArr = [];
+                        if (Array.isArray(acc.foreignRemainingAmount) && acc.foreignRemainingAmount.length > 0) {
+                            remArr = acc.foreignRemainingAmount;
+                        } else {
+                            remArr = Object.entries(expectedForeignTotals).map(([c, a]) => ({currency: c, amount: a}));
+                        }
+
+                        remArr.forEach(item => {
+                            if (Number(item.amount) > 0.01) remTexts.push(this._formatMoney(item.amount, item.currency)); 
                         });
                     }
 
@@ -1005,72 +989,63 @@ export class AccrualUIManager {
             if (activeTab === 'foreign') {
                 if(foreignArea) foreignArea.style.display = 'block';
 
-                // 🔥 ÇOKLU DÖVİZ (TRY, USD vb.) İÇİN AKILLI HESAPLAMA SİSTEMİ
-                let expectedForeignTotals = {}; 
-                let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
-                if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
-
-                // Split inputları (Dinamik alanları) tutacağımız obje
-                let groupedInputs = {};
-
-                if (foreignItems.length > 0) {
-                    foreignItems.forEach(i => {
-                        const c = i.currency || 'EUR';
-                        const amt = Number(i.total_amount) || 0;
-                        const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
-                        const finalAmt = amt * vatMult;
-                        
-                        expectedForeignTotals[c] = (expectedForeignTotals[c] || 0) + finalAmt;
-
-                        // Split inputs için etiket belirleme
-                        const lowerName = (i.item_name || '').toLowerCase();
-                        const isService = lowerName.includes('vekil') || lowerName.includes('hizmet');
-                        const labelStr = isService ? 'Yurtdışı Vekil Hizmet Ücreti' : 'Resmi Ücret Tutarı';
-                        const rawType = isService ? 'service' : 'official';
-                        
-                        // Örn: official_TRY veya service_EUR olarak grupla
-                        const key = rawType + '_' + c;
-                        if (!groupedInputs[key]) {
-                            groupedInputs[key] = { label: labelStr, curr: c, amount: 0, rawType: rawType };
-                        }
-                        groupedInputs[key].amount += finalAmt;
-                    });
+                // 🔥 2. ÇÖZÜM: Modal açıldığında en baştan hesaplamak yerine Yeni Kolondan Kalan Bakiyeyi Oku
+                let currentRemainingArr = [];
+                if (Array.isArray(acc.foreignRemainingAmount) && acc.foreignRemainingAmount.length > 0) {
+                    currentRemainingArr = acc.foreignRemainingAmount;
                 } else {
-                    const c = acc.officialFee?.currency || 'EUR';
-                    const amt = parseFloat(acc.officialFee?.amount) || 0;
-                    const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
-                    if(amt > 0) {
-                        expectedForeignTotals[c] = amt * vatMult;
-                        groupedInputs['official_' + c] = { label: 'Resmi Ücret Tutarı', curr: c, amount: amt * vatMult, rawType: 'official' };
+                    // Veritabanında (kolonda) henüz bakiye yoksa (ilk defa açılıyorsa) asıl fatura toplamını hesapla
+                    let expectedMap = {};
+                    let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
+                    if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
+
+                    if (foreignItems.length > 0) {
+                        foreignItems.forEach(i => {
+                            const c = i.currency || 'EUR';
+                            const amt = Number(i.total_amount) || 0;
+                            const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
+                            expectedMap[c] = (expectedMap[c] || 0) + (amt * vatMult);
+                        });
+                    } else {
+                        const c = acc.officialFee?.currency || 'EUR';
+                        const amt = parseFloat(acc.officialFee?.amount) || 0;
+                        const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
+                        if(amt > 0) expectedMap[c] = amt * vatMult;
                     }
+                    Object.entries(expectedMap).forEach(([c, a]) => {
+                        currentRemainingArr.push({ currency: c, amount: a });
+                    });
                 }
 
+                // Ekranda gösterilecek rozet ve inputları kalan bakiyeye göre hazırla
+                let groupedInputs = {};
                 const remTexts = [];
-                Object.entries(expectedForeignTotals).forEach(([c, a]) => {
-                    remTexts.push(this._formatMoney(a, c));
+
+                currentRemainingArr.forEach((rem, idx) => {
+                    const c = rem.currency;
+                    const amt = Number(rem.amount) || 0;
+                    
+                    if (amt > 0.01) {
+                        remTexts.push(this._formatMoney(amt, c));
+                        
+                        groupedInputs['rem_' + c] = { 
+                            label: 'Kalan Bakiye Tutarı', 
+                            curr: c, 
+                            amount: amt, 
+                            rawType: 'rem' 
+                        };
+                    }
                 });
-                
+
                 document.getElementById('foreignTotalBadge').textContent = remTexts.length > 0 ? remTexts.join(' + ') : '0 EUR';
 
                 const payFullCb = document.getElementById('payFullForeign');
                 const splitInputs = document.getElementById('foreignSplitInputs');
                 
-                // 🔥 Tamamını Öde tiki kalkınca açılacak dövize duyarlı yeni giriş alanları
                 if (splitInputs) {
                     let html = '';
-                    let offCount = 0;
-                    let srvCount = 0;
-                    
-                    Object.values(groupedInputs).forEach((g) => {
-                        let safeId = '';
-                        if (g.rawType === 'official') {
-                            safeId = offCount === 0 ? 'manualForeignOfficial' : 'manualForeignOfficial_' + offCount;
-                            offCount++;
-                        } else {
-                            safeId = srvCount === 0 ? 'manualForeignService' : 'manualForeignService_' + srvCount;
-                            srvCount++;
-                        }
-                        
+                    Object.values(groupedInputs).forEach((g, index) => {
+                        let safeId = 'manualForeignRem_' + index;
                         html += `
                             <div class="form-group mb-3">
                                 <label class="small text-muted font-weight-bold">${g.label} <span class="text-info">(${g.curr})</span></label>
@@ -1080,18 +1055,16 @@ export class AccrualUIManager {
                                         <span class="input-group-text font-weight-bold">${g.curr}</span>
                                     </div>
                                 </div>
-                                <small class="text-success mt-1 d-block">Tahakkuktaki Tutar: ${this._formatMoney(g.amount, g.curr)}</small>
+                                <small class="text-success mt-1 d-block">Ödenecek Maksimum Bakiye: ${this._formatMoney(g.amount, g.curr)}</small>
                             </div>
                         `;
                     });
-                    
                     splitInputs.innerHTML = html;
                 }
                 
                 if(payFullCb) payFullCb.checked = true;
                 if(splitInputs) splitInputs.style.display = 'none';
-            }
-            else {
+            } else {
                 if(localArea) localArea.style.display = 'block';
 
                 const offAmt = acc.officialFee?.amount || 0;

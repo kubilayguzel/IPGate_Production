@@ -743,19 +743,33 @@ export class PersonModalManager {
             const itemDiv = document.createElement('div');
             itemDiv.className = 'list-group-item d-flex justify-content-between align-items-center p-3 border-bottom';
 
+            // 🔥 YENİ: Belge daha önceden veritabanına kaydedilmişse (URL'si varsa) tıklanabilir link ve buton oluştur!
+            const fileUrl = d.url || d.document_url;
+            let titleHtml = `<div class="font-weight-bold text-dark">${d.type} ${d.proxyParty ? `(${d.proxyParty})` : ''}</div>`;
+            let downloadHtml = '';
+
+            // isNew false ise (yani önceden eklenmişse) ve linki varsa
+            if (fileUrl && !d.isNew) {
+                titleHtml = `<a href="${fileUrl}" target="_blank" class="font-weight-bold text-primary" style="text-decoration: underline;" title="Belgeyi Yeni Sekmede Aç">${d.type} ${d.proxyParty ? `(${d.proxyParty})` : ''}</a>`;
+                downloadHtml = `<a href="${fileUrl}" target="_blank" class="btn btn-sm btn-outline-primary mr-3"><i class="fas fa-download mr-1"></i> İndir / Aç</a>`;
+            }
+
             itemDiv.innerHTML = `
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center flex-grow-1" style="min-width: 0;">
                     <i class="fas fa-file-pdf text-danger fa-2x mr-3"></i>
-                    <div>
-                        <div class="font-weight-bold text-dark">${d.type} ${d.proxyParty ? `(${d.proxyParty})` : ''}</div>
-                        <div class="small text-muted">
-                            ${d.fileName} ${d.validityDate ? ` • S.T: ${d.validityDate}` : ''}
+                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px;">
+                        ${titleHtml}
+                        <div class="small text-muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${d.fileName || 'Belge'} ${d.validityDate ? ` • S.T: ${d.validityDate}` : ''}
                         </div>
                     </div>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-danger border-0 rounded-circle remove-doc-btn">
-                    <i class="fas fa-times"></i>
-                </button>
+                <div class="d-flex align-items-center flex-shrink-0">
+                    ${downloadHtml}
+                    <button type="button" class="btn btn-sm btn-outline-danger border-0 rounded-circle remove-doc-btn" title="Kaldır">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
             `;
 
             const removeBtn = itemDiv.querySelector('.remove-doc-btn');

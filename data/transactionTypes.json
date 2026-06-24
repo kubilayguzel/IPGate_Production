@@ -354,5 +354,15 @@
     "order": 180,
     "isTopLevelSelectable": false, 
     "expectedParentTypeIds": [] 
+  },
+  {
+    "id": "68",
+    "name": "Marka İptal Talebi",
+    "alias": "Marka İptal Talebi",
+    "ipType": "trademark",
+    "hierarchy": "parent",
+    "applicableToMainType": ["trademark"],
+    "isTopLevelSelectable": true,
+    "order": 1
   }
 ]

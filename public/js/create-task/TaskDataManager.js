@@ -19,7 +19,8 @@ export class TaskDataManager {
                 ...t,
                 ipType: t.ip_type || t.ipType,
                 isTopLevelSelectable: t.is_top_level_selectable ?? t.isTopLevelSelectable ?? true,
-                applicableToMainType: t.applicable_to_main_type || t.applicableToMainType || []
+                applicableToMainType: t.applicable_to_main_type || t.applicableToMainType || [],
+                order: t.order_index ?? t.order ?? t.details?.order ?? 999 
             }));
 
             return {

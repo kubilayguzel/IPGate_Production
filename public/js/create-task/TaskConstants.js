@@ -18,7 +18,9 @@ export const TASK_IDS = {
     YAYINA_ITIRAZI_GERI_CEKME: '21',
     EKSIKLIK_GIDERME: '25',
     ITIRAZA_EK_BELGE: '37',
-    KULLANIM_ISPATI_DELILI_SUNMA: '39'
+    KULLANIM_ISPATI_DELILI_SUNMA: '39',
+    // 🔥 YENİ EKLENEN: Marka İptal Talebi (Veritabanı ID: 68)
+    MARKA_IPTAL_TALEBI: '68' 
 };
 
 // İlgili Taraf (Related Party) seçimi zorunlu olan işlem tipleri
@@ -39,8 +41,9 @@ export const RELATED_PARTY_REQUIRED = new Set([
     TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME,
     TASK_IDS.EKSIKLIK_GIDERME,
     TASK_IDS.ITIRAZA_EK_BELGE,
-    TASK_IDS.ITIRAZA_EK_BELGE,
-    TASK_IDS.KULLANIM_ISPATI_DELILI_SUNMA
+    TASK_IDS.KULLANIM_ISPATI_DELILI_SUNMA,
+    // 🔥 YENİ: Marka iptal talebinde 3. Adım (Kişi Seçimi) AÇILSIN
+    TASK_IDS.MARKA_IPTAL_TALEBI 
 ]);
 
 // İşlem tipine göre arayüzde görünecek etiketler
@@ -61,7 +64,9 @@ export const PARTY_LABEL_BY_ID = {
     [TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME]: 'Talep Sahibi',
     [TASK_IDS.EKSIKLIK_GIDERME]: 'Talep Sahibi',
     [TASK_IDS.ITIRAZA_EK_BELGE]: 'Talep Sahibi',
-    [TASK_IDS.KULLANIM_ISPATI_DELILI_SUNMA]: 'Talep Sahibi'
+    [TASK_IDS.KULLANIM_ISPATI_DELILI_SUNMA]: 'Talep Sahibi',
+    // 🔥 YENİ: 3. Adımın başlığı "Talep Sahibi" olarak görünsün
+    [TASK_IDS.MARKA_IPTAL_TALEBI]: 'Talep Sahibi' 
 };
 
 // --- Yardımcı Fonksiyonlar ---
@@ -73,6 +78,6 @@ export const asId = (v) => String(v ?? '');
 export function __pathFromDownloadURL(url) {
     try {
         const m = String(url).match(/\/o\/(.+?)\?/);
-        return m ? decodeURIComponent(m[1]) : null; // örn: brand-examples/1727040100000_x.jpg
+        return m ? decodeURIComponent(m[1]) : null; 
     } catch { return null; }
 }

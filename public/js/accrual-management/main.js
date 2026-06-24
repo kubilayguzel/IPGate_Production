@@ -192,6 +192,116 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 const ExcelJS = window.ExcelJS;
                 const workbook = new ExcelJS.Workbook();
+
+                // 🔥 YENİ: EĞER YURTDIŞI SEKMESİNDEYSEK SADECE ONA ÖZEL EXCEL ÜRET VE ÇIK!
+                if (this.state.activeTab === 'foreign') {
+                    const wsForeign = workbook.addWorksheet('Yurtdışı Ödemeler', { views: [{ showGridLines: true }] });
+                    
+                    wsForeign.columns = [
+                        { header: 'İşlem ID', key: 'id', width: 12 },
+                        { header: 'Durum', key: 'status', width: 15 },
+                        { header: 'Ödeme Tarihi', key: 'paymentDate', width: 15 },
+                        { header: 'İlgili İş', key: 'task', width: 40 },
+                        { header: 'Ödeme Yapılacak Taraf', key: 'party', width: 35 },
+                        { header: 'Toplam Tutar', key: 'total', width: 20 },
+                        { header: 'Kalan Bakiye', key: 'remaining', width: 20 },
+                        { header: 'Müşavire İletildi', key: 'advisor', width: 18 }
+                    ];
+
+                    // Başlık Stili
+                    wsForeign.getRow(1).height = 25;
+                    wsForeign.getRow(1).eachCell((cell) => {
+                        cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                    });
+
+                    // Verileri Doldur
+                    dataToExport.forEach(acc => {
+                        // Para formatlayıcı
+                        const fmtMoney = (amount, currency) => {
+                            const num = parseFloat(amount) || 0;
+                            return `${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)} ${currency}`;
+                        };
+
+                        // Toplam Beklenen Döviz (Expected)
+                        let expectedMap = {}; 
+                        let foreignItems = (acc.items || []).filter(i => i.fee_type === 'Yurtdışı Maliyet');
+                        if (foreignItems.length === 0) foreignItems = (acc.items || []).filter(i => i.fee_type !== 'Hizmet');
+                        
+                        if (foreignItems.length > 0) {
+                            foreignItems.forEach(i => {
+                                const c = i.currency || 'EUR';
+                                const amt = Number(i.total_amount) || 0;
+                                const vatMult = acc.applyVatToOfficialFee ? (1 + (Number(i.vat_rate || acc.vatRate || 0) / 100)) : 1;
+                                expectedMap[c] = (expectedMap[c] || 0) + (amt * vatMult);
+                            });
+                        } else {
+                            const c = acc.officialFee?.currency || 'EUR';
+                            const amt = parseFloat(acc.officialFee?.amount) || 0;
+                            const vatMult = acc.applyVatToOfficialFee ? (1 + (acc.vatRate || 0) / 100) : 1;
+                            if(amt > 0) expectedMap[c] = amt * vatMult;
+                        }
+
+                        let expectedStr = Object.entries(expectedMap).map(([c, a]) => fmtMoney(a, c)).join(' + ') || '0 EUR';
+                        
+                        // Kalan Döviz (Remaining)
+                        let remTexts = [];
+                        if (acc.foreignStatus !== 'paid') {
+                            let remArr = [];
+                            if (Array.isArray(acc.foreignRemainingAmount) && acc.foreignRemainingAmount.length > 0) {
+                                remArr = acc.foreignRemainingAmount;
+                            } else {
+                                remArr = Object.entries(expectedMap).map(([c, a]) => ({currency: c, amount: a}));
+                            }
+                            remArr.forEach(item => {
+                                if (Number(item.amount) > 0.01) remTexts.push(fmtMoney(item.amount, item.currency)); 
+                            });
+                        }
+                        let remainingStr = (acc.foreignStatus === 'paid' || remTexts.length === 0) ? '0' : remTexts.join(' + ');
+
+                        // Statü Metni
+                        let fStatusTxt = 'Ödenmedi';
+                        if (acc.foreignStatus === 'paid') fStatusTxt = 'Ödendi';
+                        else if (acc.foreignStatus === 'partially_paid') fStatusTxt = 'Kısmen Ödendi';
+
+                        // Görev İsmi
+                        const task = this.dataManager.allTasks[String(acc.taskId)];
+                        const typeObj = task ? this.dataManager.allTransactionTypes.find(t => String(t.id) === String(task.taskType)) : null;
+                        const taskDisplay = typeObj ? (typeObj.alias || typeObj.name) : (task?.title || acc.taskTitle || 'Yurtdışı İşlemi');
+
+                        const row = wsForeign.addRow({
+                            id: `#${acc.id}`,
+                            status: fStatusTxt,
+                            paymentDate: acc.foreignPaymentDate ? new Date(acc.foreignPaymentDate).toLocaleDateString('tr-TR') : '-',
+                            task: taskDisplay,
+                            party: acc.serviceInvoiceParty?.name || '-',
+                            total: expectedStr,
+                            remaining: remainingStr,
+                            advisor: acc.sentToAdvisor ? 'Evet' : 'Hayır'
+                        });
+
+                        // Hücre Stilleri
+                        row.eachCell((cell, colNumber) => {
+                            cell.font = { name: 'Montserrat', size: 10 };
+                            cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 8 ? 'center' : 'left' };
+                            if (colNumber === 2) {
+                                if (fStatusTxt === 'Ödendi') cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF15803D' } };
+                                else if (fStatusTxt === 'Ödenmedi') cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+                                else cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FFB45309' } };
+                            }
+                        });
+                    });
+
+                    // Çıktı Al ve Fonksiyondan Çık
+                    const buffer = await workbook.xlsx.writeBuffer();
+                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    window.saveAs(blob, `Yurtdisi_Odemeler_Raporu_${new Date().toLocaleDateString('tr-TR').replace(/\./g, '_')}.xlsx`);
+                    showNotification(`${dataToExport.length} kayıt Yurtdışı Ödemeler formatında aktarıldı!`, 'success');
+                    
+                    return; // 🔥 DİĞER (Mali Rapor) KISIMLARININ ÇALIŞMASINI ENGELLER!
+                }
+
                 // Kılavuz çizgilerini kapatarak tertemiz bir A4 kağıdı / Dashboard görünümü elde ediyoruz.
                 const worksheet = workbook.addWorksheet('Mali Rapor', { views: [{ showGridLines: false }] });
 

@@ -26,8 +26,8 @@ serve(async (req) => {
             return {
                 baseUrl: "https://ofis-sandbox-api.kolaybi.com", 
                 channel: "evrekagroupsmm", 
-                authPayload: { api_key: Deno.env.get("KOLAYBI_HUKUK_API_KEY") ?? "2e000fbf-920d-4c5b-9a42-b9422f734c01" }, 
-                endpointBase: "/kolaybi/v1/invoices", // 🔥 /smms yerine /invoices yapıyoruz
+                authPayload: { api_key: "2e000fbf-920d-4c5b-9a42-b9422f734c01" },
+                endpointBase: "/kolaybi/v1/invoices", // 🔥 DÜZELTİLDİ: SMM için de ortak fatura uç noktası kullanılacak
                 isSmm: true
             };
         } else {
@@ -706,25 +706,25 @@ serve(async (req) => {
             }
         });
 
+        // 🔥 GÜNCELLENEN BELGE OLUŞTURMA MOTORU (Dokümantasyona Tam Uyumlu)
         const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
             if (items.length === 0) return null;
 
             const invoiceParams = new URLSearchParams();
+            
+            // Zorunlu Ana Parametreler
             invoiceParams.append("contact_id", String(kolaybiContactId));
-
             if (kolaybiAddressId && kolaybiAddressId !== "null" && kolaybiAddressId !== "undefined") {
                 invoiceParams.append("address_id", String(kolaybiAddressId));
             }
             
             const turkeyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
             
-            // 🔥 ORTAK TARİHLER: Hem Fatura hem de SMM aynı uç noktayı (/invoices) kullandığı için ikisi de bu tarihleri bekler.
+            // Dokümantasyona göre "order_date" tüm /invoices uç noktaları için zorunlu alandır.
             invoiceParams.append("order_date", turkeyDate);
-            invoiceParams.append("issue_date", turkeyDate);
 
             if (config.isSmm) {
-                // 🔥 SMM İÇİN SADECE TYPE: Destek ekibinin dediği gibi sadece type'ı gönderiyoruz. 
-                // document_scenario veya document_type EKLEMİYORUZ (Eklersek model çöker).
+                // SMM İÇİN KESİN PARAMETRE: type = self_employment_receipt
                 invoiceParams.append("type", "self_employment_receipt");
             } else {
                 // FATURA İÇİN SENARYOLAR
@@ -738,6 +738,7 @@ serve(async (req) => {
             let calculatedGrandTotal = 0;
 
             items.forEach(item => {
+                // Zorunlu Kalem Parametreleri
                 invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
                 invoiceParams.append(`items[${itemIndex}][quantity]`, item.qty.toFixed(2));
                 invoiceParams.append(`items[${itemIndex}][unit_price]`, item.price.toFixed(2));
@@ -746,23 +747,19 @@ serve(async (req) => {
                 invoiceParams.append(`items[${itemIndex}][vat_rate]`, safeVat.toString());
                 invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
 
+                // 🔥 KESİN ÇÖZÜM 1: SMM'de KDV 0 olsa bile muafiyet kodu GÖNDERMİYORUZ. 
+                // 🔥 KESİN ÇÖZÜM 2: Dokümanda OLMAYAN 'vat_exemption_code' parametresi tamamen silindi! Sadece 'reason_code' kaldı.
                 if (safeVat === 0 && !config.isSmm) {
-                    invoiceParams.append(`items[${itemIndex}][vat_exemption_code]`, "351");
                     invoiceParams.append(`items[${itemIndex}][vat_exemption_reason_code]`, "351");
                 }
 
-                if (config.isSmm) {
-                    // 🔥 STOPAJI GİZLEDİK: Buradaki "0" değerini zorla göndermek KolayBi'nin matematik modelini çökertiyordu, bu yüzden sildik.
-                    calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
+                if (!config.isSmm && docType === 'TEVKIFAT') {
+                    invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
+                    invoiceParams.append(`items[${itemIndex}][withholding_value]`, "90");
+                    invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
+                    calculatedGrandTotal += (item.qty * item.price) * 1.02; 
                 } else {
-                    if (docType === 'TEVKIFAT') {
-                        invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
-                        invoiceParams.append(`items[${itemIndex}][withholding_value]`, "90");
-                        invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
-                        calculatedGrandTotal += (item.qty * item.price) * 1.02; 
-                    } else {
-                        calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
-                    }
+                    calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
                 }
                 itemIndex++;
             });
@@ -784,14 +781,20 @@ serve(async (req) => {
 
             const requestBodyString = invoiceParams.toString();
             
+            console.log(`[KOLAYBI REQ ADRES]: ${config.baseUrl}${config.endpointBase}`);
+            console.log(`[KOLAYBI REQ BODY]: ${requestBodyString}`);
+
             const invoiceReq = await fetch(`${config.baseUrl}${config.endpointBase}`, { method: 'POST', headers: apiHeadersForm, body: requestBodyString });
             const invoiceResText = await invoiceReq.text();
             
+            console.log(`[KOLAYBI RES STATUS]: ${invoiceReq.status}`);
+            console.log(`[KOLAYBI RES BODY]: ${invoiceResText}`);
+
             let invoiceRes;
             try { invoiceRes = JSON.parse(invoiceResText); } catch(e) { throw new Error(`Belge API Yanıtı Okunamadı: ${invoiceResText}`); }
 
             if (!invoiceReq.ok || invoiceRes.success === false) {
-                const errorMessage = invoiceRes.message || "";
+                const errorMessage = invoiceRes.message || JSON.stringify(invoiceRes);
                 if (!config.isSmm && errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && (!forceScenario)) {
                     return await createDocumentInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA");
                 }

@@ -33,8 +33,8 @@ const GENERIC_WORDS = [
     'turkey', 'türkiye', 'international', 'uluslararası', 'tesisi', 'sistemleri',
     'real', 'estate', 'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
-    'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'bread', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
-    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'and', 'at', 'on', 'by', 'with', 'a', 'an',
+    'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
+    've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'at', 'on', 'by', 'with', 'a', 'an',
     'com', 'comtr', 'www', 'io'
 ];
 
@@ -44,6 +44,36 @@ function removeTurkishSuffixes(word: string) {
     if (word.endsWith('si') || word.endsWith('sı') || word.endsWith('sü') || word.endsWith('su')) return word.substring(0, word.length - 2);
     if (word.length > 2 && ['i', 'ı', 'u', 'ü'].includes(word[word.length - 1])) return word.substring(0, word.length - 1);
     return word;
+}
+
+function splitCompoundGenerics(text: string) {
+    const safeGenerics = GENERIC_WORDS.filter(w => w.length >= 4);
+    let words = text.split(/\s+/);
+    let processedWords = words.map(word => {
+        if (word.length <= 5) return word;
+        let stemmedWord = removeTurkishSuffixes(word);
+        let originalSuffix = word.slice(stemmedWord.length); 
+
+        for (const gen of safeGenerics) {
+            if (stemmedWord.endsWith(gen) && stemmedWord.length > gen.length) {
+                const root = stemmedWord.slice(0, -gen.length);
+                if (root.length >= 3) {
+                    return root + ' ' + gen + originalSuffix; 
+                }
+            }
+        }
+
+        for (const gen of safeGenerics) {
+            if (stemmedWord.startsWith(gen) && stemmedWord.length > gen.length) {
+                const root = stemmedWord.slice(gen.length);
+                if (root.length >= 3) {
+                    return gen + ' ' + root + originalSuffix;
+                }
+            }
+        }
+        return word;
+    });
+    return processedWords.join(' ');
 }
 
 function cleanMarkName(name: string, removeGenericWords = true) {
@@ -59,6 +89,7 @@ function cleanMarkName(name: string, removeGenericWords = true) {
         
     let cleaned = processed.replace(/[^a-z0-9ğüşöçı\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (removeGenericWords) {
+        cleaned = splitCompoundGenerics(cleaned);
         cleaned = cleaned.split(' ').filter(word => {
             const stemmedWord = removeTurkishSuffixes(word);
             return !GENERIC_WORDS.includes(stemmedWord) && !GENERIC_WORDS.includes(word);
@@ -106,13 +137,10 @@ function numberToTurkishText(numStr: string): string {
 function convertNumbersAndSymbolsToText(str: string): string {
     if (!str) return "";
     let result = str;
-    
     result = result.replace(/&/g, ' ve ').replace(/\+/g, ' artı ').replace(/%/g, ' yüzde ');
-    
     result = result.replace(/\b\d{1,4}\b/g, (match) => {
         return numberToTurkishText(match);
     });
-    
     return result.replace(/\s+/g, ' ').trim();
 }
 
@@ -266,14 +294,10 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         }
     }
 
-    // 🔥 YENİ: 2 HARFLİ SONEK KALKANI (Kentsa, Floransa Kuralı) 🔥
     if (s1.length === 2 && s2.length >= 2) {
         const words2 = s2.split(' ').filter(w => w.length > 0);
         for (const w of words2) {
-            // Eğer kelime "sa" ile tam bitiyorsa (floransa, kentsa)
-            // Ortalarda geçiyorsa (insan) bu şarta takılmaz ve pas geçilir!
             if (w.length > 2 && w.endsWith(s1)) {
-                // Sadece kelime sonunda geçiyorsa yüksek bir bonus (%82) veriyoruz
                 substringBonus = Math.max(substringBonus, 0.82); 
             }
         }
@@ -315,7 +339,7 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
             if (ng1.size === 0 && ng2.size === 0) return 1.0;
             if (ng1.size === 0 || ng2.size === 0) return 0.0;
             let common = 0; ng1.forEach(ng => { if (ng2.has(ng)) common++; });
-            return (2 * common) / (ng1.size + ng2.size);
+            return (2 * common) / (ng1.size + ng2.size); 
         })();
 
         let coreScore = (lev * 0.60 + jw * 0.25 + ngram * 0.15);
@@ -396,19 +420,15 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
         phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
     }
     
-    // 🔥 YENİ: ANAGRAM (HARF KARIŞTIRMA) ALGORİTMASI 🔥
-    // Boşlukları silip, harfleri alfabetik sıraya diziyoruz
+    phase2Final = Math.max(phase2Final, substringBonus);
+
     const s1Sorted = s1.replace(/\s+/g, '').split('').sort().join('');
     const s2Sorted = s2.replace(/\s+/g, '').split('').sort().join('');
     const anagramScoreRaw = computeCoreScore(s1Sorted, s2Sorted);
-    
-    // Birebir harfler tutsa bile sıraları bozuk olduğu için %20 ceza kesiyoruz.
     const anagramScore = anagramScoreRaw * 0.80; 
 
-    // Anagram skoru bizim normal skorumuzdan yüksekse, onu geçerli kılıyoruz.
     phase2Final = Math.max(phase2Final, substringBonus, anagramScore);
 
-    // TÜRKÇE FONETİK BONUSU DEVREDE
     const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
 
     let finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
@@ -422,7 +442,6 @@ async function markWorkerStatus(supabase: any, jobId: string, workerId: string |
     
     const { data: activeWorkers } = await supabase.from('search_progress_workers').select('id').eq('job_id', jobId).eq('status', 'processing');
     if (!activeWorkers || activeWorkers.length === 0) {
-        console.log(`[Job ${jobId}] 🎉 TÜM İŞÇİLER (${status}) İŞLEMİ BİTİRDİ. Ana Job 'completed' yapılıyor.`);
         await supabase.from('search_progress').update({ status: 'completed' }).eq('id', jobId);
     }
 }
@@ -442,8 +461,29 @@ serve(async (req) => {
             try {
                 const BATCH_SIZE = 150; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
-                
-                console.log(`[Worker ${workerId}] 🚀 BAŞLADI | Hedef: ${rawBulletinNumber} | Marka: ${monitoredMarks.length} | Başlangıç Offset: ${lastId}`);
+                let currentOffset = parseInt(lastId, 10) || 0;
+
+                const missingNameMarks = monitoredMarks.filter((m: any) => {
+                    const hasSearchName = m.searchMarkName && String(m.searchMarkName).trim() !== "" && String(m.searchMarkName) !== "undefined" && String(m.searchMarkName) !== "null";
+                    const hasBackupName = m.markName || m.title || m.trademarkName;
+                    return !hasSearchName && !hasBackupName && m.ip_record_id;
+                });
+
+                if (missingNameMarks.length > 0) {
+                    const missingIds = missingNameMarks.map((m: any) => m.ip_record_id);
+                    const { data: fetchedRecords } = await supabase.from('ip_records').select('id, brand_name, mark_name, title').in('id', missingIds);
+
+                    if (fetchedRecords) {
+                        monitoredMarks.forEach((m: any) => {
+                            if (!m.markName && !m.searchMarkName && m.ip_record_id) {
+                                const found = fetchedRecords.find(r => r.id === m.ip_record_id);
+                                if (found) {
+                                    m.markName = found.brand_name || found.mark_name || found.title || 'İsimsiz Marka';
+                                }
+                            }
+                        });
+                    }
+                }
 
                 const preparedMarks = monitoredMarks.map((mark: any) => {
                     const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
@@ -510,21 +550,20 @@ serve(async (req) => {
                     return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter };
                 });
 
-                // 🔥 YENİ: lastId artık metin değil, bir sayısal indeks (offset) olarak kullanılıyor
-                let currentOffset = parseInt(lastId, 10) || 0;
                 let actualProcessedCount = 0;
                 const uiResults = [];
                 const permanentRecords = []; 
 
-                // 🔥 YENİ: Veri tabanından çekerken .gt() yerine .range() kullanılıyor
-                const { data: hits, error } = await supabase
+                const { data: hits, error: fetchError } = await supabase
                     .from('trademark_bulletin_records')
                     .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
                     .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
                     .order('id')
                     .range(currentOffset, currentOffset + BATCH_SIZE - 1);
 
-                if (error) throw error;
+                if (fetchError) {
+                    throw fetchError;
+                }
 
                 const hasMoreRecords = hits && hits.length === BATCH_SIZE;
 
@@ -578,8 +617,6 @@ serve(async (req) => {
                                 if (sTerm.length >= 3) {
                                     isExactPrefixSuffix = cleanedHitName.includes(sTerm);
                                 } else if (sTerm.length === 2) {
-                                    // 🔥 2 HARF KURALI: Kelime ortasında (insan) geçiyorsa pas geç, 
-                                    // ama kelimeyle bitiyorsa (floransa) veya ayrıysa (çe sa) filtreyi geçirt!
                                     isExactPrefixSuffix = cleanedHitName.split(' ').some(w => w.endsWith(sTerm));
                                 }
 
@@ -625,12 +662,15 @@ serve(async (req) => {
 
                 if (uiResults.length > 0) {
                     const CHUNK_SIZE = 1000;
+                    
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
                         await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
                     }
+                    
                     for (let i = 0; i < permanentRecords.length; i += CHUNK_SIZE) {
                         await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
                     }
+
                     const { data: jobData } = await supabase.from('search_progress').select('current_results').eq('id', jobId).single();
                     await supabase.from('search_progress').update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
                 }
@@ -639,20 +679,30 @@ serve(async (req) => {
                 const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
                 await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
 
-                // 🔥 YENİ: Bir sonraki işlem bloğu için indexi BATCH_SIZE kadar ileri kaydırıyoruz
                 const nextOffset = currentOffset + BATCH_SIZE;
 
                 if (hasMoreRecords) {
-                    EdgeRuntime.waitUntil(
-                        supabase.functions.invoke('perform-trademark-similarity-search', {
-                            body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: nextOffset.toString(), processedCount: newProcessedCount, totalBulletinRecords },
-                            headers: { Authorization: `Bearer ${supabaseKey}` }
-                        }).then(async (res) => {
-                            if (res.error) await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                        }).catch(async (err) => {
-                            await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                        })
-                    );
+                    const invokeWithRetry = async (retries = 3, delay = 1000) => {
+                        try {
+                            const { error } = await supabase.functions.invoke('perform-trademark-similarity-search', {
+                                body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: nextOffset.toString(), processedCount: newProcessedCount, totalBulletinRecords },
+                                headers: { Authorization: `Bearer ${supabaseKey}` }
+                            });
+
+                            if (error) throw error;
+                        } catch (err) {
+                            if (retries > 0) {
+                                const jitter = Math.floor(Math.random() * 500);
+                                await new Promise(resolve => setTimeout(resolve, delay + jitter));
+                                await invokeWithRetry(retries - 1, delay * 2); 
+                            } else {
+                                await markWorkerStatus(supabase, jobId, workerId, 'failed');
+                            }
+                        }
+                    };
+
+                    EdgeRuntime.waitUntil(invokeWithRetry());
+
                 } else {
                     await markWorkerStatus(supabase, jobId, workerId, 'completed');
                 }
@@ -704,7 +754,6 @@ serve(async (req) => {
         for (const item of activeChunks) {
             EdgeRuntime.waitUntil(
                 supabase.functions.invoke('perform-trademark-similarity-search', {
-                    // 🔥 DÜZELTME: İlk çağrıda '0' stringini gönderiyoruz ki parseInt('0') -> 0 (offset başlangıcı) olsun
                     body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
                     headers: { Authorization: `Bearer ${supabaseKey}` }
                 }).catch(async (err) => {

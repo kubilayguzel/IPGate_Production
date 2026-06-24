@@ -18,6 +18,8 @@ class MonitoringController {
 
         this.editingRecordId = null;
         this.imageRemoved = false; 
+        this.columnFilters = {};
+        this.columnFilterTimer = null;
         
         // 🔥 DÜZELTME: Modal yöneticisini doğru şekilde başlatıyoruz
         this.editModalManager = new EditCriteriaModalManager();
@@ -36,6 +38,48 @@ class MonitoringController {
         const res = await this.dataManager.init();
         if (res.success) {
             this.setupPagination();
+            
+            // 🔥 ÇÖZÜM: Portföyden gelen spesifik marka (filterId) sorgusunu yakala
+            const urlParams = new URLSearchParams(window.location.search);
+            const filterId = urlParams.get('filterId');
+            
+            if (filterId) {
+                // Tıklanan markayı tüm veriler (yurtiçi ve yurtdışı) içinde bul
+                const targetRecord = this.dataManager.allMonitoringData.find(r => String(r.ipRecordId) === String(filterId));
+                
+                if (targetRecord) {
+                    // 1. Marka Yurtdışında mı Yurtiçinde mi tespit et ve arka planda o sekmeye geç
+                    this.dataManager.currentTab = targetRecord.monitoringType;
+                    
+                    // 2. Arayüzdeki (UI) sekmeleri ve buton görünürlüklerini ona göre ayarla
+                    document.querySelectorAll('#monitoringTabs .nav-link').forEach(el => {
+                        el.classList.remove('active');
+                        if (el.getAttribute('onclick') && el.getAttribute('onclick').includes(targetRecord.monitoringType)) {
+                            el.classList.add('active');
+                        }
+                    });
+
+                    const btnContainer = document.getElementById('manualAddBtnContainer');
+                    const bulkDeleteBtn = document.getElementById('removeSelectedBtn');
+                    const editCritBtn = document.getElementById('editCriteriaBtn');
+                    
+                    if (btnContainer) btnContainer.style.display = targetRecord.monitoringType === 'international' ? 'block' : 'none';
+                    if (bulkDeleteBtn) bulkDeleteBtn.style.display = targetRecord.monitoringType === 'international' ? 'none' : 'inline-block';
+                    if (editCritBtn) editCritBtn.style.display = targetRecord.monitoringType === 'international' ? 'none' : 'inline-block';
+
+                    // 3. Arama kutusunu (Başvuru No veya Marka Adı ile) otomatik doldur ki kullanıcı filtreyi görebilsin/silebilsin
+                    const searchVal = targetRecord.applicationNumber && targetRecord.applicationNumber !== '-' 
+                        ? targetRecord.applicationNumber 
+                        : targetRecord.markName;
+                        
+                    const searchInput = document.getElementById('searchInput');
+                    if (searchInput) searchInput.value = searchVal;
+                    
+                    // 4. Listeyi bu arama kelimesine göre sınırlandır (Filtrele)
+                    this.dataManager.filterData({ search: searchVal.toLowerCase(), status: 'all' });
+                }
+            }
+
             this.renderPage();
             this.setupGlobalListeners();
             this.setupInternationalListeners();
@@ -69,7 +113,8 @@ class MonitoringController {
         const editCritBtn = document.getElementById('editCriteriaBtn');
         if (bulkDeleteBtn) bulkDeleteBtn.style.display = tabName === 'international' ? 'none' : 'inline-block';
         if (editCritBtn) editCritBtn.style.display = tabName === 'international' ? 'none' : 'inline-block';
-        
+
+        this.columnFilters = {};
         this.selectedItems.clear();
         this.updateButtons();
         if (this.pagination) this.pagination.currentPage = 1;
@@ -295,13 +340,13 @@ class MonitoringController {
 
     renderPage() {
         if (this.pagination) {
-            // Önce toplam sayıyı pagination'a bildir
             this.pagination.update(this.dataManager.filteredData.length);
-            // Sonra o anki sayfanın verisini al ve tabloya çiz
             const pageData = this.pagination.getCurrentPageData(this.dataManager.filteredData);
-            this.renderer.renderTable(pageData, this.selectedItems, this.dataManager.currentSort);
+            // 🔥 YENİ: this.columnFilters eklendi
+            this.renderer.renderTable(pageData, this.selectedItems, this.dataManager.currentSort, this.columnFilters);
         } else {
-            this.renderer.renderTable(this.dataManager.filteredData, this.selectedItems, this.dataManager.currentSort);
+            // 🔥 YENİ: this.columnFilters eklendi
+            this.renderer.renderTable(this.dataManager.filteredData, this.selectedItems, this.dataManager.currentSort, this.columnFilters);
         }
         this.updateButtons();
     }
@@ -455,7 +500,8 @@ class MonitoringController {
             const searchVal = document.getElementById('searchInput')?.value.trim().toLowerCase() || '';
             const statusVal = document.getElementById('statusFilter')?.value || 'all';
             this.selectedItems.clear();
-            this.dataManager.filterData({ search: searchVal, status: statusVal });
+            // 🔥 YENİ: this.columnFilters objesi de ikinci parametre olarak gönderiliyor
+            this.dataManager.filterData({ search: searchVal, status: statusVal }, this.columnFilters);
             if (this.pagination) this.pagination.currentPage = 1;
             this.renderPage();
         };
@@ -469,8 +515,29 @@ class MonitoringController {
         document.getElementById('clearFiltersBtn')?.addEventListener('click', () => {
             if(document.getElementById('searchInput')) document.getElementById('searchInput').value = '';
             if(document.getElementById('statusFilter')) document.getElementById('statusFilter').value = 'all';
+            
+            // 🔥 YENİ: Temizle Butonuna basınca kolonları da sıfırla
+            this.columnFilters = {};
             executeSearch();
         });
+
+        // 🔥 YENİ: Tablo içindeki kolon arama kutucuklarına yazıldığında otomatik arama (Delegation)
+        if (tableContainer) {
+            tableContainer.addEventListener('input', (e) => {
+                if (e.target.classList.contains('column-filter')) {
+                    const key = e.target.dataset.key;
+                    const value = e.target.value.trim();
+                    
+                    this.columnFilters[key] = value;
+                    
+                    // Yazı yazılırken her tuşta arama yapmak yerine kullanıcının durmasını (300ms) bekle
+                    clearTimeout(this.columnFilterTimer);
+                    this.columnFilterTimer = setTimeout(() => {
+                        executeSearch();
+                    }, 300);
+                }
+            });
+        }
     }
 }
 

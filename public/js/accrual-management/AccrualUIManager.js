@@ -399,6 +399,21 @@ export class AccrualUIManager {
                     remainingHtml = `<span class="text-success font-weight-bold">Tamamlandı</span>`;
                 }
 
+                // 🔥 YENİ: Debit Note Tespiti ve Tıklanabilir Rozeti
+                let debitNoteHtml = '';
+                if (acc.files && acc.files.length > 0) {
+                    // Yüklenen dökümanlar arasında adı veya türü "debit" kelimesi içeren dosyayı bul
+                    const debitDoc = acc.files.find(f => 
+                        (f.type && f.type.toLowerCase().includes('debit')) || 
+                        (f.name && f.name.toLowerCase().includes('debit'))
+                    );
+                    if (debitDoc) {
+                        const docUrl = debitDoc.url || debitDoc.content;
+                        // Siyah şık bir buton olarak durumu yansıt
+                        debitNoteHtml = `<a href="${docUrl}" target="_blank" class="badge badge-dark p-1 px-2 shadow-sm text-white" title="Düzenlenen Debit Note'u Görüntüle" style="text-decoration: none;"><i class="fas fa-file-invoice-dollar mr-1"></i> Debit</a>`;
+                    }
+                }
+
                 if (activeTab === 'invoices') {
                     // 🔥 ÇÖZÜM 1: Kesim Tarihi (Sisteme kayıt) ve Fatura Tarihi (Resmi) olarak 2'ye ayrıldı
                     const kesimTarihi = acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-';
@@ -578,6 +593,7 @@ export class AccrualUIManager {
                         <td class="align-middle">
                             <div class="d-flex align-items-center mb-2" style="gap: 8px;">
                                 <span class="badge ${sCls} p-1 px-2" style="font-size:0.85em">${sTxt}</span>
+                                ${debitNoteHtml}
                                 <div style="font-size: 0.85em;">${remainingHtml}</div>
                             </div>
                             <div class="d-flex align-items-center">
@@ -644,7 +660,7 @@ export class AccrualUIManager {
                         fStatusCls = 'status-partially-paid bg-warning text-dark';
                     }
 
-                    const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span>`;
+                    const foreignStatusHtml = `<span class="badge ${fStatusCls}">${fStatusTxt}</span> ${debitNoteHtml}`;
 
                     let fPaymentDateHtml = '-';
                     if ((acc.foreignStatus === 'paid' || acc.foreignStatus === 'partially_paid') && acc.foreignPaymentDate) {

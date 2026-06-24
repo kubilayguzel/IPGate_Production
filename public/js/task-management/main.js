@@ -313,10 +313,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             const searchInput = document.getElementById('searchInput');
             const searchValue = (query !== undefined ? query : (searchInput?.value || '')).toLowerCase();
 
+            // 🔥 EKSİK OLAN 1. KISIM: Seçili Statü Filtresini Oku
+            const statusFilterDropdown = document.getElementById('statusFilter');
+            const selectedStatus = statusFilterDropdown ? statusFilterDropdown.value : 'all';
+
             this.filteredData = this.processedData.filter(item => {
+                // 1. Metin Araması Eşleşmesi
                 const matchesSearch = !searchValue || item.searchString.includes(searchValue);
-                let matchesTab = false;
                 
+                // 🔥 EKSİK OLAN 2. KISIM: Statü (Durum) Eşleşmesi
+                const matchesStatus = (selectedStatus === 'all' || item.status === selectedStatus);
+
+                // 3. Sekme Eşleşmesi
+                let matchesTab = false;
                 const isFinished = ['completed', 'cancelled', 'client_approval_closed', 'client_no_response_closed'].includes(item.status);
                 const isAccrualTask = String(item.taskType) === '53';
 
@@ -332,7 +341,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                return matchesSearch && matchesTab;
+                // 🔥 EKSİK OLAN 3. KISIM: Sonuçta matchesStatus'ü de dahil et
+                return matchesSearch && matchesStatus && matchesTab;
             });
 
             this.sortData();

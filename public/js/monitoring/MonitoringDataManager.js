@@ -110,10 +110,11 @@ export class MonitoringDataManager {
         return '-';
     }
 
-    filterData(filters = {}) {
+    filterData(filters = {}, columnFilters = {}) {
         this.filteredData = this.allMonitoringData.filter(item => {
             if (item.monitoringType !== this.currentTab) return false;
 
+            // 1. Genel Arama Kutusu (Mevcut)
             if (filters.search) {
                 const markName = (item.title || item.markName || '').toLowerCase();
                 const owner = this.getOwnerNames(item).toLowerCase();
@@ -121,10 +122,27 @@ export class MonitoringDataManager {
                 const sTerms = [...(item.brandTextSearch || []), item.searchMarkName].filter(Boolean).join(' ').toLowerCase();
                 if (!markName.includes(filters.search) && !owner.includes(filters.search) && !applicationNo.includes(filters.search) && !sTerms.includes(filters.search)) return false;
             }
+            
+            // 2. Durum Filtresi (Mevcut)
             if (filters.status && filters.status !== 'all') {
                 const itemStatusVal = this.getNormalizedStatus(item.status);
                 if (itemStatusVal !== filters.status) return false;
             }
+
+            // 🔥 3. YENİ: Kolon Bazlı Aramalar (Marka Adı, Sahip, Başvuru No)
+            if (columnFilters.markName) {
+                const markName = (item.title || item.markName || '').toLowerCase();
+                if (!markName.includes(columnFilters.markName.toLowerCase())) return false;
+            }
+            if (columnFilters.owner) {
+                const owner = this.getOwnerNames(item).toLowerCase();
+                if (!owner.includes(columnFilters.owner.toLowerCase())) return false;
+            }
+            if (columnFilters.applicationNumber) {
+                const applicationNo = (item.applicationNumber || '').toLowerCase();
+                if (!applicationNo.includes(columnFilters.applicationNumber.toLowerCase())) return false;
+            }
+
             return true;
         });
         return this.sortData();

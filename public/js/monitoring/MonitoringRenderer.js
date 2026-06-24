@@ -20,7 +20,7 @@ export class MonitoringRenderer {
         }
     }
 
-    renderTable(data, selectedItems, currentSort) {
+    renderTable(data, selectedItems, currentSort, columnFilters = {}) { // 🔥 Parametre eklendi
         if (!this.container) return;
 
         const getSortIcon = (field) => {
@@ -35,7 +35,7 @@ export class MonitoringRenderer {
         if (!isIntl) {
             // YURTİÇİ TABLO BAŞLIKLARI
             html += `<th style="width: 40px; text-align: center; overflow: visible; text-overflow: clip;"><input type="checkbox" id="headerSelectAllCheckbox" /></th>
-            <th style="width: 100px; text-align: center;">Görsel</th>
+                     <th style="width: 100px; text-align: center;">Görsel</th>
                      <th class="sortable" data-sort="markName" style="cursor:pointer; width: 220px;">Marka Adı ${getSortIcon('markName')}</th>
                      <th style="width: 250px;">Aranacak İbareler</th>
                      <th class="sortable" data-sort="owner" style="cursor:pointer; width: auto;">Sahip ${getSortIcon('owner')}</th>
@@ -44,7 +44,7 @@ export class MonitoringRenderer {
                      <th style="width: 150px;">Nice Sınıfı</th>
                      <th style="width: 100px; text-align: center;">Durum</th>`;
         } else {
-            // YURTDIŞI TABLO BAŞLIKLARI (Marka/Sahip 40px daraltıldı, diğerlerine paylaştırıldı)
+            // YURTDIŞI TABLO BAŞLIKLARI
             html += `<th style="width: 100px; text-align: center;">Görsel</th>
                      <th class="sortable" data-sort="markName" style="cursor:pointer; width: auto; min-width: 160px;">Marka Adı ${getSortIcon('markName')}</th>
                      <th class="sortable" data-sort="owner" style="cursor:pointer; width: auto; min-width: 160px;">Sahip ${getSortIcon('owner')}</th>
@@ -57,6 +57,36 @@ export class MonitoringRenderer {
                      <th style="width: 130px; min-width: 130px; text-align: center;">İşlemler</th>`;
         }
         
+        html += `</tr>`;
+
+        // 🔥 YENİ: FİLTRE KUTUCUKLARI SATIRI EKLENİYOR
+        html += `<tr style="background-color: #f8f9fa;">`;
+        if (!isIntl) {
+            html += `
+                <th></th>
+                <th></th>
+                <th><input type="text" class="form-control column-filter" data-key="markName" placeholder="🔍 Ara..." value="${columnFilters.markName || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th></th>
+                <th><input type="text" class="form-control column-filter" data-key="owner" placeholder="🔍 Ara..." value="${columnFilters.owner || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th><input type="text" class="form-control column-filter" data-key="applicationNumber" placeholder="🔍 Ara..." value="${columnFilters.applicationNumber || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th></th>
+                <th></th>
+                <th></th>
+            `;
+        } else {
+            html += `
+                <th></th>
+                <th><input type="text" class="form-control column-filter" data-key="markName" placeholder="🔍 Ara..." value="${columnFilters.markName || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th><input type="text" class="form-control column-filter" data-key="owner" placeholder="🔍 Ara..." value="${columnFilters.owner || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th><input type="text" class="form-control column-filter" data-key="applicationNumber" placeholder="🔍 Ara..." value="${columnFilters.applicationNumber || ''}" style="width:100%; font-size:12px; padding:4px;"></th>
+                <th></th>
+                <th></th>
+                <th></th>
+                <th></th>
+                <th></th>
+                <th></th>
+            `;
+        }
         html += `</tr></thead><tbody>`;
 
         if (!data || data.length === 0) {

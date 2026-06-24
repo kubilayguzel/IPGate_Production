@@ -564,7 +564,17 @@ serve(async (req) => {
             const productsRes = await productsReq.json();
             const items = productsRes.data?.data || productsRes.data || [];
             
-            let validServiceItem = items.find((i: any) => i.product_type === 'SERVICE' || i.product_type === 'service' || i.type === 'service');
+            let validServiceItem = null;
+
+            // 🔥 EVREKA İÇİN ÖNCELİK: URN000006 kodlu "Danışmanlık Hizmet Bedeli" ürününü bul!
+            if (!config.isSmm) {
+                validServiceItem = items.find((i: any) => i.code === 'URN000006' || i.product_code === 'URN000006');
+            }
+
+            // Hukuk birimi ise veya KolayBi'de URN000006 bulunamazsa eski mantıktaki gibi rastgele bir hizmet kalemi bul (Yedek Plan)
+            if (!validServiceItem) {
+                validServiceItem = items.find((i: any) => i.product_type === 'SERVICE' || i.product_type === 'service' || i.type === 'service');
+            }
 
             if (validServiceItem && validServiceItem.id) {
                 productId = validServiceItem.id;

@@ -786,7 +786,8 @@ class CreateTaskController {
         if (!this.state.allIpRecords) return [];
         const typeId = String(this.state.selectedTaskType?.id || '');
         const isThirdPartyOnly = ['1', '20', '37', TASK_IDS.ITIRAZ_YAYIN].includes(typeId);
-        const allowThirdPartyMixed = ['19', '8', '21', '38', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME].includes(typeId);
+        // 🔥 YENİ: Marka İptal Talebi için üçüncü taraf dosyalarının da aranmasına izin verildi!
+        const allowThirdPartyMixed = ['19', '8', '21', '38', TASK_IDS.YAYIMA_ITIRAZIN_YENIDEN_INCELENMESI, TASK_IDS.KARARA_ITIRAZ_GERI_CEKME, TASK_IDS.YAYINA_ITIRAZI_GERI_CEKME, TASK_IDS.MARKA_IPTAL_TALEBI].includes(typeId);
         const lowerTerm = term.toLowerCase();
         
         return this.state.allIpRecords.filter(r => {

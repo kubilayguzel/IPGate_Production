@@ -609,9 +609,14 @@ export class AccrualUIManager {
                     let paymentParty = acc.serviceInvoiceParty?.name || '-';
                     let documentHtml = '-';
                     if (acc.files && acc.files.length > 0) {
-                        const lastFile = acc.files[acc.files.length - 1];
-                        const link = lastFile.url || lastFile.content;
-                        documentHtml = `<a href="${link}" target="_blank" class="text-secondary" title="${lastFile.name}"><i class="fas fa-file-contract fa-lg hover-primary"></i></a>`;
+                        // Sadece PDF dosyalarını filtrele
+                        const pdfFiles = acc.files.filter(f => f.type === 'application/pdf');
+                        
+                        if (pdfFiles.length > 0) {
+                            const lastPdf = pdfFiles[pdfFiles.length - 1];
+                            const link = lastPdf.url || lastPdf.content;
+                            documentHtml = `<a href="${link}" target="_blank" class="text-secondary" title="${lastPdf.name}"><i class="fas fa-file-contract fa-lg hover-primary"></i></a>`;
+                        }
                     }
 
                     let advisorStatusHtml = acc.sentToAdvisor 

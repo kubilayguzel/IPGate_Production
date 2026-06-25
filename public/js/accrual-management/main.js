@@ -1187,18 +1187,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 bulkSendAdvisorBtn.addEventListener('click', async () => {
                     if (this.state.selectedIds.size === 0) return;
 
-                    // 1. Seçilen tahakkukları filtrele (Belgesi olan Yurtdışı Ödemeleri)
+                    // 1. Seçilen tahakkukları filtrele (Sadece PDF belgesi olan Yurtdışı Ödemeleri)
                     const selectedAccruals = Array.from(this.state.selectedIds)
                         .map(id => this.dataManager.allAccruals.find(a => a.id === id))
-                        .filter(a => a && a.isForeignTransaction && a.files && a.files.length > 0);
+                        .filter(a => {
+                            if (!a || !a.isForeignTransaction || !a.files || a.files.length === 0) return false;
+                            // Sadece gerçek tipi application/pdf olan belge var mı kontrol et
+                            return a.files.some(f => f.type === 'application/pdf');
+                        });
 
                     if (selectedAccruals.length === 0) {
-                        showNotification('Seçilen ödemelerde ekli "Ödeme Belgesi/Dekont" bulunmamaktadır!', 'warning');
+                        showNotification('Seçilen ödemelerde ekli PDF formatında "Ödeme Belgesi/Dekont" bulunmamaktadır!', 'warning');
                         return;
                     }
 
-                    if (!confirm(`${selectedAccruals.length} adet dekont ZIP olarak bilgisayarınıza indirilecek ve Mali Müşavire e-posta olarak gönderilecektir. Onaylıyor musunuz?`)) return;
-
+                    if (!confirm(`${selectedAccruals.length} adet PDF dekont ZIP olarak bilgisayarınıza indirilecek ve Mali Müşavire e-posta olarak gönderilecektir. Onaylıyor musunuz?`)) return;
                     this.uiManager.toggleLoading(true);
                     try {
                         const { supabase } = await import('../../supabase-config.js');
@@ -1217,7 +1220,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         // 3. Dosyaları Fetch ile Çek ve ZIP'e Ekle
                         for (const acc of selectedAccruals) {
-                            const file = acc.files[acc.files.length - 1]; // Son eklenen belgeyi al
+                            // Sadece tipi kesin olarak application/pdf olanları al
+                            const pdfFiles = acc.files.filter(f => f.type === 'application/pdf');
+                            const file = pdfFiles[pdfFiles.length - 1];
                             const url = file.url || file.content;
                             
                             try {

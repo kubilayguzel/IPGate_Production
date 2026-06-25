@@ -185,9 +185,15 @@ export class AccrualFormManager {
                 </div>
             </div>
             
+            <div id="${p}NetTotalDisplay" class="d-flex justify-content-between align-items-center mb-2 px-3" 
+                 style="font-size: 1.0em; font-weight: 600; color: #475569; margin-top: 15px;">
+                <span class="text-uppercase text-muted" style="font-size: 0.85em; letter-spacing: 1px;">ARA TOPLAM (KDV'SİZ)</span>
+                <span id="${p}NetTotalValueContent">0.00 ₺</span>
+            </div>
+
             <div id="${p}TotalAmountDisplay" class="d-flex justify-content-between align-items-center" 
-                 style="font-size: 1.1em; font-weight: bold; color: #1e3c72; margin-top: 15px; padding: 15px 20px; background-color: #e3f2fd; border: 1px solid #90caf9; border-radius: 10px;">
-                <span class="text-uppercase text-muted" style="font-size: 0.85em; letter-spacing: 1px;">GENEL TOPLAM</span>
+                 style="font-size: 1.1em; font-weight: bold; color: #1e3c72; padding: 15px 20px; background-color: #e3f2fd; border: 1px solid #90caf9; border-radius: 10px;">
+                <span class="text-uppercase text-muted" style="font-size: 0.85em; letter-spacing: 1px;">GENEL TOPLAM (KDV DAHİL)</span>
                 <span id="${p}TotalValueContent">0.00 ₺</span>
             </div>
 
@@ -210,8 +216,8 @@ export class AccrualFormManager {
             </div>
             
             <div class="form-group mt-3" id="${p}ForeignInvoiceContainer" style="display:none;">
-                <label class="form-label font-weight-bold text-primary"><i class="fas fa-file-pdf mr-2"></i>Yurtdışı Fatura/Debit (PDF)</label>
-                <label for="${p}ForeignInvoiceFile" class="custom-file-upload btn btn-outline-primary w-100" style="cursor:pointer; height: 50px; display:flex; align-items:center; justify-content:center; border-style: dashed; border-width: 2px;"><i class="fas fa-cloud-upload-alt mr-2"></i> Fatura PDF Seç / Değiştir</label>
+                <label class="form-label font-weight-bold text-primary" id="${p}ForeignInvoiceTitleLabel"><i class="fas fa-file-pdf mr-2"></i>Yurtdışı Fatura/Debit (PDF)</label>
+                <label for="${p}ForeignInvoiceFile" id="${p}ForeignInvoiceBtnLabel" class="custom-file-upload btn btn-outline-primary w-100" style="cursor:pointer; height: 50px; display:flex; align-items:center; justify-content:center; border-style: dashed; border-width: 2px;"><i class="fas fa-cloud-upload-alt mr-2"></i> Fatura PDF Seç / Değiştir</label>
                 <input type="file" id="${p}ForeignInvoiceFile" accept="application/pdf" style="display:none;">
                 <small id="${p}ForeignInvoiceFileName" class="text-primary font-weight-bold d-block mt-2 text-center"></small>
             </div>
@@ -245,8 +251,18 @@ export class AccrualFormManager {
         if (deptEl) {
             deptEl.addEventListener('change', (e) => {
                 this.updateLineItemTypes(e.target.value);
+                this.handleForeignToggle(); // 🔥 HUKUK Değiştiğinde Alanı Kontrol Et
             });
         }
+        
+        // 🔥 YENİ: Tahakkuk Türü (Masraf vb.) değiştiğinde de Alanı Kontrol Et
+        const typeEl = document.getElementById(`${p}AccrualType`);
+        if (typeEl) {
+            typeEl.addEventListener('change', () => {
+                this.handleForeignToggle(); 
+            });
+        }
+
         document.getElementById(`${p}IsForeignTransaction`)?.addEventListener('change', () => {
             this.handleForeignToggle();
             this.recalculateAllRows();
@@ -456,6 +472,7 @@ export class AccrualFormManager {
         const p = this.prefix;
         const tbody = document.getElementById(`${p}LineItemsBody`);
         const totalsMap = {}; 
+        const netTotalsMap = {}; // 🔥 YENİ: KDV'siz net tutarları toplayacağımız obje
 
         // 🔥 ÇÖZÜM 2: Tevkifatı satırlarda değil, sadece Genel Toplamda (Listede) uyguluyoruz!
         const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
@@ -476,26 +493,46 @@ export class AccrualFormManager {
                 hasTevkifatApplied = true;
             }
 
-            const actualAccrualTotal = (qty * price) * (1 + effectiveVat / 100);
+            const netAmount = qty * price; // 🔥 YENİ: Vergisiz matrah
+            const actualAccrualTotal = netAmount * (1 + effectiveVat / 100);
+
+            if (netAmount > 0) {
+                netTotalsMap[curr] = (netTotalsMap[curr] || 0) + netAmount; // 🔥 YENİ: KDV'siz toplam sepete eklendi
+            }
 
             if (actualAccrualTotal > 0) {
                 totalsMap[curr] = (totalsMap[curr] || 0) + actualAccrualTotal;
             }
         });
 
+        // 1. GENEL TOPLAMI (KDV DAHİL) YAZDIR
         const valueSpan = document.getElementById(`${p}TotalValueContent`);
-        if (!valueSpan) return;
+        if (valueSpan) {
+            const parts = Object.entries(totalsMap).map(([curr, amount]) => {
+                return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + ' ' + curr;
+            });
 
-        const parts = Object.entries(totalsMap).map(([curr, amount]) => {
-            return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + ' ' + curr;
-        });
+            let noteHtml = hasTevkifatApplied ? ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı Tahsilat)</small>' : '';
 
-        let noteHtml = hasTevkifatApplied ? ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı Tahsilat)</small>' : '';
+            if (parts.length === 0) {
+                valueSpan.innerHTML = '0.00 TRY';
+            } else {
+                valueSpan.innerHTML = `<span class="text-primary font-weight-bold">${parts.join(' + ')}</span>${noteHtml}`;
+            }
+        }
 
-        if (parts.length === 0) {
-            valueSpan.innerHTML = '0.00 TRY';
-        } else {
-            valueSpan.innerHTML = `<span class="text-primary font-weight-bold">${parts.join(' + ')}</span>${noteHtml}`;
+        // 🔥 YENİ: 2. KDV'SİZ ARA TOPLAMI YAZDIR
+        const netValueSpan = document.getElementById(`${p}NetTotalValueContent`);
+        if (netValueSpan) {
+            const netParts = Object.entries(netTotalsMap).map(([curr, amount]) => {
+                return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + ' ' + curr;
+            });
+
+            if (netParts.length === 0) {
+                netValueSpan.innerHTML = '0.00 TRY';
+            } else {
+                netValueSpan.innerHTML = netParts.join(' + ');
+            }
         }
     }
 
@@ -560,16 +597,40 @@ export class AccrualFormManager {
 
     handleForeignToggle() {
         const p = this.prefix;
-        const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked;
+        const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
+        
+        // 🔥 HUKUK Departmanı ve Masraf seçilme durumunu kontrol et
+        const deptVal = document.getElementById(`${p}Department`)?.value || '';
+        const typeVal = document.getElementById(`${p}AccrualType`)?.value || '';
+        const isHukukMasraf = (deptVal === 'HUKUK' && typeVal === 'Masraf');
+
         const foreignPartyDiv = document.getElementById(`${p}ForeignPaymentPartyContainer`);
         const fileDiv = document.getElementById(`${p}ForeignInvoiceContainer`);
+        
+        const titleLabel = document.getElementById(`${p}ForeignInvoiceTitleLabel`);
+        const btnLabel = document.getElementById(`${p}ForeignInvoiceBtnLabel`);
 
-        if (isForeign) {
-            if (foreignPartyDiv) foreignPartyDiv.style.display = 'block';
-            if (fileDiv) fileDiv.style.display = 'block';
-        } else {
-            if (foreignPartyDiv) foreignPartyDiv.style.display = 'none';
-            if (fileDiv) fileDiv.style.display = 'none';
+        // 1. Yurtdışı Ödeme Yapılacak Taraf sadece gerçek Yurtdışı İşlemlerde görünür
+        if (foreignPartyDiv) {
+            foreignPartyDiv.style.display = isForeign ? 'block' : 'none';
+        }
+
+        // 2. Dosya Yükleme Alanı Yurtdışı İşlemlerde VEYA Hukuk Masraflarında görünür
+        if (fileDiv) {
+            if (isForeign || isHukukMasraf) {
+                fileDiv.style.display = 'block';
+                
+                // Başlık ve Buton Metinlerini duruma göre dinamik ayarla
+                if (isHukukMasraf && !isForeign) {
+                    if (titleLabel) titleLabel.innerHTML = '<i class="fas fa-file-invoice-dollar mr-2 text-warning"></i>Masraf Dekontu (PDF)';
+                    if (btnLabel) btnLabel.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i> Dekont PDF Seç / Değiştir';
+                } else {
+                    if (titleLabel) titleLabel.innerHTML = '<i class="fas fa-file-pdf mr-2"></i>Yurtdışı Fatura/Debit (PDF)';
+                    if (btnLabel) btnLabel.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i> Fatura PDF Seç / Değiştir';
+                }
+            } else {
+                fileDiv.style.display = 'none';
+            }
         }
     }
 

@@ -941,6 +941,9 @@ class PortfolioController {
             if (!window.ExcelJS) await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js');
             if (!window.saveAs) await loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
 
+            // 🔥 ÇÖZÜM 1: Kütüphane değişkenini garanti altına al
+            const ExcelJS = window.ExcelJS;
+            
             const sortedData = [];
             const processedIds = new Set(); 
 
@@ -972,7 +975,8 @@ class PortfolioController {
                 }
             });
 
-            const workbook = new window.ExcelJS.Workbook();
+            // 🔥 ÇÖZÜM 2: Sabitlenmiş ExcelJS değişkenini kullan
+            const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Portföy Listesi');
 
             const screenColumns = this.getColumns(this.state.activeTab);
@@ -1128,10 +1132,12 @@ class PortfolioController {
                                 row.height = 50; 
                                 success = true;
                             } else {
+                                // 🔥 ÇÖZÜM 3: Response ok DEĞİLSE bile 400 vb hatalarda sonsuz döngüye girmesini engelle
                                 if (response.status === 429) {
                                     await delay(1500); 
                                     retries--;
                                 } else {
+                                    success = false;
                                     break; 
                                 }
                             }

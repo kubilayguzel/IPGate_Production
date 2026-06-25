@@ -369,12 +369,21 @@ class PortfolioController {
 
         const btnExportSelected = document.getElementById('btnExportSelected');
         const btnExportAll = document.getElementById('btnExportAll');
+        // PDF Butonu Tıklanma Olayı
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        if (exportPdfBtn) { 
+            exportPdfBtn.addEventListener('click', (e) => { e.preventDefault(); this.exportToPdf(); });
+        }
 
         if (btnExportSelected) {
             btnExportSelected.addEventListener('click', (e) => { e.preventDefault(); this.exportToExcel('selected'); });
         }
         if (btnExportAll) {
             btnExportAll.addEventListener('click', (e) => { e.preventDefault(); this.exportToExcel('all'); });
+        }
+        // 🔥 YENİ: PDF Butonu Tıklanma Olayı
+        if (exportPdfBtn) { 
+            exportPdfBtn.addEventListener('click', (e) => { e.preventDefault(); this.exportToPdf(); });
         }
 
         const portfolioTableBody = document.getElementById('portfolioTableBody');
@@ -1216,6 +1225,193 @@ class PortfolioController {
             // 4. Standart Bootstrap Spinner'ı zorla gizle
             const defaultSpinner = document.getElementById('loadingIndicator');
             if (defaultSpinner) defaultSpinner.style.display = 'none';
+        }
+    }
+
+    async exportToPdf() {
+        let allFilteredData = this.dataManager.filterRecords(
+            this.state.activeTab, 
+            this.state.searchQuery, 
+            this.state.columnFilters,
+            this.state.subTab
+        );
+        allFilteredData = this.dataManager.sortRecords(allFilteredData, this.state.sort.column, this.state.sort.direction);
+
+        let dataToExport = [...allFilteredData];
+
+        if (dataToExport.length === 0) {
+            if(typeof showNotification === 'function') showNotification('Aktarılacak veri bulunamadı.', 'warning');
+            return;
+        }
+
+        this.renderer.showLoading(true);
+
+        try {
+            // 1. Kütüphaneleri Dinamik Olarak Yükle
+            const loadScript = (src) => new Promise((resolve, reject) => {
+                if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+                const script = document.createElement('script'); script.src = src; script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
+            });
+
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('landscape', 'mm', 'a4'); // Yatay A4 formatı
+
+            const delay = ms => new Promise(res => setTimeout(res, ms));
+
+            // 2. KESİN ÇÖZÜM: Türkçe Karakterler İçin Google Roboto TTF Fontunu İndir ve VFS'ye Yükle
+            const progressIndicator = document.querySelector('.simple-loading-subtext') || document.querySelector('.sl-subtext');
+            if (progressIndicator) progressIndicator.textContent = 'Türkçe font paketleri yükleniyor...';
+            
+            const fontRes = await fetch('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf');
+            const fontBuffer = await fontRes.arrayBuffer();
+            let fontBase64 = '';
+            const fontBytes = new Uint8Array(fontBuffer);
+            for (let i = 0; i < fontBytes.byteLength; i++) {
+                fontBase64 += String.fromCharCode(fontBytes[i]);
+            }
+            doc.addFileToVFS('Roboto-Regular.ttf', btoa(fontBase64));
+            doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+            doc.setFont('Roboto');
+
+            // 3. LOGO ENTEGRASYONU: Projenizdeki logoyu Base64'e dönüştürerek indir
+            let logoBase64 = null;
+            try {
+                const logoRes = await fetch('./logo.png');
+                if (logoRes.ok) {
+                    const logoBlob = await logoRes.blob();
+                    logoBase64 = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(logoBlob);
+                    });
+                }
+            } catch(e) { console.error("Logo yüklenemedi:", e); }
+
+            // Hierarchy / Alt İlişkileri Sırala (Excel ile Birebir Aynı Sıra)
+            const sortedData = [];
+            const processedIds = new Set(); 
+            dataToExport.forEach(parent => {
+                if (!processedIds.has(String(parent.id))) {
+                    sortedData.push(parent);
+                    processedIds.add(String(parent.id));
+                    if ((parent.origin === 'WIPO' || parent.origin === 'ARIPO') && parent.transactionHierarchy === 'parent') {
+                        const children = this.dataManager.getWipoChildren(parent.id);
+                        if (children && children.length > 0) {
+                            children.forEach(child => {
+                                if (!processedIds.has(String(child.id))) sortedData.push(child);
+                            });
+                        }
+                    }
+                }
+            });
+
+            // 4. GÖRSEL ENTEGRASYONU: Marka Sekmesindeysek Resimleri İndir
+            let includeImages = this.state.activeTab === 'trademark';
+            if (includeImages && sortedData.length > 60) {
+                includeImages = confirm(`${sortedData.length} adet kayıt işleniyor.\n\nPDF raporuna marka görselleri de eklensin mi?\n\n(İptal derseniz görselsiz anında iner, Tamam derseniz görseller rapora tek tek işlenir.)`);
+            }
+
+            if (includeImages) {
+                for (let i = 0; i < sortedData.length; i++) {
+                    if (i % 5 === 0) {
+                        if (progressIndicator) progressIndicator.textContent = `Marka görselleri rapora işleniyor: ${i} / ${sortedData.length}`;
+                        await delay(10);
+                    }
+                    const record = sortedData[i];
+                    if (record.brandImageUrl) {
+                        try {
+                            const res = await fetch(record.brandImageUrl.trim(), { cache: 'force-cache' });
+                            if (res.ok) {
+                                const blob = await res.blob();
+                                record._pdfImageBase64 = await new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+                        } catch (e) { console.error("Görsel indirme hatası:", e); }
+                    }
+                }
+            }
+
+            // 5. Kolonları Kur
+            const screenColumns = this.getColumns(this.state.activeTab);
+            const excludeKeys = ['selection', 'toggle', 'actions', 'documents', 'index']; 
+            if (!includeImages) excludeKeys.push('brandImage'); // Görsel istenmediyse kolonu uçur
+
+            const head = [
+                screenColumns.filter(c => !excludeKeys.includes(c.key)).map(c => {
+                    // Sütun adı düzeltmesi: "Başlık" ise "Marka adı" yapıyoruz
+                    if (c.key === 'title' && this.state.activeTab === 'trademark') return 'Marka adı';
+                    return c.label || '';
+                })
+            ];
+            const keys = screenColumns.filter(c => !excludeKeys.includes(c.key)).map(c => c.key);
+
+            // Satırları doldur (Hatalı safeStr temizlendi, Ham Türkçe metin doğrudan basılıyor!)
+            const body = sortedData.map(record => {
+                return keys.map(key => {
+                    if (key === 'brandImage') return ''; 
+                    let val = record[key];
+                    if (key === 'country' && record.formattedCountryName) val = record.formattedCountryName;
+                    if (key === 'renewalDate' || key === 'formattedRenewalDate') {
+                        let rd = record.renewalDate || record.renewal_date;
+                        if(rd && rd !== '-') { try{ val = new Date(rd).toLocaleDateString('tr-TR'); }catch(e){}}
+                    }
+                    if (key === 'statusText') val = record.statusText || record.status || '-';
+                    if (Array.isArray(val)) val = val.join(', ');
+                    return (val === null || val === undefined || val === '') ? '-' : String(val);
+                });
+            });
+
+            // Antet Alanı Çizimi (Logo + Başlık)
+            if (logoBase64) {
+                doc.addImage(logoBase64, 'PNG', 14, 10, 36, 12); // Sol üst logo
+            }
+            doc.setFontSize(14);
+            doc.setTextColor(30, 60, 114); // IPGATE Laciverti
+            doc.text("FİKRİ MÜLKİYET PORTFÖY RAPORU", 283, 16, { align: 'right' });
+            
+            doc.setFontSize(9);
+            doc.setTextColor(100, 116, 139);
+            const categoryName = this.state.activeTab === 'trademark' ? `Marka (${this.state.subTab === 'turkpatent' ? 'TÜRKPATENT' : 'Yurtdışı'})` : this.state.activeTab.toUpperCase();
+            doc.text(`Kategori: ${categoryName}  |  Üretim Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 283, 22, { align: 'right' });
+
+            // 6. Tabloyu PDF'e Çiz
+            doc.autoTable({
+                head: head,
+                body: body,
+                startY: 28,
+                styles: { font: 'Roboto', fontSize: 8, verticalAlignment: 'middle' },
+                headStyles: { fillColor: [30, 60, 114], textColor: 255, fontStyle: 'bold' },
+                bodyStyles: { minCellHeight: includeImages ? 16 : 8 }, // Resim sığması için hücreleri genişlet
+                columnStyles: {
+                    brandImage: { cellWidth: 20 },
+                    title: { fontStyle: 'bold' }
+                },
+                didDrawCell: function(data) {
+                    // Hücrenin içine resmi ortalayarak yerleştir
+                    if (data.column.key === 'brandImage' && data.cell.section === 'body') {
+                        const record = sortedData[data.row.index];
+                        if (record && record._pdfImageBase64) {
+                            doc.addImage(record._pdfImageBase64, 'PNG', data.cell.x + 3, data.cell.y + 2, 14, 12);
+                        }
+                    }
+                }
+            });
+
+            const dateStr = new Date().toISOString().slice(0,10);
+            doc.save(`IPGATE_Portfoy_Raporu_${dateStr}.pdf`);
+            if(typeof showNotification === 'function') showNotification('PDF raporu başarıyla indirildi.', 'success');
+            
+        } catch (error) {
+            console.error('PDF üretilirken hata oluştu:', error);
+            if(typeof showNotification === 'function') showNotification('PDF oluşturulurken bir hata oluştu.', 'error');
+        } finally {
+            this.renderer.showLoading(false);
         }
     }
 }

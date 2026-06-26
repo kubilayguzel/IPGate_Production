@@ -24,10 +24,10 @@ serve(async (req) => {
     const getKolaybiConfig = (department: string) => {
         if (department === 'HUKUK') {
             return {
-                baseUrl: "https://ofis-sandbox-api.kolaybi.com", 
-                channel: "evrekagroupsmm", 
-                authPayload: { api_key: "2e000fbf-920d-4c5b-9a42-b9422f734c01" },
-                endpointBase: "/kolaybi/v1/invoices", // 🔥 DÜZELTİLDİ: SMM için de ortak fatura uç noktası kullanılacak
+                baseUrl: "https://ofis-api.kolaybi.com", // 🔥 CANLIYA ALINDI: Sandbox adresi canlı API adresi ile değiştirildi
+                channel: "varsayilan-kanal-adi-yerine-evrekagroupsmm-veya-size-verilen", // 🔥 DÜZELTME: Size iletilen yeni channel bilgisi (Örn: evrekagroupsmm)
+                authPayload: { api_key: "da39099a-b851-445c-9ee9-a57ab3dfe6b7" }, // 🔥 CANLIYA ALINDI: Canlı ortam SMM API anahtarı
+                endpointBase: "/kolaybi/v1/invoices", 
                 isSmm: true
             };
         } else {

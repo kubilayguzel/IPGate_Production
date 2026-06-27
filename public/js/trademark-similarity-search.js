@@ -591,8 +591,8 @@ const highlightMatchingSubstrings = (searchArray, targetStr) => {
             <button class="action-btn ${hit.isSimilar ? 'similar' : 'not-similar'}" data-result-id="${hit.id || hit.applicationNo}" data-monitored-trademark-id="${hit.monitoredTrademarkId}">${hit.isSimilar ? 'Benzer' : 'Benzemez'}</button>
             ${isManualList ? `<button class="btn btn-sm btn-success ml-1 individual-report-btn" data-result-id="${hit.id || hit.applicationNo}" title="Sadece bu kayıt için İş Oluştur ve Raporla"><i class="fas fa-paper-plane"></i></button>` : ''}
         </td>
+        <td style="text-align: left;"><strong>${highlightedMarkName}</strong></td>
         <td class="trademark-image-cell lazy-load-container" data-hit-data="${minimalHitData}"><div class="tm-img-box tm-img-box-lg"><div class="tm-placeholder"><i class="fas fa-spinner fa-spin text-muted"></i></div></div></td>
-        <td><strong>${highlightedMarkName}</strong></td>
         <td>${holders}</td>
         <td>${niceClassHtml}</td>
         <td>${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>

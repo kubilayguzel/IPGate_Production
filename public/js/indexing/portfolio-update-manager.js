@@ -82,6 +82,7 @@ export class PortfolioUpdateManager {
         const regNoEl = document.getElementById('registry-registration-no');
         const regDateEl = document.getElementById('registry-registration-date');
         const statusEl = document.getElementById('registry-status') || document.getElementById('status');
+        const renewalDateEl = document.getElementById('registry-renewal-date'); // 🔥 EKLENDİ
 
         if (regNoEl) regNoEl.value = record.registration_number || record.registrationNumber || '';
         if (regDateEl) {
@@ -93,6 +94,14 @@ export class PortfolioUpdateManager {
         }
         if (statusEl) {
             statusEl.value = record.status || record.portfolio_status || '';
+        }
+        // 🔥 EKLENDİ
+        if (renewalDateEl) {
+            const renDate = record.renewal_date || record.renewalDate || '';
+            renewalDateEl.value = renDate;
+            if (renewalDateEl._flatpickr && renDate) {
+                renewalDateEl._flatpickr.setDate(renDate, false);
+            }
         }
 
         let loadedClasses = [];
@@ -195,6 +204,7 @@ export class PortfolioUpdateManager {
         const regDate = document.getElementById('registry-registration-date')?.value || '';
         const statusSelect = document.getElementById('registry-status') || document.getElementById('status');
         const statusVal = statusSelect?.value || '';
+        const renewalDate = document.getElementById('registry-renewal-date')?.value || ''; // 🔥 EKLENDİ
 
         let rawNiceClasses = [];
         if (typeof getSelectedNiceClasses === 'function') {
@@ -242,7 +252,8 @@ export class PortfolioUpdateManager {
             const updates = {
                 registration_number: regNo || null,
                 registration_date: regDate || null,
-                status: statusVal || null
+                status: statusVal || null,
+                renewal_date: renewalDate || null
             };
 
             Object.keys(updates).forEach(key => {

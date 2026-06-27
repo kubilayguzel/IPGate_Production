@@ -795,12 +795,14 @@ export class DocumentReviewManager {
                 const regNoVal = document.getElementById('registry-registration-no')?.value;
                 const regDateVal = document.getElementById('registry-registration-date')?.value;
                 const statusVal = document.getElementById('registry-status')?.value || document.getElementById('status')?.value;
+                const renewalDateVal = document.getElementById('registry-renewal-date')?.value; // 🔥 EKLENDİ
 
                 const nativeUpdates = {};
 
                 if (regNoVal) nativeUpdates.registration_number = regNoVal;
                 if (regDateVal) nativeUpdates.registration_date = regDateVal;
                 if (statusVal) nativeUpdates.status = statusVal;
+                if (renewalDateVal) nativeUpdates.renewal_date = renewalDateVal; // 🔥 EKLENDİ
 
                 if (Object.keys(nativeUpdates).length > 0) {
                     await supabase.from('ip_records').update(nativeUpdates).eq('id', this.matchedRecord.id);

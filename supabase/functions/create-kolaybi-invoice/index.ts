@@ -25,8 +25,8 @@ serve(async (req) => {
         if (department === 'HUKUK') {
             return {
                 baseUrl: "https://ofis-api.kolaybi.com", // 🔥 CANLIYA ALINDI: Sandbox adresi canlı API adresi ile değiştirildi
-                channel: "varsayilan-kanal-adi-yerine-evrekagroupsmm-veya-size-verilen", // 🔥 DÜZELTME: Size iletilen yeni channel bilgisi (Örn: evrekagroupsmm)
-                authPayload: { api_key: "da39099a-b851-445c-9ee9-a57ab3dfe6b7" }, // 🔥 CANLIYA ALINDI: Canlı ortam SMM API anahtarı
+                channel: "evrekagroupsmm",
+                authPayload: { api_key: "da39099a-b851-445c-9ee9-a57ab3dfe6b7"}, // 🔥 CANLIYA ALINDI: Canlı ortam SMM API anahtarı
                 endpointBase: "/kolaybi/v1/invoices", 
                 isSmm: true
             };
@@ -488,13 +488,22 @@ serve(async (req) => {
         let kolaybiContactId = null;
         let kolaybiAddressId = null;
 
-        const searchUrl = `${config.baseUrl}/kolaybi/v1/associates?identity_no=${encodeURIComponent(identityNo)}`;
+        // 🔥 KESİN ÇÖZÜM: KolayBi associates uç noktası query parametresini bekler. identity_no gönderildiğinde API hata verir.
+        const searchUrl = `${config.baseUrl}/kolaybi/v1/associates?query=${identityNo}&limit=50`;
         const searchReq = await fetch(searchUrl, { method: 'GET', headers: getHeaders });
         const searchText = await searchReq.text();
         
         let searchRes: any;
         try { searchRes = JSON.parse(searchText); } catch { throw new Error(`Cari arama yanıtı okunamadı: ${searchText}`); }
-        if (!searchReq.ok || searchRes.success === false) throw new Error(`Cari arama hatası.`);
+        
+        // 🔥 CANLI ORTAM DÜZELTMESİ: Yeni ve boş hesapta cari bulunamazsa KolayBi "success: false" döner.
+        // Bunu bir çöküş (crash) olarak değil, "Kayıt yok, yeni oluşturulmalı" olarak kabul etmeliyiz.
+        if (!searchReq.ok || searchRes.success === false) {
+            const errorMsg = (searchRes.message || "").toLowerCase();
+            if (!errorMsg.includes("bulunamadı") && !errorMsg.includes("not found") && searchRes.code !== 10404 && searchReq.status !== 404) {
+                throw new Error(`KolayBi Cari Arama Hatası: ${searchRes.message || searchText}`);
+            }
+        }
         
         const list = Array.isArray(searchRes.data) ? searchRes.data : (searchRes.data?.data || []);
         const foundAssociate = list.find((a: any) => String(a.identity_no) === identityNo || String(a.tax_number) === identityNo);
@@ -531,7 +540,7 @@ serve(async (req) => {
             const associateResText = await associateReq.text();
             let associateRes;
             try { associateRes = JSON.parse(associateResText); } catch(e) { throw new Error(`API Yanıtı Okunamadı`); }
-            if (!associateReq.ok || associateRes.success === false) throw new Error(`Cari Kayıt Hatası: ${associateRes.message}`);
+            if (!associateReq.ok || associateRes.success === false) throw new Error(`Cari Kayıt Hatası: ${associateRes.message || associateResText}`);            
             const dataObj = associateRes.data || associateRes;
             kolaybiContactId = dataObj.id;
         }
@@ -551,7 +560,7 @@ serve(async (req) => {
             const addressText = await addressReq.text();
             let addressRes: any;
             try { addressRes = JSON.parse(addressText); } catch { throw new Error(`Adres oluşturma yanıtı okunamadı.`); }
-            if (!addressReq.ok || addressRes.success === false) throw new Error(`KolayBi adres oluşturma hatası.`);
+            if (!addressReq.ok || addressRes.success === false) throw new Error(`KolayBi Adres Oluşturma Hatası: ${addressRes.message || addressText}`);            
             kolaybiAddressId = addressRes.data?.id || addressRes.id || null;
         }
 

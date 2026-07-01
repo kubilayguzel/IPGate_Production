@@ -27,13 +27,13 @@ const RELATED_CLASSES_MAP: Record<string, string[]> = {
 const GENERIC_WORDS = [
     'ltd', 'şti', 'aş', 'anonim', 'şirketi', 'şirket', 'limited', 'inc', 'corp', 'corporation', 'co', 'company', 'llc', 'group', 'grup',
     'sanayi', 'ticaret', 'turizm', 'tekstil', 'gıda', 'inşaat', 'danışmanlık', 'hizmet', 'hizmetleri', 'bilişim', 'teknoloji', 'sigorta', 'yayıncılık', 'mobilya', 'otomotiv', 'tarım', 'enerji', 'petrol', 'kimya', 'kozmetik', 'ilaç', 'medikal', 'sağlık', 'eğitim', 'spor', 'müzik', 'film', 'medya', 'reklam', 'pazarlama', 'lojistik', 'nakliyat', 'kargo', 'finans', 'bankacılık', 'emlak', 'gayrimenkul', 'madencilik', 'metal', 'plastik', 'cam', 'seramik', 'ahşap',
-    'mühendislik', 'proje', 'taahhüt', 'ithalat', 'ihracat', 'üretim', 'imalat', 'veteriner', 'petshop', 'polikliniği', 'hastane', 'klinik', 'müşavirlik', 'muhasebe', 'hukuk', 'avukatlık', 'mimarlık', 'peyzaj', 'tasarım', 'dizayn', 'design', 'grafik', 'web', 'yazılım', 'software', 'donanım', 'hardware', 'elektronik', 'elektrik', 'makina', 'makine', 'endüstri', 'fabrika', 'laboratuvar', 'araştırma', 'geliştirme', 'ofis',
+    'mühendislik', 'proje', 'taahhüt', 'ithalat', 'ihracat', 'kuyumculuk','mücevherat','üretim', 'imalat', 'veteriner', 'petshop', 'polikliniği', 'hastane', 'klinik', 'müşavirlik', 'muhasebe', 'hukuk', 'avukatlık', 'mimarlık', 'peyzaj', 'tasarım', 'dizayn', 'design', 'grafik', 'web', 'yazılım', 'software', 'donanım', 'hardware', 'elektronik', 'elektrik', 'makina', 'makine', 'endüstri', 'fabrika', 'laboratuvar', 'araştırma', 'geliştirme', 'ofis',
     'ürün', 'products', 'services', 'solutions', 'çözüm', 'sistem', 'systems', 'teknolojileri', 'malzeme', 'materials', 'ekipman', 'equipment', 'cihaz', 'device', 'araç', 'tools', 'yedek', 'parça', 'parts', 'aksesuar', 'accessories', 'gereç',
     'meşhur', 'ünlü', 'famous', 'since', 'est', 'established', 'tarihi', 'historical', 'geleneksel', 'traditional', 'klasik', 'classic', 'yeni', 'new', 'fresh', 'taze', 'özel', 'special', 'premium', 'lüks', 'luxury', 'kalite', 'quality', 'uygun',
     'turkey', 'türkiye', 'international', 'uluslararası', 'tesisi', 'sistemleri',
     'real', 'estate', 'realestate', 'emlak', 'konut', 'housing', 'arsa', 'ticari', 'commercial', 'office', 'plaza', 'shopping', 'alışveriş', 'residence', 'rezidans', 'villa', 'apartment', 'daire',
     'online', 'digital', 'dijital', 'internet', 'app', 'mobile', 'mobil', 'network', 'ağ', 'server', 'sunucu', 'hosting', 'domain', 'platform', 'social', 'sosyal', 'media', 'medya',
-    'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'şeker', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
+    'yemek', 'restaurant', 'restoran', 'cafe', 'coffee', 'tea', 'fırın', 'bakery', 'ekmek', 'pasta', 'börek', 'pizza', 'burger', 'kebap', 'döner', 'pide', 'lahmacun', 'balık', 'fish', 'et', 'meat', 'tavuk', 'chicken', 'sebze', 'vegetable', 'meyve', 'fruit', 'süt', 'milk', 'peynir', 'cheese', 'yoğurt', 'yogurt', 'dondurma', 'sugar', 'bal', 'reçel', 'jam', 'konserve', 'canned', 'organic', 'organik', 'doğal', 'natural',
     've', 'ile', 'için', 'bir', 'bu', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'sadece', 'tek', 'en', 'çok', 'az', 'üst', 'alt', 'eski', 'insaat', 'in', 'to', 'the', 'of', 'for', 'at', 'on', 'by', 'with', 'a', 'an',
     'com', 'comtr', 'www', 'io'
 ];
@@ -76,7 +76,7 @@ function splitCompoundGenerics(text: string) {
     return processedWords.join(' ');
 }
 
-function cleanMarkName(name: string, removeGenericWords = true) {
+function cleanMarkName(name: string, removeGenericWords = true, protectedWords: string[] = []) {
     if (!name) return '';
     let processed = String(name).toLowerCase()
         .replace(/['`’]/g, '')
@@ -92,7 +92,12 @@ function cleanMarkName(name: string, removeGenericWords = true) {
         cleaned = splitCompoundGenerics(cleaned);
         cleaned = cleaned.split(' ').filter(word => {
             const stemmedWord = removeTurkishSuffixes(word);
-            return !GENERIC_WORDS.includes(stemmedWord) && !GENERIC_WORDS.includes(word);
+            
+            // Jenerik ve Koruma kontrolleri
+            const isGeneric = GENERIC_WORDS.includes(stemmedWord) || GENERIC_WORDS.includes(word);
+            const isProtected = protectedWords.includes(stemmedWord) || protectedWords.includes(word);
+            
+            return !isGeneric || isProtected;
         }).join(' ');
     }
     return cleaned.trim();
@@ -414,7 +419,7 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     }
 
     let phase2Final = fullStringScore;
-    if (bestWordPairScore >= 0.75) {
+    if (bestWordPairScore >= 0.6) {
         phase2Final = Math.max(phase2Final, bestWordPairScore);
     } else if (bestWordPairScore > fullStringScore) {
         phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
@@ -504,7 +509,7 @@ serve(async (req) => {
                         alternatives.push(conceptualName);
                     }
 
-                    const primaryCleaned = cleanMarkName(primaryName, true);
+                    const primaryCleaned = cleanMarkName(primaryName, true); // Korumasız ilk temizlik
                     const words = primaryCleaned.split(' ').filter(w => w.trim().length > 0);
                     if (words.length > 1) {
                         const sortedName = [...words].sort().join(' ');
@@ -513,12 +518,31 @@ serve(async (req) => {
                         }
                     }
 
+                    // 🔥 VIP LİSTESİNİ OLUŞTURMA BAŞLANGICI 🔥
+                    const allSearchStrings = [primaryName, ...alternatives];
+                    const protectedWords: string[] = [];
+                    
+                    allSearchStrings.forEach(str => {
+                        if (str) {
+                            const safeWords = String(str).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+                            protectedWords.push(...safeWords);
+                            safeWords.forEach(w => protectedWords.push(removeTurkishSuffixes(w)));
+                        }
+                    });
+                    
+                    const uniqueProtectedWords = [...new Set(protectedWords)];
+                    // 🔥 VIP LİSTESİNİ OLUŞTURMA BİTİŞİ 🔥
+
                     const searchTerms = [primaryName, ...alternatives]
                         .filter(t => t && String(t).trim().length > 0 && String(t) !== "undefined")
                         .map(term => {
                             const termStr = String(term);
                             const isMultiWord = termStr.trim().split(/\s+/).length > 1;
-                            return { term: termStr, cleanedSearchName: cleanMarkName(termStr, isMultiWord) };
+                            return { 
+                                term: termStr, 
+                                // 🔥 Korumalı kelimeleri (VIP Liste) 3. parametre olarak gönderiyoruz
+                                cleanedSearchName: cleanMarkName(termStr, isMultiWord, uniqueProtectedWords) 
+                            };
                         });
                     
                     const makeArray = (val: any) => {
@@ -547,7 +571,8 @@ serve(async (req) => {
                     const appDateRaw = mark.applicationDate || mark.application_date || null;
                     const parsedAppDate = parseDateForValidation(appDateRaw);
 
-                    return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter };
+                    // 🔥 Dönüş nesnesine 'protectedWords: uniqueProtectedWords' ekliyoruz
+                    return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter, protectedWords: uniqueProtectedWords };
                 });
 
                 let actualProcessedCount = 0;
@@ -589,20 +614,23 @@ serve(async (req) => {
                         const rawHitName = String(hit.brand_name || '');
                         
                         const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
-                        let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord); 
                         
-                        if (isHitMultiWord) {
-                            cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
-                        }
-
-                        for (const mark of preparedMarks) {
+                        for (const mark of preparedMarks) { // 🔥 Çift parantez hatası düzeltildi
                             let isValidDate = true;
                             if (parsedHitDate && mark.parsedAppDate && !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime())) {
                                 isValidDate = parsedHitDate >= mark.parsedAppDate;
                             }
                             if (!isValidDate) continue;
 
-                            let hasPoolMatch = mark.bypassClassFilter; 
+                            // 🔥 BÜLTEN MARKASI TEMİZLİĞİ DÖNGÜNÜN İÇİNE ALINDI
+                            // Çünkü her izlenen markanın (mark) VIP listesi (protectedWords) kendine özeldir!
+                            let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord, mark.protectedWords); 
+                            
+                            if (isHitMultiWord) {
+                                cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
+                            }
+
+                            let hasPoolMatch = mark.bypassClassFilter;
 
                             hitClasses.forEach((hc: string) => {
                                 if (mark.greenSet.has(hc)) { hasPoolMatch = true; }

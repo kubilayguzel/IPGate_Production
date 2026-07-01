@@ -75,10 +75,10 @@ function removeTurkishSuffixes(word) {
  *
  * @param {string} name Marka adı
  * @param {boolean} removeGenericWords Stopwords'ün çıkarılıp çıkarılmayacağını belirler.
- * Genellikle çok kelimeli isimler için true olmalı.
+ * @param {Array} protectedWords Jenerik olsa bile KESİNLİKLE silinmeyecek olan VIP kelimeler listesi.
  * @returns {string} Temizlenmiş marka adı.
  */
-export function cleanMarkName(name, removeGenericWords = true) {
+export function cleanMarkName(name, removeGenericWords = true, protectedWords = []) {
     if (!name) return '';
     let cleaned = name.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, '').trim(); // Harf, rakam ve boşluk dışındaki her şeyi kaldır
 
@@ -89,8 +89,15 @@ export function cleanMarkName(name, removeGenericWords = true) {
         // Kelimelere ayır, eklerini kaldır ve stopwords olmayanları filtrele
         cleaned = cleaned.split(' ').filter(word => {
             const stemmedWord = removeTurkishSuffixes(word);
-            // Kök kelime veya orijinal kelime stopwords listesinde mi kontrol et
-            return !GENERIC_WORDS.includes(stemmedWord) && !GENERIC_WORDS.includes(word);
+            
+            // Jenerik havuzunda var mı?
+            const isGeneric = GENERIC_WORDS.includes(stemmedWord) || GENERIC_WORDS.includes(word);
+            
+            // 🔥 VIP LİSTE KONTROLÜ: Aranan kelimelerden biri mi?
+            const isProtected = protectedWords.includes(stemmedWord) || protectedWords.includes(word);
+            
+            // Jenerik değilse VEYA VIP listedeyse kelimeyi KORU (silme)
+            return !isGeneric || isProtected;
         }).join(' ');
     }
 

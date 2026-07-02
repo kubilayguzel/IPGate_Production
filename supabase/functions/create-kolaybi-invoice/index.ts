@@ -715,13 +715,12 @@ serve(async (req) => {
             }
         });
 
-        // 🔥 GÜNCELLENEN BELGE OLUŞTURMA MOTORU (Dokümantasyona Tam Uyumlu)
+        // 🔥 GÜNCELLENEN BELGE OLUŞTURMA MOTORU (SMM Aritmetiğine Tam Uyumlu + Tevkifat Düzeltmesi)
         const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
             if (items.length === 0) return null;
 
             const invoiceParams = new URLSearchParams();
             
-            // Zorunlu Ana Parametreler
             invoiceParams.append("contact_id", String(kolaybiContactId));
             if (kolaybiAddressId && kolaybiAddressId !== "null" && kolaybiAddressId !== "undefined") {
                 invoiceParams.append("address_id", String(kolaybiAddressId));
@@ -729,43 +728,71 @@ serve(async (req) => {
             
             const turkeyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
             
-            // Dokümantasyona göre "order_date" tüm /invoices uç noktaları için zorunlu alandır.
             invoiceParams.append("order_date", turkeyDate);
 
             if (config.isSmm) {
-                // SMM İÇİN KESİN PARAMETRE: type = self_employment_receipt
                 invoiceParams.append("type", "self_employment_receipt");
+                invoiceParams.append("is_gross", "1");
             } else {
-                // FATURA İÇİN SENARYOLAR
                 const currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
                 invoiceParams.append("type", "sale_invoice"); 
                 invoiceParams.append("document_scenario", currentScenario); 
                 invoiceParams.append("document_type", docType); 
             }
             
+            let localDescription = finalInvoiceNote; 
+            let currentExchangeRate = 1;
+
+            if (invoiceCurrency !== 'TRY') {
+                currentExchangeRate = await getTcmbRate(invoiceCurrency);
+                const formattedRate = currentExchangeRate.toFixed(4); 
+                invoiceParams.append("exchange_rate", formattedRate); 
+                localDescription += `\nBelge Kuru: 1 ${invoiceCurrency} = ${formattedRate} TL`;
+            }
+
             let itemIndex = 0;
             let calculatedGrandTotal = 0;
 
             items.forEach(item => {
-                // Zorunlu Kalem Parametreleri
                 invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
                 invoiceParams.append(`items[${itemIndex}][quantity]`, item.qty.toFixed(2));
-                invoiceParams.append(`items[${itemIndex}][unit_price]`, item.price.toFixed(2));
+                
+                // SMM için Net'ten Brüt'e Matematik
+                let unitPrice = item.price;
+                if (config.isSmm) {
+                    unitPrice = item.price / 0.80;
+                }
+                
+                invoiceParams.append(`items[${itemIndex}][unit_price]`, unitPrice.toFixed(2));
                 
                 let safeVat = [0, 1, 10, 20].includes(item.vat) ? item.vat : 20;
                 invoiceParams.append(`items[${itemIndex}][vat_rate]`, safeVat.toString());
-                invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
+                
+                // Notları kalem açıklamasına yapıştırma (SMM için)
+                let itemDesc = item.combinedName;
+                if (config.isSmm && itemIndex === items.length - 1) {
+                    itemDesc += `\n\n${localDescription}`;
+                }
+                invoiceParams.append(`items[${itemIndex}][description]`, itemDesc);
 
-                // 🔥 KESİN ÇÖZÜM 1: SMM'de KDV 0 olsa bile muafiyet kodu GÖNDERMİYORUZ. 
-                // 🔥 KESİN ÇÖZÜM 2: Dokümanda OLMAYAN 'vat_exemption_code' parametresi tamamen silindi! Sadece 'reason_code' kaldı.
+                if (config.isSmm) {
+                    invoiceParams.append(`items[${itemIndex}][name]`, item.combinedName);
+                    invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "20");
+                }
+
                 if (safeVat === 0 && !config.isSmm) {
                     invoiceParams.append(`items[${itemIndex}][vat_exemption_reason_code]`, "351");
                 }
 
-                if (!config.isSmm && docType === 'TEVKIFAT') {
+                // 🔥 KESİN ÇÖZÜM: YANLIŞLIKLA SİLİNEN TEVKİFAT KODLARI BURAYA GERİ EKLENDİ!
+                if (config.isSmm) {
+                    calculatedGrandTotal += (item.qty * unitPrice) * (1 - 0.20 + (safeVat / 100));
+                } else if (!config.isSmm && docType === 'TEVKIFAT') {
+                    // FATURA İÇİN TEVKİFAT PARAMETRELERİ
                     invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
                     invoiceParams.append(`items[${itemIndex}][withholding_value]`, "90");
                     invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
+                    
                     calculatedGrandTotal += (item.qty * item.price) * 1.02; 
                 } else {
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
@@ -775,23 +802,39 @@ serve(async (req) => {
 
             invoiceParams.append("currency", invoiceCurrency);
 
-            let localDescription = finalInvoiceNote; 
             if (invoiceCurrency !== 'TRY') {
-                const currentExchangeRate = await getTcmbRate(invoiceCurrency);
-                const formattedRate = currentExchangeRate.toFixed(4); 
-                invoiceParams.append("exchange_rate", formattedRate); 
-                
                 const tryGrandTotal = (calculatedGrandTotal * currentExchangeRate).toFixed(2);
-                localDescription += `\nBelge Kuru: 1 ${invoiceCurrency} = ${formattedRate} TL`;
                 localDescription += `\nÖdenecek Toplam TL Karşılığı: ${tryGrandTotal} TL`;
             }
             
             invoiceParams.append("description", localDescription);
 
+            if (config.isSmm) {
+                invoiceParams.append("note", localDescription);
+                invoiceParams.append("e_document_note", localDescription);
+                invoiceParams.append("notes[0][note]", localDescription);
+            }
+
             const requestBodyString = invoiceParams.toString();
             
-            console.log(`[KOLAYBI REQ ADRES]: ${config.baseUrl}${config.endpointBase}`);
-            console.log(`[KOLAYBI REQ BODY]: ${requestBodyString}`);
+            // =================================================================
+            // 🔥 DETAYLI KOLAYBİ HATA AYIKLAMA (DEBUG) LOGLARI
+            // =================================================================
+            console.log("\n==================================================================");
+            console.log(`🚀 [KOLAYBI API İSTEĞİ - ${config.isSmm ? 'SMM' : 'FATURA'}] BAŞLIYOR`);
+            console.log("==================================================================");
+            console.log(`URL: ${config.baseUrl}${config.endpointBase}`);
+            console.log("HEADERS:", JSON.stringify({ ...apiHeadersForm, Authorization: "Bearer [GİZLENDİ]" }, null, 2));
+            console.log("\n----- GÖNDERİLEN PARAMETRELER (PARAM BAZLI DETAY) -----");
+            
+            const paramKeys = Array.from(invoiceParams.keys());
+            for (const key of paramKeys) {
+                console.log(`[PARAM] ${key} = ${invoiceParams.get(key)}`);
+            }
+            
+            console.log("\n----- RAW BODY (URL Encoded Format) -----");
+            console.log(requestBodyString);
+            console.log("==================================================================\n");
 
             const invoiceReq = await fetch(`${config.baseUrl}${config.endpointBase}`, { method: 'POST', headers: apiHeadersForm, body: requestBodyString });
             const invoiceResText = await invoiceReq.text();
@@ -883,6 +926,7 @@ serve(async (req) => {
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
         } catch (invoiceError: any) {
+            // 1. İşlem yarıda kalırsa KolayBi'de önceden başarıyla açılmış taslakları sil (Rollback)
             if (createdKolaybiDocIds.length > 0) {
                 for (const kId of createdKolaybiDocIds) {
                     try {
@@ -893,6 +937,12 @@ serve(async (req) => {
                     } catch (e) {}
                 }
             }
+            
+            // 2. 🔥 KESİN ÇÖZÜM: İşlem hata verirse veritabanına yeni eklenen yerel fatura kayıtlarını da SİL!
+            if (localInvoiceIds.length > 0) {
+                await supabaseClient.from('invoices').delete().in('id', localInvoiceIds);
+            }
+            
             throw invoiceError;
         }
     }

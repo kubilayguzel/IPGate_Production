@@ -30,7 +30,13 @@ serve(async (req: Request) => {
     const payload = await req.json();
     const { record } = payload;
     
-    console.log(`[HANDLE_INDEXED] 🚀 Tetiklendi! Evrak Durumu: ${record?.status}`);
+    console.log(`[HANDLE_INDEXED] 🚀 Tetiklendi! Evrak Durumu: ${record?.status}, Kaynak: ${record?.document_source}`);
+
+    // 🔥 KESİN ÇÖZÜM: Manuel işlem sekmesinden girilen işlemler için mail oluşturmayı tamamen iptal et!
+    if (record?.document_source === 'manual_entry') {
+        console.log(`[HANDLE_INDEXED] ⏭️ İPTAL EDİLDİ: Bu işlem Manuel İşlem sekmesinden yapıldığı için müvekkil maili oluşturulmayacak.`);
+        return new Response("Manuel işlem, mail bildirimi atlandı.", { status: 200 });
+    }
 
     if (record?.status !== 'indexed') {
         console.log(`[HANDLE_INDEXED] ⏭️ İPTAL EDİLDİ: Evrak henüz indekslenmemiş.`);

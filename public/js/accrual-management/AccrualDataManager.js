@@ -197,11 +197,14 @@ export class AccrualDataManager {
         const mapRecords = (rows, type) => {
             if (!rows) return;
             rows.forEach(row => {
-                const tmDetails = row.ip_record_trademark_details ? row.ip_record_trademark_details[0] : {};
+                // 🔥 YENİ KOD: Marka detayı diziyse ilk elemanı, objeyse doğrudan kendini alır (Hata önleyici)
+                const tmDetails = row.ip_record_trademark_details ? (Array.isArray(row.ip_record_trademark_details) ? row.ip_record_trademark_details[0] : row.ip_record_trademark_details) : {};
+                
                 const item = {
                     id: String(row.id),
                     applicationNumber: String(row.application_number || row.file_no || '-'),
-                    markName: String(tmDetails?.brand_name || row.title || row.court_name || '-')
+                    // 🔥 YENİ KOD: Sizin ilettiğiniz JSON formatındaki "brand_name" değerini burada yakalar
+                    markName: String(row.brand_name || row.mark_name || tmDetails?.brand_name || row.title || row.court_name || '-')
                 };
                 this.allIpRecords.push(item);
                 this.ipRecordsMap[item.id] = item;

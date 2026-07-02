@@ -116,6 +116,10 @@
                     <div class="mb-4 mt-3">
                         <h4 class="font-weight-bold text-secondary" id="currentActionText">Sistem Hazır. Görev Bekleniyor...</h4>
                         <p class="text-muted" id="currentAppNoText" style="font-size: 1.1rem;">-</p>
+                        
+                        <div id="robotImageContainer" class="mt-3 mb-2" style="display: none;">
+                            <img src="./kizlar.png" alt="Robot Aktif" style="max-width: 140px; height: auto; border-radius: 10px; border: 1px solid #e3e6f0; box-shadow: 0 4px 8px rgba(0,0,0,0.05);">
+                        </div>
                     </div>
 
                     <div class="progress mb-4" style="height: 25px; border-radius: 12px;">
@@ -137,8 +141,48 @@
     import { supabase } from './supabase-config.js';
     import { loadSharedLayout } from './js/layout-loader.js'; // 🔥 YENİ EKLENDİ
 
-    // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'NİZİ YAZIN!
-    const EXTENSION_ID = "kdiejfokbbkhblndnfocffijcikdbgmn"; 
+    // 🔥 DİKKAT: BURAYA KENDİ EKLENTİ ID'LERİNİZİ DİZİ OLARAK YAZIN!
+    const EXTENSION_IDS = [
+        "kdiejfokbbkhblndnfocffijcikdbgmn", // 1. Bilgisayar / Eklenti
+        "mclljcgiblhmhlanibkmepjohgoocadn"  // 2. Bilgisayar / Eklenti
+    ];
+    let ACTIVE_EXTENSION_ID = null;
+
+    // 🔥 Hangi bilgisayarda hangi eklentinin kurulu olduğunu otomatik bulan fonksiyon
+    function sendMessageToExtension(message, callback) {
+        // Eğer aktif eklenti daha önce bulunduysa direkt onu kullan
+        if (ACTIVE_EXTENSION_ID) {
+            chrome.runtime.sendMessage(ACTIVE_EXTENSION_ID, message, (response) => {
+                if (chrome.runtime.lastError) {
+                    ACTIVE_EXTENSION_ID = null; // Eklenti silinmiş veya kapanmışsa sıfırla
+                    sendMessageToExtension(message, callback); 
+                } else {
+                    callback(response);
+                }
+            });
+            return;
+        }
+
+        // Aktif eklenti bilinmiyorsa sırayla listedekileri yokla
+        let index = 0;
+        function tryNext() {
+            if (index >= EXTENSION_IDS.length) {
+                callback(null); // Hiçbir eklenti kurulu değilse boş dön
+                return;
+            }
+            const currentId = EXTENSION_IDS[index];
+            chrome.runtime.sendMessage(currentId, message, (response) => {
+                if (chrome.runtime.lastError) {
+                    index++; // Bu ID'de eklenti yok, diğerine geç
+                    tryNext();
+                } else {
+                    ACTIVE_EXTENSION_ID = currentId; // Çalışan eklentiyi bulduk, hafızaya al!
+                    callback(response);
+                }
+            });
+        }
+        tryNext();
+    }
 
     // Sayfa yüklendiğinde menüyü getir!
     document.addEventListener('DOMContentLoaded', async () => {
@@ -442,8 +486,8 @@
     }
 
     document.getElementById('startBotBtn').addEventListener('click', async () => {
-        if (EXTENSION_ID === "SİZİN_CHROME_EKLENTİ_ID_BURAYA_GELECEK") {
-            alert("Lütfen koddaki EXTENSION_ID kısmına Chrome Eklentinizin kimliğini yazın!");
+        if (!EXTENSION_IDS || EXTENSION_IDS.length === 0) {
+            alert("Lütfen koddaki EXTENSION_IDS dizisine eklenti kimliklerinizi yazın!");
             return;
         }
 
@@ -458,6 +502,10 @@
         sessionTotalTasks = currentPending; // O anki bekleyenleri toplam hedefimiz yap
         sessionCompletedTasks = 0; // Oturum sıfırdan başlıyor
 
+        // 🔥 YENİ: Robot başladığı an resmi görünür yap
+        const imgBox = document.getElementById('robotImageContainer');
+        if (imgBox) imgBox.style.display = 'block';
+
         botIsRunning = true;
         document.getElementById('startBotBtn').style.display = 'none';
         document.getElementById('stopBotBtn').style.display = 'block';
@@ -471,6 +519,10 @@
 
     document.getElementById('stopBotBtn').addEventListener('click', () => {
         botIsRunning = false;
+        // 🔥 YENİ: Robot durdurulunca resmi gizle
+        const imgBox = document.getElementById('robotImageContainer');
+        if (imgBox) imgBox.style.display = 'none';
+
         document.getElementById('stopBotBtn').style.display = 'none';
         document.getElementById('startBotBtn').style.display = 'block';
         document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Devam Et';
@@ -508,6 +560,9 @@
                     document.getElementById('currentActionText').innerText = "Kuyruk Tamamen Bitti! 🎉";
                     document.getElementById('stopBotBtn').style.display = 'none';
                     document.getElementById('startBotBtn').style.display = 'block';
+                    // 🔥 YENİ: Bütün işlemler başarıyla bittiğinde resmi gizle
+                    const imgBox = document.getElementById('robotImageContainer');
+                    if (imgBox) imgBox.style.display = 'none';
                 }
                 return;
             }
@@ -534,7 +589,8 @@
                     return;
                 }
 
-                chrome.runtime.sendMessage(EXTENSION_ID, {
+                // 🔥 Aktif eklentiyi otomatik bul ve mesajı ona gönder
+                sendMessageToExtension({
                     type: 'FETCH_TRADEMARK_API',
                     data: { applicationNo: currentTask.application_number }
                 }, async (response) => {

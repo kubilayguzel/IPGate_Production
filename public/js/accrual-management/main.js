@@ -117,8 +117,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 if (acc.items && acc.items.length > 0) {
-                    let totalMap = {};
-                    let offAmt = 0; let srvAmt = 0; let vatAmt = 0;
+                    let offMap = {}; let srvMap = {}; let vatMap = {}; let totalMap = {};
                     
                     acc.items.forEach(i => {
                         const qty = Number(i.quantity) || 1;
@@ -128,24 +127,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const isSrv = (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
 
                         let effectiveVat = vat;
-                        if (isTevkifatli && isSrv) effectiveVat = vat * 0.1; // 9/10 Tevkifat indirimi
+                        if (isTevkifatli && isSrv) effectiveVat = vat * 0.1;
 
                         const net = qty * price;
                         const itemVat = net * (effectiveVat / 100);
                         const itemTotal = net + itemVat;
 
-                        if (isSrv) srvAmt += net;
-                        else offAmt += net;
+                        // 🔥 Dövize göre ayrı ayrı topla
+                        if (isSrv) srvMap[curr] = (srvMap[curr] || 0) + net;
+                        else offMap[curr] = (offMap[curr] || 0) + net;
 
-                        vatAmt += itemVat;
+                        vatMap[curr] = (vatMap[curr] || 0) + itemVat;
                         totalMap[curr] = (totalMap[curr] || 0) + itemTotal;
                         
-                        i.dynamic_total_amount = itemTotal; // Excel Kalem sekmeleri için
+                        i.dynamic_total_amount = itemTotal;
                     });
 
-                    acc.dynamicOfficialFee = offAmt;
-                    acc.dynamicServiceFee = srvAmt;
-                    acc.dynamicVatAmount = vatAmt;
+                    acc.dynamicOffMap = offMap;
+                    acc.dynamicSrvMap = srvMap;
+                    acc.dynamicVatMap = vatMap;
                     acc.dynamicTotalAmount = Object.entries(totalMap).map(([c, a]) => ({ amount: a, currency: c }));
                     
                     if (acc.status === 'unpaid') acc.dynamicRemainingAmount = acc.dynamicTotalAmount;
@@ -153,8 +153,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                     else acc.dynamicRemainingAmount = acc.remainingAmount;
                 } else {
                     // Kalemsiz çok eski veriler için varsayılanlar
-                    acc.dynamicOfficialFee = acc.officialFee?.amount || 0;
-                    acc.dynamicServiceFee = acc.serviceFee?.amount || 0;
+                    const offCurr = acc.officialFee?.currency || 'TRY';
+                    const srvCurr = acc.serviceFee?.currency || 'TRY';
+                    
+                    acc.dynamicOffMap = { [offCurr]: acc.officialFee?.amount || 0 };
+                    acc.dynamicSrvMap = { [srvCurr]: acc.serviceFee?.amount || 0 };
+                    
+                    const offVatBase = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) : 0;
+                    const srvVatBase = acc.serviceFee?.amount || 0;
+                    const vatRate = (acc.vatRate || 0) / 100;
+                    
+                    acc.dynamicVatMap = {};
+                    if (offVatBase > 0) acc.dynamicVatMap[offCurr] = offVatBase * vatRate;
+                    if (srvVatBase > 0) acc.dynamicVatMap[srvCurr] = (acc.dynamicVatMap[srvCurr] || 0) + (srvVatBase * vatRate);
+
+                    acc.dynamicTotalAmount = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
+                    acc.dynamicRemainingAmount = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY'}]);
+
                     const baseVat = acc.dynamicServiceFee + (acc.applyVatToOfficialFee ? acc.dynamicOfficialFee : 0);
                     acc.dynamicVatAmount = baseVat * ((acc.vatRate || 0) / 100);
                     acc.dynamicTotalAmount = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{amount: acc.totalAmount || 0, currency: 'TRY'}];
@@ -355,16 +370,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (acc.status === 'unpaid' || acc.status === 'partial') unpaidCount++;
                     else if (acc.status === 'paid') paidCount++;
 
-                    // 🔥 ÇÖZÜM: Veritabanındaki eski sayılar yerine yukarıda hesapladığımız dinamik sayıları al
-                    const officialAmt = acc.dynamicOfficialFee; 
-                    const officialCurr = acc.officialFee?.currency || 'TRY';
-                    const serviceAmt = acc.dynamicServiceFee; 
-                    const serviceCurr = acc.serviceFee?.currency || 'TRY';
-                    const vatAmt = acc.dynamicVatAmount;
-
-                    grandTotals.official.add(officialAmt, officialCurr);
-                    grandTotals.service.add(serviceAmt, serviceCurr);
-                    grandTotals.vat.add(vatAmt, serviceCurr);
+                    // 🔥 MAP objelerindeki her dövizi kendi kurlarıyla topluyoruz
+                    Object.entries(acc.dynamicOffMap || {}).forEach(([c, a]) => grandTotals.official.add(a, c));
+                    Object.entries(acc.dynamicSrvMap || {}).forEach(([c, a]) => grandTotals.service.add(a, c));
+                    Object.entries(acc.dynamicVatMap || {}).forEach(([c, a]) => grandTotals.vat.add(a, c));
 
                     const totalArr = acc.dynamicTotalAmount;
                     const remArr = acc.dynamicRemainingAmount;
@@ -447,9 +456,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // --- BÖLÜM 3: VERİ DÖKÜMÜ ---
                 let isAlternate = false;
 
+                // 🔥 YENİ: Karma dövizleri (Row bazında) yöneten yardımcı fonksiyon
+                const getSingleOrConverted = (mapObj) => {
+                    const keys = Object.keys(mapObj || {});
+                    if (keys.length === 0) return { amt: 0, curr: 'TRY' };
+                    if (keys.length === 1) return { amt: mapObj[keys[0]], curr: keys[0] }; 
+
+                    let totalTRY = 0;
+                    for (const [c, a] of Object.entries(mapObj)) {
+                        totalTRY += a * (exchangeRates[c] || 1);
+                    }
+                    return { amt: totalTRY, curr: 'TRY (Karma)' };
+                };
+
                 for (const [monthYear, records] of Object.entries(groupedData)) {
                     
-                    const monthTotals = { total: new CurrencyTracker(exchangeRates), remaining: new CurrencyTracker(exchangeRates) };
+                    const monthTotals = { 
+                        official: new CurrencyTracker(exchangeRates), service: new CurrencyTracker(exchangeRates),
+                        vat: new CurrencyTracker(exchangeRates), total: new CurrencyTracker(exchangeRates), remaining: new CurrencyTracker(exchangeRates) 
+                    };
 
                     records.forEach(acc => {
                         const dateObj = acc.createdAt instanceof Date ? acc.createdAt : new Date(acc.createdAt || 0);
@@ -461,12 +486,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         let fieldText = '-';
                         if (typeObj?.ipType) fieldText = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım', 'suit': 'Dava' }[typeObj.ipType] || typeObj.ipType;
 
-                        // 🔥 ÇÖZÜM: Burada da veritabanı ham değerleri yerine dinamik (Tevkifatlı) değerleri alıyoruz
-                        const officialAmt = acc.dynamicOfficialFee;
-                        const officialCurr = acc.officialFee?.currency || 'TRY';
-                        const serviceAmt = acc.dynamicServiceFee;
-                        const serviceCurr = acc.serviceFee?.currency || 'TRY';
-                        const vatAmt = acc.dynamicVatAmount;
+                        // Satır için kura göre çevir veya tekilse bırak
+                        const offInfo = getSingleOrConverted(acc.dynamicOffMap);
+                        const srvInfo = getSingleOrConverted(acc.dynamicSrvMap);
+                        const vatInfo = getSingleOrConverted(acc.dynamicVatMap);
+
+                        // Aylık döviz ayrımlarını MonthTotals'a yolla
+                        Object.entries(acc.dynamicOffMap || {}).forEach(([c, a]) => monthTotals.official.add(a, c));
+                        Object.entries(acc.dynamicSrvMap || {}).forEach(([c, a]) => monthTotals.service.add(a, c));
+                        Object.entries(acc.dynamicVatMap || {}).forEach(([c, a]) => monthTotals.vat.add(a, c));
 
                         const totalArr = acc.dynamicTotalAmount;
                         const remArr = acc.dynamicRemainingAmount;
@@ -488,9 +516,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                             taskTitle: typeObj ? (typeObj.alias || typeObj.name) : (acc.taskTitle || '-'),
                             party: acc.paymentParty || acc.tpInvoiceParty?.name || acc.serviceInvoiceParty?.name || '-', 
                             tpeInvoiceNo: acc.tpeInvoiceNo || '', evrekaInvoiceNo: acc.evrekaInvoiceNo || '',
-                            officialFee: officialAmt, officialFeeCurr: officialCurr, 
-                            serviceFee: serviceAmt, serviceFeeCurr: serviceCurr, 
-                            vatAmount: vatAmt, vatCurr: serviceCurr,
+                            officialFee: offInfo.amt, officialFeeCurr: offInfo.curr, 
+                            serviceFee: srvInfo.amt, serviceFeeCurr: srvInfo.curr, 
+                            vatAmount: vatInfo.amt, vatCurr: vatInfo.curr,
                             totalAmount: getRawTRY(totalArr), 
                             remainingAmount: getRawTRY(remArr)
                         });
@@ -515,6 +543,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // --- AYLIK ALT TOPLAM (DÖVİZ CİNSİNDEN) ---
                     const originalSubtotalRow = worksheet.addRow({
                         party: `${monthYear} DÖVİZ TOPLAMLARI:`,
+                        officialFee: monthTotals.official.getOriginalTotalsStr(),
+                        serviceFee: monthTotals.service.getOriginalTotalsStr(),
+                        vatAmount: monthTotals.vat.getOriginalTotalsStr(),
                         totalAmount: monthTotals.total.getOriginalTotalsStr(),
                         remainingAmount: monthTotals.remaining.getOriginalTotalsStr()
                     });
@@ -522,7 +553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     originalSubtotalRow.height = 20;
                     originalSubtotalRow.eachCell((cell, colNumber) => {
                         cell.font = { name: 'Montserrat', size: 9, bold: true, color: { argb: 'FF334155' }, italic: true };
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // Çok açık mavi/gri
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; 
                         cell.border = { top: { style: 'thin', color: {argb: 'FFCBD5E1'} } };
                         if (colNumber > 1) cell.alignment = { horizontal: 'right', vertical: 'middle' };
                     });
@@ -530,6 +561,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // --- AYLIK ALT TOPLAM (TL KARŞILIĞI) ---
                     const subtotalRow = worksheet.addRow({
                         party: `${monthYear} TL KARŞILIĞI:`,
+                        officialFee: monthTotals.official.getRaw(),
+                        serviceFee: monthTotals.service.getRaw(),
+                        vatAmount: monthTotals.vat.getRaw(),
                         totalAmount: monthTotals.total.getRaw(),
                         remainingAmount: monthTotals.remaining.getRaw()
                     });
@@ -537,15 +571,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     subtotalRow.height = 22;
                     subtotalRow.eachCell((cell) => {
                         cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; // Koyu Gri Zemin
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; 
                         cell.border = { bottom: { style: 'medium', color: {argb: 'FF94A3B8'} } };
                     });
-                    worksheet.addRow({}); // Aylar arasına nefes boşluğu
+                    worksheet.addRow({}); 
                 }
 
                 // --- BÖLÜM 4: GENEL TOPLAM (GRAND TOTAL) ---
                 const originalGrandTotalRow = worksheet.addRow({
                     party: 'GENEL DÖVİZ TOPLAMLARI:',
+                    officialFee: grandTotals.official.getOriginalTotalsStr(),
+                    serviceFee: grandTotals.service.getOriginalTotalsStr(),
+                    vatAmount: grandTotals.vat.getOriginalTotalsStr(),
                     totalAmount: grandTotals.total.getOriginalTotalsStr(),
                     remainingAmount: grandTotals.remaining.getOriginalTotalsStr()
                 });
@@ -553,12 +590,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 originalGrandTotalRow.height = 22;
                 originalGrandTotalRow.eachCell((cell, colNumber) => {
                     cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF065F46' }, italic: true };
-                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Açık yeşil arka plan
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; 
                     if (colNumber > 1) cell.alignment = { horizontal: 'right', vertical: 'middle' };
                 });
 
                 const grandTotalRow = worksheet.addRow({
                     party: 'GENEL TOPLAM RAPORU (TL KARŞILIĞI):',
+                    officialFee: grandTotals.official.getRaw(),
+                    serviceFee: grandTotals.service.getRaw(),
+                    vatAmount: grandTotals.vat.getRaw(),
                     totalAmount: grandTotals.total.getRaw(),
                     remainingAmount: grandTotals.remaining.getRaw()
                 });

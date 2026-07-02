@@ -1659,18 +1659,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
-            // --- ARKA PLAN AJANI (OTO-SYNC) ---
-            // Sayfa yüklendikten 1 saniye sonra arkadan kontrol eder
-            setTimeout(async () => {
-                if (this.dataManager && typeof this.dataManager.autoSyncPendingInvoices === 'function') {
-                    const hasUpdates = await this.dataManager.autoSyncPendingInvoices();
-                    if (hasUpdates) {
-                        await this.loadData(); 
-                        console.log("[OTO-SYNC] Arka plan taraması tamamlandı, arayüz güncellendi.");
-                    }
-                }
-            }, 1000);
-
             // YENİ: Tekrarlayan Tahakkuk Tablosu İşlem Butonları (Silme ve Düzenleme)
             if (this.uiManager.recursiveTableBody) {
                 this.uiManager.recursiveTableBody.addEventListener('click', async (e) => {

@@ -1125,10 +1125,29 @@ class DataEntryModule {
                 } 
                 else if (['WIPO', 'ARIPO'].includes(recordData.origin)) {
                     this.handleOriginChange(recordData.origin);
-                    if (Array.isArray(recordData.countries)) {
-                        this.selectedCountries = recordData.countries.map(c => ({code: c, name: c}));
-                        this.renderSelectedCountries();
-                    }
+                    
+                    // 🔥 SİHİRLİ DOKUNUŞ: Veritabanı mimarinize göre WIPO ülkeleri dizi olarak değil, 
+                    // 'child' kayıtlar olarak tutuluyor. Bu yüzden parent_id ile çocukları (ülkeleri) çekiyoruz!
+                    supabase.from('ip_records')
+                        .select('country_code')
+                        .eq('parent_id', String(recordData.id))
+                        .eq('transaction_hierarchy', 'child')
+                        .then(({data: childRecords}) => {
+                            if (childRecords && childRecords.length > 0) {
+                                // Gelen alt kayıtlardan ülke kodlarını alıp isimleriyle eşleştir
+                                this.selectedCountries = childRecords.map(child => {
+                                    const code = child.country_code;
+                                    const countryObj = this.allCountries.find(c => c.code === code);
+                                    return { code: code, name: countryObj ? countryObj.name : code };
+                                });
+                                this.renderSelectedCountries();
+                            } else if (Array.isArray(recordData.countries)) {
+                                // Eski formattaki (JSON) kayıtlar için yedekleme (Fallback)
+                                this.selectedCountries = recordData.countries.map(c => ({code: c, name: c}));
+                                this.renderSelectedCountries();
+                            }
+                        })
+                        .catch(err => console.error("WIPO/ARIPO ülkeleri çekilemedi:", err));
                 }
                 else if (recordData.origin === 'Yurtdışı Ulusal') {
                     this.handleOriginChange(recordData.origin);

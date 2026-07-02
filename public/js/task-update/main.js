@@ -61,9 +61,28 @@ class TaskUpdateController {
 
     async extractEpatsInfoFromFile(file) {
         try {
+            if (!window.pdfjsLib) {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                    script.onload = () => {
+                        try {
+                            const workerScript = `importScripts('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js');`;
+                            const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+                            window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
+                            resolve();
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    script.onerror = () => reject(new Error("PDF.js kütüphanesi yüklenemedi."));
+                    document.head.appendChild(script);
+                });
+            }
+            const pdfjsLib = window.pdfjsLib;
+
             const arrayBuffer = await file.arrayBuffer();
-            // Uint8Array dönüşümü ile daha güvenli bellek okuması
-            const uint8Array = new Uint8Array(arrayBuffer);
+            const uint8Array = new Uint8Array(arrayBuffer); 
             const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
             const pdf = await loadingTask.promise;
 
@@ -79,15 +98,54 @@ class TaskUpdateController {
             const normalizedText = fullText.replace(/\s+/g, ' '); 
 
             let evrakNo = null;
-            // 🔥 Çökmeye sebep olan karmaşık Regex kaldırıldı, güvenli hale getirildi
-            const evrakNoRegex = /Evrak\s+(?:No|Numarası)[\s:.\-,"']*([a-zA-Z0-9\-]+)/i;
-            const evrakNoMatch = normalizedText.match(evrakNoRegex);
-            if (evrakNoMatch) evrakNo = evrakNoMatch[1].trim().replace(/-$/, '');
-
             let documentDate = null;
-            const dateRegex = /(?:Tarih|Evrak\s+Tarihi)[\s:.\-,"']*(\d{1,2}[./]\d{1,2}[./]\d{4})/i;
-            const dateMatch = normalizedText.match(dateRegex);
-            if (dateMatch) documentDate = this.parseDate(dateMatch[1]);
+
+            // ==========================================
+            // 1. EVRAK NUMARASI BULMA MANTIĞI
+            // ==========================================
+            // EPATS Formatlı tüm numaraları bul (Örn: 2026-GE-123456)
+            const epatsFormatRegex = /\b(20\d{2}-[A-Za-z]+-\d+)\b/g;
+            const allMatches = [...normalizedText.matchAll(epatsFormatRegex)].map(m => m[1]);
+            
+            if (allMatches.length > 1) {
+                // Kullanıcının kararı: Birden fazla evrak numarası varsa "ikincisini" al
+                evrakNo = allMatches[1];
+            } else if (allMatches.length === 1) {
+                evrakNo = allMatches[0];
+            } else {
+                // Klasik etiket formatı yedeklemesi
+                const regex = /Evrak\s+(?:No|Numarası)[\s:.\-,"']*([a-zA-Z0-9\-]+)/gi;
+                const altMatches = [...normalizedText.matchAll(regex)].map(m => m[1].trim().replace(/-$/, ''));
+                if (altMatches.length > 1) {
+                    evrakNo = altMatches[1]; // İkincisini al
+                } else if (altMatches.length === 1) {
+                    evrakNo = altMatches[0];
+                }
+            }
+
+            // ==========================================
+            // 2. EVRAK TARİHİ BULMA MANTIĞI
+            // ==========================================
+            // EPATS Evrak Tarihleri genellikle saat bilgisi içerir (Örn: 02.07.2026 13:43:40)
+            const dateTimeRegex = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\s+\d{2}:\d{2}(?::\d{2})?\b/g;
+            const dateTimeMatches = [...normalizedText.matchAll(dateTimeRegex)].map(m => m[1]);
+
+            if (dateTimeMatches.length > 1) {
+                documentDate = this.parseDate(dateTimeMatches[1]); // İkincisini al
+            } else if (dateTimeMatches.length === 1) {
+                documentDate = this.parseDate(dateTimeMatches[0]);
+            } else {
+                // Saat bilgisi yoksa belgedeki düz tarihleri bul
+                const dateRegex = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b/g;
+                const dateMatches = [...normalizedText.matchAll(dateRegex)].map(m => m[1]);
+                
+                if (dateMatches.length > 1) {
+                    // Kullanıcının kararı: Birden fazla evrak tarihi varsa "ikincisini" al
+                    documentDate = this.parseDate(dateMatches[1]);
+                } else if (dateMatches.length === 1) {
+                    documentDate = this.parseDate(dateMatches[0]);
+                }
+            }
 
             return { evrakNo, documentDate };
         } catch (e) { 

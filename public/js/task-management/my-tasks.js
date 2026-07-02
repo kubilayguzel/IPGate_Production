@@ -503,24 +503,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (!task) return;
 
                     // Eğer Tahakkuk işiyse modalı aç
-                    if (String(task.taskType) === '53' || task.taskType === 'accrual_creation') {
+                    const taskTypeStr = String(task.taskType || task.task_type_id || '');
+                    if (taskTypeStr === '53' || task.taskType === 'accrual_creation') {
                         this.openCompleteAccrualModal(taskId);
                     } 
                     else {
-                        // İş tipini analiz et
-                        const tType = this.allTransactionTypes.find(t => String(t.id) === String(task.taskType));
-                        const isApp = tType && (
+                        // İş tipini analiz et (Garantili uyuşma için yedekli kontrol)
+                        const tType = this.allTransactionTypes.find(t => String(t.id) === taskTypeStr);
+                        const isApp = taskTypeStr === '2' || (tType && (
                             String(tType.id).includes('application') || 
                             String(tType.name).toLowerCase().includes('başvuru') || 
                             String(tType.alias).toLowerCase().includes('başvuru')
-                        );
+                        ));
 
-                        // 🔥 YENİ MANTIK:
-                        // 1. İş bir 'Başvuru' işi MI?
-                        // 2. İş şu an 'Taslak' (pending) statüsünde MI?
-                        // Sadece bu iki şart birden sağlanıyorsa data-entry.html'e gider.
-                        const isDraft = task.status === 'pending';
-                        const targetPage = (isApp && isDraft) ? 'data-entry.html' : 'task-update.html';
+                        // 🔥 DUYARLI DEĞİŞİKLİK: Hem "taslak" (pending) hem de "açık" (open) durumlarını kabul et
+                        const isValidStatus = ['pending', 'open'].includes(task.status);
+                        const targetPage = (isApp && isValidStatus) ? 'data-entry.html' : 'task-update.html';
 
                         window.location.href = `${targetPage}?id=${taskId}`;
                     }
@@ -1071,11 +1069,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // 🔥 YENİ VE AKILLI: ID Kısıtlamalarına ve Şemaya Tam Uyumlu Kopyalama Motoru
+        // 🔥 GÜNCEL VE KUSURSUZ: Tüm Alt Tabloları ve WIPO Çocuklarını Birebir Klonlayan Derin Kopyalama Motoru
         async handleDuplicateTask(taskId) {
-            if (!confirm('Bu işin bir kopyası taslak olarak oluşturulacak. Devam etmek istiyor musunuz?')) return;
+            if (!confirm('Bu işin ve bağlı olduğu portföyün (Marka örneği, WIPO ülkeleri ve emtia listesi dahil) birebir kopyası taslak olarak oluşturulacak. Devam etmek istiyor musunuz?')) return;
 
-            let loader = window.showSimpleLoading ? window.showSimpleLoading('Kopyalanıyor', 'Veriler analiz edilip kopyalanıyor...') : null;
+            let loader = window.showSimpleLoading ? window.showSimpleLoading('Derin Kopyalama Yapılıyor', 'Tüm ilişkisel veriler analiz edilip klonlanıyor...') : null;
 
             try {
                 // 1. Asıl işi çek
@@ -1095,45 +1093,75 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let newIpRecordId = null;
                 const oldIpRecordId = originalTask.ip_record_id;
 
-                // 3. BAŞVURU İŞİ İSE: Portföyü Kopyala (Deep Copy)
+                // 3. BAŞVURU İŞİ İSE: Portföyü Birebir (Deep Copy) Klonla
                 if (isApplication && oldIpRecordId) {
                     const { data: oldIp } = await supabase.from('ip_records').select('*').eq('id', String(oldIpRecordId)).single();
                     
                     if (oldIp) {
                         const { id, created_at, updated_at, application_number, registration_number, old_transactions, ...ipCopyData } = oldIp;
                         
-                        // 🔥 ÇÖZÜM 1: Yeni Portföy (IP Record) için zorunlu ID üretiyoruz
+                        // Yeni Portföy (IP Record) için zorunlu benzersiz ID üret
                         const generatedIpRecordId = crypto.randomUUID();
                         
                         const { data: newIp, error: newIpErr } = await supabase.from('ip_records').insert([{
                             ...ipCopyData,
-                            id: generatedIpRecordId, // 🔥 Üretilen ID gönderiliyor
-                            status: 'draft' 
+                            id: generatedIpRecordId, 
+                            status: 'draft',
+                            portfolio_status: 'draft'
                         }]).select('id').single();
                         
                         if (!newIpErr && newIp) {
                             newIpRecordId = newIp.id;
 
-                            // 🔥 Alt tablolara da zorunlu (Benzersiz) ID'ler eklenerek kopyalama yapılıyor
-                            // Sınıfları Kopyala
+                            // A) Sınıfları (Nice) Kopyala
                             const { data: oldClasses } = await supabase.from('ip_record_classes').select('*').eq('ip_record_id', String(oldIpRecordId));
                             if (oldClasses && oldClasses.length > 0) {
                                 const newClasses = oldClasses.map(c => { const { id, created_at, ...cData } = c; return { ...cData, id: crypto.randomUUID(), ip_record_id: newIpRecordId }; });
                                 await supabase.from('ip_record_classes').insert(newClasses);
                             }
 
-                            // Sahipleri Kopyala
+                            // B) Sahipleri (Applicants) Kopyala
                             const { data: oldApplicants } = await supabase.from('ip_record_applicants').select('*').eq('ip_record_id', String(oldIpRecordId));
                             if (oldApplicants && oldApplicants.length > 0) {
                                 const newApplicants = oldApplicants.map(a => { const { id, created_at, ...aData } = a; return { ...aData, id: crypto.randomUUID(), ip_record_id: newIpRecordId }; });
                                 await supabase.from('ip_record_applicants').insert(newApplicants);
                             }
                             
-                            // Marka Detaylarını Kopyala
+                            // C) Marka Detaylarını (Görsel ve Metin) Kopyala
                             const { data: oldDetails } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', String(oldIpRecordId));
                             if (oldDetails && oldDetails.length > 0) {
-                                const newDetails = oldDetails.map(d => { const { id, created_at, ...dData } = d; return { ...dData, id: crypto.randomUUID(), ip_record_id: newIpRecordId, brand_name: `[KOPYA] ${d.brand_name || ''}` }; });
+                                const newDetails = oldDetails.map(d => { const { id, created_at, ...dData } = d; return { ...dData, id: crypto.randomUUID(), ip_record_id: newIpRecordId, brand_name: d.brand_name ? `[KOPYA] ${d.brand_name}` : '' }; });
                                 await supabase.from('ip_record_trademark_details').insert(newDetails);
+                            }
+
+                            // D) 🔥 SİHİRLİ DOKUNUŞ 1: WIPO / ARIPO Alt Ülkelerini (Child Kayıtları) Kopyala!
+                            const { data: oldChildren } = await supabase.from('ip_records')
+                                .select('*')
+                                .eq('parent_id', String(oldIpRecordId))
+                                .eq('transaction_hierarchy', 'child');
+
+                            if (oldChildren && oldChildren.length > 0) {
+                                for (const child of oldChildren) {
+                                    const childId = child.id;
+                                    const { id: cId, created_at: cAt, updated_at: uAt, parent_id: pId, ...childCopyData } = child;
+                                    const generatedChildId = crypto.randomUUID();
+
+                                    // Alt ülkenin kendisini kopyala
+                                    await supabase.from('ip_records').insert([{
+                                        ...childCopyData,
+                                        id: generatedChildId,
+                                        parent_id: newIpRecordId,
+                                        status: 'draft',
+                                        portfolio_status: 'draft'
+                                    }]);
+
+                                    // Alt ülkenin marka detaylarını kopyala
+                                    const { data: oldChildDetails } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', String(childId));
+                                    if (oldChildDetails && oldChildDetails.length > 0) {
+                                        const newChildDetails = oldChildDetails.map(cd => { const { id, created_at, ...cdData } = cd; return { ...cdData, id: crypto.randomUUID(), ip_record_id: generatedChildId }; });
+                                        await supabase.from('ip_record_trademark_details').insert(newChildDetails);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1141,25 +1169,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                     newIpRecordId = oldIpRecordId;
                 }
 
-                // 4. Görevi (Task) Kopyala
+                // 4. Görevin (Task) Kendi İç JSON Alanını (details) Yeni ID'lere Göre Güncelle
                 const { id, created_at, updated_at, target_accrual_id, status, ...copyData } = originalTask;
                 
                 let newDetailsJson = copyData.details;
-                if (isApplication && typeof newDetailsJson === 'string') {
+                if (typeof newDetailsJson === 'string') {
                     try {
                         let pDetails = JSON.parse(newDetailsJson);
-                        if (pDetails.ip_record_id && newIpRecordId) pDetails.ip_record_id = newIpRecordId;
-                        if (pDetails.relatedIpRecordId && newIpRecordId) pDetails.relatedIpRecordId = newIpRecordId;
+                        if (pDetails.ip_record_id) pDetails.ip_record_id = newIpRecordId;
+                        if (pDetails.relatedIpRecordId) pDetails.relatedIpRecordId = newIpRecordId;
                         newDetailsJson = JSON.stringify(pDetails);
                     } catch(e) {}
+                } else if (typeof newDetailsJson === 'object' && newDetailsJson !== null) {
+                    if (newDetailsJson.ip_record_id) newDetailsJson.ip_record_id = newIpRecordId;
+                    if (newDetailsJson.relatedIpRecordId) newDetailsJson.relatedIpRecordId = newIpRecordId;
                 }
 
-                // 🔥 ÇÖZÜM 2: Sizin Sayaç (Counter) mimarinizi kullanarak yeni Görev (Task) ID'si üretiyoruz!
+                // 5. Sayaç Mimarinizle Yeni Görev (Task) ID'si Üret ve Kaydet
                 const generatedTaskId = await taskService._getNextTaskId(tTypeId);
 
                 const newTask = {
                     ...copyData,
-                    id: generatedTaskId, // 🔥 Sayaçtan gelen benzersiz Numara!
+                    id: generatedTaskId, 
                     title: `[TASLAK] ${originalTask.title || 'Yeni İş'}`,
                     status: 'pending', 
                     ip_record_id: newIpRecordId || originalTask.ip_record_id,
@@ -1169,12 +1200,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const { data: insertedTask, error: insertErr } = await supabase.from('tasks').insert([newTask]).select('id').single();
                 if (insertErr) throw insertErr;
 
-                // 5. İşlem Geçmişini Ekle
+                // 6. İşlem Geçmişine Log Ekle
                 if (insertedTask) {
                     await supabase.from('task_history').insert([{
                         task_id: insertedTask.id,
                         action: isApplication 
-                            ? `Marka Başvuru işi kopyalandı. Yepyeni bir taslak portföy oluşturuldu.`
+                            ? `Marka Başvuru işi tüm WIPO alt ülkeleri ve emtia detaylarıyla birlikte derinlemesine kopyalandı.`
                             : `İş kopyalandı. Orijinal marka portföyüne bağlı kalındı.`,
                         user_id: this.currentUser?.uid || this.currentUser?.id, 
                         created_at: new Date().toISOString()
@@ -1182,9 +1213,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 if (loader) loader.hide();
-                showNotification('İş başarıyla kopyalandı! Düzenleme ekranına yönlendiriliyorsunuz...', 'success');
+                showNotification('İş ve bağlı olduğu tüm alt kırılımlar başarıyla kopyalandı! Yönlendiriliyorsunuz...', 'success');
 
-                // 🔥 YENİ: Kopyalanan işin tipine (isApplication) göre doğru sayfaya yönlendir
                 setTimeout(() => { 
                     const targetPage = isApplication ? 'data-entry.html' : 'task-update.html';
                     window.location.href = `${targetPage}?id=${insertedTask.id}`; 

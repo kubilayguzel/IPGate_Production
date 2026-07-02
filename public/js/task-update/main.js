@@ -2,12 +2,10 @@ import { authService, supabase, storageService } from '../../supabase-config.js'
 import { loadSharedLayout, ensurePersonModal } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 
-import * as pdfjsLibProxy from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/+esm';
-const pdfjsLib = pdfjsLibProxy.GlobalWorkerOptions ? pdfjsLibProxy : pdfjsLibProxy.default;
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
 
-if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
-}
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
 
 import { TaskUpdateDataManager } from './TaskUpdateDataManager.js';
 import { TaskUpdateUIManager } from './TaskUpdateUIManager.js';
@@ -64,7 +62,9 @@ class TaskUpdateController {
     async extractEpatsInfoFromFile(file) {
         try {
             const arrayBuffer = await file.arrayBuffer();
-            const loadingTask = pdfjsLib.getDocument(arrayBuffer);
+            // Uint8Array dönüşümü ile daha güvenli bellek okuması
+            const uint8Array = new Uint8Array(arrayBuffer);
+            const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
             const pdf = await loadingTask.promise;
 
             let fullText = '';
@@ -79,7 +79,8 @@ class TaskUpdateController {
             const normalizedText = fullText.replace(/\s+/g, ' '); 
 
             let evrakNo = null;
-            const evrakNoRegex = /(?<!İtirazın\s)Evrak\s+(?:No|Numarası)[\s:.\-,"']*([a-zA-Z0-9\-]+)/i;
+            // 🔥 Çökmeye sebep olan karmaşık Regex kaldırıldı, güvenli hale getirildi
+            const evrakNoRegex = /Evrak\s+(?:No|Numarası)[\s:.\-,"']*([a-zA-Z0-9\-]+)/i;
             const evrakNoMatch = normalizedText.match(evrakNoRegex);
             if (evrakNoMatch) evrakNo = evrakNoMatch[1].trim().replace(/-$/, '');
 
@@ -89,7 +90,10 @@ class TaskUpdateController {
             if (dateMatch) documentDate = this.parseDate(dateMatch[1]);
 
             return { evrakNo, documentDate };
-        } catch (e) { return null; }
+        } catch (e) { 
+            console.error("PDF İşleme Hatası:", e);
+            return null; 
+        }
     }
 
     parseDate(dateStr) {
@@ -419,32 +423,56 @@ class TaskUpdateController {
             this.statusBeforeEpatsUpload = statusEl ? statusEl.value : null;
         }
 
+        let extractedEvrakNo = null;
+        let extractedDate = null;
+
         if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
             showNotification('PDF taranıyor, evrak bilgileri okunuyor...', 'info');
-            this.extractEpatsInfoFromFile(file).then(info => {
+            try {
+                // 🔥 AWAIT KULLANIMI: Okuma bitmeden dosya yüklemesini kesinlikle başlatma!
+                const info = await this.extractEpatsInfoFromFile(file);
+                
                 if (info) {
                     const noInput = document.getElementById('turkpatentEvrakNo');
                     const dateInput = document.getElementById('epatsDocumentDate');
                     let msg = [];
-                    if (info.evrakNo && noInput && !noInput.value) { noInput.value = info.evrakNo; msg.push('Evrak No'); }
-                    if (info.documentDate && dateInput && !dateInput.value) {
+                    
+                    if (info.evrakNo && noInput) { 
+                        extractedEvrakNo = info.evrakNo;
+                        noInput.value = info.evrakNo; 
+                        noInput.dispatchEvent(new Event('input', { bubbles: true })); 
+                        msg.push('Evrak No'); 
+                    }
+                    
+                    if (info.documentDate && dateInput) {
+                        extractedDate = info.documentDate;
                         dateInput.value = info.documentDate;
-                        if (dateInput._flatpickr) dateInput._flatpickr.setDate(info.documentDate, true);
+                        if (dateInput._flatpickr) {
+                            dateInput._flatpickr.setDate(info.documentDate, true);
+                        } else {
+                            dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
                         msg.push('Tarih');
                     }
-                    if (msg.length > 0) showNotification(`✅ PDF'ten otomatik dolduruldu: ${msg.join(', ')}`, 'success');
+                    
+                    if (msg.length > 0) {
+                        showNotification(`✅ PDF'ten otomatik dolduruldu: ${msg.join(', ')}`, 'success');
+                    } else {
+                        showNotification(`⚠️ PDF okundu ancak içinde tarih veya numara bulunamadı.`, 'warning');
+                    }
                 }
-            });
+            } catch (err) {
+                console.error("PDF Veri Çıkarma Hatası:", err);
+            }
         }
 
         const id = this.generateUUID();
         const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
         const path = `tasks/${this.taskId}/epats_${id}_${cleanFileName}`;
-        
-        // YENİ EKLENEN:
         const txId = this.taskData.transaction_id || this.taskData.transactionId || this.taskData.details?.transactionId || this.taskData.details?.associated_transaction_id;
         
         try {
+            showNotification('Evrak sisteme yükleniyor, lütfen bekleyiniz...', 'info');
             const uploadRes = await storageService.uploadFile('documents', path, file);
             if (!uploadRes.success) throw new Error(uploadRes.error);
 
@@ -456,7 +484,6 @@ class TaskUpdateController {
                 document_type: 'epats_document'
             });
 
-            // YENİ EKLENEN: Transaction varsa, aynı URL ile oraya da yansıt
             if (txId) {
                 await supabase.from('transaction_documents').insert({
                     id: this.generateUUID(),
@@ -476,7 +503,9 @@ class TaskUpdateController {
                 storagePath: path, 
                 size: file.size,
                 uploadedAt: new Date().toISOString(), 
-                type: 'epats_document'
+                type: 'epats_document',
+                turkpatentEvrakNo: extractedEvrakNo, 
+                documentDate: extractedDate          
             };
 
             this.currentDocuments = this.currentDocuments.filter(d => d.type !== 'epats_document');
@@ -484,9 +513,10 @@ class TaskUpdateController {
 
             this.uiManager.renderDocuments(this.currentDocuments);
 
-            // ORİJİNAL YAPINIZ: Evrak eklenince statü dropdown'u 'completed' olur
             const statusSelect = document.getElementById('taskStatus');
             if(statusSelect) statusSelect.value = 'completed'; 
+
+            showNotification('EPATS evrakı başarıyla yüklendi.', 'success');
 
             const taskType = String(this.taskData.taskType);
             if (taskType === '22') this.handleRenewalLogic();

@@ -411,6 +411,8 @@ class DataEntryModule {
                 if (downloadURL) recordData.brandImageUrl = downloadURL;
             } else if (typeof this.uploadedBrandImage === 'string') {
                 recordData.brandImageUrl = this.uploadedBrandImage;
+            } else {
+                recordData.brandImageUrl = null; // 🔥 1. SORUNUN ÇÖZÜMÜ: Resim kaldırıldıysa null set et!
             }
 
             this.saveBtn.textContent = 'Kaydediliyor...';
@@ -427,13 +429,23 @@ class DataEntryModule {
                 const result = await ipRecordsService.updateRecord(this.editingRecordId, recordData);
                 if (!result.success) throw new Error(result.error || 'Güncelleme başarısız.');
                 
+                // 🔥 1. SORUNUN DEVAMI: Parent kaydın kendi marka detay tablosunu da anında güncelle!
+                if (ipType === 'trademark') {
+                    await supabase.from('ip_record_trademark_details').update({
+                        brand_name: recordData.brandExampleText || recordData.brandText || recordData.title || null,
+                        brand_image_url: recordData.brandImageUrl || null,
+                        description: recordData.brandDescription || recordData.description || null
+                    }).eq('ip_record_id', this.editingRecordId);
+                }
+
                 if ((recordData.origin === 'WIPO' || recordData.origin === 'ARIPO') && this.currentTransactionHierarchy === 'parent') {
-                    await this.syncAndCreateMissingChildren(this.editingRecordId, recordData);
+                    // 🔥 3. SORUNUN ÇÖZÜMÜ: Sadece ekleme değil, tam senkronizasyon motorunu çağırıyoruz!
+                    await this.syncChildCountries(this.editingRecordId, recordData);
                     await this.propagateUpdatesToChildren(this.editingRecordId, recordData);
                 }
 
                 alert('Kayıt başarıyla güncellendi.');
-                localStorage.setItem('crossTabUpdatedRecordId', this.editingRecordId); 
+                localStorage.setItem('crossTabUpdatedRecordId', this.editingRecordId);
 
             } 
             // 7. Yeni Kayıt Ekle
@@ -497,36 +509,69 @@ class DataEntryModule {
         }
     }
 
-    async syncAndCreateMissingChildren(parentId, parentData) {
+    // 🔥 3. SORUNUN KÖKTEN ÇÖZÜMÜ: Ülke listesini (Kopyalama sonrası eklenen/silinen dahil) tam senkronize eder
+    async syncChildCountries(parentId, parentData) {
+        console.log('🔄 WIPO/ARIPO Çocuk ülkeleri tam senkronize ediliyor...');
         try {
-            const { data: children } = await supabase.from('ip_records')
-                .select('country_code').eq('parent_id', parentId).eq('transaction_hierarchy', 'child');
+            // A) Veritabanındaki mevcut çocukları çek
+            const { data: children, error: fetchErr } = await supabase.from('ip_records')
+                .select('id, country_code')
+                .eq('parent_id', parentId)
+                .eq('transaction_hierarchy', 'child');
                 
-            const existingCountryCodes = children ? children.map(c => String(c.country_code).trim()) : [];
-            const countriesToCreate = this.selectedCountries.filter(c => !existingCountryCodes.includes(String(c.code).trim()));
+            if (fetchErr) throw fetchErr;
 
-            if (countriesToCreate.length === 0) return;
+            const existingChildren = children || [];
+            const selectedCodes = this.selectedCountries.map(c => String(c.code).trim());
 
-            const promises = countriesToCreate.map(async (country) => {
-                try {
-                    const childData = { ...parentData };
-                    ['applicationNumber', 'registrationNumber', 'internationalRegNumber', 'countries', 'wipoIR', 'aripoIR', 'id'].forEach(k => delete childData[k]);
+            // B) SİLİNECEKLER: Kullanıcının listeden çıkardığı (sildiği) ülkeleri ve tüm alt bağlarını yok et!
+            const childrenToDelete = existingChildren.filter(c => !selectedCodes.includes(String(c.country_code).trim()));
+            if (childrenToDelete.length > 0) {
+                const idsToDelete = childrenToDelete.map(c => c.id);
+                await supabase.from('ip_record_trademark_details').delete().in('ip_record_id', idsToDelete);
+                await supabase.from('transactions').delete().in('ip_record_id', idsToDelete);
+                await supabase.from('ip_records').delete().in('id', idsToDelete);
+                console.log(`❌ Listeden çıkarılan ${idsToDelete.length} adet çocuk ülke kaydı silindi.`);
+            }
 
-                    childData.transactionHierarchy = 'child';
-                    childData.parentId = parentId;
-                    childData.country = country.code;
-                    childData.createdFrom = 'wipo_update_sync'; 
+            // C) EKLENECEKLER: Listeye yeni dahil edilen ülkeleri oluştur
+            const existingCodes = existingChildren.map(c => String(c.country_code).trim());
+            const countriesToCreate = this.selectedCountries.filter(c => !existingCodes.includes(String(c.code).trim()));
 
-                    const irNumber = parentData.internationalRegNumber || parentData.registrationNumber;
-                    if (parentData.origin === 'WIPO') childData.wipoIR = irNumber;
-                    else if (parentData.origin === 'ARIPO') childData.aripoIR = irNumber;
+            if (countriesToCreate.length > 0) {
+                const promises = countriesToCreate.map(async (country) => {
+                    try {
+                        const childData = { ...parentData };
+                        ['applicationNumber', 'registrationNumber', 'internationalRegNumber', 'countries', 'wipoIR', 'aripoIR', 'id', 'brandImageUrl', 'brandExampleText', 'brandDescription', 'title', 'description'].forEach(k => delete childData[k]);
 
-                    const res = await ipRecordsService.createRecordFromDataEntry(childData);
-                    if (res.success) await this.addTransactionForNewRecord(res.id, parentData.ipType, 'child');
-                } catch (err) { console.error(`Child oluşturma hatası:`, err); }
-            });
+                        childData.transactionHierarchy = 'child';
+                        childData.parentId = parentId;
+                        childData.country = country.code;
+                        childData.createdFrom = 'wipo_update_sync'; 
 
-            await Promise.all(promises);
+                        const irNumber = parentData.wipoIR || parentData.aripoIR || parentData.internationalRegNumber || parentData.registrationNumber;
+                        if (parentData.origin === 'WIPO') childData.wipoIR = irNumber;
+                        if (parentData.origin === 'ARIPO') childData.aripoIR = irNumber;
+
+                        const res = await ipRecordsService.createRecordFromDataEntry(childData);
+                        if (res.success) {
+                            // Çocuk kaydın marka detaylarını da (Emtia ve görsel dahil) ilk elden oluştur
+                            const childDetails = {
+                                id: crypto.randomUUID(),
+                                ip_record_id: res.id,
+                                brand_name: parentData.brandExampleText || parentData.brandText || parentData.title || null,
+                                brand_image_url: parentData.brandImageUrl || null,
+                                description: parentData.brandDescription || parentData.description || null
+                            };
+                            await supabase.from('ip_record_trademark_details').insert([childDetails]);
+                            await this.addTransactionForNewRecord(res.id, parentData.ipType, 'child');
+                        }
+                    } catch (err) { console.error(`Child oluşturma hatası:`, err); }
+                });
+
+                await Promise.all(promises);
+                console.log(`✅ Yeni eklenen ${countriesToCreate.length} adet ülke sisteme dahil edildi.`);
+            }
         } catch (error) { console.error('Senkronizasyon ana hatası:', error); }
     }
 
@@ -564,29 +609,31 @@ class DataEntryModule {
                 ipRecordUpdates.aripo_ir = irNumber;
             }
 
+            // Undefined olan değerleri temizle ki DB null hatası vermesin
             Object.keys(ipRecordUpdates).forEach(key => {
                 if (ipRecordUpdates[key] === undefined) delete ipRecordUpdates[key];
             });
 
             // 🔥 2. ADIM: SADECE ip_record_trademark_details TABLOSUNDA VAR OLAN SÜTUNLAR
+            // Form şemanızdaki gerçek ID'ler (brandExampleText, brandDescription vb.) kullanıldı
             const trademarkDetailsUpdates = {
-                brand_name: parentData.title || parentData.brandText || null,
+                brand_name: parentData.brandExampleText || parentData.brandText || parentData.title || null,
                 brand_image_url: parentData.brandImageUrl || null,
-                description: parentData.description || null
+                description: parentData.brandDescription || parentData.description || null
             };
 
             Object.keys(trademarkDetailsUpdates).forEach(key => {
                 if (trademarkDetailsUpdates[key] === undefined) delete trademarkDetailsUpdates[key];
             });
 
-            // 3. ADIM: Child'ları doğru tablolara güncelliyoruz
+            // 🔥 3. ADIM: Child'ları doğru tablolara güncelliyoruz
             for (const child of children) {
-                // Ana verileri (WIPO IR dahil) ip_records tablosuna yaz
+                // Ana verileri (WIPO IR vb.) ip_records tablosuna yaz
                 if (Object.keys(ipRecordUpdates).length > 0) {
                     await supabase.from('ip_records').update(ipRecordUpdates).eq('id', child.id);
                 }
                 
-                // Marka detaylarını ilişkili tabloya yaz
+                // Marka görseli, ismi ve açıklamalarını detay tablosuna yaz
                 if (Object.keys(trademarkDetailsUpdates).length > 0) {
                     await supabase.from('ip_record_trademark_details')
                                   .update(trademarkDetailsUpdates)
@@ -594,12 +641,12 @@ class DataEntryModule {
                 }
             }
 
-            console.log(`✅ ${children.length} adet child kayda WIPO/ARIPO IR başarıyla işlendi.`);
+            console.log(`✅ ${children.length} adet child kayda güncel bilgiler başarıyla işlendi.`);
         } catch (error) { 
             console.error('❌ Child güncelleme hatası:', error); 
         }
     }
-
+    
     async addTransactionForNewRecord(recordId, ipType, hierarchy = 'parent') {
         const TX_IDS = { trademark: '2', patent: '5', design: '8', suit: '14' };
         try {

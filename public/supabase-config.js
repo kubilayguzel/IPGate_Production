@@ -1433,19 +1433,33 @@ export const transactionService = {
             };
         });
 
-        // Hiyerarşiyi Kur (Parent & Child)
-        const parents = processedTxs.filter(t => t.transaction_hierarchy === 'parent' || !t.parent_id);
-        const children = processedTxs.filter(t => t.transaction_hierarchy === 'child' && t.parent_id);
+        // 🔥 BUG FIX: GÖRÜNÜM HİYERARŞİSİ DÜZELTİLDİ
+        const currentTxIds = new Set(processedTxs.map(t => String(t.id)));
+
+        // Kök (Root) işlemleri belirle: Parent olanlar VEYA Parent'ı o an ekranda/listede bulunmayan Child'lar!
+        const rootTransactions = processedTxs.filter(t => {
+            if (t.transaction_hierarchy === 'parent' || !t.parent_id) return true;
+            
+            // Doğrudan child (alt ülke) kaydının detayına girildiyse, parent'ı listede yoktur. Bu yüzden ekranda kök olarak göster!
+            if (!currentTxIds.has(String(t.parent_id))) return true; 
+            
+            return false;
+        });
+
+        // İç içe girecek gerçek alt işlemleri belirle (Parent'ı listede olanlar)
+        const childTransactions = processedTxs.filter(t => {
+            return t.transaction_hierarchy === 'child' && t.parent_id && currentTxIds.has(String(t.parent_id));
+        });
 
         // Alt işlemleri kendi içinde tarihe göre (yeni en üstte olacak şekilde) sırala
-        parents.forEach(p => {
-            p.childrenData = children
+        rootTransactions.forEach(p => {
+            p.childrenData = childTransactions
                 .filter(c => String(c.parent_id) === String(p.id))
                 .sort((a, b) => new Date(b.transaction_date || b.created_at) - new Date(a.transaction_date || a.created_at));
         });
 
         // 🔥 YENİ: GRUP BAZLI ÖZEL SIRALAMA (Ana İşlemler İçin)
-        return parents.sort((a, b) => {
+        return rootTransactions.sort((a, b) => {
             // Her işlemin ait olduğu grubu belirliyoruz
             const getGroup = (tx) => {
                 const tId = String(tx.transaction_type_id || '');

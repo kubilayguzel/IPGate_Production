@@ -1092,6 +1092,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 let newIpRecordId = null;
                 const oldIpRecordId = originalTask.ip_record_id;
+                
+                // 🔥 BUG FIX 1: Alt kayıtların ID'lerini işlem (transaction) oluştururken kullanmak için bir dizide tutuyoruz.
+                const newChildRecordIds = [];
 
                 // 3. BAŞVURU İŞİ İSE: Portföyü Birebir (Deep Copy) Klonla
                 if (isApplication && oldIpRecordId) {
@@ -1128,272 +1131,40 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                             
                             // C) Marka Detaylarını (Görsel ve Metin) Kopyala
-                            // ip_record_trademark_details tablosunda "id"
-                            // sütunu bulunmadığından ayrıca id gönderilmez.
-                            const {
-                                data: oldDetails,
-                                error: oldDetailsError
-                            } = await supabase
-                                .from(
-                                    'ip_record_trademark_details'
-                                )
+                            const { data: oldDetails } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', String(oldIpRecordId));
+                            if (oldDetails && oldDetails.length > 0) {
+                                const newDetails = oldDetails.map(d => { const { id, created_at, ...dData } = d; return { ...dData, id: crypto.randomUUID(), ip_record_id: newIpRecordId, brand_name: d.brand_name ? `[KOPYA] ${d.brand_name}` : '' }; });
+                                await supabase.from('ip_record_trademark_details').insert(newDetails);
+                            }
+
+                            // D) WIPO / ARIPO Alt Ülkelerini (Child Kayıtları) Kopyala!
+                            const { data: oldChildren } = await supabase.from('ip_records')
                                 .select('*')
-                                .eq(
-                                    'ip_record_id',
-                                    String(oldIpRecordId)
-                                )
-                                .maybeSingle();
+                                .eq('parent_id', String(oldIpRecordId))
+                                .eq('transaction_hierarchy', 'child');
 
-                            if (oldDetailsError) {
-                                throw oldDetailsError;
-                            }
-
-                            // Bir sonraki Child kopyalama bloğu da
-                            // bu dolu Parent detayını kullanacaktır.
-                            let copiedParentDetails = null;
-
-                            if (oldDetails) {
-                                copiedParentDetails = {
-                                    ip_record_id:
-                                        newIpRecordId,
-
-                                    brand_name:
-                                        oldDetails.brand_name
-                                            ? `[KOPYA] ${oldDetails.brand_name}`
-                                            : null,
-
-                                    brand_type:
-                                        oldDetails.brand_type ||
-                                        null,
-
-                                    brand_category:
-                                        oldDetails.brand_category ||
-                                        null,
-
-                                    brand_image_url:
-                                        oldDetails.brand_image_url ||
-                                        null,
-
-                                    description:
-                                        oldDetails.description ||
-                                        null,
-
-                                    non_latin_alphabet:
-                                        oldDetails
-                                            .non_latin_alphabet ??
-                                        false,
-
-                                    consent_request:
-                                        oldDetails
-                                            .consent_request ||
-                                        null,
-
-                                    cover_letter_request:
-                                        oldDetails
-                                            .cover_letter_request ||
-                                        null,
-
-                                    has_registration_cert:
-                                        oldDetails
-                                            .has_registration_cert ??
-                                        false
-                                };
-
-                                const {
-                                    error: newDetailsError
-                                } = await supabase
-                                    .from(
-                                        'ip_record_trademark_details'
-                                    )
-                                    .insert(
-                                        copiedParentDetails
-                                    );
-
-                                if (newDetailsError) {
-                                    throw newDetailsError;
-                                }
-                            }
-
-                                                        // D) WIPO / ARIPO Alt Ülkelerini
-                            // dolu Child kayıtlar olarak kopyala.
-                            const {
-                                data: oldChildren,
-                                error: oldChildrenError
-                            } = await supabase
-                                .from('ip_records')
-                                .select('*')
-                                .eq(
-                                    'parent_id',
-                                    String(oldIpRecordId)
-                                )
-                                .eq(
-                                    'transaction_hierarchy',
-                                    'child'
-                                );
-
-                            if (oldChildrenError) {
-                                throw oldChildrenError;
-                            }
-
-                            if (
-                                oldChildren &&
-                                oldChildren.length > 0
-                            ) {
+                            if (oldChildren && oldChildren.length > 0) {
                                 for (const child of oldChildren) {
-                                    const {
-                                        id: childId,
-                                        created_at:
-                                            childCreatedAt,
-                                        updated_at:
-                                            childUpdatedAt,
-                                        parent_id:
-                                            childParentId,
-                                        ...childCopyData
-                                    } = child;
+                                    const childId = child.id;
+                                    const { id: cId, created_at: cAt, updated_at: uAt, parent_id: pId, ...childCopyData } = child;
+                                    const generatedChildId = crypto.randomUUID();
 
-                                    const generatedChildId =
-                                        crypto.randomUUID();
+                                    // Alt ülkenin kendisini kopyala
+                                    await supabase.from('ip_records').insert([{
+                                        ...childCopyData,
+                                        id: generatedChildId,
+                                        parent_id: newIpRecordId,
+                                        status: 'draft',
+                                        portfolio_status: 'draft'
+                                    }]);
 
-                                    // Önce Child ana ip_records satırını oluştur.
-                                    const {
-                                        error: childInsertError
-                                    } = await supabase
-                                        .from('ip_records')
-                                        .insert({
-                                            ...childCopyData,
-                                            id:
-                                                generatedChildId,
-                                            parent_id:
-                                                newIpRecordId,
-                                            status: 'draft',
-                                            portfolio_status:
-                                                'draft'
-                                        });
+                                    newChildRecordIds.push(generatedChildId); // 🔥 BUG FIX 1 Devamı: ID'yi listeye ekle
 
-                                    if (childInsertError) {
-                                        throw childInsertError;
-                                    }
-
-                                    // Child marka detayı eski Child'dan
-                                    // alınmaz. Eski Child zaten boş olabilir.
-                                    //
-                                    // Bunun yerine yeni oluşturduğumuz
-                                    // dolu Parent detayından alınır.
-                                    if (copiedParentDetails) {
-                                        const {
-                                            error:
-                                                childDetailsError
-                                        } = await supabase
-                                            .from(
-                                                'ip_record_trademark_details'
-                                            )
-                                            .insert({
-                                                ...copiedParentDetails,
-                                                ip_record_id:
-                                                    generatedChildId
-                                            });
-
-                                        if (childDetailsError) {
-                                            throw childDetailsError;
-                                        }
-                                    }
-
-                                    // Child başvuru sahiplerini
-                                    // Parent'ın sahiplerinden kopyala.
-                                    if (
-                                        oldApplicants &&
-                                        oldApplicants.length > 0
-                                    ) {
-                                        const childApplicants =
-                                            oldApplicants.map(
-                                                (
-                                                    applicant,
-                                                    index
-                                                ) => ({
-                                                    ip_record_id:
-                                                        generatedChildId,
-
-                                                    person_id:
-                                                        applicant
-                                                            .person_id,
-
-                                                    order_index:
-                                                        applicant
-                                                            .order_index ??
-                                                        index,
-
-                                                    is_invoice_client:
-                                                        applicant
-                                                            .is_invoice_client ??
-                                                        false
-                                                })
-                                            );
-
-                                        const {
-                                            error:
-                                                childApplicantsError
-                                        } = await supabase
-                                            .from(
-                                                'ip_record_applicants'
-                                            )
-                                            .insert(
-                                                childApplicants
-                                            );
-
-                                        if (
-                                            childApplicantsError
-                                        ) {
-                                            throw childApplicantsError;
-                                        }
-                                    }
-
-                                    // Child Nice sınıflarını ve
-                                    // eşya listesini Parent'tan kopyala.
-                                    if (
-                                        oldClasses &&
-                                        oldClasses.length > 0
-                                    ) {
-                                        const childClasses =
-                                            oldClasses.map(
-                                                classRow => ({
-                                                    id:
-                                                        crypto
-                                                            .randomUUID(),
-
-                                                    ip_record_id:
-                                                        generatedChildId,
-
-                                                    class_no:
-                                                        classRow
-                                                            .class_no,
-
-                                                    items:
-                                                        Array.isArray(
-                                                            classRow
-                                                                .items
-                                                        )
-                                                            ? classRow
-                                                                .items
-                                                            : []
-                                                })
-                                            );
-
-                                        const {
-                                            error:
-                                                childClassesError
-                                        } = await supabase
-                                            .from(
-                                                'ip_record_classes'
-                                            )
-                                            .insert(
-                                                childClasses
-                                            );
-
-                                        if (
-                                            childClassesError
-                                        ) {
-                                            throw childClassesError;
-                                        }
+                                    // Alt ülkenin marka detaylarını kopyala
+                                    const { data: oldChildDetails } = await supabase.from('ip_record_trademark_details').select('*').eq('ip_record_id', String(childId));
+                                    if (oldChildDetails && oldChildDetails.length > 0) {
+                                        const newChildDetails = oldChildDetails.map(cd => { const { id, created_at, ...cdData } = cd; return { ...cdData, id: crypto.randomUUID(), ip_record_id: generatedChildId }; });
+                                        await supabase.from('ip_record_trademark_details').insert(newChildDetails);
                                     }
                                 }
                             }
@@ -1404,7 +1175,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 // 4. Görevin (Task) Kendi İç JSON Alanını (details) Yeni ID'lere Göre Güncelle
-                const { id, created_at, updated_at, target_accrual_id, status, ...copyData } = originalTask;
+                // 🔥 BUG FIX 2: transaction_id dışarı alınarak eski işlemin ID'sinin kopyalanması KESİNLİKLE ENGELLENDİ!
+                const { id, created_at, updated_at, target_accrual_id, status, transaction_id, ...copyData } = originalTask;
                 
                 let newDetailsJson = copyData.details;
                 if (typeof newDetailsJson === 'string') {
@@ -1429,10 +1201,59 @@ document.addEventListener('DOMContentLoaded', async () => {
                     status: 'pending', 
                     ip_record_id: newIpRecordId || originalTask.ip_record_id,
                     details: newDetailsJson
+                    // transaction_id bilerek koymadık, birazdan atayacağız.
                 };
 
                 const { data: insertedTask, error: insertErr } = await supabase.from('tasks').insert([newTask]).select('id').single();
                 if (insertErr) throw insertErr;
+
+                // 🔥 BUG FIX 3: STANDART TRANSACTION OLUŞTURMA MANTIĞI EKLENDİ
+                // Kopyalama işleminde de "TaskSubmitHandler._addTransactionToPortfolio" metodunun yaptığı işi standart alanlarla yapıyoruz.
+                if (insertedTask && newIpRecordId) {
+                    const session = await authService.getCurrentSession();
+                    const dbUser = this.allUsers.find(u => u.email === session?.user?.email);
+                    const txDescription = `${transactionType?.name || transactionType?.alias || 'İşlem'} işlemi.`;
+
+                    // A) Ana (Parent) Kayıt İçin Transaction Oluştur
+                    const parentTxId = crypto.randomUUID();
+                    const parentTxData = {
+                        id: parentTxId,
+                        ip_record_id: String(newIpRecordId),
+                        transaction_type_id: tTypeId,
+                        description: txDescription,
+                        transaction_hierarchy: 'parent',
+                        parent_id: null,
+                        task_id: String(insertedTask.id),
+                        user_id: dbUser ? dbUser.id : null,
+                        user_email: session?.user?.email || null,
+                        user_name: dbUser ? (dbUser.display_name || dbUser.name) : null,
+                        transaction_date: new Date().toISOString()
+                    };
+                    
+                    await supabase.from('transactions').insert([parentTxData]);
+                    
+                    // Görev (Task) tablosunu yeni oluşturulan Ana transaction ID'si ile güncelle
+                    await supabase.from('tasks').update({ transaction_id: parentTxId }).eq('id', insertedTask.id);
+
+                    // B) Varsa Child (Alt Ülke) Kayıtları İçin Transaction Oluştur ve Ana İşleme (Parent_ID) Bağla
+                    if (newChildRecordIds.length > 0) {
+                        const childTxs = newChildRecordIds.map(childRecordId => ({
+                            id: crypto.randomUUID(),
+                            ip_record_id: String(childRecordId),
+                            transaction_type_id: tTypeId,
+                            description: txDescription,
+                            transaction_hierarchy: 'child',
+                            parent_id: parentTxId, 
+                            task_id: String(insertedTask.id),
+                            user_id: dbUser ? dbUser.id : null,
+                            user_email: session?.user?.email || null,
+                            user_name: dbUser ? (dbUser.display_name || dbUser.name) : null,
+                            transaction_date: new Date().toISOString()
+                        }));
+
+                        await supabase.from('transactions').insert(childTxs);
+                    }
+                }
 
                 // 6. İşlem Geçmişine Log Ekle
                 if (insertedTask) {

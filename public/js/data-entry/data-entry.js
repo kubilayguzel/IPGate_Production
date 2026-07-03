@@ -509,141 +509,415 @@ class DataEntryModule {
         }
     }
 
-    // 🔥 3. SORUNUN KÖKTEN ÇÖZÜMÜ: Ülke listesini (Kopyalama sonrası eklenen/silinen dahil) tam senkronize eder
+    // WIPO/ARIPO ülke listesini mevcut Child kayıtlarla eşitler.
     async syncChildCountries(parentId, parentData) {
-        console.log('🔄 WIPO/ARIPO Çocuk ülkeleri tam senkronize ediliyor...');
+        console.log('🔄 WIPO/ARIPO Child ülkeleri senkronize ediliyor...');
+
         try {
-            // A) Veritabanındaki mevcut çocukları çek
-            const { data: children, error: fetchErr } = await supabase.from('ip_records')
+            const { data: children, error: fetchError } = await supabase
+                .from('ip_records')
                 .select('id, country_code')
-                .eq('parent_id', parentId)
+                .eq('parent_id', String(parentId))
                 .eq('transaction_hierarchy', 'child');
-                
-            if (fetchErr) throw fetchErr;
+
+            if (fetchError) throw fetchError;
 
             const existingChildren = children || [];
-            const selectedCodes = this.selectedCountries.map(c => String(c.code).trim());
 
-            // B) SİLİNECEKLER: Kullanıcının listeden çıkardığı (sildiği) ülkeleri ve tüm alt bağlarını yok et!
-            const childrenToDelete = existingChildren.filter(c => !selectedCodes.includes(String(c.country_code).trim()));
-            if (childrenToDelete.length > 0) {
-                const idsToDelete = childrenToDelete.map(c => c.id);
-                await supabase.from('ip_record_trademark_details').delete().in('ip_record_id', idsToDelete);
-                await supabase.from('transactions').delete().in('ip_record_id', idsToDelete);
-                await supabase.from('ip_records').delete().in('id', idsToDelete);
-                console.log(`❌ Listeden çıkarılan ${idsToDelete.length} adet çocuk ülke kaydı silindi.`);
+            const selectedCodes = this.selectedCountries
+                .map(country =>
+                    String(country.code || '').trim().toUpperCase()
+                )
+                .filter(Boolean);
+
+            // Ülke listesi henüz yüklenmeden Kaydet'e basılırsa
+            // bütün Child kayıtların yanlışlıkla silinmesini engeller.
+            if (selectedCodes.length === 0) {
+                throw new Error(
+                    'En az bir WIPO/ARIPO ülkesi seçilmelidir.'
+                );
             }
 
-            // C) EKLENECEKLER: Listeye yeni dahil edilen ülkeleri oluştur
-            const existingCodes = existingChildren.map(c => String(c.country_code).trim());
-            const countriesToCreate = this.selectedCountries.filter(c => !existingCodes.includes(String(c.code).trim()));
+            // 1. Listeden çıkarılan ülkeleri ve doğrudan bağlı
+            // portföy verilerini sil.
+            const childrenToDelete = existingChildren.filter(child =>
+                !selectedCodes.includes(
+                    String(child.country_code || '')
+                        .trim()
+                        .toUpperCase()
+                )
+            );
+
+            if (childrenToDelete.length > 0) {
+                const idsToDelete = childrenToDelete.map(child =>
+                    String(child.id)
+                );
+
+                // Önce Child kayıtlara bağlı transaction ID'lerini bul.
+                const {
+                    data: transactionRows,
+                    error: transactionReadError
+                } = await supabase
+                    .from('transactions')
+                    .select('id')
+                    .in('ip_record_id', idsToDelete);
+
+                if (transactionReadError) {
+                    throw transactionReadError;
+                }
+
+                const transactionIds = (transactionRows || []).map(row =>
+                    String(row.id)
+                );
+
+                // Transaction belgeleri varsa önce onları sil.
+                if (transactionIds.length > 0) {
+                    const {
+                        error: documentDeleteError
+                    } = await supabase
+                        .from('transaction_documents')
+                        .delete()
+                        .in('transaction_id', transactionIds);
+
+                    if (documentDeleteError) {
+                        throw documentDeleteError;
+                    }
+
+                    const {
+                        error: transactionDeleteError
+                    } = await supabase
+                        .from('transactions')
+                        .delete()
+                        .in('id', transactionIds);
+
+                    if (transactionDeleteError) {
+                        throw transactionDeleteError;
+                    }
+                }
+
+                // Child portföy kaydına doğrudan bağlı alt tablolar.
+                const childTables = [
+                    'ip_record_applicants',
+                    'ip_record_classes',
+                    'ip_record_priorities',
+                    'ip_record_bulletins',
+                    'ip_record_persons',
+                    'ip_record_trademark_details'
+                ];
+
+                for (const tableName of childTables) {
+                    const {
+                        error: childDataDeleteError
+                    } = await supabase
+                        .from(tableName)
+                        .delete()
+                        .in('ip_record_id', idsToDelete);
+
+                    if (childDataDeleteError) {
+                        throw new Error(
+                            `${tableName} kayıtları silinemedi: ` +
+                            childDataDeleteError.message
+                        );
+                    }
+                }
+
+                const {
+                    error: childDeleteError
+                } = await supabase
+                    .from('ip_records')
+                    .delete()
+                    .in('id', idsToDelete);
+
+                if (childDeleteError) {
+                    throw childDeleteError;
+                }
+
+                console.log(
+                    `❌ ${idsToDelete.length} Child ülke kaydı silindi.`
+                );
+            }
+
+            // 2. Yeni seçilen ülkeleri Parent'ın dolu
+            // marka, sahip ve sınıf verileriyle oluştur.
+            const existingCodes = existingChildren.map(child =>
+                String(child.country_code || '')
+                    .trim()
+                    .toUpperCase()
+            );
+
+            const countriesToCreate =
+                this.selectedCountries.filter(country =>
+                    !existingCodes.includes(
+                        String(country.code || '')
+                            .trim()
+                            .toUpperCase()
+                    )
+                );
+
+            for (const country of countriesToCreate) {
+                const childData = { ...parentData };
+
+                // Ülkesel Child için Parent'ın başvuru ve
+                // tescil numaraları kopyalanmaz.
+                //
+                // DİKKAT:
+                // title, description, brandImageUrl,
+                // applicants ve goodsAndServicesByClass silinmiyor.
+                // Böylece createRecordFromDataEntry bunları Child'a yazar.
+                [
+                    'id',
+                    'applicationNumber',
+                    'registrationNumber',
+                    'internationalRegNumber',
+                    'countries',
+                    'wipoIR',
+                    'aripoIR'
+                ].forEach(key => delete childData[key]);
+
+                childData.transactionHierarchy = 'child';
+                childData.parentId = parentId;
+                childData.country = country.code;
+                childData.createdFrom = 'wipo_update_sync';
+
+                const irNumber =
+                    parentData.wipoIR ||
+                    parentData.aripoIR ||
+                    parentData.internationalRegNumber ||
+                    parentData.registrationNumber;
+
+                if (parentData.origin === 'WIPO') {
+                    childData.wipoIR = irNumber;
+                }
+
+                if (parentData.origin === 'ARIPO') {
+                    childData.aripoIR = irNumber;
+                }
+
+                const result =
+                    await ipRecordsService
+                        .createRecordFromDataEntry(childData);
+
+                if (!result.success) {
+                    throw new Error(
+                        `${country.code} Child kaydı oluşturulamadı: ` +
+                        result.error
+                    );
+                }
+
+                await this.addTransactionForNewRecord(
+                    result.id,
+                    parentData.ipType,
+                    'child'
+                );
+            }
 
             if (countriesToCreate.length > 0) {
-                const promises = countriesToCreate.map(async (country) => {
-                    try {
-                        const childData = { ...parentData };
-                        ['applicationNumber', 'registrationNumber', 'internationalRegNumber', 'countries', 'wipoIR', 'aripoIR', 'id', 'brandImageUrl', 'brandExampleText', 'brandDescription', 'title', 'description'].forEach(k => delete childData[k]);
-
-                        childData.transactionHierarchy = 'child';
-                        childData.parentId = parentId;
-                        childData.country = country.code;
-                        childData.createdFrom = 'wipo_update_sync'; 
-
-                        const irNumber = parentData.wipoIR || parentData.aripoIR || parentData.internationalRegNumber || parentData.registrationNumber;
-                        if (parentData.origin === 'WIPO') childData.wipoIR = irNumber;
-                        if (parentData.origin === 'ARIPO') childData.aripoIR = irNumber;
-
-                        const res = await ipRecordsService.createRecordFromDataEntry(childData);
-                        if (res.success) {
-                            // Çocuk kaydın marka detaylarını da (Emtia ve görsel dahil) ilk elden oluştur
-                            const childDetails = {
-                                id: crypto.randomUUID(),
-                                ip_record_id: res.id,
-                                brand_name: parentData.brandExampleText || parentData.brandText || parentData.title || null,
-                                brand_image_url: parentData.brandImageUrl || null,
-                                description: parentData.brandDescription || parentData.description || null
-                            };
-                            await supabase.from('ip_record_trademark_details').insert([childDetails]);
-                            await this.addTransactionForNewRecord(res.id, parentData.ipType, 'child');
-                        }
-                    } catch (err) { console.error(`Child oluşturma hatası:`, err); }
-                });
-
-                await Promise.all(promises);
-                console.log(`✅ Yeni eklenen ${countriesToCreate.length} adet ülke sisteme dahil edildi.`);
+                console.log(
+                    `✅ ${countriesToCreate.length} yeni Child ülke oluşturuldu.`
+                );
             }
-        } catch (error) { console.error('Senkronizasyon ana hatası:', error); }
+        } catch (error) {
+            console.error(
+                '❌ Child ülke senkronizasyon hatası:',
+                error
+            );
+
+            // Hata üstteki handleSavePortfolio catch bloğuna gider.
+            // Böylece Child güncellenemediği hâlde başarı mesajı gösterilmez.
+            throw error;
+        }
     }
 
-    // Parent'taki değişiklikleri Child'lara aktarır
+        // Parent'taki marka, sahip ve sınıf değişikliklerini mevcut Child'lara aktarır.
     async propagateUpdatesToChildren(parentId, parentData) {
-        console.log('🔄 Child Güncelleme (Propagation) başlatılıyor...');
+        console.log(
+            '🔄 Parent verileri Child kayıtlara aktarılıyor...'
+        );
+
         try {
-            // Sadece bu ana kayda bağlı alt dosyaların (child) ID'lerini çekiyoruz
-            const { data: children, error: fetchErr } = await supabase.from('ip_records')
+            const {
+                data: children,
+                error: fetchError
+            } = await supabase
+                .from('ip_records')
                 .select('id')
-                .eq('parent_id', parentId)
+                .eq('parent_id', String(parentId))
                 .eq('transaction_hierarchy', 'child');
-                
-            if (fetchErr) throw fetchErr;
+
+            if (fetchError) {
+                throw fetchError;
+            }
 
             if (!children || children.length === 0) {
-                console.log('⚠️ Güncellenecek child kayıt bulunamadı.');
                 return;
             }
 
-            const irNumber = parentData.wipoIR || parentData.wipo_ir || parentData.aripoIR || parentData.aripo_ir || parentData.internationalRegNumber || parentData.registrationNumber;
+            const childIds = children.map(child =>
+                String(child.id)
+            );
 
-            // 🔥 1. ADIM: SADECE ip_records TABLOSUNDA VAR OLAN SÜTUNLAR (Crash önlendi)
+            const irNumber =
+                parentData.wipoIR ||
+                parentData.aripoIR ||
+                parentData.internationalRegNumber ||
+                parentData.registrationNumber;
+
+            // 1. Child ana alanlarını güncelle.
+            //
+            // Eski kod marka statüsünü yanlışlıkla portfolio_status
+            // alanına yazıyordu. Marka statüsü "status" alanına yazılmalıdır.
             const ipRecordUpdates = {
-                portfolio_status: parentData.status || null,
-                application_date: parentData.applicationDate || null,
-                registration_date: parentData.registrationDate || null,
-                renewal_date: parentData.renewalDate || null,
+                status: parentData.status || null,
+                application_date:
+                    parentData.applicationDate || null,
+                registration_date:
+                    parentData.registrationDate || null,
+                renewal_date:
+                    parentData.renewalDate || null,
                 updated_at: new Date().toISOString()
             };
 
-            if (parentData.origin === 'WIPO' && irNumber) {
-                ipRecordUpdates.wipo_ir = irNumber;
-            } else if (parentData.origin === 'ARIPO' && irNumber) {
-                ipRecordUpdates.aripo_ir = irNumber;
+            if (parentData.origin === 'WIPO') {
+                ipRecordUpdates.wipo_ir = irNumber || null;
             }
 
-            // Undefined olan değerleri temizle ki DB null hatası vermesin
-            Object.keys(ipRecordUpdates).forEach(key => {
-                if (ipRecordUpdates[key] === undefined) delete ipRecordUpdates[key];
-            });
+            if (parentData.origin === 'ARIPO') {
+                ipRecordUpdates.aripo_ir = irNumber || null;
+            }
 
-            // 🔥 2. ADIM: SADECE ip_record_trademark_details TABLOSUNDA VAR OLAN SÜTUNLAR
-            // Form şemanızdaki gerçek ID'ler (brandExampleText, brandDescription vb.) kullanıldı
-            const trademarkDetailsUpdates = {
-                brand_name: parentData.brandExampleText || parentData.brandText || parentData.title || null,
-                brand_image_url: parentData.brandImageUrl || null,
-                description: parentData.brandDescription || parentData.description || null
-            };
+            const {
+                error: recordUpdateError
+            } = await supabase
+                .from('ip_records')
+                .update(ipRecordUpdates)
+                .in('id', childIds);
 
-            Object.keys(trademarkDetailsUpdates).forEach(key => {
-                if (trademarkDetailsUpdates[key] === undefined) delete trademarkDetailsUpdates[key];
-            });
+            if (recordUpdateError) {
+                throw recordUpdateError;
+            }
 
-            // 🔥 3. ADIM: Child'ları doğru tablolara güncelliyoruz
-            for (const child of children) {
-                // Ana verileri (WIPO IR vb.) ip_records tablosuna yaz
-                if (Object.keys(ipRecordUpdates).length > 0) {
-                    await supabase.from('ip_records').update(ipRecordUpdates).eq('id', child.id);
-                }
-                
-                // Marka görseli, ismi ve açıklamalarını detay tablosuna yaz
-                if (Object.keys(trademarkDetailsUpdates).length > 0) {
-                    await supabase.from('ip_record_trademark_details')
-                                  .update(trademarkDetailsUpdates)
-                                  .eq('ip_record_id', child.id);
+            // 2. Marka adı, görseli ve açıklamasını Child'lara yaz.
+            //
+            // UPDATE yerine UPSERT kullanılıyor.
+            // Eski Child'ın detay satırı hiç yoksa yeni satır oluşturulur.
+            const trademarkRows = childIds.map(childId => ({
+                ip_record_id: childId,
+                brand_name:
+                    parentData.title ||
+                    parentData.brandText ||
+                    null,
+                brand_type:
+                    parentData.brandType || null,
+                brand_category:
+                    parentData.brandCategory || null,
+                brand_image_url:
+                    parentData.brandImageUrl ?? null,
+                description:
+                    parentData.description || null
+            }));
+
+            const {
+                error: trademarkError
+            } = await supabase
+                .from('ip_record_trademark_details')
+                .upsert(
+                    trademarkRows,
+                    {
+                        onConflict: 'ip_record_id'
+                    }
+                );
+
+            if (trademarkError) {
+                throw trademarkError;
+            }
+
+            // 3. Child başvuru sahiplerini tamamen yenile.
+            const {
+                error: applicantDeleteError
+            } = await supabase
+                .from('ip_record_applicants')
+                .delete()
+                .in('ip_record_id', childIds);
+
+            if (applicantDeleteError) {
+                throw applicantDeleteError;
+            }
+
+            const applicantRows = childIds.flatMap(childId =>
+                (parentData.applicants || [])
+                    .filter(applicant =>
+                        applicant && applicant.id
+                    )
+                    .map((applicant, index) => ({
+                        ip_record_id: childId,
+                        person_id: applicant.id,
+                        order_index: index
+                    }))
+            );
+
+            if (applicantRows.length > 0) {
+                const {
+                    error: applicantInsertError
+                } = await supabase
+                    .from('ip_record_applicants')
+                    .insert(applicantRows);
+
+                if (applicantInsertError) {
+                    throw applicantInsertError;
                 }
             }
 
-            console.log(`✅ ${children.length} adet child kayda güncel bilgiler başarıyla işlendi.`);
-        } catch (error) { 
-            console.error('❌ Child güncelleme hatası:', error); 
+            // 4. Child Nice sınıflarını ve eşya listesini tamamen yenile.
+            const {
+                error: classDeleteError
+            } = await supabase
+                .from('ip_record_classes')
+                .delete()
+                .in('ip_record_id', childIds);
+
+            if (classDeleteError) {
+                throw classDeleteError;
+            }
+
+            const classRows = childIds.flatMap(childId =>
+                (
+                    parentData.goodsAndServicesByClass || []
+                ).map(classItem => ({
+                    id: crypto.randomUUID(),
+                    ip_record_id: childId,
+                    class_no: parseInt(
+                        classItem.classNo,
+                        10
+                    ),
+                    items: Array.isArray(classItem.items)
+                        ? classItem.items
+                        : []
+                }))
+            );
+
+            if (classRows.length > 0) {
+                const {
+                    error: classInsertError
+                } = await supabase
+                    .from('ip_record_classes')
+                    .insert(classRows);
+
+                if (classInsertError) {
+                    throw classInsertError;
+                }
+            }
+
+            console.log(
+                `✅ ${childIds.length} Child kayıt güncellendi.`
+            );
+        } catch (error) {
+            console.error(
+                '❌ Child güncelleme hatası:',
+                error
+            );
+
+            // Hata ana Kaydet işlemine aktarılır.
+            throw error;
         }
     }
     

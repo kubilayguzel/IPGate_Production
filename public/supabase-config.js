@@ -1007,8 +1007,12 @@ export const ipRecordsService = {
             if (updateData.brandCategory !== undefined) tmPayload.brand_category = updateData.brandCategory;
             if (updateData.description !== undefined) tmPayload.description = updateData.description;
 
-            // 🔥 ÇÖZÜM: Tüm potansiyel isimleri yakalayıp veritabanındaki tek sütuna atıyoruz
-            const incomingImage = updateData.brandImageUrl || updateData.brand_image_url || updateData.image_url;
+            const incomingImage = updateData.brandImageUrl !== undefined
+                ? updateData.brandImageUrl
+                : (updateData.brand_image_url !== undefined
+                    ? updateData.brand_image_url
+                    : updateData.image_url);
+
             if (incomingImage !== undefined) {
                 tmPayload.brand_image_url = incomingImage;
             }

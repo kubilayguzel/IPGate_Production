@@ -57,15 +57,12 @@
         .item-value { font-weight: 700; color: #e74c3c; background: #fdedec; padding: 4px 10px; border-radius: 6px; font-size: 0.9em;}
         .item-value-green { font-weight: 700; color: #27ae60; background: #e8f8f5; padding: 4px 10px; border-radius: 6px; font-size: 0.9em;}
 
-        /* CUSTOM SCROLLBAR */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
 
         @media (max-width: 1200px) { .charts-grid, .lists-grid { grid-template-columns: 1fr; } }
-
-        /* 🔥 FİNANSAL MODÜLLER VARSAYILAN OLARAK GİZLİDİR */
         .financial-module { display: none; }
     </style>
 </head>
@@ -101,9 +98,21 @@
                 <div class="kpi-card danger financial-module">
                     <div class="kpi-title">Bekleyen Toplam Alacak (Risk)</div>
                     <div class="kpi-value" id="kpiTotalUnpaid">0 TL</div>
-                    <div class="kpi-subtext">
-                        <span class="kpi-badge badge-red" id="kpiUnpaidCount">0 Fatura</span>
-                        <span style="margin-left:5px;">Tahsilat bekliyor</span>
+                    <div class="kpi-subtext d-flex flex-column align-items-start" style="gap: 5px; margin-top: 5px;">
+                        <div>
+                            <span class="kpi-badge badge-red" id="kpiUnpaidCount">0 Fatura</span>
+                            <span style="margin-left: 5px; color: #7f8c8d;">tahsilat bekliyor.</span>
+                        </div>
+                        <div class="small w-100 pt-2 border-top mt-1" style="font-size: 0.85em; color: #555;">
+                            <div class="d-flex justify-content-between">
+                                <span><i class="fas fa-plane-departure text-secondary"></i> Yurtdışı Ödenecek:</span>
+                                <span class="font-weight-bold text-danger" id="kpiForeignPayable">0 TL</span>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <span class="font-weight-bold"><i class="fas fa-vault text-success"></i> Evreka Net Kasa Alacağı:</span>
+                                <span class="font-weight-bold text-success" id="kpiEvrekaNetReceivable">0 TL</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -185,17 +194,12 @@
                     if (error) throw error;
                     this.isSuperAdmin = (dbUser?.role === 'superadmin'); 
                 } catch (err) {
-                    console.error('Kullanıcı rolü çekilirken hata oluştu:', err);
                     this.isSuperAdmin = false;
                 }
 
-                // 🔥 KESİN ÇÖZÜM BURADA:
                 if (this.isSuperAdmin) {
-                    // Eğer kullanıcı yetkiliyse, CSS ile gizlenmiş kartları görünür yap (GÖSTER)
                     document.querySelectorAll('.financial-module').forEach(el => el.style.display = 'block');
                 } else {
-                    // Yetkisi yoksa kartlar zaten CSS sayesinde hiç görünmedi!
-                    // Biz sadece grid (ızgara) yapısındaki kalan boşlukları tam ekrana yayıyoruz
                     const chartsGrid = document.getElementById('mainChartsGrid');
                     const listsGrid = document.getElementById('mainListsGrid');
                     if(chartsGrid) chartsGrid.style.gridTemplateColumns = '1fr';
@@ -206,12 +210,23 @@
             }
 
             async loadData() {
-                const promises = [ipRecordsService.getRecords()];
-                
-                // Finansal veriler sadece yetki varsa çekilir
-                if (this.isSuperAdmin) {
-                    promises.push(accrualService.getAccruals());
+                let rates = { 'TRY': 1, 'USD': 35, 'EUR': 38, 'GBP': 44, 'CHF': 39 }; 
+                try {
+                    const response = await fetch('https://open.er-api.com/v6/latest/USD');
+                    if (response.ok) {
+                        const cryptoRates = await response.json();
+                        const tryBase = cryptoRates.rates['TRY'] || 35;
+                        rates['USD'] = tryBase / (cryptoRates.rates['USD'] || 1);
+                        rates['EUR'] = tryBase / (cryptoRates.rates['EUR'] || 0.92);
+                        rates['GBP'] = tryBase / (cryptoRates.rates['GBP'] || 0.80);
+                        rates['CHF'] = tryBase / (cryptoRates.rates['CHF'] || 0.88);
+                    }
+                } catch (err) {
+                    console.warn("Canlı kurlar alınamadı, yedek kurlar devrede:", err);
                 }
+
+                const promises = [ipRecordsService.getRecords()];
+                if (this.isSuperAdmin) promises.push(accrualService.getAccruals());
 
                 const results = await Promise.all(promises);
                 
@@ -221,16 +236,17 @@
                 if (results[0].success) records = results[0].data.map(r => ({ ...r, ...(r.details || {}) }));
                 if (this.isSuperAdmin && results[1] && results[1].success) accruals = results[1].data.map(r => ({ ...r, ...(r.details || {}) }));
 
-                this.processExecutiveMetrics(records, accruals);
+                this.processExecutiveMetrics(records, accruals, rates);
             }
 
             formatMoney(amount, currency = 'TRY') {
                 return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
             }
 
-            processExecutiveMetrics(records, accruals) {
+            processExecutiveMetrics(records, accruals, rates) {
                 let totalBilledTRY = 0, totalPaidTRY = 0, totalUnpaidTRY = 0;
                 let totalOfficialFeeTRY = 0, totalServiceFeeTRY = 0;
+                let totalForeignPayableTRY = 0; 
                 let unpaidCount = 0;
                 
                 const currencyRisk = { 'TRY': 0, 'USD': 0, 'EUR': 0, 'GBP': 0, 'CHF': 0 };
@@ -243,21 +259,28 @@
                 }
 
                 accruals.forEach(acc => {
+                    // 🔥 HATA 4 ÇÖZÜMÜ: İptal ve Taslak faturaları hesaba (riske) katma
+                    const status = String(acc.status || '').trim().toLowerCase();
+                    if (status === 'cancelled' || status === 'draft') return;
+
                     const clientName = acc.serviceInvoiceParty?.name || acc.paymentParty || acc.tpInvoiceParty?.name || 'Bilinmeyen Müşteri';
                     const createdAt = acc.created_at || acc.createdAt || new Date().toISOString();
                     const monthKey = createdAt.slice(0, 7);
 
+                    // 🔥 HATA 3 ÇÖZÜMÜ: Tüm kurları boşluksuz ve büyük harfe sabitle
+                    const cleanCurrency = (cur) => String(cur || 'TRY').trim().toUpperCase();
+
                     let totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{ amount: acc.totalAmount || 0, currency: 'TRY' }];
-                    let remArr = acc.status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{ amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY' }]);
+                    let remArr = status === 'paid' ? [] : (Array.isArray(acc.remainingAmount) ? acc.remainingAmount : [{ amount: acc.remainingAmount || acc.totalAmount || 0, currency: 'TRY' }]);
 
                     let accTotalTRY = 0, accRemTRY = 0, accPaidTRY = 0;
-                    const rates = { 'TRY': 1, 'USD': 35, 'EUR': 38, 'GBP': 44, 'CHF': 39 };
 
-                    totalArr.forEach(t => { accTotalTRY += (t.amount || 0) * (rates[t.currency || 'TRY'] || 1); });
+                    totalArr.forEach(t => { accTotalTRY += parseFloat(t.amount || 0) * (rates[cleanCurrency(t.currency)] || 1); });
                     remArr.forEach(r => { 
-                        let amt = r.amount || 0;
-                        accRemTRY += amt * (rates[r.currency || 'TRY'] || 1); 
-                        currencyRisk[r.currency || 'TRY'] = (currencyRisk[r.currency || 'TRY'] || 0) + amt; 
+                        let amt = parseFloat(r.amount || 0);
+                        let cCur = cleanCurrency(r.currency);
+                        accRemTRY += amt * (rates[cCur] || 1); 
+                        currencyRisk[cCur] = (currencyRisk[cCur] || 0) + amt; 
                     });
 
                     accPaidTRY = accTotalTRY - accRemTRY;
@@ -270,8 +293,46 @@
                         debtors[clientName] = (debtors[clientName] || 0) + accRemTRY;
                     }
 
-                    const offAmt = acc.officialFee?.amount || 0; const offCur = acc.officialFee?.currency || 'TRY';
-                    const srvAmt = acc.serviceFee?.amount || 0; const srvCur = acc.serviceFee?.currency || 'TRY';
+                    // --- YURTDIŞI ÖDEME (BORÇ) HESAPLAMASI ---
+                    let offAmt = parseFloat(acc.official_fee_amount || acc.officialFee?.amount || 0);
+                    let offCur = cleanCurrency(acc.official_fee_currency || acc.officialFee?.currency || 'TRY');
+
+                    // 🔥 HATA 2 ÇÖZÜMÜ: Ana kolonda harç yoksa, belki kullanıcı harcı alt kalemlere (items) eklemiştir. Orayı tara!
+                    if (offAmt === 0 && Array.isArray(acc.items)) {
+                        acc.items.forEach(item => {
+                            const type = String(item.fee_type).toLowerCase();
+                            if (type.includes('harç') || type.includes('resmi')) {
+                                offAmt += parseFloat(item.total_amount || item.unit_price || 0);
+                                offCur = cleanCurrency(item.currency);
+                            }
+                        });
+                    }
+
+                    // 🔥 HATA 1 ÇÖZÜMÜ: Boolean olarak gelen false verisini metin eşleşmesiyle tetiklemeyi önle
+                    const isForeignFlag = String(acc.is_foreign_transaction) === 'true' || 
+                                          String(acc.isForeignTransaction) === 'true' || 
+                                          acc.is_foreign_transaction === true || 
+                                          acc.isForeignTransaction === true;
+                    
+                    // Sigorta: Checkbox işaretlenmemiş olsa bile döviz TRY değilse ve bir harç varsa, bu yurtdışıdır.
+                    const isForeign = isForeignFlag || (offCur !== 'TRY' && offAmt > 0);
+                    
+                    const fStatus = String(acc.foreign_status || acc.foreignStatus || 'unpaid').trim().toLowerCase();
+                    
+                    // Eğer bu bir yurtdışı tahakkukuysa ve YURTDIŞI ofisine henüz ödenmediyse
+                    if (isForeign && fStatus !== 'paid') {
+                        let payableAmtTRY = offAmt * (rates[offCur] || 1);
+                        
+                        // 🔥 HATA 2.5 ÇÖZÜMÜ: Harç 0 girilmiş ama yurtdışı işaretliyse, faturanın tamamını yurtdışı borcu say
+                        if (payableAmtTRY === 0 && isForeignFlag) {
+                            payableAmtTRY = accTotalTRY; 
+                        }
+                        
+                        totalForeignPayableTRY += payableAmtTRY;
+                    }
+
+                    let srvAmt = parseFloat(acc.service_fee_amount || acc.serviceFee?.amount || 0);
+                    let srvCur = cleanCurrency(acc.service_fee_currency || acc.serviceFee?.currency || 'TRY');
                     
                     totalOfficialFeeTRY += offAmt * (rates[offCur] || 1);
                     totalServiceFeeTRY += srvAmt * (rates[srvCur] || 1);
@@ -281,6 +342,9 @@
                         monthlyTrend[monthKey].unpaid += accRemTRY;
                     }
                 });
+
+                // Evreka Kasa Alacağı: Riskin içinden, daha yurtdışına ödememiz gerekenleri çıkardığımızda cebimizde kalacak NET para
+                const evrekaNetReceivableTRY = totalUnpaidTRY - totalForeignPayableTRY;
 
                 const activeStatus = ['filed', 'published', 'registered', 'partially_registered'];
                 const activeRecords = records.filter(r => activeStatus.includes(r.status || r.portfoyStatus));
@@ -310,10 +374,7 @@
                         }
                     }
                 });
-
-                // --- 3. ARAYÜZ (UI) GÜNCELLEMELERİ ---
                 
-                // FİNANSAL ARAYÜZ GÜNCELLEMELERİ (Sadece Superadmin için)
                 if (this.isSuperAdmin) {
                     const collectionRate = totalBilledTRY > 0 ? (totalPaidTRY / totalBilledTRY) * 100 : 0;
                     document.getElementById('kpiCollectionRate').textContent = `%${collectionRate.toFixed(1)}`;
@@ -325,6 +386,9 @@
 
                     document.getElementById('kpiTotalUnpaid').textContent = this.formatMoney(totalUnpaidTRY);
                     document.getElementById('kpiUnpaidCount').textContent = `${unpaidCount} Fatura`;
+                    
+                    document.getElementById('kpiForeignPayable').textContent = this.formatMoney(totalForeignPayableTRY);
+                    document.getElementById('kpiEvrekaNetReceivable').textContent = this.formatMoney(evrekaNetReceivableTRY);
 
                     const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
                     document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `<li><div class="item-main">${d[0]}</div><div class="item-value">${this.formatMoney(d[1])}</div></li>`).join('') : '<li>Tebrikler, bekleyen yüksek riskli bakiye yok.</li>';
@@ -335,7 +399,6 @@
                     this.renderTrendChart(monthlyTrend);
                 }
 
-                // GENEL ARAYÜZ GÜNCELLEMELERİ (Herkes Görür)
                 document.getElementById('kpiTotalPortfolio').textContent = records.length;
                 const foreignRatio = records.length > 0 ? (foreignCount / records.length) * 100 : 0;
                 document.getElementById('kpiForeignRatio').textContent = `%${foreignRatio.toFixed(1)} Yurtdışı`;

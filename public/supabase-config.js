@@ -1546,23 +1546,22 @@ export const taskService = {
         });
     },
 
+    // 🔥 GÜNCELLENDİ: .limit(2000) kaldırıldı. Artık tüm geçmiş işler yüklenir.
     async getTasksForUser(uid) {
-        // Tarayıcıyı çökertmemek için son 2000 işi çekiyoruz (Tam çözüm için Server-Side Pagination gerekir)
         const { data, error } = await supabase.from('v_tasks_dashboard')
             .select('*')
-            .order('created_at', { ascending: false })
-            .limit(2000); 
+            .order('created_at', { ascending: false }); 
 
         if (error) return { success: false, error: error.message };
         return { success: true, data: this._mapTaskViewData(data) };
     },
 
+    // 🔥 GÜNCELLENDİ: .limit(2000) kaldırıldı. Statüye ait tüm havuz listelenir.
     async getTasksByStatus(status, uid = null) {
         let query = supabase.from('v_tasks_dashboard')
             .select('*')
             .eq('status', status)
-            .order('created_at', { ascending: false })
-            .limit(2000);
+            .order('created_at', { ascending: false });
             
         if (uid) query = query.eq('assigned_to', uid); 
         
@@ -1579,8 +1578,6 @@ export const taskService = {
         // Sildiğimiz eski fonksiyon yerine, yeni hafif haritalama fonksiyonumuzu kullanıyoruz
         const mappedData = this._mapTaskViewData([taskData]);
         const task = mappedData[0];
-
-        // 🔥 1. YENİLİK: Tahakkukun bağlı olduğu ana görevin ID'sini tespit et
 
         // 🔥 1. YENİLİK: Tahakkukun bağlı olduğu ana görevin ID'sini tespit et
         // 🔥 DÜZELTME: Artık hem 'parent_task_id' hem de 'relatedTaskId' kontrol ediliyor!
@@ -1710,7 +1707,6 @@ export const taskService = {
             const createdByUser = session?.user?.id || null;
 
             // 🔥 KORUMA 2: assigned_to (Atanan) kişi veritabanında gerçekten var mı?
-            // Test ortamında hardcoded ID'ler (örn: Selcan Hanım) bulunmayabilir. Sistem çökmek yerine işlemi yapana atar.
             let finalAssignedTo = taskData.assignedTo_uid || taskData.assigned_to || null;
             
             if (finalAssignedTo) {
@@ -1732,7 +1728,7 @@ export const taskService = {
                 const nextId = await this._getNextTaskId(taskData.taskType || taskData.task_type_id, retryCount);
                 console.log(`[TASK SERVICE] 🎫 Üretilen / Denenecek Task ID: ${nextId}`);
                 
-            const payload = { 
+                const payload = { 
                     id: nextId, 
                     title: taskData.title,
                     description: taskData.description || null,
@@ -1771,7 +1767,6 @@ export const taskService = {
                         continue;
                     }
                     
-                    // Foreign Key veya başka bir hataysa fırlat
                     throw error; 
                 }
                 
@@ -1790,7 +1785,7 @@ export const taskService = {
                 const histToInsert = taskData.history.map(h => ({
                     task_id: insertedData.id, 
                     action: h.action, 
-                    user_id: createdByUser, // 🛡️ History tablosunda da UUID zorunlu
+                    user_id: createdByUser, 
                     created_at: h.timestamp || new Date().toISOString(), 
                     details: { user_email: h.userEmail }
                 }));
@@ -1829,7 +1824,6 @@ export const taskService = {
             const { error } = await supabase.from('tasks').update(payload).eq('id', String(taskId));
             if (error) throw error;
 
-            // DÖKÜMANLARI TABLOYA SENKRONİZE ET
             if (updateData.documents !== undefined) {
                 await supabase.from('task_documents').delete().eq('task_id', String(taskId));
                 if (updateData.documents.length > 0) {
@@ -1843,22 +1837,19 @@ export const taskService = {
                 }
             }
 
-            // 🔥 ÇÖZÜM 2 (Devamı): GEÇMİŞTE SADECE YENİLERİ EKLE (409 Hatasını Engeller)
             if (updateData.history && updateData.history.length > 0) {
                 const newHistories = updateData.history.filter(h => !h.id); 
                 
                 if (newHistories.length > 0) {
-                    // Mevcut oturumdan kullanıcının gerçek ID'sini alalım
                     const { data: { session } } = await supabase.auth.getSession();
                     const currentUserId = session?.user?.id;
 
                     const histToInsert = newHistories.map(h => ({
                         task_id: String(taskId),
                         action: h.action,
-                        // 🔥 KRİTİK: Email yerine session'dan gelen gerçek USER ID'yi yazıyoruz
                         user_id: currentUserId || h.userEmail, 
                         created_at: h.timestamp || new Date().toISOString(),
-                        details: { user_email: h.userEmail } // E-postayı yedek olarak details içine atabiliriz
+                        details: { user_email: h.userEmail }
                     }));
 
                     const { error: histError } = await supabase

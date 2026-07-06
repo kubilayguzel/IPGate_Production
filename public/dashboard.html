@@ -144,7 +144,7 @@
 
             <div class="lists-grid" id="mainListsGrid">
                 <div class="list-card financial-module">
-                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Açık Bakiyeler</div>
+                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Net Kasa Alacakları</div>
                     <ul class="intelligence-list" id="topDebtorsList">
                         <li>Yükleniyor...</li>
                     </ul>
@@ -259,15 +259,13 @@
                 }
 
                 accruals.forEach(acc => {
-                    // 🔥 HATA 4 ÇÖZÜMÜ: İptal ve Taslak faturaları hesaba (riske) katma
                     const status = String(acc.status || '').trim().toLowerCase();
                     if (status === 'cancelled' || status === 'draft') return;
 
-                    const clientName = acc.serviceInvoiceParty?.name || acc.paymentParty || acc.tpInvoiceParty?.name || 'Bilinmeyen Müşteri';
+                    const clientName = String(acc.serviceInvoiceParty?.name || acc.paymentParty || acc.tpInvoiceParty?.name || 'Bilinmeyen Müşteri').trim();
                     const createdAt = acc.created_at || acc.createdAt || new Date().toISOString();
                     const monthKey = createdAt.slice(0, 7);
 
-                    // 🔥 HATA 3 ÇÖZÜMÜ: Tüm kurları boşluksuz ve büyük harfe sabitle
                     const cleanCurrency = (cur) => String(cur || 'TRY').trim().toUpperCase();
 
                     let totalArr = Array.isArray(acc.totalAmount) ? acc.totalAmount : [{ amount: acc.totalAmount || 0, currency: 'TRY' }];
@@ -290,47 +288,68 @@
 
                     if (accRemTRY > 0) {
                         unpaidCount++;
-                        debtors[clientName] = (debtors[clientName] || 0) + accRemTRY;
                     }
 
-                    // --- YURTDIŞI ÖDEME (BORÇ) HESAPLAMASI ---
-                    let offAmt = parseFloat(acc.official_fee_amount || acc.officialFee?.amount || 0);
-                    let offCur = cleanCurrency(acc.official_fee_currency || acc.officialFee?.currency || 'TRY');
-
-                    // 🔥 HATA 2 ÇÖZÜMÜ: Ana kolonda harç yoksa, belki kullanıcı harcı alt kalemlere (items) eklemiştir. Orayı tara!
-                    if (offAmt === 0 && Array.isArray(acc.items)) {
-                        acc.items.forEach(item => {
-                            const type = String(item.fee_type).toLowerCase();
-                            if (type.includes('harç') || type.includes('resmi')) {
-                                offAmt += parseFloat(item.total_amount || item.unit_price || 0);
-                                offCur = cleanCurrency(item.currency);
-                            }
-                        });
-                    }
-
-                    // 🔥 HATA 1 ÇÖZÜMÜ: Boolean olarak gelen false verisini metin eşleşmesiyle tetiklemeyi önle
-                    const isForeignFlag = String(acc.is_foreign_transaction) === 'true' || 
-                                          String(acc.isForeignTransaction) === 'true' || 
-                                          acc.is_foreign_transaction === true || 
-                                          acc.isForeignTransaction === true;
-                    
-                    // Sigorta: Checkbox işaretlenmemiş olsa bile döviz TRY değilse ve bir harç varsa, bu yurtdışıdır.
-                    const isForeign = isForeignFlag || (offCur !== 'TRY' && offAmt > 0);
+                    // =========================================================
+                    // 🔥 HESAPLAMA MOTORU: YURTDIŞI BORÇ VE NET KASA HESABI
+                    // =========================================================
+                    const isForeign = String(acc.is_foreign_transaction) === 'true' || 
+                                      String(acc.isForeignTransaction) === 'true' || 
+                                      acc.is_foreign_transaction === true || 
+                                      acc.isForeignTransaction === true;
                     
                     const fStatus = String(acc.foreign_status || acc.foreignStatus || 'unpaid').trim().toLowerCase();
                     
-                    // Eğer bu bir yurtdışı tahakkukuysa ve YURTDIŞI ofisine henüz ödenmediyse
+                    // 🔥 BUG FIX: Kapsam hatasını (ReferenceError) önlemek için değişkeni if bloğunun dışında tanımlıyoruz.
+                    // Böylece yerel faturalarda da bu değer güvenle 0 kalacak ve hata fırlatmayacaktır.
+                    let currentAccForeignOwedTRY = 0;
+
                     if (isForeign && fStatus !== 'paid') {
-                        let payableAmtTRY = offAmt * (rates[offCur] || 1);
+                        // 1. ADIM: foreign_remaining_amount kontrolü
+                        let fRem = acc.foreign_remaining_amount ?? acc.foreignRemainingAmount ?? acc.details?.foreign_remaining_amount ?? acc.details?.foreignRemainingAmount;
                         
-                        // 🔥 HATA 2.5 ÇÖZÜMÜ: Harç 0 girilmiş ama yurtdışı işaretliyse, faturanın tamamını yurtdışı borcu say
-                        if (payableAmtTRY === 0 && isForeignFlag) {
-                            payableAmtTRY = accTotalTRY; 
+                        if (fRem !== undefined && fRem !== null && fRem !== '') {
+                            if (Array.isArray(fRem)) {
+                                fRem.forEach(item => { currentAccForeignOwedTRY += parseFloat(item.amount || 0) * (rates[cleanCurrency(item.currency || 'TRY')] || 1); });
+                            } else if (typeof fRem === 'object') {
+                                currentAccForeignOwedTRY += parseFloat(fRem.amount || 0) * (rates[cleanCurrency(fRem.currency || 'TRY')] || 1);
+                            } else {
+                                const cur = cleanCurrency(acc.official_fee_currency || acc.officialFee?.currency || 'TRY');
+                                currentAccForeignOwedTRY += parseFloat(fRem) * (rates[cur] || 1);
+                            }
                         }
-                        
-                        totalForeignPayableTRY += payableAmtTRY;
+
+                        // 2. ADIM: Bakiye yoksa "Yurtdışı Maliyet" alt kalemlerinden (items) hesapla!
+                        if (currentAccForeignOwedTRY === 0 && Array.isArray(acc.accrual_items || acc.items)) {
+                            const itemsList = acc.accrual_items || acc.items;
+                            itemsList.forEach(item => {
+                                const fType = String(item.fee_type || '').toLowerCase();
+                                const iName = String(item.item_name || '').toLowerCase();
+                                
+                                if (fType.includes('yurtdışı') || fType.includes('yurtdisi') || fType.includes('maliyet') || iName.includes('yurtdışı') || iName.includes('yurtdisi')) {
+                                    currentAccForeignOwedTRY += parseFloat(item.total_amount || item.unit_price || 0) * (rates[cleanCurrency(item.currency || 'TRY')] || 1);
+                                }
+                            });
+                        }
+
+                        // 3. ADIM: Sigorta kuralı
+                        if (currentAccForeignOwedTRY === 0) {
+                            currentAccForeignOwedTRY = accRemTRY; 
+                        }
+
+                        totalForeignPayableTRY += currentAccForeignOwedTRY;
                     }
 
+                    // Müşterinin toplam kalan borcundan (accRemTRY), yurtdışına ödenecek olanı düşüyoruz.
+                    const accNetReceivableTRY = Math.max(0, accRemTRY - currentAccForeignOwedTRY);
+
+                    // Sistem kirlilik filtreleri
+                    if (accNetReceivableTRY > 0 && clientName !== 'Bilinmeyen Müşteri' && clientName !== 'Kayıtlı') {
+                        debtors[clientName] = (debtors[clientName] || 0) + accNetReceivableTRY;
+                    }
+
+                    let offAmt = parseFloat(acc.official_fee_amount || acc.officialFee?.amount || 0);
+                    let offCur = cleanCurrency(acc.official_fee_currency || acc.officialFee?.currency || 'TRY');
                     let srvAmt = parseFloat(acc.service_fee_amount || acc.serviceFee?.amount || 0);
                     let srvCur = cleanCurrency(acc.service_fee_currency || acc.serviceFee?.currency || 'TRY');
                     
@@ -343,11 +362,13 @@
                     }
                 });
 
-                // Evreka Kasa Alacağı: Riskin içinden, daha yurtdışına ödememiz gerekenleri çıkardığımızda cebimizde kalacak NET para
-                const evrekaNetReceivableTRY = totalUnpaidTRY - totalForeignPayableTRY;
+                const evrekaNetReceivableTRY = Math.max(0, totalUnpaidTRY - totalForeignPayableTRY);
 
-                const activeStatus = ['filed', 'published', 'registered', 'partially_registered'];
-                const activeRecords = records.filter(r => activeStatus.includes(r.status || r.portfoyStatus));
+                // SADECE 'SELF' OLAN AKTİF PORTFÖYÜ SAYMA MOTORU
+                const selfRecords = records.filter(r => {
+                    const ownerType = String(r.record_owner_type || r.recordOwnerType || 'self').trim().toLowerCase();
+                    return ownerType === 'self';
+                });
                 
                 const typeCount = { 'trademark': 0, 'patent': 0, 'design': 0 };
                 let foreignCount = 0;
@@ -355,7 +376,7 @@
                 const today = new Date();
                 const next90Days = new Date(); next90Days.setDate(today.getDate() + 90);
 
-                records.forEach(r => {
+                selfRecords.forEach(r => {
                     const type = String(r.ip_type || r.type || '').toLowerCase();
                     if(typeCount[type] !== undefined) typeCount[type]++;
                     
@@ -391,7 +412,7 @@
                     document.getElementById('kpiEvrekaNetReceivable').textContent = this.formatMoney(evrekaNetReceivableTRY);
 
                     const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
-                    document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `<li><div class="item-main">${d[0]}</div><div class="item-value">${this.formatMoney(d[1])}</div></li>`).join('') : '<li>Tebrikler, bekleyen yüksek riskli bakiye yok.</li>';
+                    document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `<li><div class="item-main">${d[0]}</div><div class="item-value-green">${this.formatMoney(d[1])}</div></li>`).join('') : '<li>Tebrikler, bekleyen yüksek riskli net kasa alacağı yok.</li>';
 
                     const activeCurrencies = Object.entries(currencyRisk).filter(c => c[1] > 0).sort((a,b) => b[1] - a[1]);
                     document.getElementById('currencyRiskList').innerHTML = activeCurrencies.length > 0 ? activeCurrencies.map(c => `<li><div class="item-main">Açık Bakiye (${c[0]})</div><div class="item-value" style="background:#fff3cd; color:#856404;">${this.formatMoney(c[1], c[0])}</div></li>`).join('') : '<li>Döviz bazlı alacak bulunmuyor.</li>';
@@ -399,8 +420,8 @@
                     this.renderTrendChart(monthlyTrend);
                 }
 
-                document.getElementById('kpiTotalPortfolio').textContent = records.length;
-                const foreignRatio = records.length > 0 ? (foreignCount / records.length) * 100 : 0;
+                document.getElementById('kpiTotalPortfolio').textContent = selfRecords.length;
+                const foreignRatio = selfRecords.length > 0 ? (foreignCount / selfRecords.length) * 100 : 0;
                 document.getElementById('kpiForeignRatio').textContent = `%${foreignRatio.toFixed(1)} Yurtdışı`;
 
                 upcomingRenewals.sort((a,b) => a.date - b.date);

@@ -26,6 +26,7 @@ class TaskUpdateController {
         this.selectedIpRecordId = null;
         this.selectedPersonId = null;
         this.tempRenewalData = null;
+        this.suitParties = { plaintifs: [], defendants: [] };
     }
 
     async init() {
@@ -317,6 +318,26 @@ class TaskUpdateController {
             });
         }
 
+        // YİDK - Davacı ve Davalı Taraf Çoklu Seçim
+        document.addEventListener('input', (e) => {
+            if (e.target.id === 'suitPlaintifSearch') {
+                const results = this.dataManager.searchPersons(this.masterData.persons, e.target.value);
+                this.renderSuitPartyResults(results, 'plaintif');
+            } else if (e.target.id === 'suitDefendantSearch') {
+                const results = this.dataManager.searchPersons(this.masterData.persons, e.target.value);
+                this.renderSuitPartyResults(results, 'defendant');
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.remove-suit-party-btn')) {
+                const btn = e.target.closest('.remove-suit-party-btn');
+                const id = btn.dataset.id;
+                const role = btn.dataset.role;
+                this.removeSuitParty(id, role);
+            }
+        });
+
         const selIpDisplay = document.getElementById('selectedIpRecordDisplay');
         if (selIpDisplay) {
             selIpDisplay.addEventListener('click', (e) => {
@@ -400,6 +421,63 @@ class TaskUpdateController {
             container.appendChild(div);
         });
         container.style.display = 'block';
+    }
+
+    renderSuitPartyResults(items, role) {
+        const isPlaintif = role === 'plaintif';
+        const container = document.getElementById(isPlaintif ? 'suitPlaintifSearchResults' : 'suitDefendantSearchResults');
+        const input = document.getElementById(isPlaintif ? 'suitPlaintifSearch' : 'suitDefendantSearch');
+        if (!container) return;
+
+        container.innerHTML = '';
+        if (items.length === 0 || !input.value.trim()) return container.style.display = 'none';
+
+        items.slice(0, 10).forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'search-result-item p-2 border-bottom';
+            div.style.cursor = 'pointer';
+            div.textContent = item.name;
+            div.onclick = () => {
+                this.addSuitParty(item, role);
+                container.style.display = 'none';
+                input.value = '';
+            };
+            container.appendChild(div);
+        });
+        container.style.display = 'block';
+    }
+
+    addSuitParty(person, role) {
+        const list = role === 'plaintif' ? this.suitParties.plaintifs : this.suitParties.defendants;
+        if (!list.find(p => p.id === person.id)) {
+            list.push(person);
+            this.updateSuitPartyUI(role);
+        }
+    }
+
+    removeSuitParty(personId, role) {
+        if (role === 'plaintif') {
+            this.suitParties.plaintifs = this.suitParties.plaintifs.filter(p => p.id !== personId);
+        } else {
+            this.suitParties.defendants = this.suitParties.defendants.filter(p => p.id !== personId);
+        }
+        this.updateSuitPartyUI(role);
+    }
+
+    updateSuitPartyUI(role) {
+        const isPlaintif = role === 'plaintif';
+        const container = document.getElementById(isPlaintif ? 'selectedSuitPlaintifsDisplay' : 'selectedSuitDefendantsDisplay');
+        const list = isPlaintif ? this.suitParties.plaintifs : this.suitParties.defendants;
+        if (!container) return;
+
+        container.innerHTML = list.map(p => `
+            <div class="badge badge-primary d-flex align-items-center p-2" style="font-size: 0.85em; background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb;">
+                <i class="fas fa-user mr-2"></i> ${this.uiManager.escapeHTML(p.name)}
+                <button type="button" class="btn btn-sm btn-link text-danger ml-2 p-0 remove-suit-party-btn" data-id="${p.id}" data-role="${role}">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `).join('');
     }
 
     async uploadDocuments(files) {
@@ -850,11 +928,13 @@ class TaskUpdateController {
         if (taskTypeStr === '49' && newStatus === 'completed') {
             const courtName = document.getElementById('suitCourtName')?.value;
             const fileNo = document.getElementById('suitFileNo')?.value;
-            const opposingParty = document.getElementById('suitOpposingParty')?.value;
-            const openingDate = document.getElementById('suitOpeningDate')?.value; // 🔥 Yeni alan
+            const openingDate = document.getElementById('suitOpeningDate')?.value;
             
-            if (!courtName || !fileNo || !opposingParty || !openingDate) {
-                return showNotification('Lütfen Dava Açılış Bilgilerini (Mahkeme, Esas No, Dava Tarihi, Karşı Taraf) eksiksiz doldurunuz.', 'warning');
+            const plaintifs = this.suitParties.plaintifs;
+            const defendants = this.suitParties.defendants;
+            
+            if (!courtName || !fileNo || !openingDate || plaintifs.length === 0 || defendants.length === 0) {
+                return showNotification('Lütfen Dava Açılış Bilgilerini (Mahkeme, Esas No, Dava Tarihi, Müvekkil ve Karşı Taraf) eksiksiz doldurunuz.', 'warning');
             }
             if (epatsDocIndex === -1) {
                 return showNotification('Dava Dilekçesi ve Tevzi Formu (Evrak) yüklenmesi zorunludur.', 'warning');
@@ -862,17 +942,18 @@ class TaskUpdateController {
             
             const suitPayload = {
                 ip_record_id: this.selectedIpRecordId,
-                client_id: this.selectedPersonId,
+                client_id: plaintifs[0]?.id, // Geriye dönük uyumluluk için ilk müvekkili ana client_id yapıyoruz
                 task_id: this.taskId,
                 transaction_type_id: taskTypeStr,
                 suit_type: 'YİDK Kararı İptali',
                 court_name: courtName,
                 file_no: fileNo,
-                opposing_party: opposingParty,
+                opposing_party: defendants.map(d => d.name).join(', '), // Eski tablo yapısı için virgüllü isimler
                 client_role: 'Davacı',
                 title: `YİDK Kararı İptal Davası`,
                 status: 'continue',
-                opening_date: openingDate // 🔥 Dava Tarihi DB'ye gidiyor
+                opening_date: openingDate,
+                suit_parties: { plaintifs, defendants } // DataManager içinde suit_clients tablosuna işlenecek
             };
 
             const suitRes = await this.dataManager.saveSuitRecord(suitPayload);

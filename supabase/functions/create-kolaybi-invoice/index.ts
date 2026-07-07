@@ -118,8 +118,9 @@ serve(async (req) => {
         if (!detailReq.ok || detailRes.success === false) {
             const errorMsg = detailRes.message || JSON.stringify(detailRes);
             if (errorMsg.toLowerCase().includes('bulunamadı') || detailReq.status === 404) {
-                await supabaseClient.from("invoices").update({ kolaybi_status: "not_found", status: "sync_error" }).eq("id", invoiceId);
-                throw new Error("Belge KolayBi hesabında bulunamadı. Yerel kayıt güvenlik amacıyla silinmedi.");
+                const updates = { kolaybi_status: "not_found", status: "rejected" };
+                await supabaseClient.from("invoices").update(updates).eq("id", invoiceId);
+                return new Response(JSON.stringify({ success: true, message: "Belge KolayBi'de bulunamadı (silinmiş/reddedilmiş olabilir). Durumu 'Reddedildi' olarak güncellendi.", data: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
             }
             throw new Error(`Belge detayı alınamadı: ${errorMsg}`);
         }
@@ -150,20 +151,29 @@ serve(async (req) => {
         if (issueDate) updates.invoice_date = issueDate;
         if (uuid) updates.kolaybi_uuid = uuid;
 
-        const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
-        const rawComm = String(commStatusVal || '').toUpperCase();
-        const rawEDoc = String(eDocStatus || '').toUpperCase();
-                
-        if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
-            updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
-        } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
-            updates.status = 'approved';
-        } else if (rawComm === 'NEW' || rawComm === 'DRAFT' || rawEDoc === 'READY' || rawStatus.includes('TASLAK')) {
-            updates.status = 'draft'; 
-        } else if (commStatusVal) {
-            updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
-        } else if (uuid && inv.status === 'draft') {
-            updates.status = 'sent';
+        const cStatus = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : '';
+        const eStatus = typeof eDocStatus === 'string' ? eDocStatus.toLowerCase() : '';
+        const standardStatuses = ['draft', 'ready_to_send', 'sent', 'approved', 'rejected', 'cancelled'];
+        
+        if (standardStatuses.includes(cStatus)) {
+            updates.status = cStatus;
+        } else if (standardStatuses.includes(eStatus)) {
+            updates.status = eStatus;
+        } else {
+            const raw = cStatus + ' ' + eStatus;
+            if (raw.includes('red') || raw.includes('reject') || raw.includes('hata') || raw.includes('error') || raw.includes('fail') || raw.includes('iade') || raw.includes('kabul edilme')) {
+                updates.status = 'rejected';
+            } else if (raw.includes('iptal') || raw.includes('cancel')) {
+                updates.status = 'cancelled';
+            } else if (raw.includes('onay') || raw.includes('approv')) {
+                updates.status = 'approved';
+            } else if (raw.includes('taslak') || raw.includes('ready')) {
+                updates.status = 'draft';
+            } else if (cStatus) {
+                updates.status = cStatus;
+            } else if (uuid && inv.status === 'draft') {
+                updates.status = 'sent';
+            }
         }
 
         if (eDocStatus) updates.kolaybi_status = eDocStatus;
@@ -265,20 +275,29 @@ serve(async (req) => {
                     if (issueDate) updates.invoice_date = issueDate;
                     if (uuid) updates.kolaybi_uuid = uuid;
 
-                    const rawStatus = String(eDocStatus || commStatusVal || '').toUpperCase();
-                    const rawComm = String(commStatusVal || '').toUpperCase();
-                    const rawEDoc = String(eDocStatus || '').toUpperCase();
+                    const cStatus = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : '';
+                    const eStatus = typeof eDocStatus === 'string' ? eDocStatus.toLowerCase() : '';
+                    const standardStatuses = ['draft', 'ready_to_send', 'sent', 'approved', 'rejected', 'cancelled'];
                     
-                    if (rawStatus.includes('RED') || rawStatus.includes('REJECT') || rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) {
-                        updates.status = (rawStatus.includes('İPTAL') || rawStatus.includes('CANCEL')) ? 'cancelled' : 'rejected';
-                    } else if (rawStatus.includes('KABUL') || rawStatus.includes('ONAY') || rawStatus.includes('APPROV')) {
-                        updates.status = 'approved';
-                    } else if (rawComm === 'NEW' || rawComm === 'DRAFT' || rawEDoc === 'READY' || rawStatus.includes('TASLAK')) {
-                        updates.status = 'draft'; 
-                    } else if (commStatusVal) {
-                        updates.status = typeof commStatusVal === 'string' ? commStatusVal.toLowerCase() : 'sent';
-                    } else if (uuid && inv.status === 'draft') {
-                        updates.status = 'sent';
+                    if (standardStatuses.includes(cStatus)) {
+                        updates.status = cStatus;
+                    } else if (standardStatuses.includes(eStatus)) {
+                        updates.status = eStatus;
+                    } else {
+                        const raw = cStatus + ' ' + eStatus;
+                        if (raw.includes('red') || raw.includes('reject') || raw.includes('hata') || raw.includes('error') || raw.includes('fail') || raw.includes('iade') || raw.includes('kabul edilme')) {
+                            updates.status = 'rejected';
+                        } else if (raw.includes('iptal') || raw.includes('cancel')) {
+                            updates.status = 'cancelled';
+                        } else if (raw.includes('onay') || raw.includes('approv')) {
+                            updates.status = 'approved';
+                        } else if (raw.includes('taslak') || raw.includes('ready')) {
+                            updates.status = 'draft';
+                        } else if (cStatus) {
+                            updates.status = cStatus;
+                        } else if (uuid && inv.status === 'draft') {
+                            updates.status = 'sent';
+                        }
                     }
 
                     if (eDocStatus) updates.kolaybi_status = eDocStatus;
@@ -668,9 +687,9 @@ serve(async (req) => {
                             const ks = (inv.kolaybi_status || '').toLowerCase().trim();
                             
                             const isDeclined = ks === 'declined' || s === 'declined' || ks.includes('decline');
-                            const isRejected = ks === 'rejected' || s === 'rejected' || ks.includes('red') || s.includes('red');
-                            const isCancelled = ks === 'cancelled' || s === 'cancelled' || ks.includes('iptal') || s.includes('iptal');
-                            const isFailed = ks === 'failed' || s === 'failed' || ks.includes('hata') || s.includes('hata');
+                            const isRejected = ks === 'rejected' || s === 'rejected' || ks.includes('red') || s.includes('red') || ks.includes('reject') || s.includes('reject') || ks.includes('kabul edilme') || s.includes('kabul edilme') || ks.includes('iade') || s.includes('iade') || ks.includes('return') || s.includes('return');
+                            const isCancelled = ks === 'cancelled' || s === 'cancelled' || ks.includes('iptal') || s.includes('iptal') || ks.includes('cancel') || s.includes('cancel');
+                            const isFailed = ks === 'failed' || s === 'failed' || ks.includes('hata') || s.includes('hata') || s === 'sync_error' || ks === 'not_found' || s.includes('error') || ks.includes('error');
 
                             if (!(isDeclined || isRejected || isCancelled || isFailed)) accrualActiveCurrencies[acc.id].add((inv.currency || 'TRY').toUpperCase());
                         }

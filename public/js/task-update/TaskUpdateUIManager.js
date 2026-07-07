@@ -70,8 +70,20 @@ export class TaskUpdateUIManager {
     }
 
     // 🔥 GÜNCEL VE NOKTA ATIŞI: Görev Tipi 49 için Dava Açılış Kartı Düzenleyici
-    buildYidkSuitForm(task, ipRecord) {
+    buildYidkSuitForm(task, ipRecord, suitData = null) {
         console.log("🔥 Dava kartı düzenleme ve metin değişimleri tetiklendi!");
+        const esc = (val) => String(val ?? '').replace(/[&<>"']/g, (m) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[m]));
+
+        const selectedCourt = suitData?.court_name || '';
+        const existingFileNo = suitData?.file_no || '';
+        const existingOpeningDate = suitData?.opening_date || '';
+        const existingOpposingParty = suitData?.opposing_party || '';
 
         // 1. Kart Başlığını ve Yükleme Alanı Metnini Değiştir
         const epatsArea = document.getElementById('epatsFileUploadArea');
@@ -106,7 +118,10 @@ export class TaskUpdateUIManager {
         let courtOptions = '<option value="">Seçiniz...</option>';
         const ankaraGroup = COURTS_LIST?.find(c => c.label === 'Ankara');
         if (ankaraGroup) {
-            courtOptions += ankaraGroup.options.map(c => `<option value="${c.value}">${c.text}</option>`).join('');
+            courtOptions += ankaraGroup.options.map(c => {
+                const selected = c.value === selectedCourt ? 'selected' : '';
+                return `<option value="${esc(c.value)}" ${selected}>${esc(c.text)}</option>`;
+            }).join('');
         }
 
         const brandDisplay = ipRecord ? `${ipRecord.brand_name || ipRecord.brandName || ipRecord.title} (${ipRecord.application_number || ipRecord.applicationNumber || '-'})` : 'Bilinmiyor';
@@ -127,16 +142,16 @@ export class TaskUpdateUIManager {
                     </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitFileNo" class="font-weight-bold small">Esas Numarası <span class="text-danger">*</span></label>
-                        <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" required>
-                    </div>
+                        <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" value="${esc(existingFileNo)}" required>
+                        </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitOpeningDate" class="font-weight-bold small">Dava Tarihi <span class="text-danger">*</span></label>
-                        <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" required>
-                    </div>
+                        <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" value="${esc(existingOpeningDate)}" required>
+                        </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitOpposingParty" class="font-weight-bold small">Karşı Taraf (Davalı) <span class="text-danger">*</span></label>
-                        <input type="text" id="suitOpposingParty" class="form-control" placeholder="Örn: TÜRKPATENT ve Karşı Firma" required>
-                    </div>
+                        <input type="text" id="suitOpposingParty" class="form-control" placeholder="Örn: TÜRKPATENT ve Karşı Firma" value="${esc(existingOpposingParty)}" required>
+                        </div>
                 </div>
             </div>
         `;
@@ -151,7 +166,11 @@ export class TaskUpdateUIManager {
             if (window.$ && $.fn.select2) $('#suitCourtName').select2({ theme: 'bootstrap4', width: '100%' });
             if (window.flatpickr) {
                 window.flatpickr('#suitOpeningDate', {
-                    dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "tr", defaultDate: new Date()
+                    dateFormat: "Y-m-d",
+                    altInput: true,
+                    altFormat: "d.m.Y",
+                    locale: "tr",
+                    defaultDate: existingOpeningDate || new Date()
                 });
             }
         }, 100);

@@ -86,14 +86,61 @@ export class TaskUpdateDataManager {
         }
     }
 
-    // 🔥 YENİ: Dava Kaydı (Suit) Oluşturma Metodu
-    async createSuitRecord(suitData) {
+    async getSuitByTaskId(taskId) {
         try {
-            const { data, error } = await supabase.from('suits').insert([suitData]).select('id').single();
+            const { data, error } = await supabase
+                .from('suits')
+                .select('*')
+                .eq('task_id', String(taskId))
+                .maybeSingle();
+
             if (error) throw error;
-            return { success: true, data };
+            return data || null;
         } catch (error) {
-            console.error("Dava kayıt hatası:", error);
+            console.error("Dava kaydı okunamadı:", error);
+            return null;
+        }
+    }
+
+    async saveSuitRecord(suitData) {
+        try {
+            const existingSuit = await this.getSuitByTaskId(suitData.task_id);
+
+            // undefined alanları temizle
+            const cleanSuitData = { ...suitData };
+            Object.keys(cleanSuitData).forEach(key => {
+                if (cleanSuitData[key] === undefined) delete cleanSuitData[key];
+            });
+
+            if (existingSuit?.id) {
+                // Mevcut dava kaydı varsa id'yi değiştirmiyoruz.
+                delete cleanSuitData.id;
+
+                const { data, error } = await supabase
+                    .from('suits')
+                    .update(cleanSuitData)
+                    .eq('id', existingSuit.id)
+                    .select('id')
+                    .single();
+
+                if (error) throw error;
+                return { success: true, data, updated: true };
+            }
+
+            // suits.id text ve default değeri olmadığı için manuel ID üretmek zorundayız.
+            cleanSuitData.id = cleanSuitData.id || crypto.randomUUID();
+
+            const { data, error } = await supabase
+                .from('suits')
+                .insert([cleanSuitData])
+                .select('id')
+                .single();
+
+            if (error) throw error;
+            return { success: true, data, created: true };
+
+        } catch (error) {
+            console.error("Dava kayıt/güncelleme hatası:", error);
             return { success: false, error: error.message };
         }
     }

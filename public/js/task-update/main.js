@@ -187,6 +187,10 @@ class TaskUpdateController {
         // --- PORTFÖY (MARKA) VARLIĞI VE DAVA KARTI (TİP 49) ÇİZİMİ ---
         const typeStr = String(this.taskData.taskType || this.taskData.task_type_id);
 
+        const existingYidkSuit = typeStr === '49'
+            ? await this.dataManager.getSuitByTaskId(this.taskId)
+            : null;
+
         if (this.selectedIpRecordId) {
             let rec = this.masterData.ipRecords.find(r => String(r.id) === String(this.selectedIpRecordId));
             if (!rec) {
@@ -198,14 +202,14 @@ class TaskUpdateController {
             }
             this.uiManager.renderSelectedIpRecord(rec);
 
-            // Görev tipi 49 ise Dava kartını marka verisiyle çiz
+            // Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
             if (typeStr === '49') {
-                this.uiManager.buildYidkSuitForm(this.taskData, rec);
+                this.uiManager.buildYidkSuitForm(this.taskData, rec, existingYidkSuit);
             }
         } else {
-            // Marka verisi yoksa bile Görev tipi 49 ise Dava kartını boş çiz
+            // Marka verisi yoksa bile Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
             if (typeStr === '49') {
-                this.uiManager.buildYidkSuitForm(this.taskData, null);
+                this.uiManager.buildYidkSuitForm(this.taskData, null, existingYidkSuit);
             }
         }
 
@@ -571,12 +575,20 @@ class TaskUpdateController {
 
             this.uiManager.renderDocuments(this.currentDocuments);
 
+            const taskType = String(this.taskData.taskType || this.taskData.task_type_id);
             const statusSelect = document.getElementById('taskStatus');
-            if(statusSelect) statusSelect.value = 'completed'; 
 
-            showNotification('EPATS evrakı başarıyla yüklendi.', 'success');
+            if (statusSelect) {
+                statusSelect.value = 'completed';
+                statusSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
 
-            const taskType = String(this.taskData.taskType);
+            if (taskType === '49') {
+                showNotification('Dava dilekçesi / tevzi formu yüklendi. İş durumu Tamamlandı olarak ayarlandı.', 'success');
+            } else {
+                showNotification('EPATS evrakı başarıyla yüklendi.', 'success');
+            }
+
             if (taskType === '22') this.handleRenewalLogic();
             if (this.isApplicationTask(taskType) && typeof $ !== 'undefined') {
                 this.uiManager.ensureApplicationDataModal();
@@ -812,20 +824,28 @@ class TaskUpdateController {
     }
 
     async saveTaskChanges() {
+        const taskTypeStr = String(this.taskData.taskType || this.taskData.task_type_id);
+        const newStatus = document.getElementById('taskStatus')?.value;
+        const isYidkSuitTask = taskTypeStr === '49';
+
         const epatsDocIndex = this.currentDocuments.findIndex(d => d.type === 'epats_document');
         let epatsDocumentDateForDB = null; 
         
-        if (epatsDocIndex !== -1) {
+        // YİDK iptal davasında bu alan EPATS evrakı değil,
+        // dava dilekçesi / tevzi formu yükleme alanı olarak kullanılıyor.
+        // Bu nedenle TürkPatent Evrak No ve Evrak Tarihi zorunlu tutulmaz.
+        if (epatsDocIndex !== -1 && !isYidkSuitTask) {
             const evrakNo = document.getElementById('turkpatentEvrakNo')?.value;
             const evrakDate = document.getElementById('epatsDocumentDate')?.value;
-            if (!evrakNo || !evrakDate) return showNotification('Lütfen EPATS evrak bilgilerini (No ve Tarih) doldurunuz.', 'warning');
+
+            if (!evrakNo || !evrakDate) {
+                return showNotification('Lütfen EPATS evrak bilgilerini (No ve Tarih) doldurunuz.', 'warning');
+            }
+
             this.currentDocuments[epatsDocIndex].turkpatentEvrakNo = evrakNo;
             this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
             epatsDocumentDateForDB = evrakDate; 
         }
-
-        const taskTypeStr = String(this.taskData.taskType || this.taskData.task_type_id);
-        const newStatus = document.getElementById('taskStatus')?.value;
 
         if (taskTypeStr === '49' && newStatus === 'completed') {
             const courtName = document.getElementById('suitCourtName')?.value;
@@ -855,7 +875,7 @@ class TaskUpdateController {
                 opening_date: openingDate // 🔥 Dava Tarihi DB'ye gidiyor
             };
 
-            const suitRes = await this.dataManager.createSuitRecord(suitPayload);
+            const suitRes = await this.dataManager.saveSuitRecord(suitPayload);
             if (!suitRes.success) {
                 return showNotification('Dava dosyası açılamadı: ' + suitRes.error, 'error');
             }

@@ -314,17 +314,38 @@ export class AccrualUIManager {
                     const curr = i.currency || 'TRY';
                     let amt = Number(i.total_amount) || 0;
                     
-                    // TEVKİFAT DÜZELTMESİ (Ekranda anında eziyoruz, veritabanını ellemiyoruz)
-                    if (isTevkifatli && (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık')) {
-                        const qty = Number(i.quantity) || 1;
-                        const price = Number(i.unit_price) || 0;
-                        const vat = Number(i.vat_rate) || 0;
+                    const qty = Number(i.quantity) || 1;
+                    const price = Number(i.unit_price) || 0; // Eğer SMM ise bu net tutardır
+                    const vat = Number(i.vat_rate) || 0;
+
+                    // 🔥 HUKUK SMM DÜZELTMESİ: Brüt ve Stopaj Hesabı
+                    if (acc.department === 'HUKUK' && (i.fee_type === 'Hukuk Danışmanlık' || i.fee_type === 'Hizmet')) {
+                        let isCorporate = true;
+                        // Müvekkil kimlik/vergi numarasından kurumsal/bireysel tespiti
+                        if (partyId && lookups.persons) {
+                            const person = lookups.persons.find(p => String(p.id) === String(partyId));
+                            if (person) {
+                                const taxNo = person.taxNo || person.tax_no || person.tckn || '';
+                                if (taxNo.length === 11) isCorporate = false; // 11 Hane ise TCKN'dir (Bireysel)
+                            }
+                        }
+                        
+                        if (isCorporate) {
+                            const grossPrice = price / 0.8; // Neti brüte çevir
+                            amt = (qty * grossPrice) * (1 + (vat / 100) - 0.20); // Brüt + KDV - Stopaj
+                        } else {
+                            amt = (qty * price) * (1 + (vat / 100)); // Bireyselde stopaj yok
+                        }
+                    } 
+                    // TEVKİFAT DÜZELTMESİ (Sadece Evreka departmanı için)
+                    else if (isTevkifatli && (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık')) {
                         amt = (qty * price) * (1 + (vat * 0.1) / 100); // 9/10 indirim
                     }
                     
                     srvMap[curr] = (srvMap[curr] || 0) + amt;
                     dynamicTotalMap[curr] = (dynamicTotalMap[curr] || 0) + amt;
                 });
+
                 const serviceStr = Object.keys(srvMap).length > 0 
                     ? Object.entries(srvMap).map(([c, a]) => this._formatMoney(a, c)).join(' + ') 
                     : '-';
@@ -350,6 +371,18 @@ export class AccrualUIManager {
                 const editBtnClass = 'btn btn-sm btn-light text-warning edit-btn action-btn';
                 const editBtnStyle = 'cursor: pointer;';
                 const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
+
+                // 🔥 YENİ: Masraf Dekontu Butonu
+                let masrafDekontuBtn = '';
+                if (acc.department === 'HUKUK' && (acc.type === 'Hizmet' || acc.accrualType === 'Hizmet')) {
+                    // Sadece Hukuk ve Hizmet ise çıkar
+                    masrafDekontuBtn = `
+                        <div class="dropdown-divider mt-2 mb-2"></div>
+                        <button class="dropdown-item generate-masraf-dekontu-btn action-btn font-weight-bold text-dark" data-id="${acc.id}" style="font-size: 0.85em; cursor: pointer;">
+                            <i class="fas fa-file-invoice-dollar mr-2 text-warning" style="pointer-events: none;"></i> Masraf Dekontu Üret
+                        </button>
+                    `;
+                }
 
                 // 🔥 Debit Note Butonu (Renk ve tasarım düzeltildi)
                 const debitNoteBtn = isForeignClient ? `
@@ -377,6 +410,7 @@ export class AccrualUIManager {
                                 </button>
                             </div>
                             ${debitNoteBtn}
+                            ${masrafDekontuBtn}
                         </div>
                     </div>
                 `;
@@ -399,18 +433,27 @@ export class AccrualUIManager {
                     remainingHtml = `<span class="text-success font-weight-bold">Tamamlandı</span>`;
                 }
 
-                // 🔥 YENİ: Debit Note Tespiti ve Tıklanabilir Rozeti
+                // 🔥 YENİ: Debit Note ve Masraf Dekontu Tespiti ve Tıklanabilir Rozeti
                 let debitNoteHtml = '';
                 if (acc.files && acc.files.length > 0) {
-                    // Yüklenen dökümanlar arasında adı veya türü "debit" kelimesi içeren dosyayı bul
+                    // 1. Debit Note Bul
                     const debitDoc = acc.files.find(f => 
                         (f.type && f.type.toLowerCase().includes('debit')) || 
                         (f.name && f.name.toLowerCase().includes('debit'))
                     );
                     if (debitDoc) {
                         const docUrl = debitDoc.url || debitDoc.content;
-                        // Siyah şık bir buton olarak durumu yansıt
-                        debitNoteHtml = `<a href="${docUrl}" target="_blank" class="badge badge-dark p-1 px-2 shadow-sm text-white" title="Düzenlenen Debit Note'u Görüntüle" style="text-decoration: none;"><i class="fas fa-file-invoice-dollar mr-1"></i> Debit</a>`;
+                        debitNoteHtml += `<a href="${docUrl}" target="_blank" class="badge badge-dark p-1 px-2 shadow-sm text-white mb-1 mr-1" title="Düzenlenen Debit Note'u Görüntüle" style="text-decoration: none;"><i class="fas fa-file-invoice-dollar mr-1"></i> Debit</a>`;
+                    }
+
+                    // 2. Masraf Dekontu Bul
+                    const masrafDoc = acc.files.find(f => 
+                        (f.type && f.type.toLowerCase().includes('masraf_dekontu')) || 
+                        (f.name && f.name.toLowerCase().includes('masraf dekontu'))
+                    );
+                    if (masrafDoc) {
+                        const docUrl = masrafDoc.url || masrafDoc.content;
+                        debitNoteHtml += `<a href="${docUrl}" target="_blank" class="badge badge-info p-1 px-2 shadow-sm text-white mb-1 mr-1" title="Düzenlenen Masraf Dekontunu Görüntüle" style="text-decoration: none;"><i class="fas fa-file-invoice-dollar mr-1"></i> M.Dekontu</a>`;
                     }
                 }
 

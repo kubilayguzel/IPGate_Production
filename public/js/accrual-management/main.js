@@ -8,6 +8,7 @@ import { showNotification } from '../../utils.js';
 import { AccrualDataManager } from './AccrualDataManager.js';
 import { AccrualUIManager } from './AccrualUIManager.js';
 import { DebitNoteManager } from './DebitNoteManager.js';
+import { MasrafDekontuManager } from './MasrafDekontuManager.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const user = await waitForAuthUser({ requireAuth: true, redirectTo: 'index.html', graceMs: 1200 });
@@ -1031,13 +1032,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const accrual = this.dataManager.allAccruals.find(a => a.id === id);
                     if (!accrual) return;
 
-                    // SADECE "Müvekkil/TP" bilgisini alıyoruz
                     const partyId = accrual.tpInvoiceParty?.id;
                     const person = this.dataManager.allPersons.find(p => p.id === partyId) || { name: accrual.tpInvoiceParty?.name || 'Bilinmeyen Müşteri' };
 
                     if (confirm('Bu tahakkuk için otomatik olarak İngilizce Debit Note (PDF) oluşturulup dosya eklerine kaydedilecek. Onaylıyor musunuz?')) {
                         const success = await DebitNoteManager.generateAndSave(accrual, person, this.uiManager);
-                        if (success) await this.loadData(); // İşlem bitince tabloyu ve belgeleri yenile
+                        if (success) await this.loadData(); 
+                    }
+                } else if (btn.classList.contains('generate-masraf-dekontu-btn')) {
+                    // 🔥 YENİ: MASRAF DEKONTU OLUŞTURMA İŞLEMİ
+                    const accrual = this.dataManager.allAccruals.find(a => a.id === id);
+                    if (!accrual) return;
+
+                    const partyId = accrual.tpInvoiceParty?.id;
+                    const person = this.dataManager.allPersons.find(p => p.id === partyId) || { name: accrual.tpInvoiceParty?.name || 'Bilinmeyen Müşteri' };
+
+                    if (confirm('Hukuki Danışmanlık bedeli hariç diğer masraflar için Türkçe Masraf Dekontu (PDF) oluşturulup dosya eklerine kaydedilecek. Onaylıyor musunuz?')) {
+                        const success = await MasrafDekontuManager.generateAndSave(accrual, person, this.uiManager);
+                        if (success) await this.loadData(); 
                     }
                 }
             };

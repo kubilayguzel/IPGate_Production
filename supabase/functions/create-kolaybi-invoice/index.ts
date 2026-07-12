@@ -586,7 +586,7 @@ serve(async (req) => {
         if (!kolaybiAddressId) throw new Error("KolayBi fatura adresi bulunamadı.");
 
         let productId = null; 
-        const productsReq = await fetch(`${config.baseUrl}/kolaybi/v1/products?limit=50`, { method: 'GET', headers: getHeaders });
+        const productsReq = await fetch(`${config.baseUrl}/kolaybi/v1/products?limit=100`, { method: 'GET', headers: getHeaders });
         
         if (productsReq.ok) {
             const productsRes = await productsReq.json();
@@ -594,25 +594,27 @@ serve(async (req) => {
             
             let validServiceItem = null;
 
-            // 🔥 EVREKA İÇİN ÖNCELİK: URN000006 kodlu "Danışmanlık Hizmet Bedeli" ürününü bul!
-            if (!config.isSmm) {
+            if (config.isSmm) {
+                // 🔥 SMM İÇİN KESİN KURAL: Rastgele hizmet alma, SADECE bu isimdeki ürünü ara!
+                validServiceItem = items.find((i: any) => i.name === 'Hukuki Danışmanlık ve Vekalet Ücreti');
+            } else {
+                // EVREKA İÇİN ÖNCELİK: URN000006 kodlu "Danışmanlık Hizmet Bedeli" ürününü bul
                 validServiceItem = items.find((i: any) => i.code === 'URN000006' || i.product_code === 'URN000006');
-            }
-
-            // Hukuk birimi ise veya KolayBi'de URN000006 bulunamazsa eski mantıktaki gibi rastgele bir hizmet kalemi bul (Yedek Plan)
-            if (!validServiceItem) {
-                validServiceItem = items.find((i: any) => i.product_type === 'SERVICE' || i.product_type === 'service' || i.type === 'service');
+                if (!validServiceItem) {
+                    validServiceItem = items.find((i: any) => i.product_type === 'SERVICE' || i.product_type === 'service' || i.type === 'service');
+                }
             }
 
             if (validServiceItem && validServiceItem.id) {
                 productId = validServiceItem.id;
             } else {
+                // Bulamazsa Yeni Ürün Oluştur
                 const newProductParams = new URLSearchParams();
-                newProductParams.append("name", "SMM Hukuk Hizmet Bedeli"); 
-                newProductParams.append("product_type", "service"); 
+                newProductParams.append("name", config.isSmm ? "Hukuki Danışmanlık ve Vekalet Ücreti" : "Hizmet Bedeli"); 
+                newProductParams.append("product_type", "service");
                 newProductParams.append("vat_rate", "20");
                 newProductParams.append("price_currency", "try");
-                newProductParams.append("quantity", "0");
+                // DİKKAT: quantity parametresi KolayBi API'sinde model hatası verdiği için kaldırıldı!
 
                 const createProdReq = await fetch(`${config.baseUrl}/kolaybi/v1/products`, { method: 'POST', headers: apiHeadersForm, body: newProductParams.toString() });
                 if (createProdReq.ok) {
@@ -622,10 +624,8 @@ serve(async (req) => {
             }
         }
         
-        if (!productId && config.isSmm) {
-            throw new Error("KolayBi hesabınızda geçerli bir 'HİZMET' kalemi bulunamadı.");
-        } else if (!productId) {
-            productId = 1; 
+        if (!productId) {
+            throw new Error("KolayBi hesabınızda faturaya eklenecek geçerli bir ürün/hizmet kartı bulunamadı.");
         }
 
         let jobDetailsLines: string[] = [];
@@ -705,6 +705,14 @@ serve(async (req) => {
         accruals.forEach((acc: any) => {
             if (acc.accrual_items && acc.accrual_items.length > 0) {
                 acc.accrual_items.forEach((item: any) => {
+                    
+                    // 🔥 YENİ KURAL: Eğer bu Hukuk Departmanı SMM işlemiyse, 
+                    // SADECE "Hukuk Danışmanlık" kalemi KolayBi'ye gönderilir. 
+                    // Diğer masraflar atlanır (Onlar için Masraf Dekontu PDF'i üretilecek).
+                    if (config.isSmm && item.fee_type !== 'Hukuk Danışmanlık') {
+                        return; 
+                    }
+
                     const itemCurrency = item.currency ? (item.currency.toUpperCase() === 'TL' ? 'TRY' : item.currency.toUpperCase()) : 'TRY';
                     if (accrualActiveCurrencies[acc.id] && accrualActiveCurrencies[acc.id].has(itemCurrency)) return; 
 
@@ -720,7 +728,12 @@ serve(async (req) => {
                     else if (typeLower === 'hizmet') feeTypeDisplay = 'EVREKA Hizmet';
 
                     const cleanItemName = (item.item_name || "").replace(/\s*-\s*(Harç|Hizmet Bedeli|Hizmet Ücreti|Hizmet)\s*$/i, "").trim();
-                    const combinedName = `${feeTypeDisplay} - ${cleanItemName}`;
+                    let combinedName = `${feeTypeDisplay} - ${cleanItemName}`;
+
+                    // 🔥 KOLAYBİ'NİN MAİLİNE İSTİNADEN: SMM için PDF'te görünecek ürün adı standartlaştırılıyor
+                    if (config.isSmm) {
+                        combinedName = "Hukuki Danışmanlık ve Vekalet Ücreti";
+                    }
 
                     let docType = "SATIS";
                     if (!config.isSmm && isTevkifatli && typeLower === 'hizmet') {
@@ -739,7 +752,7 @@ serve(async (req) => {
         // 🔥 GÜNCELLENEN BELGE OLUŞTURMA MOTORU (SMM Aritmetiğine Tam Uyumlu + Tevkifat Düzeltmesi)
         const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
             if (items.length === 0) return null;
-
+            
             const invoiceParams = new URLSearchParams();
             
             invoiceParams.append("contact_id", String(kolaybiContactId));
@@ -751,6 +764,7 @@ serve(async (req) => {
             
             invoiceParams.append("order_date", turkeyDate);
 
+            // 🔥 ÇÖZÜM: isSmmDocument karmaşası kaldırıldı. Hukuk departmanıysa (config.isSmm) kesinlikle SMM kesilir!
             if (config.isSmm) {
                 invoiceParams.append("type", "self_employment_receipt");
                 invoiceParams.append("is_gross", "1");
@@ -758,7 +772,7 @@ serve(async (req) => {
                 const currentScenario = forceScenario || (identityNo.length === 10 ? "TICARIFATURA" : "EARSIVFATURA");
                 invoiceParams.append("type", "sale_invoice"); 
                 invoiceParams.append("document_scenario", currentScenario); 
-                invoiceParams.append("document_type", docType); 
+                invoiceParams.append("document_type", docType === 'SMM' ? 'SATIS' : docType); 
             }
             
             let localDescription = finalInvoiceNote; 
@@ -775,16 +789,24 @@ serve(async (req) => {
             let calculatedGrandTotal = 0;
 
             items.forEach(item => {
-                // Zorunlu Kalem Parametreleri
                 invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
-                
-                // 🔥 GELİŞTİRME 1: KolayBi desteğinin uyarısı üzerine, PDF'te görünmesi için ürün adını zorla (override) gönderiyoruz.
                 invoiceParams.append(`items[${itemIndex}][name]`, item.combinedName);
-                
                 invoiceParams.append(`items[${itemIndex}][quantity]`, item.qty.toFixed(2));
-                invoiceParams.append(`items[${itemIndex}][unit_price]`, item.price.toFixed(2));
                 
                 let safeVat = [0, 1, 10, 20].includes(item.vat) ? item.vat : 20;
+                
+                let finalUnitPrice = item.price;
+                let stoppage = "0";
+
+                // 🔥 ÇÖZÜM: SMM ise netten brüte çevrim garantilendi
+                if (config.isSmm) {
+                    stoppage = identityNo.length === 10 ? "20" : "0";
+                    if (stoppage === "20") {
+                        finalUnitPrice = item.price / 0.8;
+                    }
+                }
+
+                invoiceParams.append(`items[${itemIndex}][unit_price]`, finalUnitPrice.toFixed(2));
                 invoiceParams.append(`items[${itemIndex}][vat_rate]`, safeVat.toString());
                 invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
 
@@ -793,15 +815,16 @@ serve(async (req) => {
                 }
 
                 if (config.isSmm) {
-                    // 🔥 GELİŞTİRME 2: KolayBi'nin mailine istinaden "stoppage_rate" iptal edildi, yerine "stoppage_value" eklendi.
-                    // Akıllı Stopaj: Kurumsal (10 hane VKN) müşterilere standart %20 Stopaj, Bireysellere (11 hane TCKN) %0 Stopaj yansıtıyoruz.
-                    const stoppage = identityNo.length === 10 ? "20" : "0"; 
+                    // 🔥 ÇÖZÜM: SMM Genel Toplam Matematiği (Brüt + KDV - Stopaj)
                     invoiceParams.append(`items[${itemIndex}][stoppage_value]`, stoppage);
                     
-                    calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
-                    } else {
+                    const itemGrossTotal = item.qty * finalUnitPrice;
+                    const itemVatAmount = itemGrossTotal * (safeVat / 100);
+                    const itemStoppageAmount = itemGrossTotal * (Number(stoppage) / 100);
+                    
+                    calculatedGrandTotal += (itemGrossTotal + itemVatAmount - itemStoppageAmount);
+                } else {
                     if (docType === 'TEVKIFAT') {
-                        // DB'den 2 gelirse bu 9/10 (90) tevkifat demektir. 10 gelirse 5/10 (50) tevkifat demektir.
                         const withholdingVal = tevkifatRate === 10 ? "50" : "90";
                         const withholdingCode = tevkifatRate === 10 ? "611" : "602"; 
                         
@@ -809,7 +832,6 @@ serve(async (req) => {
                         invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
                         invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
                         
-                        // Genel Toplama doğrudan arayüzde seçtiğiniz %2 veya %10 eklenir
                         calculatedGrandTotal += (item.qty * item.price) * (1 + (tevkifatRate / 100)); 
                     } else {
                         calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
@@ -836,9 +858,6 @@ serve(async (req) => {
 
             const requestBodyString = invoiceParams.toString();
             
-            // =================================================================
-            // 🔥 DETAYLI KOLAYBİ HATA AYIKLAMA (DEBUG) LOGLARI
-            // =================================================================
             console.log("\n==================================================================");
             console.log(`🚀 [KOLAYBI API İSTEĞİ - ${config.isSmm ? 'SMM' : 'FATURA'}] BAŞLIYOR`);
             console.log("==================================================================");

@@ -656,6 +656,8 @@ serve(async (req) => {
 
         const finalInvoiceNote = noteLines.join('\n');
         const isTevkifatli = clientData.has_tevkifat === true;
+        // YENİ SATIR: Veritabanındaki oranı default 2 olacak şekilde çek
+        const tevkifatRate = clientData.tevkifat_rate || 2; 
 
         const { data: linkedInvoices, error: linkReadError } = await supabaseClient
             .from('accrual_invoices')
@@ -773,49 +775,47 @@ serve(async (req) => {
             let calculatedGrandTotal = 0;
 
             items.forEach(item => {
+                // Zorunlu Kalem Parametreleri
                 invoiceParams.append(`items[${itemIndex}][product_id]`, String(productId));
+                
+                // 🔥 GELİŞTİRME 1: KolayBi desteğinin uyarısı üzerine, PDF'te görünmesi için ürün adını zorla (override) gönderiyoruz.
+                invoiceParams.append(`items[${itemIndex}][name]`, item.combinedName);
+                
                 invoiceParams.append(`items[${itemIndex}][quantity]`, item.qty.toFixed(2));
-                
-                // SMM için Net'ten Brüt'e Matematik
-                let unitPrice = item.price;
-                if (config.isSmm) {
-                    unitPrice = item.price / 0.80;
-                }
-                
-                invoiceParams.append(`items[${itemIndex}][unit_price]`, unitPrice.toFixed(2));
+                invoiceParams.append(`items[${itemIndex}][unit_price]`, item.price.toFixed(2));
                 
                 let safeVat = [0, 1, 10, 20].includes(item.vat) ? item.vat : 20;
                 invoiceParams.append(`items[${itemIndex}][vat_rate]`, safeVat.toString());
-                
-                // Notları kalem açıklamasına yapıştırma (SMM için)
-                let itemDesc = item.combinedName;
-                if (config.isSmm && itemIndex === items.length - 1) {
-                    itemDesc += `\n\n${localDescription}`;
-                }
-                invoiceParams.append(`items[${itemIndex}][description]`, itemDesc);
-
-                if (config.isSmm) {
-                    invoiceParams.append(`items[${itemIndex}][name]`, item.combinedName);
-                    invoiceParams.append(`items[${itemIndex}][stoppage_rate]`, "20");
-                }
+                invoiceParams.append(`items[${itemIndex}][description]`, item.combinedName);
 
                 if (safeVat === 0 && !config.isSmm) {
                     invoiceParams.append(`items[${itemIndex}][vat_exemption_reason_code]`, "351");
                 }
 
-                // 🔥 KESİN ÇÖZÜM: YANLIŞLIKLA SİLİNEN TEVKİFAT KODLARI BURAYA GERİ EKLENDİ!
                 if (config.isSmm) {
-                    calculatedGrandTotal += (item.qty * unitPrice) * (1 - 0.20 + (safeVat / 100));
-                } else if (!config.isSmm && docType === 'TEVKIFAT') {
-                    // FATURA İÇİN TEVKİFAT PARAMETRELERİ
-                    invoiceParams.append(`items[${itemIndex}][withholding_code]`, "602");
-                    invoiceParams.append(`items[${itemIndex}][withholding_value]`, "90");
-                    invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
+                    // 🔥 GELİŞTİRME 2: KolayBi'nin mailine istinaden "stoppage_rate" iptal edildi, yerine "stoppage_value" eklendi.
+                    // Akıllı Stopaj: Kurumsal (10 hane VKN) müşterilere standart %20 Stopaj, Bireysellere (11 hane TCKN) %0 Stopaj yansıtıyoruz.
+                    const stoppage = identityNo.length === 10 ? "20" : "0"; 
+                    invoiceParams.append(`items[${itemIndex}][stoppage_value]`, stoppage);
                     
-                    calculatedGrandTotal += (item.qty * item.price) * 1.02; 
-                } else {
                     calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
+                    } else {
+                    if (docType === 'TEVKIFAT') {
+                        // DB'den 2 gelirse bu 9/10 (90) tevkifat demektir. 10 gelirse 5/10 (50) tevkifat demektir.
+                        const withholdingVal = tevkifatRate === 10 ? "50" : "90";
+                        const withholdingCode = tevkifatRate === 10 ? "611" : "602"; 
+                        
+                        invoiceParams.append(`items[${itemIndex}][withholding_code]`, withholdingCode);
+                        invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
+                        invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
+                        
+                        // Genel Toplama doğrudan arayüzde seçtiğiniz %2 veya %10 eklenir
+                        calculatedGrandTotal += (item.qty * item.price) * (1 + (tevkifatRate / 100)); 
+                    } else {
+                        calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
+                    }
                 }
+
                 itemIndex++;
             });
 

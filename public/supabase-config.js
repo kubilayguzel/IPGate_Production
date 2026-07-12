@@ -247,6 +247,7 @@ export const personService = {
             district: data.district,
             is_evaluation_required: data.is_evaluation_required,
             has_tevkifat: data.has_tevkifat,
+            tevkifat_rate: data.tevkifat_rate, // YENİ EKLENEN SATIR
             requires_sas_code: data.requires_sas_code,
             priceListId: data.price_list_id,
             documents: mappedDocuments // 🔥 Belgeleri arayüze iletiyoruz
@@ -275,6 +276,7 @@ export const personService = {
             district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false,
             has_tevkifat: personData.has_tevkifat || false,
+            tevkifat_rate: personData.tevkifat_rate || 20, // YENİ EKLENEN SATIR
             requires_sas_code: personData.requires_sas_code || false,
             price_list_id: personData.priceListId || null
 
@@ -319,6 +321,7 @@ export const personService = {
             district: personData.district || null,
             is_evaluation_required: personData.is_evaluation_required || false,
             has_tevkifat: personData.has_tevkifat || false,
+            tevkifat_rate: personData.tevkifat_rate || 20, // YENİ EKLENEN SATIR
             requires_sas_code: personData.requires_sas_code || false,
             price_list_id: personData.priceListId || null,
             updated_at: new Date().toISOString()
@@ -2603,8 +2606,11 @@ export const feeCalculationService = {
                     .eq('id', String(clientId))
                     .maybeSingle();
 
+                let tevkifatRateDB = 2; // Varsayılan oran %2
                 if (personData) {
-                    isTevkifatli = personData.has_tevkifat === true; // 🔥 YENİ: Müşteri tevkifatlı mı?
+                    isTevkifatli = personData.has_tevkifat === true;
+                    if (personData.tevkifat_rate) tevkifatRateDB = personData.tevkifat_rate; // DB'den %2 veya %10'u al
+                    
                     if (personData.price_list_id) {
                         activePriceListId = personData.price_list_id;
                         console.log(`[CALCULATION ENGINE] 💡 Müvekkile atanmış ÖZEL TARİFE LİSTESİ BULUNDU (ID: ${activePriceListId})`);
@@ -2708,10 +2714,10 @@ export const feeCalculationService = {
                 if (quantity > 0) {
                     const vatRate = (tariff.fee_type === 'TP Harç') ? 0 : 20;
                     
-                    // 🔥 YENİ: Tevkifat Hesabı
+                    // YENİ KOD:
                     let effectiveVat = vatRate;
                     if (isTevkifatli && tariff.fee_type === 'Hizmet') {
-                        effectiveVat = vatRate * 0.1; // %20 olan KDV'nin sadece 1/10'u tahsil edilir (%2)
+                        effectiveVat = tevkifatRateDB; // DB'den gelen 2 veya 10 değerini direkt KDV gibi kullan
                     }
 
                     // Kayan nokta hatasına karşı güvenlik (2 Hane Sabitleme)

@@ -106,11 +106,10 @@ export class PersonModalManager {
                                                 <label class="custom-control-label font-weight-bold text-dark" for="person-has-tevkifat">Tevkifat Uygulansın mı?</label>
                                             </div>
                                             <div class="form-group mt-2 pl-4" id="tevkifat-rate-group" style="display: none;">
-                                                <label class="small font-weight-bold text-muted">TEVKİFAT ORANI *</label>
+                                                <label class="small font-weight-bold text-muted">TEVKİFAT ORANI (NET KDV) *</label>
                                                 <select id="person-tevkifat-rate" class="form-control form-control-sm border-2">
-                                                    <option value="9/10">9/10 (Danışmanlık / Hizmet)</option>
-                                                    <option value="5/10">5/10</option>
-                                                    <option value="7/10">7/10</option>
+                                                    <option value="2" selected>%2 (9/10 Tevkifat - Danışmanlık)</option>
+                                                    <option value="10">%10 (5/10 Tevkifat)</option>
                                                 </select>
                                             </div>
                                             <div class="custom-control custom-switch mt-3">
@@ -341,6 +340,13 @@ export class PersonModalManager {
                 if(e.target.checked) docDateInput.value = ''; 
             };
         }
+        const tevkifatCb = document.getElementById('person-has-tevkifat');
+        if(tevkifatCb) {
+            tevkifatCb.onchange = (e) => {
+                const group = document.getElementById('tevkifat-rate-group');
+                if(group) group.style.display = e.target.checked ? 'block' : 'none';
+            };
+        }
     }
 
     async open(personId = null, callback = null) {
@@ -453,6 +459,10 @@ export class PersonModalManager {
                 
                 is_evaluation_required: document.getElementById('is_evaluation_required').checked,
                 has_tevkifat: document.getElementById('person-has-tevkifat')?.checked || false,
+                // YENİ EKLENEN SATIR: Tevkifat aktifse dropdown'dan oranı al (2 veya 10), değilse varsayılan 2 kalsın
+                tevkifat_rate: document.getElementById('person-has-tevkifat')?.checked 
+                               ? parseInt(document.getElementById('person-tevkifat-rate').value) || 2
+                               : 2,
                 requires_sas_code: document.getElementById('person-requires-sas')?.checked || false,
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
@@ -884,9 +894,22 @@ export class PersonModalManager {
         document.getElementById('personPhone').value = p.phone || '';
         document.getElementById('personAddress').value = p.address || '';
         document.getElementById('is_evaluation_required').checked = !!p.is_evaluation_required;
-        if(document.getElementById('person-has-tevkifat')) document.getElementById('person-has-tevkifat').checked = !!p.has_tevkifat;
+        if(document.getElementById('person-has-tevkifat')) {
+            const hasTevkifat = !!p.has_tevkifat;
+            document.getElementById('person-has-tevkifat').checked = hasTevkifat;
+            
+            // Toggle açıksa, tevkifat oran container'ını görünür yap
+            const rateGroup = document.getElementById('tevkifat-rate-group');
+            if(rateGroup) rateGroup.style.display = hasTevkifat ? 'block' : 'none';
+            
+            // Eğer tevkifat varsa ve oran da veritabanından gelmişse
+            if (hasTevkifat && p.tevkifat_rate) {
+                // Seçilen oranı dropdown üzerinde işaretle (Örn: "2" veya "10")
+                const rateSelect = document.getElementById('person-tevkifat-rate');
+                if(rateSelect) rateSelect.value = p.tevkifat_rate.toString();
+            }
+        }
         if(document.getElementById('person-requires-sas')) document.getElementById('person-requires-sas').checked = !!p.requires_sas_code;
-
         const countrySelect = document.getElementById('countrySelect');
         if (p.countryCode && countrySelect) {
             countrySelect.value = p.countryCode;

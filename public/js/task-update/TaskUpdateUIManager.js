@@ -73,37 +73,32 @@ export class TaskUpdateUIManager {
     buildYidkSuitForm(task, ipRecord, suitData = null) {
         console.log("🔥 Dava kartı düzenleme ve metin değişimleri tetiklendi!");
         const esc = (val) => String(val ?? '').replace(/[&<>"']/g, (m) => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
         }[m]));
 
         const selectedCourt = suitData?.court_name || '';
         const existingFileNo = suitData?.file_no || '';
         const existingOpeningDate = suitData?.opening_date || '';
-        const existingOpposingParty = suitData?.opposing_party || '';
+
+        // 🔥 YENİ: Veritabanından gelen tarafları Davacı/Davalı olarak ayır
+        const existingParties = suitData?.suit_parties || [];
+        const initDavaci = JSON.stringify(existingParties.filter(p => p.role === 'davaci').map(p => ({id: 'free_text', name: p.free_text_name})));
+        const initDavali = JSON.stringify(existingParties.filter(p => p.role === 'davali').map(p => ({id: 'free_text', name: p.free_text_name})));
 
         // 1. Kart Başlığını ve Yükleme Alanı Metnini Değiştir
         const epatsArea = document.getElementById('epatsFileUploadArea');
         if (epatsArea) {
-            // A) Kart Başlığını Değiştir (Resmi Kurum (EPATS) Evrakı -> YİDK İptal Davası Açılış Bilgileri)
             const epatsCard = epatsArea.closest('.card');
             if (epatsCard) {
                 const header = epatsCard.querySelector('.card-header h6, .card-header .m-0');
                 if (header) header.innerHTML = '<i class="fas fa-gavel mr-2"></i>YİDK İptal Davası Açılış Bilgileri';
             }
-
-            // B) Yükleme Alanı İçindeki Metni Değiştir (EPATS Evrakı Yükle -> Dava Dilekçesi ve Tevzi Formu)
-            // Genellikle bir <p> veya <span> içindedir
             const uploadLabel = epatsArea.querySelector('p, span, .upload-text');
             if (uploadLabel) {
                 uploadLabel.textContent = 'Dava Dilekçesi ve Tevzi Formu';
             }
         }
 
-        // 2. TürkPatent Evrak No ve Evrak Tarihi (EPATS) inputlarını gizle
         const evrakNoInput = document.getElementById('turkpatentEvrakNo');
         const evrakDateInput = document.getElementById('epatsDocumentDate');
         
@@ -114,7 +109,6 @@ export class TaskUpdateUIManager {
             }
         });
 
-        // 3. Ankara Mahkemelerini Filtrele
         let courtOptions = '<option value="">Seçiniz...</option>';
         const ankaraGroup = COURTS_LIST?.find(c => c.label === 'Ankara');
         if (ankaraGroup) {
@@ -126,6 +120,7 @@ export class TaskUpdateUIManager {
 
         const brandDisplay = ipRecord ? `${ipRecord.brand_name || ipRecord.brandName || ipRecord.title} (${ipRecord.application_number || ipRecord.applicationNumber || '-'})` : 'Bilinmiyor';
 
+        // 4. Yeni Dava Alanlarını Hazırla
         // 4. Yeni Dava Alanlarını Hazırla
         const suitFieldsHtml = `
             <div id="yidkSpecificFields" class="mt-3 pt-3 border-top w-100">
@@ -143,25 +138,48 @@ export class TaskUpdateUIManager {
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitFileNo" class="font-weight-bold small">Esas Numarası <span class="text-danger">*</span></label>
                         <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" value="${esc(existingFileNo)}" required>
-                        </div>
-                    <div class="col-md-6 mb-3 px-1">
+                    </div>
+                    <div class="col-md-12 mb-3 px-1">
                         <label for="suitOpeningDate" class="font-weight-bold small">Dava Tarihi <span class="text-danger">*</span></label>
                         <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" value="${esc(existingOpeningDate)}" required>
+                    </div>
+                </div>
+                
+                <!-- 🔥 ÇOKLU TARAF EKLEME ALANI (HEM DB ARAMA HEM SERBEST METİN) -->
+                <div class="row m-0 mt-2 border-top pt-3">
+                    <!-- DAVACILAR -->
+                    <div class="col-md-6 border-right px-2">
+                        <label class="font-weight-bold small text-success"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
+                        <div class="d-flex mb-2" style="position:relative;">
+                            <div class="w-100 position-relative">
+                                <input type="text" id="suitPlaintifSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off">
+                                <div id="suitPlaintifSearchResults" class="search-results-list shadow-sm" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto;"></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-success ml-2 add-suit-party-btn" data-role="plaintif"><i class="fas fa-plus"></i></button>
                         </div>
-                    <div class="col-md-6 mb-3 px-1">
-                        <label for="suitOpposingParty" class="font-weight-bold small">Karşı Taraf (Davalı) <span class="text-danger">*</span></label>
-                        <input type="text" id="suitOpposingParty" class="form-control" placeholder="Örn: TÜRKPATENT ve Karşı Firma" value="${esc(existingOpposingParty)}" required>
+                        <div id="selectedSuitPlaintifsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
+                    </div>
+
+                    <!-- DAVALILAR -->
+                    <div class="col-md-6 px-2">
+                        <label class="font-weight-bold small text-danger"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
+                        <div class="d-flex mb-2" style="position:relative;">
+                            <div class="w-100 position-relative">
+                                <input type="text" id="suitDefendantSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off">
+                                <div id="suitDefendantSearchResults" class="search-results-list shadow-sm" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto;"></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-danger ml-2 add-suit-party-btn" data-role="defendant"><i class="fas fa-plus"></i></button>
                         </div>
+                        <div id="selectedSuitDefendantsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
+                    </div>
                 </div>
             </div>
         `;
 
-        // 5. Alanları enjekte et
         if (epatsArea && !document.getElementById('yidkSpecificFields')) {
             epatsArea.insertAdjacentHTML('beforebegin', suitFieldsHtml);
         }
 
-        // 6. Tarih ve Select2 kütüphanelerini başlat
         setTimeout(() => {
             if (window.$ && $.fn.select2) $('#suitCourtName').select2({ theme: 'bootstrap4', width: '100%' });
             if (window.flatpickr) {

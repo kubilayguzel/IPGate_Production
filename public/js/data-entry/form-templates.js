@@ -317,57 +317,88 @@ export const FormTemplates = {
 
         return `
         <div class="premium-card mb-4" id="suitDetailsCard">
-            <div class="card-header-custom">
-                <span><i class="fas fa-balance-scale text-success mr-2"></i>3. Mahkeme ve Dava Detayları</span>
-            </div>
+            <div class="card-header-custom"><span><i class="fas fa-balance-scale text-success mr-2"></i>Mahkeme ve Taraf Detayları</span></div>
             <div class="card-body-custom">
                 <div class="form-grid">
                     <div class="form-group full-width">
                         <label for="suitCourt" class="form-label">Mahkeme</label>
-                <select id="suitCourt" name="suitCourt" class="form-select" required>
-                    <option value="">Seçiniz...</option>
-                    ${courtOptions}
-                </select>
-                <input type="text" id="customCourtInput" class="form-input mt-2" placeholder="Mahkeme adını yazınız..." style="display:none;">
-            </div>
-
-            <div class="form-group">
-                <label for="opposingParty" class="form-label">Karşı Taraf</label>
-                <input type="text" id="opposingParty" class="form-input">
-            </div>
-            <div class="form-group">
-                <label for="opposingCounsel" class="form-label">Karşı Taraf Vekili</label>
-                <input type="text" id="opposingCounsel" class="form-input">
-            </div>
-
-            <div class="form-group">
-                <label for="suitStatusSelect" class="form-label">Dava Durumu</label>
-                <select id="suitStatusSelect" class="form-select" required>
-                    <option value="">Seçiniz...</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label for="suitCaseNo" class="form-label">Esas No</label>
-                <input type="text" class="form-input" id="suitCaseNo">
-            </div>
-
-            <div class="form-group">
-                <label for="suitOpeningDate" class="form-label">Dava Tarihi (Açılış)</label>
-                <input type="text" class="form-input" id="suitOpeningDate" placeholder="gg.aa.yyyy" data-datepicker required>
-            </div>
-
-            <div class="form-group full-width mt-3">
-                <label class="form-label text-dark" style="font-weight:600;"><i class="fas fa-paperclip mr-2"></i>Dava Evrakları</label>
-                <div class="custom-file">
-                    <input type="file" class="custom-file-input" id="suitDocument" multiple>
-                    <label class="custom-file-label" for="suitDocument" style="border-radius: 10px; border-color: #cbd5e1; height: auto; padding: 10px;">Dosya Seçiniz...</label>
+                        <select id="suitCourt" name="suitCourt" class="form-select" required><option value="">Seçiniz...</option>${courtOptions}</select>
+                        <input type="text" id="customCourtInput" class="form-input mt-2" placeholder="Mahkeme adını yazınız..." style="display:none;">
+                    </div>
+                    <div class="form-group"><label for="suitStatusSelect" class="form-label">Dava Durumu</label><select id="suitStatusSelect" class="form-select" required><option value="">Seçiniz...</option></select></div>
+                    <div class="form-group"><label for="suitCaseNo" class="form-label">Esas No</label><input type="text" class="form-input" id="suitCaseNo"></div>
+                    <div class="form-group"><label for="suitOpeningDate" class="form-label">Dava Tarihi (Açılış)</label><input type="text" class="form-input" id="suitOpeningDate" placeholder="gg.aa.yyyy" data-datepicker required></div>
                 </div>
-                <small class="text-muted d-block mt-2">Dava dilekçesi, tensip zaptı vb. evrakları buraya yükleyebilirsiniz.</small>
+                
+                <!-- 🔥 YENİ: ÇOKLU TARAF EKLEME ALANI -->
+                <div class="row mt-4 border-top pt-4">
+                    <div class="col-md-6 border-right">
+                        <label class="form-label text-success font-weight-bold"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
+                        <div class="d-flex mb-2">
+                            <input type="text" id="plaintiffInput" class="form-control form-control-sm" placeholder="İsim yazın ve ekleyin...">
+                            <button type="button" class="btn btn-sm btn-success ml-2" onclick="window.addSuitParty('davaci')"><i class="fas fa-plus"></i></button>
+                        </div>
+                        <div id="plaintiffsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:150px; overflow-y:auto;"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label text-danger font-weight-bold"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
+                        <div class="d-flex mb-2">
+                            <input type="text" id="defendantInput" class="form-control form-control-sm" placeholder="İsim yazın ve ekleyin...">
+                            <button type="button" class="btn btn-sm btn-danger ml-2" onclick="window.addSuitParty('davali')"><i class="fas fa-plus"></i></button>
+                        </div>
+                        <div id="defendantsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:150px; overflow-y:auto;"></div>
+                    </div>
+                </div>
+
+                <div class="form-group full-width mt-4 border-top pt-3">
+                    <label class="form-label text-dark" style="font-weight:600;"><i class="fas fa-paperclip mr-2"></i>Dava Evrakları</label>
+                    <div class="custom-file"><input type="file" class="custom-file-input" id="suitDocument" multiple><label class="custom-file-label" for="suitDocument">Dosya Seçiniz...</label></div>
+                </div>
             </div>
         </div>
-      </div>
-    </div>`;
+        
+        <script>
+            // Arayüz İçi Taraf Ekleme/Silme Fonksiyonları
+            window.suitPartiesData = { davaci: [], davali: [] };
+            
+            window.addSuitParty = function(role) {
+                const inputId = role === 'davaci' ? 'plaintiffInput' : 'defendantInput';
+                const input = document.getElementById(inputId);
+                const name = input.value.trim();
+                if (!name) return;
+                window.suitPartiesData[role].push({ id: 'free_text', name: name });
+                input.value = '';
+                window.renderSuitParties(role);
+            };
+            
+            window.removeSuitParty = function(role, index) {
+                window.suitPartiesData[role].splice(index, 1);
+                window.renderSuitParties(role);
+            };
+            
+            window.renderSuitParties = function(role) {
+                const containerId = role === 'davaci' ? 'plaintiffsContainer' : 'defendantsContainer';
+                const container = document.getElementById(containerId);
+                const list = window.suitPartiesData[role];
+                
+                if (list.length === 0) { 
+                    container.innerHTML = '<div class="text-muted small text-center mt-2">Kayıt Yok.</div>'; 
+                    return; 
+                }
+                
+                container.innerHTML = list.map((p, idx) => \`
+                    <div class="d-flex justify-content-between align-items-center p-1 mb-1 border-bottom bg-white">
+                        <span class="small font-weight-bold">\${p.name}</span>
+                        <button type="button" class="btn btn-xs text-danger border-0" onclick="window.removeSuitParty('\${role}', \${idx})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>\`).join('');
+            };
+            
+            // Sayfa yüklendiğinde listeleri boş başlat
+            window.renderSuitParties('davaci'); 
+            window.renderSuitParties('davali');
+        </script>`;
     },
 
     getClientSection: () => `

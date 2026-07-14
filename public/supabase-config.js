@@ -1275,29 +1275,35 @@ export const monitoringService = {
 // 6. DAVA (LITIGATION) SERVİSİ
 export const suitService = {
     async getSuits() {
-        const { data, error } = await supabase.from('suits').select('*').order('created_at', { ascending: false });
+        // 🔥 YENİ: suit_parties tablosunu da JOIN ederek çekiyoruz!
+        const { data, error } = await supabase.from('suits').select('*, suit_parties(*)').order('created_at', { ascending: false });
         if (error) {
             console.error("Davalar çekilemedi:", error);
             return { success: false, data: [] };
         }
         
-        const mappedData = data.map(s => ({
-            // 1. Veritabanından gelen tüm orijinal kolonları (client_id, ip_record_id vb.) koru
-            ...s, 
-            id: s.id,
-            type: 'litigation',
-            status: s.status,
-            // 2. Eksik ve hatalı eşleşmeleri doğrudan ana kolonlardan alacak şekilde düzelt
-            title: s.title || s.details?.title || '-',
-            suitType: s.suit_type || s.details?.suitType || '-',
-            caseNo: s.file_no || s.details?.caseNo || '-',
-            court: s.court_name || s.details?.court || '-',
-            opposingParty: s.opposing_party || s.opposing_counsel || s.defendant || s.details?.opposingParty || '-',
-            openedDate: s.opening_date || s.created_at,
-            // 3. ID'lerin arayüze kesin olarak ulaşmasını sağla
-            client_id: s.client_id,
-            ip_record_id: s.ip_record_id
-        }));
+        const mappedData = data.map(s => {
+            // Davacı ve Davalıları suit_parties dizisinden filtreleyip virgüllü string yapıyoruz
+            const plaintiffs = s.suit_parties ? s.suit_parties.filter(p => p.role === 'davaci').map(p => p.free_text_name).join(', ') : '';
+            const defendants = s.suit_parties ? s.suit_parties.filter(p => p.role === 'davali').map(p => p.free_text_name).join(', ') : '';
+
+            return {
+                ...s, 
+                id: s.id,
+                type: 'litigation',
+                status: s.status,
+                title: s.title || s.details?.title || '-',
+                suitType: s.suit_type || s.details?.suitType || '-',
+                caseNo: s.file_no || s.details?.caseNo || '-',
+                court: s.court_name || s.details?.court || '-',
+                // Eski arayüz tabloları bozulmasın diye display formatına yeni listeyi basıyoruz:
+                displayClient: plaintiffs || s.plaintiff || s.client_name || '-', 
+                opposingParty: defendants || s.opposing_party || s.defendant || '-',
+                openedDate: s.opening_date || s.created_at,
+                client_id: s.client_id,
+                ip_record_id: s.ip_record_id
+            };
+        });
 
         return { success: true, data: mappedData };
     }

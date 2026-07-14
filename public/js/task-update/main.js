@@ -191,6 +191,16 @@ class TaskUpdateController {
         const existingYidkSuit = typeStr === '49'
             ? await this.dataManager.getSuitByTaskId(this.taskId)
             : null;
+        // 🔥 YENİ: Veritabanından gelen eski tarafları main.js state'ine yükle
+        if (existingYidkSuit && existingYidkSuit.suit_parties) {
+            this.suitParties.plaintifs = existingYidkSuit.suit_parties
+                .filter(p => p.role === 'davaci')
+                .map(p => ({ id: p.person_id || 'free_text_' + crypto.randomUUID(), name: p.free_text_name }));
+                
+            this.suitParties.defendants = existingYidkSuit.suit_parties
+                .filter(p => p.role === 'davali')
+                .map(p => ({ id: p.person_id || 'free_text_' + crypto.randomUUID(), name: p.free_text_name }));
+        }
 
         if (this.selectedIpRecordId) {
             let rec = this.masterData.ipRecords.find(r => String(r.id) === String(this.selectedIpRecordId));
@@ -203,9 +213,12 @@ class TaskUpdateController {
             }
             this.uiManager.renderSelectedIpRecord(rec);
 
-            // Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
+        // Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
             if (typeStr === '49') {
                 this.uiManager.buildYidkSuitForm(this.taskData, rec, existingYidkSuit);
+                // 🔥 Arayüzü güncel verilerle tetikle
+                this.updateSuitPartyUI('plaintif');
+                this.updateSuitPartyUI('defendant');
             }
         } else {
             // Marka verisi yoksa bile Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
@@ -335,6 +348,47 @@ class TaskUpdateController {
                 const id = btn.dataset.id;
                 const role = btn.dataset.role;
                 this.removeSuitParty(id, role);
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            // Arama sonuçlarının dışına tıklanınca kapatma
+            if (!e.target.closest('#suitPlaintifSearch') && !e.target.closest('#suitPlaintifSearchResults')) {
+                const res = document.getElementById('suitPlaintifSearchResults');
+                if (res) res.style.display = 'none';
+            }
+            if (!e.target.closest('#suitDefendantSearch') && !e.target.closest('#suitDefendantSearchResults')) {
+                const res = document.getElementById('suitDefendantSearchResults');
+                if (res) res.style.display = 'none';
+            }
+
+            // 🔥 YENİ: Serbest Metin Ekle (+) Butonu
+            if (e.target.closest('.add-suit-party-btn')) {
+                const btn = e.target.closest('.add-suit-party-btn');
+                const role = btn.dataset.role;
+                const inputId = role === 'plaintif' ? 'suitPlaintifSearch' : 'suitDefendantSearch';
+                const input = document.getElementById(inputId);
+                const name = input.value.trim();
+                
+                if (name) {
+                    this.addSuitParty({ id: 'free_text_' + Date.now(), name: name }, role);
+                    input.value = '';
+                    const resContainer = document.getElementById(role === 'plaintif' ? 'suitPlaintifSearchResults' : 'suitDefendantSearchResults');
+                    if (resContainer) resContainer.style.display = 'none';
+                }
+            }
+        });
+
+        // 🔥 EXTRA: Enter tuşuna basıldığında da serbest metni (free text) eklesin
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (e.target.id === 'suitPlaintifSearch') {
+                    e.preventDefault();
+                    document.querySelector('.add-suit-party-btn[data-role="plaintif"]')?.click();
+                } else if (e.target.id === 'suitDefendantSearch') {
+                    e.preventDefault();
+                    document.querySelector('.add-suit-party-btn[data-role="defendant"]')?.click();
+                }
             }
         });
 
@@ -470,10 +524,18 @@ class TaskUpdateController {
         const list = isPlaintif ? this.suitParties.plaintifs : this.suitParties.defendants;
         if (!container) return;
 
+        // XSS Güvenliği için basit bir escape fonksiyonu (Artık this.uiManager'a bağımlı değil)
+        const escapeHtml = (text) => String(text || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+
+        if (list.length === 0) {
+            container.innerHTML = '<div class="text-muted small text-center mt-2">Kayıt Yok.</div>';
+            return;
+        }
+
         container.innerHTML = list.map(p => `
-            <div class="badge badge-primary d-flex align-items-center p-2" style="font-size: 0.85em; background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb;">
-                <i class="fas fa-user mr-2"></i> ${this.uiManager.escapeHTML(p.name)}
-                <button type="button" class="btn btn-sm btn-link text-danger ml-2 p-0 remove-suit-party-btn" data-id="${p.id}" data-role="${role}">
+            <div class="d-flex justify-content-between align-items-center p-1 mb-1 border-bottom bg-white">
+                <span class="small font-weight-bold text-dark"><i class="fas fa-user mr-2 text-secondary"></i> ${escapeHtml(p.name)}</span>
+                <button type="button" class="btn btn-xs text-danger border-0 remove-suit-party-btn" data-id="${p.id}" data-role="${role}">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -930,6 +992,7 @@ class TaskUpdateController {
             const fileNo = document.getElementById('suitFileNo')?.value;
             const openingDate = document.getElementById('suitOpeningDate')?.value;
             
+            // Tarafları kendi class state'imizden alıyoruz (Hata veren window objesinden değil!)
             const plaintifs = this.suitParties.plaintifs;
             const defendants = this.suitParties.defendants;
             
@@ -940,20 +1003,23 @@ class TaskUpdateController {
                 return showNotification('Dava Dilekçesi ve Tevzi Formu (Evrak) yüklenmesi zorunludur.', 'warning');
             }
             
+            // 🔥 Tarafları birleştirip DataManager'ın beklediği Array formatına çeviriyoruz
+            const formattedPlaintiffs = plaintifs.map(p => ({ ...p, role: 'davaci' }));
+            const formattedDefendants = defendants.map(p => ({ ...p, role: 'davali' }));
+            const combinedParties = [...formattedPlaintiffs, ...formattedDefendants];
+
             const suitPayload = {
                 ip_record_id: this.selectedIpRecordId,
-                client_id: plaintifs[0]?.id, // Geriye dönük uyumluluk için ilk müvekkili ana client_id yapıyoruz
+                client_id: !String(plaintifs[0]?.id).startsWith('free_text') ? plaintifs[0]?.id : null,
                 task_id: this.taskId,
                 transaction_type_id: taskTypeStr,
                 suit_type: 'YİDK Kararı İptali',
                 court_name: courtName,
                 file_no: fileNo,
-                opposing_party: defendants.map(d => d.name).join(', '), // Eski tablo yapısı için virgüllü isimler
-                client_role: 'Davacı',
                 title: `YİDK Kararı İptal Davası`,
                 status: 'continue',
                 opening_date: openingDate,
-                suit_parties: { plaintifs, defendants } // DataManager içinde suit_clients tablosuna işlenecek
+                suitParties: combinedParties // 🔥 Array formatında DataManager'a gidiyor
             };
 
             const suitRes = await this.dataManager.saveSuitRecord(suitPayload);
@@ -961,7 +1027,7 @@ class TaskUpdateController {
                 return showNotification('Dava dosyası açılamadı: ' + suitRes.error, 'error');
             }
 
-            // 3. Transaction Geçmişine Yaz
+            // Transaction Geçmişine Yaz
             await this.dataManager.logTransaction({
                 ip_record_id: this.selectedIpRecordId,
                 task_id: this.taskId,
@@ -971,7 +1037,7 @@ class TaskUpdateController {
                 transaction_date: new Date().toISOString()
             });
 
-            // 4. Dilekçeyi Davanın Evraklarına da Ekle
+            // Dilekçeyi Davanın Evraklarına da Ekle
             const epatsDoc = this.currentDocuments[epatsDocIndex];
             if (epatsDoc && suitRes.data?.id) {
                 await supabase.from('suit_documents').insert({

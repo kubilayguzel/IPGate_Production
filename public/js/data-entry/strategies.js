@@ -132,16 +132,13 @@ export class SuitStrategy extends BaseStrategy {
         return {
             title: ctx.suitSubjectAsset?.title || ctx.suitSubjectAsset?.displayTitle || getVal('suitCaseNo') || 'Dava Dosyası',
             description: getVal('suitDescription') || '',
-            clientRole: getVal('clientRole'),
-            client: ctx.suitClientPerson,
             transactionTypeId: ctx.suitSpecificTaskType?.id || getVal('specificTaskType'),
-            ipRecordId: ctx.suitSubjectAsset?.id || null, // Eğer portföyden seçildiyse
+            ipRecordId: ctx.suitSubjectAsset?.id || null, 
+            suitParties: window.suitPartiesData || { davaci: [], davali: [] }, // 🔥 YENİ: Tarafları al
             suitDetails: {
                 caseNo: getVal('suitCaseNo'),
                 courtName: courtName === 'other' ? getVal('customCourtInput') : courtName,
                 suitType: ctx.suitSpecificTaskType?.name || '',
-                opposingParty: getVal('opposingParty'),
-                opposingCounsel: getVal('opposingCounsel'),
                 openingDate: formatDate(getVal('suitOpeningDate')),
                 suitStatus: getVal('suitStatusSelect') || 'continue'
             }
@@ -165,12 +162,8 @@ export class SuitStrategy extends BaseStrategy {
                 title: data.title,
                 transaction_type_id: data.transactionTypeId,
                 suit_type: data.suitDetails.suitType,
-                client_role: data.clientRole,
-                client_id: data.client?.id || null,
                 ip_record_id: data.ipRecordId,
                 description: data.description || '',
-                opposing_party: data.suitDetails.opposingParty || '',
-                opposing_counsel: data.suitDetails.opposingCounsel || '',
                 opening_date: data.suitDetails.openingDate ? new Date(data.suitDetails.openingDate).toISOString() : new Date().toISOString(),
                 created_at: new Date().toISOString()
             };
@@ -179,16 +172,23 @@ export class SuitStrategy extends BaseStrategy {
             if (suitError) throw new Error("Dava kaydedilirken hata oluştu: " + suitError.message);
             const newSuitId = newSuit.id;
 
+            // 🔥 YENİ: Tarafları suit_parties tablosuna yaz
+            const partyInserts = [];
+            data.suitParties.davaci.forEach(p => partyInserts.push({ suit_id: newSuitId, role: 'davaci', free_text_name: p.name }));
+            data.suitParties.davali.forEach(p => partyInserts.push({ suit_id: newSuitId, role: 'davali', free_text_name: p.name }));
+            
+            if (partyInserts.length > 0) {
+                await supabase.from('suit_parties').insert(partyInserts);
+            }
+
             const initialTransaction = {
                 ip_record_id: data.ipRecordId || newSuitId, 
                 transaction_type_id: data.transactionTypeId,
                 description: "Dava Açıldı: " + (data.suitDetails.caseNo || ''),
                 transaction_hierarchy: 'parent',
-                task_id: null, 
                 transaction_date: suitRow.opening_date,
                 created_at: suitRow.opening_date
             };
-
             await supabase.from('transactions').insert(initialTransaction);
             return newSuitId;
 

@@ -90,7 +90,7 @@ export class TaskUpdateDataManager {
         try {
             const { data, error } = await supabase
                 .from('suits')
-                .select('*')
+                .select('*, suit_parties(*)') // 🔥 YENİ: Tarafları (Davacı/Davalı) da çekiyoruz
                 .eq('task_id', String(taskId))
                 .maybeSingle();
 
@@ -106,38 +106,50 @@ export class TaskUpdateDataManager {
         try {
             const existingSuit = await this.getSuitByTaskId(suitData.task_id);
 
-            // undefined alanları temizle
-            const cleanSuitData = { ...suitData };
+            // Taraflar listesini (Array) ana objeden ayır
+            const { suitParties, ...cleanSuitData } = suitData;
+
+            // Gereksiz/Eski alanları temizle (Eski tabloda kalan kalıntıları veritabanına göndermiyoruz)
+            ['plaintiff', 'defendant', 'opposing_party', 'opposing_counsel', 'suit_parties'].forEach(k => delete cleanSuitData[k]);
             Object.keys(cleanSuitData).forEach(key => {
                 if (cleanSuitData[key] === undefined) delete cleanSuitData[key];
             });
 
-            if (existingSuit?.id) {
-                // Mevcut dava kaydı varsa id'yi değiştirmiyoruz.
+            let currentSuitId = existingSuit?.id;
+
+            if (currentSuitId) {
+                // Mevcut davayı güncelle
                 delete cleanSuitData.id;
-
-                const { data, error } = await supabase
-                    .from('suits')
-                    .update(cleanSuitData)
-                    .eq('id', existingSuit.id)
-                    .select('id')
-                    .single();
-
+                const { error } = await supabase.from('suits').update(cleanSuitData).eq('id', currentSuitId);
                 if (error) throw error;
-                return { success: true, data, updated: true };
+            } else {
+                // Yeni dava oluştur
+                currentSuitId = cleanSuitData.id || crypto.randomUUID();
+                cleanSuitData.id = currentSuitId;
+                const { error } = await supabase.from('suits').insert([cleanSuitData]);
+                if (error) throw error;
             }
 
-            // suits.id text ve default değeri olmadığı için manuel ID üretmek zorundayız.
-            cleanSuitData.id = cleanSuitData.id || crypto.randomUUID();
+            // 🔥 YENİ: Dava Tarafları Senkronizasyonu (Eskileri sil, yenileri yaz)
+            if (suitParties && Array.isArray(suitParties)) {
+                // Önce bu davaya ait eski tüm tarafları sil
+                await supabase.from('suit_parties').delete().eq('suit_id', currentSuitId);
 
-            const { data, error } = await supabase
-                .from('suits')
-                .insert([cleanSuitData])
-                .select('id')
-                .single();
+                // Sonra güncel listeyi yaz
+                if (suitParties.length > 0) {
+                    const partyInserts = suitParties.map(p => ({
+                        suit_id: currentSuitId,
+                        role: p.role, // 'davaci' veya 'davali'
+                        person_id: p.id !== 'free_text' ? p.id : null,
+                        free_text_name: p.name
+                    }));
+                    
+                    const { error: partyError } = await supabase.from('suit_parties').insert(partyInserts);
+                    if (partyError) console.error("Taraf ekleme hatası:", partyError);
+                }
+            }
 
-            if (error) throw error;
-            return { success: true, data, created: true };
+            return { success: true, data: { id: currentSuitId }, updated: !!existingSuit?.id };
 
         } catch (error) {
             console.error("Dava kayıt/güncelleme hatası:", error);

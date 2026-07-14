@@ -829,28 +829,38 @@ export class TaskSubmitHandler {
     
     async _handleSuitCreation(state, taskData, taskId) {
         if (!['49', '54', '55', '56', '57', '58'].includes(String(state.selectedTaskType.id))) return; 
-        const client = state.selectedRelatedParties && state.selectedRelatedParties.length > 0 ? state.selectedRelatedParties[0] : null;
-        const courtSelect = document.getElementById('courtName');
+
+        const courtSelect = document.getElementById('suitCourt');
         const customInput = document.getElementById('customCourtInput');
         const finalCourtName = courtSelect?.value === 'other' ? customInput?.value.trim() : courtSelect?.value;
 
+        const newSuitId = this.generateUUID();
         const suitRow = {
-            id: this.generateUUID(),
+            id: newSuitId,
             file_no: document.getElementById('suitCaseNo')?.value || null,
             court_name: finalCourtName,
-            plaintiff: document.getElementById('clientRole')?.value === 'davaci' ? client?.name : document.getElementById('opposingParty')?.value,
-            defendant: document.getElementById('clientRole')?.value === 'davali' ? client?.name : document.getElementById('opposingParty')?.value,
             subject: taskData.title,
-            status: 'continue',
+            status: document.getElementById('suitStatusSelect')?.value || 'continue',
             title: taskData.title,
             transaction_type_id: state.selectedTaskType.id,
             suit_type: state.selectedTaskType.alias || state.selectedTaskType.name,
-            client_id: client ? client.id : null,
             related_task_id: taskId,
             created_at: new Date().toISOString()
         };
-        const { data: newSuit } = await supabase.from('suits').insert(suitRow).select('id').single();
-        if(newSuit) await this._addTransactionToPortfolio(newSuit.id, state.selectedTaskType, taskId, state, taskData.details.documents);
+
+        const { error: suitError } = await supabase.from('suits').insert(suitRow);
+        if (suitError) return;
+
+        // 🔥 YENİ: Tarafları suit_parties tablosuna yaz
+        const partyInserts = [];
+        const partiesData = window.suitPartiesData || { davaci: [], davali: [] };
+        
+        partiesData.davaci.forEach(p => partyInserts.push({ suit_id: newSuitId, role: 'davaci', free_text_name: p.name }));
+        partiesData.davali.forEach(p => partyInserts.push({ suit_id: newSuitId, role: 'davali', free_text_name: p.name }));
+
+        if (partyInserts.length > 0) await supabase.from('suit_parties').insert(partyInserts);
+
+        await this._addTransactionToPortfolio(newSuitId, state.selectedTaskType, taskId, state, taskData.details.documents);
     }
 
     async _addTransactionToPortfolio(recordId, taskType, taskId, state, taskDocuments = []) {

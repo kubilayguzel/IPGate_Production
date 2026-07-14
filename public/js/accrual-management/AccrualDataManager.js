@@ -740,22 +740,62 @@ export class AccrualDataManager {
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = formattedDate;
                     const { payFullOfficial, payFullService, manualOfficial, manualService } = singlePaymentDetails;
-                    const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
+                    
+                    const partyId = acc.tpInvoiceParty?.id || acc.tp_invoice_party_id;
+                    const person = partyId ? this.allPersons.find(p => String(p.id) === String(partyId)) : null;
+                    const isTevkifatli = person ? (person.has_tevkifat === true) : false;
+                    const taxNo = person ? (person.taxNo || person.tax_no || person.tckn || '') : '';
+                    const isCorporate = taxNo.length !== 11;
 
-                    const offTarget = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
-                    const newPaidOff = payFullOfficial ? offTarget : (parseFloat(manualOfficial) || 0);
+                    let dynamicOffTarget = 0;
+                    let dynamicSrvTarget = 0;
 
-                    const srvTarget = (acc.serviceFee?.amount || 0) * vatMultiplier;
-                    const newPaidSrv = payFullService ? srvTarget : (parseFloat(manualService) || 0);
+                    const items = acc.items || [];
+                    if (items.length > 0) {
+                        items.forEach(i => {
+                            const qty = Number(i.quantity) || 1;
+                            const price = Number(i.unit_price) || 0;
+                            const vat = Number(i.vat_rate) || 0;
+                            const feeType = i.fee_type || '';
+                            let amt = 0;
 
-                    const remOff = Math.max(0, offTarget - newPaidOff);
-                    const remSrv = Math.max(0, srvTarget - newPaidSrv);
+                            if (acc.department === 'HUKUK' && (feeType === 'Hukuk Danışmanlık' || feeType === 'Hizmet')) {
+                                if (isCorporate) {
+                                    const grossPrice = price / 0.8; 
+                                    amt = (qty * grossPrice) * (1 + (vat / 100) - 0.20); 
+                                } else {
+                                    amt = (qty * price) * (1 + (vat / 100)); 
+                                }
+                            } else if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
+                                amt = (qty * price) * (1 + (vat * 0.1) / 100); 
+                            } else {
+                                amt = (qty * price) * (1 + (vat / 100)); 
+                            }
+
+                            // KESİN GRUPLAMA
+                            if (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık') {
+                                dynamicSrvTarget += amt;
+                            } else {
+                                dynamicOffTarget += amt;
+                            }
+                        });
+                    } else {
+                        const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
+                        dynamicOffTarget = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
+                        dynamicSrvTarget = (acc.serviceFee?.amount || 0) * vatMultiplier;
+                    }
+
+                    const newPaidOff = payFullOfficial ? dynamicOffTarget : (parseFloat(manualOfficial) || 0);
+                    const newPaidSrv = payFullService ? dynamicSrvTarget : (parseFloat(manualService) || 0);
+
+                    const remOff = Math.max(0, dynamicOffTarget - newPaidOff);
+                    const remSrv = Math.max(0, dynamicSrvTarget - newPaidSrv);
 
                     const remMap = {};
                     if (remOff > 0.01) remMap[acc.officialFee?.currency || 'TRY'] = (remMap[acc.officialFee?.currency] || 0) + remOff;
                     if (remSrv > 0.01) remMap[acc.serviceFee?.currency || 'TRY'] = (remMap[acc.serviceFee?.currency] || 0) + remSrv;
                     
-                    updates.remainingAmount = Object.entries(remMap).map(([c, a]) => ({ amount: a, currency: c }));
+                    updates.remainingAmount = Object.entries(remMap).map(([c, a]) => ({ amount: Number(a.toFixed(2)), currency: c }));
 
                     if (updates.remainingAmount.length === 0) updates.status = 'paid';
                     else if (newPaidOff > 0 || newPaidSrv > 0) updates.status = 'partially_paid';

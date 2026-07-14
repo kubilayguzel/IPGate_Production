@@ -1121,6 +1121,52 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('bulkMarkPaidBtn').addEventListener('click', () => {
                 const selected = Array.from(this.state.selectedIds).map(id => this.dataManager.allAccruals.find(a => a.id === id)).filter(Boolean);
                 this.uploadedPaymentReceipts = []; 
+                
+                selected.forEach(acc => {
+                    const partyId = acc.tpInvoiceParty?.id || acc.tp_invoice_party_id;
+                    const person = partyId ? this.dataManager.allPersons.find(p => String(p.id) === String(partyId)) : null;
+                    const isTevkifatli = person ? (person.has_tevkifat === true) : false;
+                    const taxNo = person ? (person.taxNo || person.tax_no || person.tckn || '') : '';
+                    const isCorporate = taxNo.length !== 11;
+
+                    let off = 0; let srv = 0;
+                    const items = acc.items || [];
+                    if (items.length > 0) {
+                        items.forEach(i => {
+                            const qty = Number(i.quantity) || 1;
+                            const price = Number(i.unit_price) || 0;
+                            const vat = Number(i.vat_rate) || 0;
+                            const feeType = i.fee_type || '';
+                            let amt = 0;
+
+                            if (acc.department === 'HUKUK' && (feeType === 'Hukuk Danışmanlık' || feeType === 'Hizmet')) {
+                                if (isCorporate) {
+                                    amt = (qty * (price / 0.8)) * (1 + (vat / 100) - 0.20); 
+                                } else {
+                                    amt = (qty * price) * (1 + (vat / 100)); 
+                                }
+                            } else if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
+                                amt = (qty * price) * (1 + (vat * 0.1) / 100); 
+                            } else {
+                                amt = (qty * price) * (1 + (vat / 100)); 
+                            }
+
+                            // KESİN GRUPLAMA
+                            if (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık') {
+                                srv += amt;
+                            } else {
+                                off += amt;
+                            }
+                        });
+                    } else {
+                        const vMult = 1 + ((acc.vatRate || 0) / 100);
+                        off = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vMult : (acc.officialFee?.amount || 0);
+                        srv = (acc.serviceFee?.amount || 0) * vMult;
+                    }
+                    acc.dynamicOfficialFeeAmount = off;
+                    acc.dynamicServiceFeeAmount = srv;
+                });
+
                 this.uiManager.showPaymentModal(selected, this.state.activeTab); 
             });
 

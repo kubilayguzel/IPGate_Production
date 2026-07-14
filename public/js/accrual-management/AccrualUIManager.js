@@ -297,13 +297,15 @@ export class AccrualUIManager {
                 let srvItems = [];
                 let offItems = [];
 
-                if (accType === 'Hizmet') {
-                    srvItems = items.filter(i => i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık');
-                    offItems = items.filter(i => i.fee_type !== 'Hizmet' && i.fee_type !== 'Hukuk Danışmanlık');
-                } else {
-                    srvItems = [];
-                    offItems = items;
-                }
+                // KESİN GRUPLAMA: Sadece "Hizmet" ve "Hukuk Danışmanlık" hizmet bedelidir.
+                items.forEach(i => {
+                    const fType = i.fee_type || '';
+                    if (fType === 'Hizmet' || fType === 'Hukuk Danışmanlık') {
+                        srvItems.push(i);
+                    } else {
+                        offItems.push(i);
+                    }
+                });
 
                 // 🔥 ÇÖZÜM: Canlı Tevkifat Hesaplaması (Ana Listede doğru göstermek için)
                 let dynamicTotalMap = {};
@@ -1128,20 +1130,34 @@ export class AccrualUIManager {
                 
                 if(payFullCb) payFullCb.checked = true;
                 if(splitInputs) splitInputs.style.display = 'none';
-            } else {
+                } else {
                 if(localArea) localArea.style.display = 'block';
 
-                const offAmt = acc.officialFee?.amount || 0;
+                const offAmt = Number((acc.dynamicOfficialFeeAmount || 0).toFixed(2));
                 const offCurr = acc.officialFee?.currency || 'TRY';
-                document.getElementById('officialFeeBadge').textContent = `${offAmt} ${offCurr}`;
-                document.getElementById('manualOfficialCurrencyLabel').textContent = offCurr;
-                document.getElementById('manualOfficialAmount').value = acc.paidOfficialAmount || 0;
+                const offCard = document.getElementById('officialFeeBadge').closest('.card');
+                
+                if (offAmt <= 0) {
+                    offCard.style.display = 'none';
+                } else {
+                    offCard.style.display = 'flex';
+                    document.getElementById('officialFeeBadge').textContent = `${this._formatMoney(offAmt, offCurr)}`;
+                    document.getElementById('manualOfficialCurrencyLabel').textContent = offCurr;
+                    document.getElementById('manualOfficialAmount').value = '';
+                }
 
-                const srvAmt = acc.serviceFee?.amount || 0;
+                const srvAmt = Number((acc.dynamicServiceFeeAmount || 0).toFixed(2));
                 const srvCurr = acc.serviceFee?.currency || 'TRY';
-                document.getElementById('serviceFeeBadge').textContent = `${srvAmt} ${srvCurr}`;
-                document.getElementById('manualServiceCurrencyLabel').textContent = srvCurr;
-                document.getElementById('manualServiceAmount').value = acc.paidServiceAmount || 0;
+                const srvCard = document.getElementById('serviceFeeBadge').closest('.card');
+                
+                if (srvAmt <= 0) {
+                    srvCard.style.display = 'none';
+                } else {
+                    srvCard.style.display = 'flex';
+                    document.getElementById('serviceFeeBadge').textContent = `${this._formatMoney(srvAmt, srvCurr)}`;
+                    document.getElementById('manualServiceCurrencyLabel').textContent = srvCurr;
+                    document.getElementById('manualServiceAmount').value = '';
+                }
 
                 document.getElementById('payFullOfficial').checked = true;
                 document.getElementById('officialAmountInputContainer').style.display = 'none';

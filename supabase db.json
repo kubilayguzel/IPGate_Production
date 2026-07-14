@@ -405,6 +405,20 @@
                         "is_nullable": "YES",
                         "column_default": null,
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "foreign_total_amount",
+                        "is_nullable": "YES",
+                        "column_default": "'[]'::jsonb",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "foreign_remaining_amount",
+                        "is_nullable": "YES",
+                        "column_default": "'[]'::jsonb",
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",
@@ -2879,6 +2893,13 @@
                         "is_nullable": "YES",
                         "column_default": null,
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "integer",
+                        "column_name": "tevkifat_rate",
+                        "is_nullable": "YES",
+                        "column_default": "2",
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "persons",
@@ -3454,6 +3475,67 @@
                 ],
                 "table_name": "suit_documents",
                 "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "gen_random_uuid()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "suit_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "role",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "person_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "free_text_name",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "suit_parties",
+                "foreign_keys": [
+                    {
+                        "column_name": "suit_id",
+                        "constraint_name": "suit_parties_suit_id_fkey",
+                        "foreign_table_name": "suits",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "person_id",
+                        "constraint_name": "suit_parties_person_id_fkey",
+                        "foreign_table_name": "persons",
+                        "foreign_column_name": "id"
+                    }
                 ]
             },
             {

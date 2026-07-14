@@ -1138,11 +1138,19 @@ export class AccrualUIManager {
                 const offCard = document.getElementById('officialFeeBadge').closest('.card');
                 
                 if (offAmt <= 0) {
+                    // Kalan resmi ücret yoksa kartı gizle ve ödenecek tutarı 0 yap
                     offCard.style.display = 'none';
+                    document.getElementById('payFullOfficial').checked = false;
+                    document.getElementById('manualOfficialAmount').value = 0;
                 } else {
+                    // Kalan bakiye varsa kartı göster
                     offCard.style.display = 'flex';
                     document.getElementById('officialFeeBadge').textContent = `${this._formatMoney(offAmt, offCurr)}`;
                     document.getElementById('manualOfficialCurrencyLabel').textContent = offCurr;
+                    
+                    // DİKKAT: Tamamını öde seçili GELMESİN, manuel giriş kutusu AÇIK gelsin
+                    document.getElementById('payFullOfficial').checked = false;
+                    document.getElementById('officialAmountInputContainer').style.display = 'block';
                     document.getElementById('manualOfficialAmount').value = '';
                 }
 
@@ -1151,18 +1159,21 @@ export class AccrualUIManager {
                 const srvCard = document.getElementById('serviceFeeBadge').closest('.card');
                 
                 if (srvAmt <= 0) {
+                    // Kalan hizmet bedeli yoksa kartı gizle ve ödenecek tutarı 0 yap
                     srvCard.style.display = 'none';
+                    document.getElementById('payFullService').checked = false;
+                    document.getElementById('manualServiceAmount').value = 0;
                 } else {
+                    // Kalan bakiye varsa kartı göster
                     srvCard.style.display = 'flex';
                     document.getElementById('serviceFeeBadge').textContent = `${this._formatMoney(srvAmt, srvCurr)}`;
                     document.getElementById('manualServiceCurrencyLabel').textContent = srvCurr;
+                    
+                    // DİKKAT: Tamamını öde seçili GELMESİN, manuel giriş kutusu AÇIK gelsin
+                    document.getElementById('payFullService').checked = false;
+                    document.getElementById('serviceAmountInputContainer').style.display = 'block';
                     document.getElementById('manualServiceAmount').value = '';
                 }
-
-                document.getElementById('payFullOfficial').checked = true;
-                document.getElementById('officialAmountInputContainer').style.display = 'none';
-                document.getElementById('payFullService').checked = true;
-                document.getElementById('serviceAmountInputContainer').style.display = 'none';
             }
         }
         

@@ -1163,8 +1163,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                         off = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vMult : (acc.officialFee?.amount || 0);
                         srv = (acc.serviceFee?.amount || 0) * vMult;
                     }
+                    
                     acc.dynamicOfficialFeeAmount = off;
                     acc.dynamicServiceFeeAmount = srv;
+
+                    // 🔥 ÇÖZÜM: EĞER TAHAKKUK KISMEN ÖDENMİŞSE, ORİJİNAL HEDEFLERİ DEĞİL "KALAN" BAKİYELERİ KULLAN!
+                    if (acc.status === 'partially_paid' && Array.isArray(acc.remainingAmount) && acc.remainingAmount.length > 0) {
+                        const remData = acc.remainingAmount[0];
+                        // Veritabanına yeni eklediğimiz ayrıştırıcıları kontrol et
+                        if (remData.remOff !== undefined && remData.remSrv !== undefined) {
+                            acc.dynamicOfficialFeeAmount = remData.remOff;
+                            acc.dynamicServiceFeeAmount = remData.remSrv;
+                        } else {
+                            // Eski kayıtlarda bu ayrıştırıcı yoksa tahmini fallback yaparız (Servisten düşmeye başlar)
+                            const totalRem = Number(remData.amount) || 0;
+                            if (totalRem < srv) {
+                                acc.dynamicServiceFeeAmount = totalRem;
+                                acc.dynamicOfficialFeeAmount = 0;
+                            } else {
+                                acc.dynamicServiceFeeAmount = srv;
+                                acc.dynamicOfficialFeeAmount = Math.max(0, totalRem - srv);
+                            }
+                        }
+                    }
                 });
 
                 this.uiManager.showPaymentModal(selected, this.state.activeTab); 

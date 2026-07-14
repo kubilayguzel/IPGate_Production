@@ -104,7 +104,7 @@ export class MasrafDekontuManager {
                             <p style="margin: 2px 0; color: #666; font-size: 12px;">alikucuksahin@evrekapatent.com</p>
                         </div>
                         <div style="text-align: left;">
-                            <h2 style="font-size: 20px; color: #333; margin-top: 0; margin-bottom: 15px; font-weight: bold; letter-spacing: 1.5px;">MASRAF DEKONTU</h2>
+                            <h2 style="font-size: 20px; color: #333; margin-top: 0; margin-bottom: 15px; font-weight: bold; letter-spacing: 1.5px;">BORÇ DEKONTU</h2>
                             <table style="width: 100%; border-collapse: collapse;">
                                 <tr>
                                     <td style="padding: 5px 15px 5px 0; color: #333; font-size: 13px; font-weight: bold;">Dekont No:</td>

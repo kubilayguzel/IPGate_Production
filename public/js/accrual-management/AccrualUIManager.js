@@ -374,10 +374,23 @@ export class AccrualUIManager {
                 const editBtnStyle = 'cursor: pointer;';
                 const editTitle = acc.status === 'paid' ? 'Fatura Bilgilerini Düzenle' : 'Düzenle';
 
-                // 🔥 YENİ: Masraf Dekontu Butonu
+                // 🔥 YENİ: Masraf Dekontu Üretme Butonu Mantığı
+                let showMasrafBtn = false;
+                if (acc.department === 'HUKUK') {
+                    if (accType !== 'Hizmet') {
+                        // KURAL 1: Hukuk Departmanı ve Tür Hizmet DEĞİLSE göster
+                        showMasrafBtn = true;
+                    } else {
+                        // KURAL 2: Hukuk Departmanı, Tür Hizmet, FAKAT Kalemlerde 'Hukuk Danışmanlık' dışında bir şey varsa göster
+                        const hasNonDanismanlik = (acc.items || []).some(i => i.fee_type !== 'Hukuk Danışmanlık');
+                        if (hasNonDanismanlik) {
+                            showMasrafBtn = true;
+                        }
+                    }
+                }
+
                 let masrafDekontuBtn = '';
-                if (acc.department === 'HUKUK' && (acc.type === 'Hizmet' || acc.accrualType === 'Hizmet')) {
-                    // Sadece Hukuk ve Hizmet ise çıkar
+                if (showMasrafBtn) {
                     masrafDekontuBtn = `
                         <div class="dropdown-divider mt-2 mb-2"></div>
                         <button class="dropdown-item generate-masraf-dekontu-btn action-btn font-weight-bold text-dark" data-id="${acc.id}" style="font-size: 0.85em; cursor: pointer;">
@@ -601,7 +614,10 @@ export class AccrualUIManager {
                         ? `<span class="badge badge-dark shadow-sm"><i class="fas fa-balance-scale mr-1"></i> HUKUK</span>` 
                         : `<span class="badge badge-primary shadow-sm"><i class="fas fa-trademark mr-1"></i> EVREKA</span>`;
                     
-                    const efnDisplay = efnHtml !== '-' ? efnHtml : `<span class="text-muted" style="font-size: 0.85em;"><i class="fas fa-file-invoice"></i> Fatura Kesilmedi</span>`;
+                    // 🔥 BURASI EKSİKTİ: requiresInvoice false ise özel rozet bas
+                    const efnDisplay = acc.requiresInvoice === false 
+                        ? `<span class="badge badge-dark p-2 shadow-sm text-white"><i class="fas fa-ban mr-1"></i> Fatura Kesilmeyecek</span>`
+                        : (efnHtml !== '-' ? efnHtml : `<span class="text-muted" style="font-size: 0.85em;"><i class="fas fa-file-invoice"></i> Fatura Kesilmedi</span>`);
                     const tfnDisplay = tfn !== '-' ? `<span class="text-muted ml-2" style="font-size: 0.8em;" title="TÜRKPATENT Fatura No"><i class="fas fa-receipt"></i> TP: ${tfn}</span>` : '';
 
                     return `

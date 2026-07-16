@@ -88,10 +88,13 @@ export class AccrualFormManager {
                         </select>
                     </div>
                 </div>
-                <div class="col-md-4 d-flex align-items-center">
+                <div class="col-md-4 d-flex flex-column justify-content-center">
                     <div class="form-group mb-0 p-2 w-100">
-                        <label class="checkbox-label mb-0 font-weight-bold text-primary" style="cursor:pointer; display:flex; align-items:center;">
+                        <label class="checkbox-label mb-2 font-weight-bold text-primary" style="cursor:pointer; display:flex; align-items:center;">
                             <input type="checkbox" id="${p}IsForeignTransaction" style="width:18px; height:18px; margin-right:10px;"> Yurtdışı İşlem
+                        </label>
+                        <label class="checkbox-label mb-0 font-weight-bold text-danger" style="cursor:pointer; display:flex; align-items:center;" title="Vekalet ücreti, avans iadesi vb. e-fatura kesilmeyecek işlemler için işaretleyin">
+                            <input type="checkbox" id="${p}NotInvoiceable" style="width:18px; height:18px; margin-right:10px;"> Faturaya Tabi Değil
                         </label>
                     </div>
                 </div>
@@ -495,8 +498,15 @@ export class AccrualFormManager {
         };
 
         tr.querySelectorAll('input, select').forEach(inp => inp.addEventListener('input', calcRow));
-        tr.querySelector('.item-type').addEventListener('change', updateRowStyle); 
-        tr.querySelector('.delete-row-btn').addEventListener('click', () => { tr.remove(); this.calculateTotal(); });
+        tr.querySelector('.item-type').addEventListener('change', () => { 
+            updateRowStyle(); 
+            this.handleForeignToggle(); // Kalem türü değiştiğinde PDF yükleme alanını kontrol et
+        }); 
+        tr.querySelector('.delete-row-btn').addEventListener('click', () => { 
+            tr.remove(); 
+            this.calculateTotal(); 
+            this.handleForeignToggle(); // Kalem silindiğinde PDF yükleme alanını kontrol et
+        });
         
         calcRow(); 
         updateRowStyle();
@@ -655,7 +665,21 @@ export class AccrualFormManager {
         // 🔥 HUKUK Departmanı ve Masraf seçilme durumunu kontrol et
         const deptVal = document.getElementById(`${p}Department`)?.value || '';
         const typeVal = document.getElementById(`${p}AccrualType`)?.value || '';
-        const isHukukMasraf = (deptVal === 'HUKUK' && typeVal === 'Masraf');
+
+        // 1. KURAL: Evreka ve Masraf seçildiyse
+        const isEvrekaMasraf = (deptVal === 'EVREKA' && typeVal === 'Masraf');
+
+        // 2. KURAL: Kalemlerde 'Masraf' seçildiyse
+        let hasMasrafItem = false;
+        const tbody = document.getElementById(`${p}LineItemsBody`);
+        if (tbody) {
+            tbody.querySelectorAll('.item-type').forEach(select => {
+                if (select.value === 'Masraf') hasMasrafItem = true;
+            });
+        }
+
+        // Masraf Dekontu Yükleme Alanı Gösterim Şartı
+        const showMasrafDekontu = isEvrekaMasraf || hasMasrafItem;
 
         const foreignPartyDiv = document.getElementById(`${p}ForeignPaymentPartyContainer`);
         const fileDiv = document.getElementById(`${p}ForeignInvoiceContainer`);
@@ -663,18 +687,15 @@ export class AccrualFormManager {
         const titleLabel = document.getElementById(`${p}ForeignInvoiceTitleLabel`);
         const btnLabel = document.getElementById(`${p}ForeignInvoiceBtnLabel`);
 
-        // 1. Yurtdışı Ödeme Yapılacak Taraf sadece gerçek Yurtdışı İşlemlerde görünür
         if (foreignPartyDiv) {
             foreignPartyDiv.style.display = isForeign ? 'block' : 'none';
         }
 
-        // 2. Dosya Yükleme Alanı Yurtdışı İşlemlerde VEYA Hukuk Masraflarında görünür
         if (fileDiv) {
-            if (isForeign || isHukukMasraf) {
+            if (isForeign || showMasrafDekontu) {
                 fileDiv.style.display = 'block';
                 
-                // Başlık ve Buton Metinlerini duruma göre dinamik ayarla
-                if (isHukukMasraf && !isForeign) {
+                if (showMasrafDekontu && !isForeign) {
                     if (titleLabel) titleLabel.innerHTML = '<i class="fas fa-file-invoice-dollar mr-2 text-warning"></i>Masraf Dekontu (PDF)';
                     if (btnLabel) btnLabel.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i> Dekont PDF Seç / Değiştir';
                 } else {
@@ -737,6 +758,7 @@ export class AccrualFormManager {
         
         if (document.getElementById(`${p}ForeignInvoiceFileName`)) document.getElementById(`${p}ForeignInvoiceFileName`).textContent = '';
         if (document.getElementById(`${p}EpatsDocumentContainer`)) document.getElementById(`${p}EpatsDocumentContainer`).style.display = 'none';
+        if (document.getElementById(`${p}NotInvoiceable`)) document.getElementById(`${p}NotInvoiceable`).checked = false;
 
         this.handleForeignToggle();
         this.updatePriceHeader();
@@ -841,6 +863,10 @@ export class AccrualFormManager {
         if (document.getElementById(`${p}IsForeignTransaction`)) {
             document.getElementById(`${p}IsForeignTransaction`).checked = isForeign;
         }
+
+        if (document.getElementById(`${p}NotInvoiceable`)) {
+            document.getElementById(`${p}NotInvoiceable`).checked = (data.requiresInvoice === false);
+        }
         
         this.handleForeignToggle();
         this.updatePriceHeader();
@@ -939,6 +965,7 @@ export class AccrualFormManager {
         }
 
         const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
+        const isNotInvoiceable = document.getElementById(`${p}NotInvoiceable`)?.checked || false;
         const accrualDesc = document.getElementById(`${p}AccrualDescription`)?.value.trim() || '';
         const invoiceDesc = document.getElementById(`${p}InvoiceDescription`)?.value.trim() || ''; // 🔥 Eklendi
         
@@ -991,6 +1018,7 @@ export class AccrualFormManager {
                 tpInvoiceParty: tpParty,
                 serviceInvoiceParty: serviceParty,
                 isForeignTransaction: isForeign,
+                requiresInvoice: !isNotInvoiceable,
                 tpeInvoiceNo: tpeInvoiceNo,
                 evrekaInvoiceNo: evrekaInvoiceNo,
                 orderCode: orderCode,

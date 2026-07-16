@@ -369,7 +369,9 @@ export class TaskSubmitHandler {
                 id: String(newAccrualId),
                 task_id: String(taskId),
                 status: 'unpaid',
-                accrual_type: 'task_accrual',
+                accrual_type: accrualData.type || accrualData.accrualType || 'Hizmet', // 🔥 SABİT DEĞER YERİNE FORMDAN GELEN TÜR EKLENDİ
+                department: accrualData.department || 'EVREKA', // 🔥 EKSİK OLAN DEPARTMAN BİLGİSİ EKLENDİ
+                requires_invoice: accrualData.requiresInvoice !== false, // 🔥 EKSİK OLAN FATURAYA TABİ DEĞİL DURUMU EKLENDİ
                 tp_invoice_party_id: accrualData.tpInvoiceParty?.id || null,
                 service_invoice_party_id: accrualData.serviceInvoiceParty?.id || null,
                 created_by_uid: dbUser ? dbUser.id : null,
@@ -385,7 +387,8 @@ export class TaskSubmitHandler {
                 vat_rate: Number(accrualData.vatRate) || 20,
                 apply_vat_to_official_fee: Boolean(accrualData.applyVatToOfficialFee),
                 is_foreign_transaction: Boolean(accrualData.isForeignTransaction),
-                description: accrualData.description || null, // 🔥 AÇIKLAMA BURAYA EKLENDİ
+                description: accrualData.description || null, 
+                invoice_description: accrualData.invoice_description || accrualData.invoiceDescription || null, // 🔥 EKSİK OLAN FATURA AÇIKLAMASI EKLENDİ
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -393,6 +396,22 @@ export class TaskSubmitHandler {
             try {
                 const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
                 if (accError) throw accError;
+
+                // 🔥 ÇÖZÜM: İş oluşturma ekranından gelen alt kalemleri (items) accrual_items tablosuna kaydet!
+                if (accrualData.items && accrualData.items.length > 0) {
+                    const itemInserts = accrualData.items.map(item => ({
+                        accrual_id: String(newAccrualId),
+                        fee_type: item.fee_type,
+                        item_name: item.item_name,
+                        quantity: item.quantity,
+                        unit_price: item.unit_price,
+                        vat_rate: item.vat_rate,
+                        total_amount: item.total_amount,
+                        currency: item.currency || 'TRY'
+                    }));
+                    const { error: itemsError } = await supabase.from('accrual_items').insert(itemInserts);
+                    if (itemsError) console.error("❌ accrual_items tablosuna yazılamadı:", itemsError);
+                }
                 
                 // 🔥 ÇÖZÜM 2: Oluşan Tahakkuk ID'sini ana görevin details objesine bağla!
                 const { data: taskDataDb } = await supabase.from('tasks').select('details').eq('id', String(taskId)).single();
@@ -402,7 +421,7 @@ export class TaskSubmitHandler {
                     await supabase.from('tasks').update({ details: currentDetails }).eq('id', String(taskId));
                 }
 
-                if (accrualData.files && accrualData.files.length > 0) {
+                if (!accrualData.files || accrualData.files.length === 0) {
                     console.warn("⚠️ Tahakkuk PDF dosyası eklenmemiş, işlem atlandı.");
                 } else {
                     console.log(`➡️ Yüklenecek ${accrualData.files.length} adet dosya bulundu. Yükleme başlıyor...`);

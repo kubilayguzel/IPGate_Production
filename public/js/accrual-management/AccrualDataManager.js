@@ -74,6 +74,7 @@ export class AccrualDataManager {
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
                     subject: row.subject || d.subject || '',
+                    requiresInvoice: row.requires_invoice ?? true,
                     // 🔥 ESKİ 'invoiceId' VE 'invoiceId2' ALANLARI SİLİNDİ, BUNLARIN YERİNE KÖPRÜ TABLOSU KULLANILACAK
 
                     files: [
@@ -532,6 +533,7 @@ export class AccrualDataManager {
             vat_rate: formData.vatRate || 20,
             apply_vat_to_official_fee: formData.applyVatToOfficialFee || false,
             is_foreign_transaction: formData.isForeignTransaction || false,
+            requires_invoice: formData.requiresInvoice !== false,
             description: formData.subject ? `Konu: ${formData.subject}\nNot: ${formData.description || ''}` : (formData.description || null),
             invoice_description: formData.invoice_description || formData.invoiceDescription || null, 
             tpe_invoice_no: formData.tpeInvoiceNo || null,
@@ -860,7 +862,18 @@ export class AccrualDataManager {
                     const { error: uploadError } = await supabase.storage.from('documents').upload(cleanPath, file, { cacheControl: '3600', upsert: true });
                     if (!uploadError) {
                         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(cleanPath);
-                        if (urlData && urlData.publicUrl) docInserts.push({ accrual_id: String(id), document_name: file.name, document_url: urlData.publicUrl, document_type: 'Ödeme Dekontu' });
+                        if (urlData && urlData.publicUrl) {
+                            // Dosya adının başına ödeme yapılan tarihi ekleyerek şık bir görünüm sağlıyoruz
+                            const displayDate = date ? date : new Date().toLocaleDateString('tr-TR');
+                            const displayName = `${displayDate} Ödemesi - ${file.name}`;
+                            
+                            docInserts.push({ 
+                                accrual_id: String(id), 
+                                document_name: displayName, 
+                                document_url: urlData.publicUrl, 
+                                document_type: 'Ödeme Dekontu' 
+                            });
+                        }
                     }
                 }
                 if (docInserts.length > 0) await supabase.from('accrual_documents').insert(docInserts);

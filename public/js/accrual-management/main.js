@@ -1217,9 +1217,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                         .map(id => this.dataManager.allAccruals.find(a => a.id === id))
                         .filter(Boolean);
 
-                    // 2. KONTROL: Fatura Kesilebilir mi? (Eğer tüm faturaları sorunsuz aktifse engelle)
-                    // (Reddedilmiş veya iptal edilmiş faturalar varsa tekrar kesilmesine izin veriyoruz, backend akıllıca sadece eksikleri kesecek)
-                    // Bu sebeple katı engeli kaldırıp arkaplanın (Backend'in) akıllı filtresine güveniyoruz.
+                    // 2. KONTROL: Fatura Kesilebilir mi? (Faturaya Tabi Değil kontrolü) 🔥 BURASI EKSİKTİ
+                    const hasNonInvoiceable = selectedAccruals.some(acc => acc.requiresInvoice === false);
+                    if (hasNonInvoiceable) {
+                        showNotification('Hata: Seçtiğiniz işlemler arasında "Faturaya Tabi Değil" (Örn: Vekalet Ücreti) olarak işaretlenmiş kayıtlar var. Lütfen seçiminizi düzeltin.', 'error');
+                        return;
+                    }
 
                     // 3. KONTROL: Müşteriler (Cari Hesaplar) Aynı mı?
                     const getPartyId = (acc) => acc.serviceInvoicePartyId || acc.service_invoice_party_id || acc.tpInvoicePartyId || acc.tp_invoice_party_id;

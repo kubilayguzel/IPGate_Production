@@ -2033,6 +2033,7 @@ export const accrualService = {
                 vat_rate: updateData.vatRate,
                 apply_vat_to_official_fee: updateData.applyVatToOfficialFee,
                 is_foreign_transaction: updateData.isForeignTransaction,
+                requires_invoice: updateData.requiresInvoice, // SADECE BURADAKİ !== false KISMINI SİLDİK
                 description: updateData.description,
                 invoice_description: updateData.invoiceDescription || updateData.invoice_description || null,
                 foreign_status: updateData.foreign_status,

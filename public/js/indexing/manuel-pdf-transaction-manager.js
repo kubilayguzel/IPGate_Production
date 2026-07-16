@@ -83,7 +83,10 @@ export class ManuelPdfTransactionManager {
             });
         });
 
-        document.getElementById('saveManualTransactionBtn')?.addEventListener('click', () => this.handleManualTransactionSubmit());
+        document.getElementById('saveManualTransactionBtn')?.addEventListener('click', (e) => {
+            e.preventDefault(); // 🔥 ÇÖZÜM 1: Sayfanın aniden yenilenip kodu yarıda kesmesini engeller!
+            this.handleManualTransactionSubmit();
+        });
         
         document.getElementById('specificManualTransactionType')?.addEventListener('change', () => {
             this.updateManualChildOptions();
@@ -727,7 +730,6 @@ export class ManuelPdfTransactionManager {
                 modalEl = document.getElementById('renewalDateUpdateModal');
             }
 
-            const modal = $(modalEl);
             const step1 = document.getElementById('renewalModalStep1');
             const step2 = document.getElementById('renewalModalStep2');
             
@@ -753,18 +755,38 @@ export class ManuelPdfTransactionManager {
             
             step1.style.display = 'block';
             step2.style.display = 'none';
+
+            // 🔥 ÇÖZÜM: jQuery ($) ve Swal kaldırıldı, hata yaratmayan Vanilla JS eklendi
+            const hideModal = () => {
+                modalEl.classList.remove('show');
+                modalEl.style.display = 'none';
+                document.body.classList.remove('modal-open');
+                const backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) backdrop.remove();
+            };
+
+            const showModal = () => {
+                modalEl.classList.add('show');
+                modalEl.style.display = 'block';
+                document.body.classList.add('modal-open');
+                if (!document.querySelector('.modal-backdrop')) {
+                    const backdrop = document.createElement('div');
+                    backdrop.className = 'modal-backdrop fade show';
+                    document.body.appendChild(backdrop);
+                }
+            };
             
-            $('#btnRenewalNo').off('click').on('click', () => { modal.modal('hide'); resolve({ shouldUpdate: false }); });
-            $('#btnRenewalYes').off('click').on('click', () => { step1.style.display = 'none'; step2.style.display = 'block'; });
-            $('#btnRenewalCancel').off('click').on('click', () => { modal.modal('hide'); reject(new Error("İptal")); });
-            $('#btnRenewalConfirm').off('click').on('click', () => {
+            document.getElementById('btnRenewalNo').onclick = () => { hideModal(); resolve({ shouldUpdate: false }); };
+            document.getElementById('btnRenewalYes').onclick = () => { step1.style.display = 'none'; step2.style.display = 'block'; };
+            document.getElementById('btnRenewalCancel').onclick = () => { hideModal(); reject(new Error("İptal")); };
+            document.getElementById('btnRenewalConfirm').onclick = () => {
                 const finalDate = document.getElementById('newRenewalDateInput').value;
-                if (!finalDate) return Swal.fire('Hata', 'Lütfen geçerli bir tarih girin.', 'error');
-                modal.modal('hide');
+                if (!finalDate) return showNotification('Lütfen geçerli bir tarih girin.', 'error');
+                hideModal();
                 resolve({ shouldUpdate: true, newDate: finalDate });
-            });
+            };
             
-            modal.modal('show');
+            showModal();
         });
     }
 
@@ -816,16 +838,25 @@ export class ManuelPdfTransactionManager {
 
             let renewalUpdateData = { shouldUpdate: false };
             if (isRenewalAcceptance) {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Kaydet';
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Tarih Bekleniyor...';
                 try {
                     renewalUpdateData = await this._promptRenewalDateUpdate(this.selectedRecordManual.renewal_date || this.selectedRecordManual.renewalDate);
                 } catch (err) {
-                    return; // İptal edildi
+                    // Kullanıcı iptal ettiyse veya pencere açılamadıysa butonu eski haline getir
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = 'Manuel İşlemi Kaydet';
+                    if (err.message !== "İptal") {
+                        console.error("Modal/Pencere Hatası:", err);
+                        showNotification('Tarih güncelleme penceresi açılamadı: ' + err.message, 'error');
+                    }
+                    return; 
                 }
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor...';
             }
+            
+            // Onay alındıktan veya normal işlemlerde butonu işleniyor moduna al
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> İşleniyor...';
 
             // 🔥 YENİ: 48 ve 27 Numaralı İşlemler İçin Dosya Zorunluluğu Kontrolü
             if (String(targetTypeId) === '48' && filesToUpload.length === 0) {
@@ -842,7 +873,10 @@ export class ManuelPdfTransactionManager {
                 const cleanName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                 const storagePath = `incoming_documents/${this.currentUser.id}/${Date.now()}_${cleanName}`;
                 
-                await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
+                // 🔥 YENİ: Yükleme başarısız olursa sessizce geçme, işlemi durdur ve hatayı ekrana bas!
+                const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
+                if (uploadError) throw new Error("PDF dosyası yüklenirken bir hata oluştu: " + uploadError.message);
+
                 const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
                 
                 // 🔥 YENİ: Mail motoru için dosyanın adını (designation) veritabanına özel olarak işliyoruz
@@ -1135,17 +1169,6 @@ export class ManuelPdfTransactionManager {
                 // Artık dosya yoksa evrak tablosuna hiçbir şey yazılmayacak, 
                 // böylece arka plandaki mail tetikleyicisi (trigger) boş yere çalışmayacak!
             }
-
-            // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
-            if (renewalUpdateData.shouldUpdate && renewalUpdateData.newDate) {
-                await supabase
-                    .from('ip_records')
-                    .update({ renewal_date: renewalUpdateData.newDate, updated_at: new Date().toISOString() })
-                    .eq('id', this.selectedRecordManual.id);
-            }
-
-            showNotification('İşlem başarıyla kaydedildi!', 'success');
-            this.resetForm();
 
             // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
             if (renewalUpdateData.shouldUpdate && renewalUpdateData.newDate) {

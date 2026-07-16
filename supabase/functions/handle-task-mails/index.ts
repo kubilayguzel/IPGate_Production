@@ -34,14 +34,34 @@ serve(async (req: Request) => {
     }
 
     let triggeredByUserId = null;
+    // 🔥 DÜZELTME: Bu değişkeni dışarı aldık ki aşağıdaki kodlar da görebilsin!
     const associatedTxId = record.transaction_id || record.details?.transactionId || record.details?.associated_transaction_id;
-    
-    if (associatedTxId) {
-        const { data: txData } = await supabaseAdmin.from('transactions').select('user_id').eq('id', associatedTxId).maybeSingle();
-        if (txData && txData.user_id) triggeredByUserId = txData.user_id;
-    }
-    if (!triggeredByUserId && record.created_by) {
-        triggeredByUserId = record.created_by;
+
+    // 🔥 1. YENİLİK: Önyüzdeki uygulamanın 'task_history' tablosuna log yazmasını beklemek için 1 saniye mola veriyoruz
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // 🔥 2. YENİLİK: İşlemi o an yapan asıl kişiyi bulmak için `task_history` tablosuna bakıyoruz
+    const { data: historyData } = await supabaseAdmin
+        .from('task_history')
+        .select('user_id')
+        .eq('task_id', record.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (historyData && historyData.user_id) {
+        triggeredByUserId = historyData.user_id;
+        console.log(`[MAIL-DEBUG] Tetikleyen kişi task_history tablosundan bulundu: ${triggeredByUserId}`);
+    } else {
+        // 🔥 YEDEK KURAL: Eğer history tablosunda o an için bir kayıt yoksa
+        if (associatedTxId) {
+            const { data: txData } = await supabaseAdmin.from('transactions').select('user_id').eq('id', associatedTxId).maybeSingle();
+            if (txData && txData.user_id) triggeredByUserId = txData.user_id;
+        }
+        if (!triggeredByUserId && record.created_by) {
+            triggeredByUserId = record.created_by;
+        }
+        console.log(`[MAIL-DEBUG] Tetikleyen kişi Fallback (Yedek Kural) ile bulundu: ${triggeredByUserId}`);
     }
 
     const brandName = viewData?.brand_name || record.details?.iprecordTitle || record.title || "-";

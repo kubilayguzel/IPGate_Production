@@ -290,11 +290,27 @@ export class PortfolioDataManager {
                 const parentRow = this._createObjectionRowDataFast(record, parent, typeInfo, true, children.length > 0);
                 parentRow.children = [];
 
-                for (const child of children) {
+                // 🔥 ÇÖZÜM 1: İtirazın asıl durumunu (Kararını) alt işlemlerinden buluyoruz
+                let finalStatus = 'Karar Bekleniyor';
+
+                // Alt işlemleri tarihe göre sıralayalım (en son eklenen karar en sonda olsun)
+                const sortedChildren = [...children].sort((a, b) => new Date(a.created_at || a.transaction_date) - new Date(b.created_at || b.transaction_date));
+
+                for (const child of sortedChildren) {
                     const childTypeInfo = this.transactionTypesMap.get(String(child.transaction_type_id));
                     parentRow.children.push(this._createObjectionRowDataFast(record, child, childTypeInfo, false, false, parent.id));
+                    
+                    // En son eklenen alt işlemin adını karar olarak alıyoruz
+                    if (childTypeInfo) {
+                        finalStatus = childTypeInfo.alias || childTypeInfo.name;
+                    } else if (child.description) {
+                        finalStatus = child.description;
+                    }
                 }
                 
+                // Ana itiraz satırının durumunu sicildeki marka durumu ile değil, bu itirazın güncel kararıyla eziyoruz!
+                parentRow.statusText = finalStatus;
+
                 parentRow.children.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
                 return parentRow;
             });

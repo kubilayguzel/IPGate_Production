@@ -691,7 +691,14 @@ class ClientPortalController {
                 <td>${item.bulletinDate !== '-' ? this.renderHelper.formatDate(item.bulletinDate) : '-'}</td>
                 <td>${item.bulletinNo}</td>
                 <td>${item.epatsDate !== '-' ? this.renderHelper.formatDate(item.epatsDate) : '-'}</td>
-                <td><span class="badge badge-${item.statusBadge} px-2 py-1">${item.statusText}</span></td>
+                
+                <!-- 🔥 ÇÖZÜM 3: Uzun durum metinlerinin tabloyu bozmasını engelleyen CSS makyajı -->
+                <td style="max-width: 130px; text-align: center;">
+                    <span class="badge badge-${item.statusBadge} px-2 py-1 shadow-sm" style="white-space: normal; word-wrap: break-word; font-size: 0.8rem; line-height: 1.2; display: inline-block; width: 100%;">
+                        ${item.statusText}
+                    </span>
+                </td>
+                
                 <td class="text-center" onclick="event.stopPropagation();">${docBtn}</td>
             `;
             tbody.appendChild(row);
@@ -740,8 +747,8 @@ class ClientPortalController {
             .from('v_tasks_dashboard')
             .select('*')
             .in('task_owner_id', targetIds)
-            .in('task_type_id', ['7', '19', '20'])
-            .in('status', ['open', 'completed']); // Sadece başlamış ve tamamlanmış işler
+            .in('task_type_id', ['7', '19', '20', '38']) // 🔥 ÇÖZÜM 1: '38' (İtiraza Karşı Görüş) işlemi filtreye dahil edildi!
+            .in('status', ['open', 'completed', 'in_progress']);
 
         if (error) {
             console.error("İtirazlar View'dan çekilemedi:", error);
@@ -754,12 +761,23 @@ class ClientPortalController {
             return;
         }
 
-        // İtirazlara ait İŞLEMLERİ (Karar analizi ve Akordeon için) ve EVRAKLARI çek
-        const taskIds = itirazData.map(t => t.id);
-        const { data: allTransactions } = await supabase
-            .from('transactions')
-            .select('*, transaction_documents(*)')
-            .in('task_id', taskIds);
+        // 🔥 ÇÖZÜM 2: Alt işlemleri (Kararları) kusursuz bulabilmek için task_id yerine ip_record_id bazlı arama yapıyoruz!
+        const ipRecordIds = [...new Set(itirazData.map(t => t.ip_record_id).filter(Boolean))];
+        let allTransactions = [];
+        let ipOriginsMap = {}; // Markaların gerçek menşe bilgilerini tutacak harita
+        
+        if (ipRecordIds.length > 0) {
+            // Hem işlemleri hem de markaların Orijin (TÜRKPATENT/WIPO vb.) bilgilerini eşzamanlı çekiyoruz
+            const [txRes, ipRes] = await Promise.all([
+                supabase.from('transactions').select('*, transaction_documents(*)').in('ip_record_id', ipRecordIds),
+                supabase.from('ip_records').select('id, origin').in('id', ipRecordIds)
+            ]);
+            
+            if (txRes.data) allTransactions = txRes.data;
+            if (ipRes.data) {
+                ipRes.data.forEach(ip => ipOriginsMap[ip.id] = ip.origin || 'TÜRKPATENT');
+            }
+        }
 
         const REQUEST_RESULT_STATUS = {
             '24': 'Eksiklik Bildirimi', '28': 'Kabul', '29': 'Kısmi Kabul', '30': 'Ret',
@@ -769,6 +787,7 @@ class ClientPortalController {
         };
 
         const rows = [];
+        const processedParentIds = new Set(); // 🔥 ÇÖZÜM 1: Aynı itirazın (farklı görevler yüzünden) tabloya 2 kere çizilmesini engeller!
 
         // Veriyi Arayüz İçin Formatlama ve Karar Hesaplama
         itirazData.forEach(task => {
@@ -776,65 +795,137 @@ class ClientPortalController {
             try { parsedDetails = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {}); } catch(e) {}
 
             // --- A) ALT İŞLEMLERİ (AKORDEON) VE KARAR DURUMUNU BULMA ---
-            const taskTxs = (allTransactions || []).filter(tx => tx.task_id === task.id);
+            const recordTxs = allTransactions.filter(tx => tx.ip_record_id === task.ip_record_id);
 
-            let parentTx = parsedDetails.triggeringTransactionId 
-                ? taskTxs.find(tx => String(tx.id) === String(parsedDetails.triggeringTransactionId))
-                : taskTxs.filter(tx => String(tx.transaction_type_id) === String(task.task_type_id)).sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
+            // 🔥 ÇÖZÜM: Görevle doğrudan bağlantılı işlemi bulurken ÖNCE "Kendi Tipiyle" aynı olanı arıyoruz!
+            // Böylece tetikleyici eski işlemlere (Örn: Type 52) aldanıp mükerrer (duplicate) sanılmasını engelliyoruz.
+            let linkedTx = recordTxs.find(tx => String(tx.task_id) === String(task.id) && String(tx.transaction_type_id) === String(task.task_type_id))
+                        || recordTxs.find(tx => String(tx.task_id) === String(task.id)) 
+                        || recordTxs.find(tx => String(tx.id) === String(task.transaction_id));
+
+            let parentTx = null;
             
-            if (!parentTx) {
-                parentTx = { id: 'virt-'+task.id, transaction_type_id: task.task_type_id, created_at: task.created_at, isVirtual: true, transaction_documents: [] };
-            }
-            
-            const childrenTxs = parentTx.isVirtual ? [] : taskTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id);
-
-            let computedStatus = 'Kurumda İşlemde', badgeColor = 'primary';
-            const decisionChild = childrenTxs.find(c => ['50', '51', '52'].includes(String(c.transaction_type_id)));
-
-            if (decisionChild) {
-                const tId = String(decisionChild.transaction_type_id);
-                if (tId === '50') { computedStatus = 'Kabul'; badgeColor = 'success'; }
-                else if (tId === '51') { computedStatus = 'Kısmen Kabul'; badgeColor = 'warning'; }
-                else if (tId === '52') { computedStatus = 'Ret'; badgeColor = 'danger'; }
-            } else {
-                const rr = parentTx.request_result;
-                if (rr && REQUEST_RESULT_STATUS[String(rr)]) {
-                    computedStatus = REQUEST_RESULT_STATUS[String(rr)];
-                    if (computedStatus.includes('Ret')) badgeColor = 'danger';
-                    else if (computedStatus.includes('Kabul')) badgeColor = 'success';
-                    else badgeColor = 'info';
-                } else if (task.status === 'completed') {
-                    computedStatus = 'Tamamlandı'; badgeColor = 'success';
+            if (linkedTx) {
+                // İşlem bir 'child' ise (Örn: 38 - Karşı Görüş), asıl ebeveynini bulup ona bağlan!
+                if (linkedTx.transaction_hierarchy === 'child' && linkedTx.parent_id) {
+                    parentTx = recordTxs.find(tx => String(tx.id) === String(linkedTx.parent_id));
+                } else {
+                    parentTx = linkedTx;
                 }
             }
 
-            // --- B) 3. TARAF BİLGİLERİ VE GÖRSEL AYARLAMALARI ---
-            const isThirdParty = String(task.task_type_id) === '20' || task.recordOwnerType !== 'self';
+            // Yedek kural: Detaylarda triggeringTransactionId varsa
+            if (!parentTx && parsedDetails.triggeringTransactionId) {
+                parentTx = recordTxs.find(tx => String(tx.id) === String(parsedDetails.triggeringTransactionId));
+            }
 
-            let titleVal = task.iprecordTitle || '-';
+            if (!parentTx) {
+                parentTx = { id: 'virt-'+task.id, transaction_type_id: task.task_type_id, created_at: task.created_at, isVirtual: true, transaction_documents: [] };
+            }
+
+            // 🔥 ÇÖZÜM 2: Bu "Ana İtiraz Dosyası" zaten listeye eklendiyse döngüden çık, mükerrer satır çizme!
+            if (!parentTx.isVirtual) {
+                if (processedParentIds.has(parentTx.id)) return; 
+                processedParentIds.add(parentTx.id);
+            }
+            
+            // Alt işlemleri (Kararları ve Karşı Görüşleri) ana işleme bağlıyoruz
+            const childrenTxs = parentTx.isVirtual ? [] : recordTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id);
+            let computedStatus = 'Durum Bilinmiyor';
+            let badgeColor = 'secondary';
+
+            // 🔥 YENİ: Eğer henüz Kurumdan gelen bir alt karar/işlem YOKSA, görevin kendi statüsüne (Hazırlıkta mı Bitti mi) bakıyoruz
+            if (childrenTxs.length === 0) {
+                if (task.status === 'open' || task.status === 'in_progress') {
+                    computedStatus = 'İtiraz Hazırlanıyor';
+                    badgeColor = 'info';
+                } else if (task.status === 'completed') {
+                    computedStatus = 'Karar Bekleniyor';
+                    badgeColor = 'warning';
+                }
+            } else {
+                // Eğer alt işlem (Karar/Tebliğ vb.) VARSA en güncel olanı buluyoruz
+                const sortedChildren = [...childrenTxs].sort((a, b) => new Date(a.created_at || a.transaction_date) - new Date(b.created_at || b.transaction_date));
+
+                for (const child of sortedChildren) {
+                    const childTypeInfo = this.state.transactionTypes.get(String(child.transaction_type_id));
+                    if (childTypeInfo) {
+                        computedStatus = childTypeInfo.alias || childTypeInfo.name;
+                    } else if (child.description) {
+                        computedStatus = child.description;
+                    }
+                }
+
+                // Metne göre renk (badge) kararı
+                const sText = computedStatus.toLowerCase();
+                if (sText.includes('bekleniyor') || sText.includes('devam')) badgeColor = 'warning';
+                else if (sText.includes('kabul') && !sText.includes('kısmen')) badgeColor = 'success';
+                else if (sText.includes('ret') || sText.includes('red')) badgeColor = 'danger';
+                else if (sText.includes('kısmen')) badgeColor = 'info';
+                else badgeColor = 'primary';
+            }
+
+            // --- B) 3. TARAF BİLGİLERİ VE GÖRSEL AYARLAMALARI ---
+            // SADECE marka sahibinin (recordOwnerType) 'third_party' olup olmadığına bakıyoruz!
+            // Böylece Type 19 ve 7 gibi işlemler de markanın aidiyetine göre ilgili sekmeye sorunsuz düşer.
+            const isThirdParty = task.recordOwnerType === 'third_party' || task.record_owner_type === 'third_party';
+
+            let titleVal = task.iprecordTitle || parsedDetails.brand_name || '-';
             let appNoVal = task.iprecordApplicationNo || '-';
             let applicantVal = task.iprecordApplicantName || '-';
 
             if (isThirdParty) {
-                appNoVal = parsedDetails.targetAppNo || appNoVal;
-                applicantVal = task.opposedMarkOwner || parsedDetails.opposed_mark_owner || parsedDetails.competitorOwner || '-';
-                titleVal = parsedDetails.objectionTarget || '-';
+                // 3. Taraf dosyası (Rakibin Markası): Rakibin bilgilerini gösteriyoruz
+                appNoVal = parsedDetails.targetAppNo || parsedDetails.target_app_no || appNoVal;
                 
-                if (titleVal === '-' && task.title && task.title.includes('Yayına İtiraz:')) {
-                    const match = task.title.match(/Yayına İtiraz:\s*(.*?)\s*(?:\(Bülten|$)/);
-                    if (match && match[1]) titleVal = match[1].trim();
+                applicantVal = task.opposedMarkOwner || parsedDetails.opposed_mark_owner || parsedDetails.competitorOwner || '-';
+                if (typeof applicantVal === 'object' && applicantVal.name) {
+                    applicantVal = applicantVal.name;
+                }
+                
+                // Karşı tarafın markasını bulmaya çalışıyoruz
+                let compTitle = parsedDetails.objectionTarget || parsedDetails.target_brand_name || parsedDetails.brand_name || '-';
+                if (compTitle === '-' && task.title) {
+                    // "Yayına İtiraz", "Yeniden İnceleme", "Karara İtiraz" gibi metinlerden sonraki ismi yakala
+                    const match = task.title.match(/(?:İtiraz|Karar|İnceleme):\s*(.*?)\s*(?:\(Bülten|$|-)/i);
+                    if (match && match[1]) compTitle = match[1].trim();
+                }
+                if (compTitle !== '-') titleVal = compTitle;
+            } else {
+                // Kendi Dosyamız (Portföyüme Gelenler): Karşı Taraf kolonuna İtiraz Sahibini (Rakibi) yazıyoruz
+                let opponentName = parsedDetails.opponent || parsedDetails.itiraz_sahibi || '-';
+                if (typeof opponentName === 'object' && opponentName.name) {
+                    opponentName = opponentName.name;
+                }
+                if (opponentName !== '-') applicantVal = opponentName;
+                
+                // Marka adını formattan çıkar
+                if (titleVal === '-' && task.title) {
+                    if (task.title.includes(' - ')) {
+                        const parts = task.title.split(' - ');
+                        if (parts.length > 1) titleVal = parts[1].trim();
+                    } else {
+                        titleVal = task.title;
+                    }
                 }
             }
 
+            // 🔥 ÇÖZÜM 3: Satır adını görevden (örn: 38) değil, bağlandığı gerçek ana işlemden (örn: 20) alıyoruz!
             let typeName = 'İtiraz İşlemi';
-            if (String(task.task_type_id) === '20' || String(task.task_type_id) === '19') typeName = 'Yayına İtiraz';
-            else if (String(task.task_type_id) === '7') typeName = 'Karara İtiraz';
+            const actualTypeId = String(!parentTx.isVirtual ? parentTx.transaction_type_id : task.task_type_id);
+            
+            if (actualTypeId === '20') typeName = 'Yayına İtiraz';
+            else if (actualTypeId === '19') typeName = 'Yayına İtirazın Yeniden İncelenmesi';
+            else if (actualTypeId === '7') typeName = 'Karara İtiraz';
+
+            // 🔥 ÇÖZÜM 4: Hardcoded 'TÜRKPATENT' yerine veritabanından çektiğimiz gerçek Origin değerini atıyoruz
+            const actualOrigin = ipOriginsMap[task.ip_record_id] || 'TÜRKPATENT';
 
             rows.push({
                 id: task.id, 
                 recordId: task.ip_record_id, 
-                origin: 'TÜRKPATENT', 
-                brandImageUrl: task.brandImageUrl || '', // 🔥 VIEW'DAN DOĞRUDAN GELEN GÖRSEL
+                origin: actualOrigin, 
+                brandImageUrl: task.brandImageUrl || '',
                 title: titleVal, 
                 transactionTypeName: typeName, 
                 applicationNumber: appNoVal,
@@ -854,8 +945,17 @@ class ClientPortalController {
         let selfRows = rows.filter(item => item.recordOwnerType === 'self');
         let thirdRows = rows.filter(item => item.recordOwnerType === 'third_party');
 
+        // 🔥 ÇÖZÜM 4: Menşe Filtresinin Değerini Al
+        const menseVal = document.getElementById('menseFilter')?.value || 'HEPSI';
+
         // --- Bize Gelen İtirazlar Filtresi ---
         let filteredSelf = selfRows.filter(item => {
+            // Seçili Menşe (Origin) filtresini itirazlara uyguluyoruz
+            const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
+            const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
+            if (menseVal === 'TÜRKPATENT' && !isTurk) return false;
+            if (menseVal === 'YURTDISI' && isTurk) return false;
+
             for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
                 if (!key.startsWith('dava-itiraz-list-self-')) continue;
                 const colIdx = key.split('-').pop();
@@ -871,6 +971,12 @@ class ClientPortalController {
 
         // --- Bizim Yaptığımız İtirazlar Filtresi ---
         let filteredThird = thirdRows.filter(item => {
+            // Seçili Menşe (Origin) filtresini itirazlara uyguluyoruz
+            const originRaw = (item.origin || 'TÜRKPATENT').toUpperCase();
+            const isTurk = originRaw.includes('TURK') || originRaw.includes('TÜRK');
+            if (menseVal === 'TÜRKPATENT' && !isTurk) return false;
+            if (menseVal === 'YURTDISI' && isTurk) return false;
+
             for (const [key, selectedValues] of Object.entries(this.state.activeColumnFilters)) {
                 if (!key.startsWith('dava-itiraz-list-third-')) continue;
                 const colIdx = key.split('-').pop();
@@ -883,6 +989,16 @@ class ClientPortalController {
             }
             return true;
         });
+
+        // 🔥 ÇÖZÜM 4: 3. Taraf İtirazlarında Bülten No'ya göre varsayılan azalan (descending) sıralama
+        filteredThird.sort((a, b) => {
+            const noA = Number(a.bulletinNo) || 0;
+            const noB = Number(b.bulletinNo) || 0;
+            return noB - noA; 
+        });
+
+        // Bize gelen itirazlarda (Self) ise İşlem Tarihine göre en yeni en üstte olsun
+        filteredSelf.sort((a, b) => new Date(b.epatsDate || 0) - new Date(a.epatsDate || 0));
 
         this.state.filteredObjectionsSelf = filteredSelf;
         this.state.filteredObjectionsThird = filteredThird;
@@ -1109,7 +1225,12 @@ class ClientPortalController {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
-        $('#menseFilter, #portfolioDurumFilter').on('change', () => this.filterPortfolios());
+        // 🔥 ÇÖZÜM 1: Menşe filtresi değiştiğinde hem Portföyü hem de İtirazlar sekmesini güncelliyoruz!
+        $('#menseFilter').on('change', () => { 
+            this.filterPortfolios(); 
+            this.prepareAndRenderObjections(); 
+        });
+        $('#portfolioDurumFilter').on('change', () => this.filterPortfolios());
         // 🔥 ÇÖZÜM: Yeni eklediğimiz anlık filtre inputlarını da sisteme bağlıyoruz
         $('#portfolioSearchText, #inlineBrandFilter, #inlineClassFilter').on('keyup', () => this.filterPortfolios());
         $('#invoiceDurumFilter').on('change', () => this.filterInvoices());
@@ -1405,9 +1526,17 @@ class ClientPortalController {
         $(document).on('click', 'th.sortable', (e) => {
             const th = e.currentTarget;
             const table = th.closest('table');
-            let containerId = table.closest('.tab-pane').id;
+            
+            let containerId = 'default';
+            const tabPane = table.closest('.tab-pane');
+            if (tabPane) containerId = tabPane.id;
+            
             if (th.closest('#invoices')) containerId = 'invoices'; 
             if (th.closest('#contracts')) containerId = 'contracts';
+            
+            // 🔥 ÇÖZÜM 1: İtirazlar tablosu HTML ID'lerinin farklı olma ihtimaline karşı Zırh! (Doğrudan tbody'den anlar)
+            if (table.querySelector('#dava-itiraz-tbody-self')) containerId = 'dava-itiraz-list-self';
+            if (table.querySelector('#dava-itiraz-tbody-third')) containerId = 'dava-itiraz-list-third';
             
             const index = $(th).index();
             const type = th.dataset.sort || 'text';
@@ -1642,8 +1771,11 @@ class ClientPortalController {
                 if (columnIndex === 1) return (item.origin || '').toLowerCase();
                 if (columnIndex === 3) return (item.title || '').toLowerCase();
                 if (columnIndex === 4) return (item.transactionTypeName || '').toLowerCase();
+                // 🔥 ÇÖZÜM 3: Başvuru No (5) ve Bülten No (8) kolonları sıralama haritasına eklendi!
+                if (columnIndex === 5) return (item.applicationNumber || '').toLowerCase(); 
                 if (columnIndex === 6) return (item.applicantName || '').toLowerCase();
                 if (columnIndex === 7) return item.bulletinDate; 
+                if (columnIndex === 8) return Number(item.bulletinNo) || 0; 
                 if (columnIndex === 9) return item.epatsDate;    
                 if (columnIndex === 10) return (item.statusText || '').toLowerCase();
                 return '';
@@ -1702,6 +1834,11 @@ class ClientPortalController {
         const normalize = (val) => {
             if (val === null || val === undefined) return (dataType === 'amount' || dataType === 'number') ? 0 : '';
             if (dataType === 'date') {
+                // 🔥 ÇÖZÜM 2: "25.12.2024" gibi Türkiye formatındaki tarihleri (Örn: Bülten ve İşlem Tarihi) hatasız sıralar
+                if (typeof val === 'string' && val.includes('.')) {
+                    const parts = val.split('.');
+                    if (parts.length === 3) return new Date(parts[2], parts[1]-1, parts[0]).getTime();
+                }
                 const parsed = Date.parse(val);
                 return isNaN(parsed) ? 0 : parsed;
             }

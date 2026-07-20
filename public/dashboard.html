@@ -126,47 +126,139 @@
                 </div>
             </div>
 
-            <div class="charts-grid" id="mainChartsGrid">
-                <div class="chart-card financial-module">
-                    <div class="chart-header">
-                        <div class="chart-title">Aylık Tahsilat ve Alacak Trendi (Son 6 Ay)</div>
+            <hr class="my-5">
+
+            <!-- TABS -->
+            <ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link active font-weight-bold" id="financial-tab" data-toggle="tab" href="#financial-data" role="tab" aria-controls="financial-data" aria-selected="true">
+                        <i class="fas fa-dollar-sign mr-2"></i>Finansal Veriler
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link font-weight-bold" id="business-tab" data-toggle="tab" href="#business-data" role="tab" aria-controls="business-data" aria-selected="false">
+                        <i class="fas fa-tasks mr-2"></i>İş Verileri
+                    </a>
+                </li>
+            </ul>
+
+            <!-- TAB CONTENT -->
+            <div class="tab-content" id="dashboardTabsContent">
+                <!-- FİNANSAL VERİLER BÖLÜMÜ (DEFAULT) -->
+                <div class="tab-pane fade show active" id="financial-data" role="tabpanel" aria-labelledby="financial-tab">
+                    <div class="pt-3 financial-module">
+                        <div class="row">
+                            <!-- Aylık Trend (Mevcut) -->
+                            <div class="col-lg-8 mb-4">
+                                <div class="chart-card">
+                                    <div class="chart-header">
+                                        <div class="chart-title">Aylık Tahsilat ve Alacak Trendi (Son 6 Ay)</div>
+                                    </div>
+                                    <div class="chart-container"><canvas id="financialTrendChart"></canvas></div>
+                                </div>
+                            </div>
+                            <!-- Döviz Riski (Mevcut) -->
+                            <div class="col-lg-4 mb-4">
+                                <div class="list-card">
+                                    <div class="list-title"><i class="fas fa-coins text-warning"></i> Bekleyen Alacaklar (Döviz Bazlı)</div>
+                                    <ul class="intelligence-list" id="currencyRiskList">
+                                        <li>Yükleniyor...</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <!-- En Yüksek Alacaklar (Mevcut) -->
+                            <div class="col-lg-12 mb-4">
+                                 <div class="list-card">
+                                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Net Kasa Alacakları</div>
+                                    <ul class="intelligence-list" id="topDebtorsList">
+                                        <li>Yükleniyor...</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="chart-container"><canvas id="financialTrendChart"></canvas></div>
                 </div>
-                
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <div class="chart-title">Portföy Dağılımı</div>
+
+                <!-- İŞ VERİLERİ BÖLÜMÜ -->
+                <div class="tab-pane fade" id="business-data" role="tabpanel" aria-labelledby="business-tab">
+                    <div class="pt-3">
+                        <div class="row">
+                            <!-- Kullanıcı Görev Dağılımı -->
+                            <div class="col-lg-12 mb-4">
+                                <div class="chart-card">
+                                    <div class="chart-header">
+                                        <h5 class="chart-title mb-0"><i class="fas fa-chart-bar mr-2"></i>Kullanıcı Görev Dağılımı</h5>
+                                        <div class="d-flex align-items-center" id="taskDistributionFilters">
+                                            <input type="date" id="startDateFilter" class="form-control form-control-sm mr-2" style="width: 150px;">
+                                            <input type="date" id="endDateFilter" class="form-control form-control-sm mr-2" style="width: 150px;">
+                                            <button id="applyTaskFilters" class="btn btn-sm btn-primary"><i class="fas fa-filter"></i></button>
+                                            <button id="clearTaskFilters" class="btn btn-sm btn-secondary ml-1"><i class="fas fa-times"></i></button>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container" style="height: 400px; cursor: pointer;">
+                                        <canvas id="taskDistributionChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <!-- Görev Tamamlama Süreleri -->
+                            <div class="col-lg-5 mb-4">
+                                <div class="list-card" style="padding:0; height: 100%;">
+                                    <div class="list-title" style="padding: 25px 25px 0 25px;"><i class="fas fa-clock mr-2"></i>Görev Tamamlama Süreleri</div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover table-striped mb-0">
+                                            <thead class="thead-light">
+                                                <tr>
+                                                    <th>Kullanıcı</th>
+                                                    <th class="text-center">Bitirilen İş</th>
+                                                    <th class="text-center">Ort. Süre</th>
+                                                    <th class="text-center">Min. Süre</th>
+                                                    <th class="text-center">Max. Süre</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="completionTimeTableBody">
+                                                <!-- JS ile doldurulacak -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Portföy Dağılımı (Mevcut) -->
+                            <div class="col-lg-4 mb-4">
+                                <div class="chart-card h-100">
+                                    <div class="chart-header">
+                                        <div class="chart-title">Portföy Dağılımı</div>
+                                    </div>
+                                    <div class="chart-container"><canvas id="portfolioDistributionChart"></canvas></div>
+                                </div>
+                            </div>
+                            <!-- Yaklaşan Yenilemeler (Mevcut) -->
+                            <div class="col-lg-3 mb-4">
+                                <div class="list-card h-100">
+                                    <div class="list-title"><i class="fas fa-clock text-info"></i> Yaklaşan Yenilemeler (Son 90 Gün)</div>
+                                    <ul class="intelligence-list" id="upcomingRenewalsList">
+                                        <li>Yükleniyor...</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="chart-container"><canvas id="portfolioDistributionChart"></canvas></div>
                 </div>
             </div>
 
-            <div class="lists-grid" id="mainListsGrid">
-                <div class="list-card financial-module">
-                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Net Kasa Alacakları</div>
-                    <ul class="intelligence-list" id="topDebtorsList">
-                        <li>Yükleniyor...</li>
-                    </ul>
-                </div>
-
-                <div class="list-card financial-module">
-                    <div class="list-title"><i class="fas fa-coins text-warning"></i> Bekleyen Alacaklar (Döviz Bazlı)</div>
-                    <ul class="intelligence-list" id="currencyRiskList">
-                        <li>Yükleniyor...</li>
-                    </ul>
-                </div>
-
-                <div class="list-card">
-                    <div class="list-title"><i class="fas fa-clock text-info"></i> Yaklaşan Yenilemeler (Son 90 Gün)</div>
-                    <ul class="intelligence-list" id="upcomingRenewalsList">
-                        <li>Yükleniyor...</li>
-                    </ul>
-                </div>
-            </div>
+            <!-- ESKİ YAPI SİLİNDİ -->
+            <!-- <div class="charts-grid" id="mainChartsGrid"> ... </div> -->
+            <!-- <div class="lists-grid" id="mainListsGrid"> ... </div> -->
 
         </main>
     </div>
+
+<!-- Bootstrap JS ve bağımlılıkları (Sekmeler ve Modallar için Gerekli) -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script type="module">
@@ -200,10 +292,7 @@
                 if (this.isSuperAdmin) {
                     document.querySelectorAll('.financial-module').forEach(el => el.style.display = 'block');
                 } else {
-                    const chartsGrid = document.getElementById('mainChartsGrid');
-                    const listsGrid = document.getElementById('mainListsGrid');
-                    if(chartsGrid) chartsGrid.style.gridTemplateColumns = '1fr';
-                    if(listsGrid) listsGrid.style.gridTemplateColumns = '1fr';
+                    // Finansal modüller gizli kalacak
                 }
 
                 await this.loadData();
@@ -236,7 +325,10 @@
                 if (results[0].success) records = results[0].data.map(r => ({ ...r, ...(r.details || {}) }));
                 if (this.isSuperAdmin && results[1] && results[1].success) accruals = results[1].data.map(r => ({ ...r, ...(r.details || {}) }));
 
-                this.processExecutiveMetrics(records, accruals, rates);
+                // --- PERFORMANS İYİLEŞTİRMESİ ---
+                // Ağır hesaplamaları ana iş parçacığını (main thread) bloke etmemek için kısa bir gecikmeyle çalıştırıyoruz.
+                // Bu, sayfanın geri kalanının (diğer grafikler, sekmeler, modal'lar) daha hızlı yüklenmesini ve düzgün çalışmasını sağlar.
+                setTimeout(() => this.processExecutiveMetrics(records, accruals, rates), 100);
             }
 
             formatMoney(amount, currency = 'TRY') {
@@ -481,6 +573,28 @@
             const dashboard = new ExecutiveDashboard();
             await dashboard.init(user);
         });
-    </script>
+</script>
+
+<!-- Yeni Operasyonel Dashboard Script'i -->
+<script type="module" src="/js/dashboard/executive-dashboard.js"></script>
+<!-- Kullanıcı Detay Modalı -->
+<div class="modal fade" id="userDetailModal" tabindex="-1" role="dialog" aria-labelledby="modalUserName" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px; overflow: hidden;">
+            <div class="modal-header text-white" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
+                <h5 class="modal-title font-weight-bold" id="modalUserName">Kullanıcı Adı</h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBodyContent" style="padding: 30px; background-color: #f8f9fa;">
+                <!-- İçerik JS tarafından dinamik doldurulacak -->
+            </div>
+            <div class="modal-footer border-0" style="background-color: #f8f9fa;">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" style="border-radius: 8px;">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>

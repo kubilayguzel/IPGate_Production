@@ -2602,18 +2602,18 @@ export const feeCalculationService = {
             let clientCustomFees = {};
             let clientDiscountRate = 0; 
             let activePriceListId = null;
-            let isTevkifatli = false; // 🔥 YENİ: Tevkifat kontrol değişkeni
+            let isTevkifatli = false; 
+            let tevkifatRateDB = 2; // 🔥 ÇÖZÜM 1: Kapsam hatasını önlemek için değişken dışarıya alındı.
 
             if (clientId) {
                 console.log(`[CALCULATION ENGINE] 🔍 Müvekkil (${clientId}) için Özel Tarife ve İskonto aranıyor...`);
                 
                 // 5.1 Önce müvekkilin bir price_list_id'si veya discount_rate'i var mı ona bak
                 const { data: personData } = await supabase.from('persons')
-                    .select('price_list_id, has_tevkifat') // 🔥 YENİ: has_tevkifat eklendi
+                    .select('price_list_id, has_tevkifat, tevkifat_rate') // 🔥 ÇÖZÜM 2: tevkifat_rate kolonu eklendi!
                     .eq('id', String(clientId))
                     .maybeSingle();
 
-                let tevkifatRateDB = 2; // Varsayılan oran %2
                 if (personData) {
                     isTevkifatli = personData.has_tevkifat === true;
                     if (personData.tevkifat_rate) tevkifatRateDB = personData.tevkifat_rate; // DB'den %2 veya %10'u al

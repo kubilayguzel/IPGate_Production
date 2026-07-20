@@ -296,7 +296,21 @@ export class PortfolioRenderer {
 
         const caret = hasChildren ? `<i class="fas fa-chevron-right row-caret" style="cursor:pointer;"></i>` : '';
         const indentation = isChild ? 'style="padding-left: 30px; border-left: 3px solid #f39c12;"' : '';
-        const statusDisplay = isChild ? '' : (row.statusText || '-');
+        
+        // 🔥 ÇÖZÜM 2: İtiraz sonuçlarını (Kabul, Ret vb.) renklendirerek göze çarpmasını sağlıyoruz
+        let statusDisplay = '';
+        if (!isChild) {
+            let badgeColor = 'secondary';
+            const sText = String(row.statusText || '').toLowerCase();
+            
+            if (sText.includes('bekleniyor') || sText.includes('devam')) badgeColor = 'warning';
+            else if (sText.includes('kabul') && !sText.includes('kısmen')) badgeColor = 'success';
+            else if (sText.includes('ret') || sText.includes('red')) badgeColor = 'danger';
+            else if (sText.includes('kısmen')) badgeColor = 'info';
+            else badgeColor = 'primary';
+            
+            statusDisplay = `<span class="badge badge-${badgeColor} px-2 py-1 shadow-sm">${row.statusText || '-'}</span>`;
+        }
 
         tr.innerHTML = `
             <td class="toggle-cell text-center">${caret}</td>

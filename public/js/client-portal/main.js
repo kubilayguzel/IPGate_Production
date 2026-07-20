@@ -665,19 +665,33 @@ class ClientPortalController {
             const hasChildren = item.childrenData && item.childrenData.length > 0;
             const imgHtml = item.brandImageUrl ? `<img src="${item.brandImageUrl}" class="brand-thumb" style="max-height:60px; object-fit:contain; border-radius:4px; padding:2px; border:1px solid #ddd;">` : '-';
             
+            // 🔥 YENİ: Ana işlem evraklarını Dropdown (Çoklu) veya Tek Buton olarak çizme
             let docBtn = '<span class="badge badge-light">Yok</span>';
             if (item.allParentDocs && item.allParentDocs.length > 0) {
-                const doc = item.allParentDocs[0];
-                docBtn = `<a href="${doc.document_url || doc.url}" target="_blank" class="btn btn-sm btn-outline-info" title="Evrak İndir"><i class="fas fa-file-download"></i></a>`;
+                if (item.allParentDocs.length === 1) {
+                    const doc = item.allParentDocs[0];
+                    docBtn = `<a href="${doc.document_url || doc.url}" target="_blank" class="btn btn-sm btn-outline-info" title="Evrak İndir"><i class="fas fa-file-download"></i></a>`;
+                } else {
+                    const dropItems = item.allParentDocs.map((d, i) => `<a class="dropdown-item text-sm" href="${d.document_url || d.url}" target="_blank"><i class="fas fa-file-pdf text-danger mr-2"></i>${d.document_name || 'Evrak ' + (i+1)}</a>`).join('');
+                    // 🔥 ÇÖZÜM: Bootstrap'in DOĞAL dropdown yapısına döndük. Hack'ler silindi.
+                    docBtn = `<div class="dropdown">
+                        <button class="btn btn-sm btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false"><i class="fas fa-layer-group"></i> ${item.allParentDocs.length}</button>
+                        <div class="dropdown-menu dropdown-menu-right shadow">${dropItems}</div>
+                    </div>`;
+                }
             }
 
             const row = document.createElement('tr');
             
             if (hasChildren) {
                 row.classList.add('accordion-header-row');
-                row.setAttribute('data-toggle', 'collapse');
-                row.setAttribute('data-target', `#accordion-itiraz-${item.id}`);
                 row.style.cursor = 'pointer';
+                // 🔥 AKILLI AKORDEON: 'data-toggle' özelliğini sildik, bunun yerine manuel dinliyoruz.
+                // Böylece tıklama olayı engellenmeden yukarı tırmanıyor ve menüler takılmadan açılıp kapanıyor!
+                row.onclick = function(e) {
+                    if ($(e.target).closest('.btn, a, .dropdown').length) return;
+                    $(`#accordion-itiraz-${item.id}`).collapse('toggle');
+                };
             }
 
             row.innerHTML = `
@@ -699,7 +713,7 @@ class ClientPortalController {
                     </span>
                 </td>
                 
-                <td class="text-center" onclick="event.stopPropagation();">${docBtn}</td>
+                <td class="text-center">${docBtn}</td>
             `;
             tbody.appendChild(row);
 
@@ -709,10 +723,22 @@ class ClientPortalController {
                     const childTypeObj = this.state.transactionTypes.get(String(child.transaction_type_id)) || {};
                     const cType = childTypeObj.alias || childTypeObj.name || 'Alt İşlem (Karar/Tebliğ)';
                     
+                    // 🔥 YENİ: Alt işlem evraklarını Dropdown (Çoklu) veya Tek Buton olarak çizme
                     let cDocBtn = '<span class="badge badge-light">Yok</span>';
-                    if (child.transaction_documents && child.transaction_documents.length > 0) {
-                        const cDoc = child.transaction_documents[0];
-                        cDocBtn = `<a href="${cDoc.document_url || cDoc.url}" target="_blank" class="btn btn-xs btn-primary"><i class="fas fa-download mr-1"></i> İndir</a>`;
+                    const childDocs = child.allDocs || child.transaction_documents || [];
+                    
+                    if (childDocs.length > 0) {
+                        if (childDocs.length === 1) {
+                            const cDoc = childDocs[0];
+                            cDocBtn = `<a href="${cDoc.document_url || cDoc.url}" target="_blank" class="btn btn-xs btn-primary"><i class="fas fa-download mr-1"></i> İndir</a>`;
+                        } else {
+                            const dropItems = childDocs.map((d, i) => `<a class="dropdown-item text-sm" href="${d.document_url || d.url}" target="_blank"><i class="fas fa-file-pdf text-danger mr-2"></i>${d.document_name || 'Evrak ' + (i+1)}</a>`).join('');
+                            // 🔥 ÇÖZÜM: Bootstrap'in DOĞAL dropdown yapısına döndük.
+                            cDocBtn = `<div class="dropdown">
+                                <button class="btn btn-xs btn-primary dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false"><i class="fas fa-layer-group mr-1"></i> ${childDocs.length} Evrak</button>
+                                <div class="dropdown-menu dropdown-menu-right shadow">${dropItems}</div>
+                            </div>`;
+                        }
                     }
                     
                     return `<tr>
@@ -765,18 +791,21 @@ class ClientPortalController {
         const ipRecordIds = [...new Set(itirazData.map(t => t.ip_record_id).filter(Boolean))];
         let allTransactions = [];
         let ipOriginsMap = {}; // Markaların gerçek menşe bilgilerini tutacak harita
+        let allTaskDocs = [];  // 🔥 YENİ: Görev evraklarını tutacak dizi
         
         if (ipRecordIds.length > 0) {
-            // Hem işlemleri hem de markaların Orijin (TÜRKPATENT/WIPO vb.) bilgilerini eşzamanlı çekiyoruz
-            const [txRes, ipRes] = await Promise.all([
+            // İşlemleri, markaları ve GÖREV EVRAKLARINI eşzamanlı çekiyoruz
+            const [txRes, ipRes, tDocsRes] = await Promise.all([
                 supabase.from('transactions').select('*, transaction_documents(*)').in('ip_record_id', ipRecordIds),
-                supabase.from('ip_records').select('id, origin').in('id', ipRecordIds)
+                supabase.from('ip_records').select('id, origin').in('id', ipRecordIds),
+                supabase.from('task_documents').select('*').in('task_id', itirazData.map(t => t.id)) // 🔥 Görev Evrakları!
             ]);
             
             if (txRes.data) allTransactions = txRes.data;
             if (ipRes.data) {
                 ipRes.data.forEach(ip => ipOriginsMap[ip.id] = ip.origin || 'TÜRKPATENT');
             }
+            if (tDocsRes.data) allTaskDocs = tDocsRes.data;
         }
 
         const REQUEST_RESULT_STATUS = {
@@ -804,7 +833,7 @@ class ClientPortalController {
                         || recordTxs.find(tx => String(tx.id) === String(task.transaction_id));
 
             let parentTx = null;
-            
+
             if (linkedTx) {
                 // İşlem bir 'child' ise (Örn: 38 - Karşı Görüş), asıl ebeveynini bulup ona bağlan!
                 if (linkedTx.transaction_hierarchy === 'child' && linkedTx.parent_id) {
@@ -831,6 +860,19 @@ class ClientPortalController {
             
             // Alt işlemleri (Kararları ve Karşı Görüşleri) ana işleme bağlıyoruz
             const childrenTxs = parentTx.isVirtual ? [] : recordTxs.filter(tx => tx.transaction_hierarchy === 'child' && tx.parent_id === parentTx.id);
+
+            // 🔥 YENİ: Alt işlemlerin evraklarını toparlayıp birleştiriyoruz
+            childrenTxs.forEach(ctx => {
+                let combinedDocs = [...(ctx.transaction_documents || [])];
+                
+                // Eğer bu işlem "İtiraza Karşı Görüş" (38) ise, çektiğimiz GÖREV EVRAKLARINI da doğrudan buna bağla!
+                if (ctx.task_id && String(ctx.transaction_type_id) === '38') {
+                    const tDocs = allTaskDocs.filter(td => String(td.task_id) === String(ctx.task_id));
+                    combinedDocs = [...combinedDocs, ...tDocs];
+                }
+                ctx.allDocs = combinedDocs; // Render fonksiyonunda kullanmak üzere atıyoruz
+            });
+            
             let computedStatus = 'Durum Bilinmiyor';
             let badgeColor = 'secondary';
 

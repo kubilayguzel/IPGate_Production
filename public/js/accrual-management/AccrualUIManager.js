@@ -757,7 +757,6 @@ export class AccrualUIManager {
                     <tr>
                         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" ${isSelected ? 'checked' : ''}></td>
                         <td><a href="#" class="view-btn text-primary font-weight-bold" data-id="${acc.id}" title="Tahakkuk Detayını Görüntüle">#${acc.id}</a></td>
-                        <td><div class="text-muted"><i class="far fa-clock mr-1"></i>${dateStr}</div></td> <!-- 🔥 YENİ: KAYIT TARİHİ KOLONU -->
                         <td>${foreignStatusHtml}</td>
                         <td class="text-secondary"><i class="far fa-calendar-alt mr-1"></i>${acc.foreignPaymentDate ? new Date(acc.foreignPaymentDate).toLocaleDateString('tr-TR') : '-'}</td>
                         <td><a href="#" class="task-detail-link" data-task-id="${acc.taskId}">${taskDisplay}</a></td>

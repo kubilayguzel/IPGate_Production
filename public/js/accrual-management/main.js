@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.freestyleFormManager = null;
             this.state = {
                 activeTab: 'main',       
-                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all' }, // 🔥 Yeni filtre stateleri eklendi
+                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '' },
                 sort: { column: 'createdAt', direction: 'desc' },
                 selectedIds: new Set(),
                 itemsPerPage: 50 
@@ -215,7 +215,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     wsForeign.columns = [
                         { header: 'İşlem ID', key: 'id', width: 12 },
-                        { header: 'Kayıt Tarihi', key: 'createdAt', width: 15 }, // 🔥 YENİ EXCEL KOLONU
                         { header: 'Durum', key: 'status', width: 15 },
                         { header: 'Ödeme Tarihi', key: 'paymentDate', width: 15 },
                         { header: 'İlgili İş', key: 'task', width: 40 },
@@ -289,7 +288,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         const row = wsForeign.addRow({
                             id: `#${acc.id}`,
-                            createdAt: acc.createdAt ? new Date(acc.createdAt).toLocaleDateString('tr-TR') : '-', // 🔥 EKLENDİ
                             status: fStatusTxt,
                             paymentDate: acc.foreignPaymentDate ? new Date(acc.foreignPaymentDate).toLocaleDateString('tr-TR') : '-',
                             task: taskDisplay,
@@ -795,12 +793,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         setupEventListeners() {
-            // 🔥 YENİ: Fatura durumu, açıklama ve Yurtdışı alanları dinleyicilere eklendi
-        const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription', 'filterForeignReceipt', 'filterForeignAdvisor'];
+            // 🔥 YENİ: Fatura durumu ve açıklama alanları dinleyicilere eklendi
+        const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription'];
         
         const handleFilterChange = () => {
-            this.state.filters.foreignReceipt = document.getElementById('filterForeignReceipt')?.value || 'all';
-            this.state.filters.foreignAdvisor = document.getElementById('filterForeignAdvisor')?.value || 'all';
             this.state.filters.department = document.getElementById('filterDepartment').value;
             this.state.filters.type = document.getElementById('filterType').value;
             this.state.filters.startDate = document.getElementById('filterStartDate').value;
@@ -1389,7 +1385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         
                         const mailHtml = `
                             <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-                                <h3 style="color: #1e3c72;">Şİrketimiz Adına Düzenlenen Yurtdışı Fatura Raporu</h3>
+                                <h3 style="color: #1e3c72;">Yurtdışı Ödemeleri Dekont Raporu</h3>
                                 <p>Merhaba,</p>
                                 <p>Ekteki bağlantıda şirketimizin yurtdışı ödemelerine ait <strong>${addedCount} adet</strong> dekont (alış faturası) bulunmaktadır.</p>
                                 <p>Tüm dekontları tek bir paket (ZIP) halinde indirmek için aşağıdaki butona tıklayabilirsiniz:</p>

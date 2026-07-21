@@ -169,7 +169,6 @@
             animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
         }
 
-        /* Yüzer bar içindeki butonları biraz büyütüp estetik katalım */
         #bulkActions button {
             border-radius: 20px !important;
             padding: 8px 18px !important;
@@ -181,6 +180,36 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
+
+        /* --- YENİ OFFCANVAS (SAĞDAN AÇILAN FİLTRE) STİLLERİ --- */
+        .filter-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.4); z-index: 1040; display: none; opacity: 0;
+            transition: opacity 0.3s ease; backdrop-filter: blur(2px);
+        }
+        .filter-overlay.show { display: block; opacity: 1; }
+        
+        .filter-offcanvas {
+            position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
+            background: #fff; z-index: 1050; box-shadow: -5px 0 25px rgba(0,0,0,0.15);
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column;
+        }
+        .filter-offcanvas.open { right: 0; }
+        
+        .filter-offcanvas-header {
+            padding: 20px 25px; border-bottom: 1px solid #e1e8ed; 
+            display: flex; justify-content: space-between; align-items: center; background: #f8f9fa;
+        }
+        .filter-offcanvas-body { padding: 25px; overflow-y: auto; flex-grow: 1; }
+        .filter-offcanvas-footer { padding: 20px 25px; border-top: 1px solid #e1e8ed; background: #fff; }
+        
+        .filter-group-title {
+            font-size: 0.85rem; font-weight: 700; color: #1e3c72; 
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 15px;
+            border-bottom: 2px solid #e1e8ed; padding-bottom: 5px;
+        }
+        .filter-offcanvas .filter-group { margin-bottom: 15px; width: 100%; }
+        .filter-offcanvas .filter-input, .filter-offcanvas .filter-select { width: 100%; }
     </style>
 </head>
 <body>
@@ -196,6 +225,12 @@
                         <p class="page-subtitle">Sistemdeki tüm tahakkuk kayıtlarını görüntüleyin ve yönetin.</p>
                     </div>
                         <div class="d-flex align-items-center gap-2" style="gap: 10px;">
+                        <!-- 🔥 YENİ FİLTRE BUTONU -->
+                        <button type="button" class="btn btn-outline-primary font-weight-bold shadow-sm" id="btnOpenFilters">
+                            <i class="fas fa-filter mr-2"></i>Filtreler 
+                            <span id="activeFilterCount" class="badge badge-light text-primary ml-1 shadow-sm" style="display:none; border-radius: 10px;">0</span>
+                        </button>
+                        
                         <button type="button" class="btn btn-primary font-weight-bold shadow-sm" id="btnCreateFreestyleAccrual">
                             <i class="fas fa-plus-circle mr-2"></i>Serbest Tahakkuk
                         </button>
@@ -215,125 +250,61 @@
                 </div>
             </section>
 
-                <div class="filter-section" style="display: flex; flex-direction: column; gap: 15px;">
-                <div class="filter-controls" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;">
-                    <div class="filter-group">
-                        <label class="filter-label">Birim</label>
-                        <select id="filterDepartment" class="filter-select" style="min-width: 120px;">
-                            <option value="">Tümü</option>
-                            <option value="EVREKA">Evreka</option>
-                            <option value="HUKUK">Hukuk</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label class="filter-label">Tür</label>
-                        <select id="filterType" class="filter-select" style="min-width: 140px;">
-                            <option value="">Tümü</option>
-                            <option value="Hizmet">Hizmet</option>
-                            <option value="Hukuk Danışmanlık">Hukuk Danışmanlık</option>
-                            <option value="Masraf">Masraf / Gider</option>
-                            <option value="Kur Farkı">Kur Farkı</option>
-                            <option value="TP Harç">TP Harç</option>
-                            <option value="TP Hizmet">TP Hizmet</option>
-                        </select>
-                    </div>
+            <!-- YENİ: OFFCANVAS ÇEKMECE YAPI (ESKİ YAPI SİLİNDİ) -->
+            <div id="filterOverlay" class="filter-overlay"></div>
+            <div id="filterOffcanvas" class="filter-offcanvas">
+                <div class="filter-offcanvas-header">
+                    <h5 class="m-0 font-weight-bold text-dark"><i class="fas fa-filter mr-2 text-primary"></i>Gelişmiş Filtreler</h5>
+                    <button type="button" class="close" id="btnCloseFilters" style="font-size: 1.5rem;">&times;</button>
+                </div>
+                <div class="filter-offcanvas-body">
                     
+                    <div class="filter-group-title">Genel Durum</div>
                     <div class="filter-group">
-                        <label class="filter-label">Başlangıç Tarihi</label>
-                        <input type="text" id="filterStartDate" class="filter-input" placeholder="gg.aa.yyyy" data-datepicker style="width: 130px;">
+                        <label class="filter-label">Birim & Tür</label>
+                        <div class="d-flex" style="gap:10px;">
+                            <select id="filterDepartment" class="filter-select"><option value="">Birim (Tümü)</option><option value="EVREKA">Evreka</option><option value="HUKUK">Hukuk</option></select>
+                            <select id="filterType" class="filter-select"><option value="">Tür (Tümü)</option><option value="Hizmet">Hizmet</option><option value="Hukuk Danışmanlık">Hukuk Dan.</option><option value="Masraf">Masraf</option><option value="Kur Farkı">Kur Farkı</option><option value="TP Harç">TP Harç</option></select>
+                        </div>
                     </div>
                     <div class="filter-group">
-                        <label class="filter-label">Bitiş Tarihi</label>
-                        <input type="text" id="filterEndDate" class="filter-input" placeholder="gg.aa.yyyy" data-datepicker style="width: 130px;">
+                        <label class="filter-label">Tarih Aralığı (Oluşturma)</label>
+                        <div class="d-flex" style="gap:10px;">
+                            <input type="text" id="filterStartDate" class="filter-input" placeholder="Başlangıç" data-datepicker>
+                            <input type="text" id="filterEndDate" class="filter-input" placeholder="Bitiş" data-datepicker>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Tahakkuk & Fatura Durumu</label>
+                        <select id="filterStatus" class="filter-select mb-2"><option value="all">Tahakkuk (Tümü)</option><option value="paid">Ödendi</option><option value="unpaid">Ödenmedi</option><option value="partially_paid">Kısmen Ödendi</option></select>
+                        <select id="filterInvoiceStatus" class="filter-select"><option value="all">Fatura (Tümü)</option><option value="not_invoiced">Fatura Kesilmedi</option><option value="draft">Taslak</option><option value="waiting">İşleniyor / Bekliyor</option><option value="sent">Gönderildi</option><option value="approved">Kabul Edildi</option><option value="rejected">Reddedildi</option><option value="cancelled">İptal Edildi</option><option value="failed">Hatalı</option></select>
                     </div>
 
+                    <div class="filter-group-title mt-4">Kayıt & Arama</div>
+                    <div class="filter-group"><input type="text" id="filterParty" class="filter-input" placeholder="Taraf / Müvekkil Ara..."></div>
                     <div class="filter-group">
-                        <label class="filter-label">Tahakkuk Durumu</label>
-                        <select id="filterStatus" class="filter-select" style="min-width: 130px;">
-                            <option value="all">Tümü</option>
-                            <option value="paid">Ödendi</option>
-                            <option value="unpaid">Ödenmedi</option>
-                            <option value="partially_paid">Kısmen Ödendi</option>
-                        </select>
+                        <div class="d-flex" style="gap:10px;">
+                            <select id="filterField" class="filter-select"><option value="">Alan</option><option value="Marka">Marka</option><option value="Patent">Patent</option><option value="Tasarım">Tasarım</option><option value="Dava">Dava</option></select>
+                            <input type="text" id="filterFileNo" class="filter-input" placeholder="Dosya No...">
+                        </div>
                     </div>
+                    <div class="filter-group"><input type="text" id="filterSubject" class="filter-input" placeholder="Konu / Marka Adı..."></div>
+                    <div class="filter-group"><input type="text" id="filterTask" class="filter-input" placeholder="İlgili İş (Örn: İtiraz, Yenileme)..."></div>
+                    <div class="filter-group"><input type="text" id="filterDescription" class="filter-input" placeholder="Açıklama içinde ara..."></div>
 
-                    <div class="filter-group">
-                        <label class="filter-label" style="color: #4e73df; font-weight: bold;">Fatura Durumu</label>
-                            <select id="filterInvoiceStatus" class="form-control shadow-sm border-0" style="min-width: 190px; height: auto; padding-top: 5px; padding-bottom: 5px;">
-                                <option value="all">Fatura Durumu (Tümü)</option>
-                                <option value="not_invoiced" style="font-weight: bold; color: #e74a3b;">Fatura Kesilmedi</option>
-                                <option value="draft">Taslak</option>
-                                <option value="waiting">İşleniyor / Bekliyor</option>
-                                <option value="sent">Gönderildi (GİB / Ent.)</option>
-                                <option value="approved">Kabul Edildi / Ulaştı</option>
-                                <option value="rejected">Reddedildi</option>
-                                <option value="cancelled">İptal Edildi</option>
-                                <option value="failed">Hatalı / Başarısız</option>
-                            </select>
+                    <div class="filter-group-title mt-4 text-danger border-danger">Yurtdışı Özel (Sadece Dış İşler)</div>
+                    <div class="filter-group d-flex" style="gap:10px;">
+                        <div style="flex:1;"><label class="filter-label">Ödeme Belgesi</label><select id="filterForeignReceipt" class="filter-select"><option value="all">Tümü</option><option value="yes">Var (PDF)</option><option value="no">Yok</option></select></div>
+                        <div style="flex:1;"><label class="filter-label">Müşavire E-Posta</label><select id="filterForeignAdvisor" class="filter-select"><option value="all">Tümü</option><option value="yes">Gönderildi</option><option value="no">Gönderilmedi</option></select></div>
                     </div>
                 </div>
-
-                <div class="filter-controls" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; border-top: 1px dashed #e3e6f0; padding-top: 10px;">
-                    <div class="filter-group">
-                        <label class="filter-label">Alan</label>
-                        <select id="filterField" class="filter-select" style="min-width: 120px;">
-                            <option value="">Tümü</option>
-                            <option value="Marka">Marka</option>
-                            <option value="Patent">Patent</option>
-                            <option value="Tasarım">Tasarım</option>
-                            <option value="Dava">Dava</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label class="filter-label">Taraf</label>
-                        <input type="text" id="filterParty" class="filter-input" placeholder="Örn: Türk Patent..." style="width: 140px;">
-                    </div>
-
-                    <div class="filter-group">
-                        <label class="filter-label">İlgili Dosya No</label>
-                        <input type="text" id="filterFileNo" class="filter-input" placeholder="Dosya No..." style="width: 130px;">
-                    </div>
-
-                    <div class="filter-group">
-                        <label class="filter-label">Konu</label>
-                        <input type="text" id="filterSubject" class="filter-input" placeholder="Marka/Konu adı..." style="width: 140px;">
-                    </div>
-                    
-                    <div class="filter-group">
-                        <label class="filter-label">İlgili İş</label>
-                        <input type="text" id="filterTask" class="filter-input" placeholder="İş tanımı..." style="width: 140px;">
-                    </div>
-
-                    <div class="filter-group">
-                        <label class="filter-label" style="color: #4e73df; font-weight: bold;">Fatura / İç Açıklama</label>
-                        <input type="text" id="filterDescription" class="filter-input" placeholder="İçinde geçen metin..." style="width: 170px; border: 1px solid #4e73df;">
-                    </div>
-
-                    <!-- 🔥 YENİ: YURTDIŞI ÖZEL FİLTRELERİ -->
-                    <div class="filter-group" style="border-left: 2px solid #e3e6f0; padding-left: 10px; margin-left: 5px;">
-                        <label class="filter-label text-danger font-weight-bold" title="Sadece Yurtdışı Sekmesinde Çalışır"><i class="fas fa-file-pdf mr-1"></i>Ödeme Belgesi</label>
-                        <select id="filterForeignReceipt" class="filter-select border-danger" style="min-width: 110px;">
-                            <option value="all">Tümü</option>
-                            <option value="yes">Var</option>
-                            <option value="no">Yok</option>
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label class="filter-label text-danger font-weight-bold" title="Sadece Yurtdışı Sekmesinde Çalışır"><i class="fas fa-envelope mr-1"></i>Müşavire</label>
-                        <select id="filterForeignAdvisor" class="filter-select border-danger" style="min-width: 110px;">
-                            <option value="all">Tümü</option>
-                            <option value="yes">Gönderildi</option>
-                            <option value="no">Gönderilmedi</option>
-                        </select>
-                    </div>
-
-                    <button type="button" id="btnClearFilters" class="clear-filters-btn" style="margin-left: auto;">
-                        <i class="fas fa-times mr-1"></i>Temizle
+                <div class="filter-offcanvas-footer">
+                    <button type="button" id="btnClearFilters" class="btn btn-outline-secondary btn-block font-weight-bold">
+                        <i class="fas fa-eraser mr-1"></i>Tüm Filtreleri Temizle
                     </button>
                 </div>
             </div>
+            <!-- /YENİ OFFCANVAS BİTİŞ -->
 
             <div class="accruals-container">
                 <div class="accruals-header border-0 pb-0" style="display: flex; justify-content: flex-end; padding: 15px 30px 0 30px;">
@@ -388,7 +359,6 @@
                         </a>
                     </li>
                     </ul>
-                </ul>
 
                 <div class="tab-content">
                     <div class="tab-pane fade show active" id="content-main" role="tabpanel">

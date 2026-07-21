@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.freestyleFormManager = null;
             this.state = {
                 activeTab: 'main',       
-                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '' },
+                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all' },
                 sort: { column: 'createdAt', direction: 'desc' },
                 selectedIds: new Set(),
                 itemsPerPage: 50 
@@ -793,10 +793,64 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         setupEventListeners() {
-            // 🔥 YENİ: Fatura durumu ve açıklama alanları dinleyicilere eklendi
-        const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription'];
+            // --- OFFCANVAS (ÇEKMECE) YÖNETİMİ ---
+            const toggleFilters = (show) => {
+                const overlay = document.getElementById('filterOverlay');
+                const offcanvas = document.getElementById('filterOffcanvas');
+                if (show) {
+                    overlay.classList.add('show');
+                    setTimeout(() => offcanvas.classList.add('open'), 10);
+                } else {
+                    offcanvas.classList.remove('open');
+                    setTimeout(() => overlay.classList.remove('show'), 300);
+                }
+            };
+
+            document.getElementById('btnOpenFilters')?.addEventListener('click', () => toggleFilters(true));
+            document.getElementById('btnCloseFilters')?.addEventListener('click', () => toggleFilters(false));
+            document.getElementById('filterOverlay')?.addEventListener('click', () => toggleFilters(false));
+
+            // AKTİF FİLTRE SAYISINI HESAPLAMA
+            const updateFilterBadge = () => {
+                let count = 0;
+                const f = this.state.filters;
+                if(f.department) count++;
+                if(f.type) count++;
+                if(f.startDate || f.endDate) count++; 
+                if(f.status !== 'all') count++;
+                if(f.invoiceStatus !== 'all') count++;
+                if(f.field) count++;
+                if(f.party) count++;
+                if(f.fileNo) count++;
+                if(f.subject) count++;
+                if(f.task) count++;
+                if(f.description) count++;
+                if(f.foreignReceipt && f.foreignReceipt !== 'all') count++;
+                if(f.foreignAdvisor && f.foreignAdvisor !== 'all') count++;
+
+                const badge = document.getElementById('activeFilterCount');
+                const btn = document.getElementById('btnOpenFilters');
+                if (badge && btn) {
+                    badge.textContent = count;
+                    badge.style.display = count > 0 ? 'inline-block' : 'none';
+                    if (count > 0) {
+                        btn.classList.remove('btn-outline-primary');
+                        btn.classList.add('btn-primary');
+                        badge.classList.remove('text-primary', 'badge-light');
+                        badge.classList.add('text-dark', 'badge-warning');
+                    } else {
+                        btn.classList.add('btn-outline-primary');
+                        btn.classList.remove('btn-primary');
+                        badge.classList.add('text-primary', 'badge-light');
+                        badge.classList.remove('text-dark', 'badge-warning');
+                    }
+                }
+            };
+
+            // 🔥 YENİ: Input listesi ve filtre metodu
+            const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription', 'filterForeignReceipt', 'filterForeignAdvisor'];
         
-        const handleFilterChange = () => {
+            const handleFilterChange = () => {
             this.state.filters.department = document.getElementById('filterDepartment').value;
             this.state.filters.type = document.getElementById('filterType').value;
             this.state.filters.startDate = document.getElementById('filterStartDate').value;
@@ -808,7 +862,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.state.filters.fileNo = document.getElementById('filterFileNo').value.trim();
             this.state.filters.subject = document.getElementById('filterSubject').value.trim();
             this.state.filters.task = document.getElementById('filterTask').value.trim();
-            this.state.filters.description = document.getElementById('filterDescription').value.trim(); // 🔥 Eklendi
+            this.state.filters.description = document.getElementById('filterDescription').value.trim();
+            this.state.filters.foreignReceipt = document.getElementById('filterForeignReceipt') ? document.getElementById('filterForeignReceipt').value : 'all';
+            this.state.filters.foreignAdvisor = document.getElementById('filterForeignAdvisor') ? document.getElementById('filterForeignAdvisor').value : 'all';
+            
+            updateFilterBadge(); // 🔥 YENİ: Filtre değiştikçe butondaki rakamı güncelle
             this.renderPage();
         };
 
@@ -823,15 +881,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const el = document.getElementById(id);
                 if (el) { 
                     if(el.tagName === 'SELECT') {
-                        // Durum ve Fatura Durumu 'all' olarak sıfırlanmalı
-                        el.value = (id === 'filterStatus' || id === 'filterInvoiceStatus') ? 'all' : ''; 
+                        el.value = (id === 'filterStatus' || id === 'filterInvoiceStatus' || id === 'filterForeignReceipt' || id === 'filterForeignAdvisor') ? 'all' : ''; 
                     } else { 
                         el.value = ''; 
                     } 
                 }
             });
-            this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '' };
+            this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all' };
+            
+            updateFilterBadge(); // 🔥 YENİ: Filtreler sıfırlanınca rozeti sıfırla
             this.renderPage();
+            toggleFilters(false); // 🔥 YENİ: Temizle butonuna basılınca çekmece kapansın
         });
 
             // 🔥 2. ADIM EKLENTİSİ: MERKEZİ MOTORU ÇAĞIRAN YENİ DİNLEYİCİ
@@ -898,10 +958,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const targetHref = $(e.target).attr("href");
                 
                 const paginationControls = document.getElementById('paginationControls');
-                const filterSection = document.querySelector('.filter-section');
+                const btnOpenFilters = document.getElementById('btnOpenFilters'); // 🔥 YENİ EKLENDİ
 
                 if (paginationControls) paginationControls.style.display = 'flex';
-                if (filterSection) filterSection.style.display = 'block';
+                if (btnOpenFilters) btnOpenFilters.style.display = 'inline-block'; // 🔥 YENİ EKLENDİ
 
                 if (targetHref === '#content-foreign') {
                     this.state.activeTab = 'foreign';
@@ -913,7 +973,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     this.state.activeTab = 'recursive';
                     
                     if (paginationControls) paginationControls.style.display = 'none';
-                    if (filterSection) filterSection.style.display = 'none';
+                    if (btnOpenFilters) btnOpenFilters.style.display = 'none'; // 🔥 YENİ EKLENDİ
                     
                     this.state.selectedIds.clear();
                     this.uiManager.updateBulkActionsVisibility(false, this.state.activeTab);

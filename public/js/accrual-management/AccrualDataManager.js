@@ -403,6 +403,21 @@ export class AccrualDataManager {
                     return desc1.includes(searchVal) || desc2.includes(searchVal);
                 });
             }
+
+            // 🔥 YENİ: Yurtdışı Ödeme Belgesi (PDF var/yok) Filtresi
+            if (filters.foreignReceipt && filters.foreignReceipt !== 'all') {
+                data = data.filter(item => {
+                    const hasPdf = item.files && item.files.some(f => f.type === 'application/pdf');
+                    return filters.foreignReceipt === 'yes' ? hasPdf : !hasPdf;
+                });
+            }
+
+            // 🔥 YENİ: Müşavire Gönderildi mi (Evet/Hayır) Filtresi
+            if (filters.foreignAdvisor && filters.foreignAdvisor !== 'all') {
+                data = data.filter(item => {
+                    return filters.foreignAdvisor === 'yes' ? (item.sentToAdvisor === true) : !item.sentToAdvisor;
+                });
+            }
         }
 
         if (sort && sort.column) {

@@ -736,7 +736,8 @@ serve(async (req) => {
                     }
 
                     let docType = "SATIS";
-                    if (!config.isSmm && isTevkifatli && typeLower === 'hizmet') {
+                    // 🔥 GÜNCELLEME: SMM için de Tevkifat tipini serbest bırakıyoruz
+                    if (isTevkifatli && (typeLower === 'hizmet' || config.isSmm)) {
                         docType = "TEVKIFAT";
                         vat = 20; 
                     }
@@ -815,14 +816,28 @@ serve(async (req) => {
                 }
 
                 if (config.isSmm) {
-                    // 🔥 ÇÖZÜM: SMM Genel Toplam Matematiği (Brüt + KDV - Stopaj)
                     invoiceParams.append(`items[${itemIndex}][stoppage_value]`, stoppage);
                     
                     const itemGrossTotal = item.qty * finalUnitPrice;
                     const itemVatAmount = itemGrossTotal * (safeVat / 100);
                     const itemStoppageAmount = itemGrossTotal * (Number(stoppage) / 100);
                     
-                    calculatedGrandTotal += (itemGrossTotal + itemVatAmount - itemStoppageAmount);
+                    let itemTevkifatAmount = 0;
+
+                    // 🔥 GÜNCELLEME: e-SMM için de KDV Tevkifat parametrelerini (withholding) KolayBi'ye iletiyoruz.
+                    if (docType === 'TEVKIFAT') {
+                        const withholdingVal = tevkifatRate === 10 ? "50" : "90";
+                        const withholdingCode = tevkifatRate === 10 ? "611" : "602"; 
+                        
+                        invoiceParams.append(`items[${itemIndex}][withholding_code]`, withholdingCode);
+                        invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
+                        invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
+                        
+                        itemTevkifatAmount = itemVatAmount * (Number(withholdingVal) / 100);
+                    }
+                    
+                    // 🔥 YENİ MATEMATİK: Brüt + KDV - KDV Tevkifatı - Stopaj (Örn: 100.000 + 20.000 - 18.000 - 20.000 = 82.000 TL)
+                    calculatedGrandTotal += (itemGrossTotal + itemVatAmount - itemTevkifatAmount - itemStoppageAmount);
                 } else {
                     if (docType === 'TEVKIFAT') {
                         const withholdingVal = tevkifatRate === 10 ? "50" : "90";

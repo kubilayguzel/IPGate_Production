@@ -311,6 +311,24 @@
                         <input type="text" id="filterDescription" class="filter-input" placeholder="İçinde geçen metin..." style="width: 170px; border: 1px solid #4e73df;">
                     </div>
 
+                    <!-- 🔥 YENİ: YURTDIŞI ÖZEL FİLTRELERİ -->
+                    <div class="filter-group" style="border-left: 2px solid #e3e6f0; padding-left: 10px; margin-left: 5px;">
+                        <label class="filter-label text-danger font-weight-bold" title="Sadece Yurtdışı Sekmesinde Çalışır"><i class="fas fa-file-pdf mr-1"></i>Ödeme Belgesi</label>
+                        <select id="filterForeignReceipt" class="filter-select border-danger" style="min-width: 110px;">
+                            <option value="all">Tümü</option>
+                            <option value="yes">Var</option>
+                            <option value="no">Yok</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label text-danger font-weight-bold" title="Sadece Yurtdışı Sekmesinde Çalışır"><i class="fas fa-envelope mr-1"></i>Müşavire</label>
+                        <select id="filterForeignAdvisor" class="filter-select border-danger" style="min-width: 110px;">
+                            <option value="all">Tümü</option>
+                            <option value="yes">Gönderildi</option>
+                            <option value="no">Gönderilmedi</option>
+                        </select>
+                    </div>
+
                     <button type="button" id="btnClearFilters" class="clear-filters-btn" style="margin-left: auto;">
                         <i class="fas fa-times mr-1"></i>Temizle
                     </button>
@@ -426,6 +444,7 @@
                                     <tr>
                                         <th style="width: 40px;"><input type="checkbox" id="selectAllCheckboxForeign"></th>
                                         <th class="sortable" data-sort="id">ID <i class="fas fa-sort sort-icon"></i></th>
+                                        <th class="sortable" data-sort="createdAt">Kayıt Tarihi <i class="fas fa-sort sort-icon"></i></th> <!-- 🔥 YENİ KOLON -->
                                         <th class="sortable" data-sort="status">Durum <i class="fas fa-sort sort-icon"></i></th>
                                         <th class="sortable" data-sort="paymentDate">Ödeme Tarihi <i class="fas fa-sort sort-icon"></i></th>
                                         <th class="sortable" data-sort="taskTitle">İlgili İş <i class="fas fa-sort sort-icon"></i></th>

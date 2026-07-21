@@ -403,6 +403,22 @@ export class AccrualDataManager {
                     return desc1.includes(searchVal) || desc2.includes(searchVal);
                 });
             }
+
+            // 🔥 YENİ: YURTDIŞI ÖDEME BELGESİ FİLTRESİ
+            if (filters.foreignReceipt && filters.foreignReceipt !== 'all') {
+                data = data.filter(item => {
+                    const hasPdf = item.files && item.files.some(f => f.type === 'application/pdf');
+                    return filters.foreignReceipt === 'yes' ? hasPdf : !hasPdf;
+                });
+            }
+
+            // 🔥 YENİ: MÜŞAVİRE GÖNDERİM FİLTRESİ
+            if (filters.foreignAdvisor && filters.foreignAdvisor !== 'all') {
+                data = data.filter(item => {
+                    const isSent = item.sentToAdvisor === true;
+                    return filters.foreignAdvisor === 'yes' ? isSent : !isSent;
+                });
+            }
         }
 
         if (sort && sort.column) {

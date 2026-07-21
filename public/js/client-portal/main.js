@@ -963,6 +963,34 @@ class ClientPortalController {
             // 🔥 ÇÖZÜM 4: Hardcoded 'TÜRKPATENT' yerine veritabanından çektiğimiz gerçek Origin değerini atıyoruz
             const actualOrigin = ipOriginsMap[task.ip_record_id] || 'TÜRKPATENT';
 
+            // 🔥 YENİ: Ana Satır (Parent) Evraklarını Akıllı Toplama ve Tekilleştirme
+            let parentDocs = [...(parentTx.transaction_documents || [])];
+
+            // Sadece bu görev doğrudan Ana İşlem (Parent) ise diğer evrakları da buraya topla
+            // (Type 38 gibi akordeonda çıkacak olan child işlemlerin evrakları zaten kendi satırında toplanıyor)
+            if (String(parentTx.transaction_type_id) === String(task.task_type_id) || parentTx.isVirtual) {
+                
+                // 1. Görev evraklarını (task_documents) ana satıra ekle
+                const tDocs = allTaskDocs.filter(td => String(td.task_id) === String(task.id));
+                parentDocs = [...parentDocs, ...tDocs];
+                
+                // 2. Bu işlemi tetikleyen eski bir kurum bildirimi varsa (Örn: Type 52 - İtiraz Ret) onun resmi yazısını da ekle
+                if (task.transaction_id && String(task.transaction_id) !== String(parentTx.id)) {
+                    const trigTx = recordTxs.find(tx => String(tx.id) === String(task.transaction_id));
+                    if (trigTx && trigTx.transaction_documents) {
+                        parentDocs = [...parentDocs, ...trigTx.transaction_documents];
+                    }
+                }
+            }
+
+            // Aynı isimdeki veya linkteki evrakların 2 kere görünmesini engelle (Tekilleştirme)
+            const uniqueDocsMap = new Map();
+            parentDocs.forEach(d => {
+                const key = d.document_url || d.url || d.document_name;
+                if (key && !uniqueDocsMap.has(key)) uniqueDocsMap.set(key, d);
+            });
+            parentDocs = Array.from(uniqueDocsMap.values());
+
             rows.push({
                 id: task.id, 
                 recordId: task.ip_record_id, 
@@ -977,7 +1005,7 @@ class ClientPortalController {
                 epatsDate: parentTx.created_at || task.created_at, 
                 statusText: computedStatus, 
                 statusBadge: badgeColor, 
-                allParentDocs: parentTx.transaction_documents || [],
+                allParentDocs: parentDocs, // 🔥 Tekilleştirilmiş ve toplanmış evrak listesi
                 childrenData: childrenTxs,
                 recordOwnerType: isThirdParty ? 'third_party' : 'self'
             });

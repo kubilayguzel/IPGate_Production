@@ -273,7 +273,7 @@ async function setupMenuBadges(supabase, userId) {
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
             .neq('status', 'completed')
-            .eq('is_read', false);
+            .neq('status', 'read'); // 🚀 ÇÖZÜM: 'is_read' kolonu yerine 'status' kullanıyoruz.
           unreadReminders = manualNotesCount || 0;
       }
 

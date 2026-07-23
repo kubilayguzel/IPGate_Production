@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - İzin Yönetimi</title>
+    <link rel="shortcut icon" href="./evreka-logo.png" type="image/png">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    
+    <style>
+        .page-wrapper { display: flex; flex-direction: column; height: 100vh; overflow-y: hidden; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+        .main-container { flex-grow: 1; padding: 20px 30px; overflow-y: auto; padding-top: 120px; display: flex; flex-direction: column; }
+        .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); flex-shrink: 0; }
+        .page-title { font-size: 2em; color: #1e3c72; margin-bottom: 10px; font-weight: 700; }
+        
+        .stat-card { background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); text-align: center; border-bottom: 4px solid #1e3c72; }
+        .stat-card.success { border-color: #28a745; }
+        .stat-card.danger { border-color: #dc3545; }
+        .stat-title { font-size: 0.9em; color: #6c757d; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; }
+        .stat-value { font-size: 2.5em; font-weight: bold; color: #333; line-height: 1; }
+        
+        .content-container { background: rgba(255, 255, 255, 0.95); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; padding: 20px; flex-shrink: 0; }
+        .table th { background: #f8f9fa; font-weight: 600; color: #495057; border-top: none; }
+        .table td { vertical-align: middle; }
+        
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-approved { background: #d4edda; color: #155724; }
+        .status-rejected { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="main-container">
+            <section class="page-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="page-title">İzin Yönetimi</h1>
+                    <p class="text-muted mb-0">Yıllık izinlerinizi, mazeret izinlerinizi ve bakiyelerinizi buradan yönetebilirsiniz.</p>
+                </div>
+                <div>
+                    <button class="btn btn-primary font-weight-bold shadow-sm px-4 py-2" data-toggle="modal" data-target="#requestLeaveModal">
+                        <i class="fas fa-calendar-plus mr-2"></i>Yeni İzin Talebi
+                    </button>
+                </div>
+            </section>
+
+            <!-- ÖZET KARTLARI -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="stat-card">
+                        <div class="stat-title"><i class="fas fa-star text-primary mr-2"></i>Toplam Kazanılan Hak</div>
+                        <div class="stat-value text-primary" id="statEarned">0</div>
+                        <div class="text-muted small mt-2" id="hireDateText">İşe Giriş: Yükleniyor...</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="stat-card danger">
+                        <div class="stat-title"><i class="fas fa-calendar-check text-danger mr-2"></i>Kullanılan İzin</div>
+                        <div class="stat-value text-danger" id="statUsed">0</div>
+                        <div class="text-muted small mt-2">Gün (Sadece Onaylananlar)</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="stat-card success">
+                        <div class="stat-title"><i class="fas fa-calendar-alt text-success mr-2"></i>Kalan Bakiye</div>
+                        <div class="stat-value text-success" id="statRemaining">0</div>
+                        <div class="text-muted small mt-2">Gün Kullanılabilir İzniniz Var</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- İZİN TABLOLARI -->
+            <div class="content-container">
+                <ul class="nav nav-tabs border-bottom-0 mb-3" id="leaveTabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active font-weight-bold" id="my-leaves-tab" data-toggle="tab" href="#myLeaves" role="tab"><i class="fas fa-user mr-2"></i>Benim İzinlerim</a>
+                    </li>
+                    <li class="nav-item" id="teamLeavesTabItem" style="display: none;">
+                        <a class="nav-link font-weight-bold text-danger" id="team-leaves-tab" data-toggle="tab" href="#teamLeaves" role="tab"><i class="fas fa-users mr-2"></i>Ekip İzinleri / Onay Bekleyenler</a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="myLeaves" role="tabpanel">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>İzin Türü</th>
+                                        <th>Başlangıç</th>
+                                        <th>Bitiş</th>
+                                        <th>Süre (Gün)</th>
+                                        <th>Açıklama</th>
+                                        <th>Durum</th>
+                                        <th>Talep Tarihi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="myLeavesTableBody">
+                                    <tr><td colspan="7" class="text-center text-muted py-4">Henüz bir izin talebiniz bulunmuyor.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="teamLeaves" role="tabpanel">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Personel</th>
+                                        <th>İzin Türü</th>
+                                        <th>Tarih Aralığı</th>
+                                        <th>Süre</th>
+                                        <th>Açıklama</th>
+                                        <th>Durum</th>
+                                        <th class="text-center">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="teamLeavesTableBody">
+                                    <tr><td colspan="7" class="text-center text-muted py-4">Onay bekleyen veya geçmiş ekip izni bulunmuyor.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- İZİN TALEBİ MODALI -->
+    <div class="modal fade" id="requestLeaveModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="border-radius: 15px; border: none;">
+                <div class="modal-header bg-light border-bottom-0" style="border-radius: 15px 15px 0 0;">
+                    <h5 class="modal-title font-weight-bold text-primary"><i class="fas fa-paper-plane mr-2"></i>İzin Talebi Oluştur</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="leaveRequestForm">
+                        <div class="form-group">
+                            <label class="font-weight-bold text-secondary">İzin Türü</label>
+                            <select class="form-control" id="leaveType" required>
+                                <option value="Yıllık İzin">Yıllık İzin</option>
+                                <option value="Mazeret İzni">Mazeret İzni</option>
+                                <option value="Hastalık / Rapor">Hastalık / Rapor</option>
+                                <option value="Ücretsiz İzin">Ücretsiz İzin</option>
+                            </select>
+                            <small class="text-muted">Not: Sadece "Yıllık İzin" bakiyenizden düşer.</small>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 form-group">
+                                <label class="font-weight-bold text-secondary">Başlangıç Tarihi</label>
+                                <input type="date" class="form-control" id="leaveStartDate" required>
+                            </div>
+                            <div class="col-md-6 form-group">
+                                <label class="font-weight-bold text-secondary">Bitiş Tarihi</label>
+                                <input type="date" class="form-control" id="leaveEndDate" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="font-weight-bold text-secondary">Kullanılacak Süre (İş Günü)</label>
+                            <input type="number" class="form-control" id="leaveDays" step="0.5" min="0.5" placeholder="Örn: 2 veya 2.5" required>
+                            <small class="text-danger">Hafta sonları ve resmi tatilleri çıkararak NET iş günü sayısını giriniz.</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="font-weight-bold text-secondary">Açıklama (Opsiyonel)</label>
+                            <textarea class="form-control" id="leaveDescription" rows="2" placeholder="Yöneticinize iletmek istediğiniz not..."></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer border-top-0 pt-0 pb-4 px-4">
+                    <button type="button" class="btn btn-secondary px-4" data-dismiss="modal">İptal</button>
+                    <button type="button" class="btn btn-primary px-4" id="btnSubmitLeave">Talebi Gönder</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script type="module" src="./js/leaves-manager.js"></script>
+</body>
+</html>

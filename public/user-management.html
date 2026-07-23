@@ -526,9 +526,16 @@
                     <option value="user">Kullanıcı</option>
                     <option value="admin">Admin</option>
                     <option value="superadmin">Super Admin</option>
-                </select>
+                    </select>
             </div>
             
+            <!-- 🔥 YENİ: İzin Modülü İçin İşe Başlama Tarihi -->
+            <div class="form-group mt-3">
+                <label for="userHireDate" class="font-weight-bold text-secondary"><i class="fas fa-calendar-alt mr-1"></i>İşe Başlama Tarihi (İzin Modülü)</label>
+                <input type="date" class="form-input" id="userHireDate" name="userHireDate">
+                <small class="text-muted mt-1">Personelin yıllık izin hak edişlerinin otomatik hesaplanması için kullanılır.</small>
+            </div>
+
             <!-- Client Rolü İçin Kişi İlişkilendirme -->
             <div class="form-group" id="clientPersonGroup" style="display: none;">
                 <label class="form-label">İlişkilendirilecek Kişiler:</label>
@@ -668,8 +675,11 @@ import { supabase, authService, personService } from './supabase-config.js';
             async loadUsers() {
                 document.getElementById('loadingIndicator').style.display = 'block';
                 try {
-                    // Supabase'den tüm kullanıcıları çek
-                    const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+                    // 🔥 YENİ: user_leave_balances tablosunu JOIN ederek çekiyoruz
+                    const { data, error } = await supabase.from('users').select(`
+                        *,
+                        user_leave_balances ( hire_date )
+                    `).order('created_at', { ascending: false });
                     if (error) throw error;
                     
                     this.allUsers = data.map(u => ({ 
@@ -677,7 +687,8 @@ import { supabase, authService, personService } from './supabase-config.js';
                         email: u.email,
                         displayName: u.display_name,
                         role: u.role,
-                        createdAt: u.created_at
+                        createdAt: u.created_at,
+                        hireDate: u.user_leave_balances && u.user_leave_balances.length > 0 ? u.user_leave_balances[0].hire_date : '' // 🔥 EKLENDİ
                     }));
                     this.renderUsers();
                 } catch (error) {
@@ -826,6 +837,7 @@ import { supabase, authService, personService } from './supabase-config.js';
                 document.getElementById('userModalTitle').textContent = 'Yeni Kullanıcı Ekle (Backend Gerekir)';
                 document.getElementById('userForm').reset();
                 document.getElementById('userId').value = '';
+                document.getElementById('userHireDate').value = ''; // 🔥 EKLENDİ
                 document.getElementById('passwordGroup').style.display = 'flex';
                 document.getElementById('formUserEmail').removeAttribute('readonly');
                 this.toggleClientPersonGroup('');
@@ -858,6 +870,7 @@ import { supabase, authService, personService } from './supabase-config.js';
                 document.getElementById('formUserName').value = user.displayName || '';
                 document.getElementById('formUserEmail').value = user.email || '';
                 document.getElementById('formUserRole').value = user.role || 'user';
+                document.getElementById('userHireDate').value = user.hireDate || ''; // 🔥 EKLENDİ
                 
                 document.getElementById('passwordGroup').style.display = 'none';
                 document.getElementById('formUserEmail').setAttribute('readonly', true);
@@ -877,6 +890,7 @@ import { supabase, authService, personService } from './supabase-config.js';
                 const userId = document.getElementById('userId')?.value || '';
                 const userName = document.getElementById('formUserName')?.value?.trim() || '';
                 const userRole = document.getElementById('formUserRole')?.value || '';
+                const hireDateVal = document.getElementById('userHireDate')?.value || ''; // 🔥 EKLENDİ
 
                 if (!userName || !userRole) {
                     showNotification('Lütfen ad-soyad ve rol alanlarını doldurun.', 'error');
@@ -903,8 +917,19 @@ import { supabase, authService, personService } from './supabase-config.js';
                                 person_id: p.id,
                                 perm_approval: p.permissions.type === 'approval',
                                 perm_view: true
-                            }));
+                                }));
                             await supabase.from('user_person_links').insert(inserts);
+                        }
+
+                        // 🔥 YENİ: İzin Modülü İçin İşe Giriş Tarihini Kaydet/Güncelle
+                        if (hireDateVal) {
+                            const { error: leaveError } = await supabase.from('user_leave_balances').upsert({
+                                user_id: userId,
+                                hire_date: hireDateVal,
+                                updated_at: new Date().toISOString()
+                            }, { onConflict: 'user_id' });
+                            
+                            if (leaveError) console.error("İzin başlangıç tarihi kaydedilemedi:", leaveError);
                         }
 
                         showNotification('Kullanıcı başarıyla güncellendi.', 'success');

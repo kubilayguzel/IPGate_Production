@@ -22,7 +22,9 @@ export class TaskUpdateUIManager {
             
             partySearch: document.getElementById('relatedPartySearch'),
             partyResults: document.getElementById('relatedPartySearchResults'),
-            partyDisplay: document.getElementById('selectedRelatedPartyDisplay')
+            partyDisplay: document.getElementById('selectedRelatedPartyDisplay'),
+            aiPetitionBtn: document.getElementById('ai-petition-btn'),
+            aiPetitionEditor: document.getElementById('ai-petition-editor')
         };
     }
 
@@ -396,5 +398,24 @@ export class TaskUpdateUIManager {
             </div>
         </div>`;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    // ✨ YENİ: AI Butonu Yükleme Durumu
+    setAILoadingState(isLoading) {
+        if (!this.elements.aiPetitionBtn) return;
+        if (isLoading) {
+            this.elements.aiPetitionBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Yazılıyor...';
+            this.elements.aiPetitionBtn.disabled = true;
+        } else {
+            this.elements.aiPetitionBtn.innerHTML = '<i class="fas fa-magic mr-1"></i> Dilekçe Taslağı Üret';
+            this.elements.aiPetitionBtn.disabled = false;
+        }
+    }
+
+    // ✨ YENİ: AI Metnini Ekrana Basma
+    setAIPetitionText(text) {
+        if (this.elements.aiPetitionEditor) {
+            this.elements.aiPetitionEditor.value = text;
+        }
     }
 }

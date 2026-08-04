@@ -2,6 +2,7 @@
 
 import { waitForAuthUser, supabase } from '../supabase-config.js';
 import { loadSharedLayout } from './layout-loader.js';
+import { TURKEY_HOLIDAYS, isWeekend, isHoliday } from '../utils.js'; // 🔥 YENİ: Tatil fonksiyonları eklendi
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Kullanıcıyı doğrula ve arayüzü yükle
@@ -17,10 +18,68 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (userData && userData.role) userRole = userData.role;
     } catch (e) { console.error("Rol okunamadı:", e); }
 
-    const isManager = userRole === 'admin' || userRole === 'superadmin';
+    // Sadece patronlar (superadmin) onay ekranını görür
+    const isManager = userRole === 'superadmin';
     if (isManager) {
         document.getElementById('teamLeavesTabItem').style.display = 'block';
     }
+
+    // 🔥 YENİ: Patron izin almaya çalışırsa formu hiç açmadan mesajı göster
+    $('#requestLeaveModal').on('show.bs.modal', function (e) {
+        if (userRole === 'superadmin') {
+            e.preventDefault(); // Modalin açılmasını engeller
+            Swal.fire({
+                title: 'Patronlara İzin Yok!',
+                text: 'İzin almana gerek yok. Sen patron adamsın :)',
+                icon: 'info',
+                confirmButtonText: 'Haklısın 😎',
+                confirmButtonColor: '#1e3c72'
+            });
+        }
+    });
+
+    // --- OTOMATİK İŞ GÜNÜ HESAPLAMA MOTORU ---
+    const startDateInput = document.getElementById('leaveStartDate');
+    const endDateInput = document.getElementById('leaveEndDate');
+    const daysInput = document.getElementById('leaveDays');
+
+    function calculateNetWorkingDays() {
+        const startVal = startDateInput.value;
+        const endVal = endDateInput.value;
+
+        if (startVal && endVal) {
+            const startDate = new Date(startVal);
+            const endDate = new Date(endVal);
+
+            // Bitiş tarihi başlangıçtan önceyse hesaplama yapma
+            if (endDate < startDate) {
+                daysInput.value = '';
+                return;
+            }
+
+            let totalWorkingDays = 0;
+            let currentDate = new Date(startDate);
+            currentDate.setHours(0, 0, 0, 0);
+            endDate.setHours(0, 0, 0, 0);
+
+            // Başlangıçtan bitişe kadar gün gün döngü
+            while (currentDate <= endDate) {
+                // utils.js içindeki fonksiyonlarla Hafta Sonu ve Resmi Tatil kontrolü
+                if (!isWeekend(currentDate) && !isHoliday(currentDate, TURKEY_HOLIDAYS)) {
+                    totalWorkingDays += 1;
+                }
+                // Bir sonraki güne geç
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            // Hesaplanan net günü input'a yaz
+            daysInput.value = totalWorkingDays;
+        }
+    }
+
+    // Tarih alanları değiştiğinde hesaplamayı tetikle
+    startDateInput.addEventListener('change', calculateNetWorkingDays);
+    endDateInput.addEventListener('change', calculateNetWorkingDays);
 
     // --- TEMEL FONKSİYONLAR ---
 
@@ -85,10 +144,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function loadTeamLeaves() {
         if (!isManager) return;
         try {
-            // İlişkili users tablosundan personel adını da çekiyoruz
+            // İlişkili users tablosundan personel adını da çekiyoruz (🔥 ÇÖZÜM: Hangi bağ olduğunu açıkça belirttik)
             const { data, error } = await supabase
                 .from('leave_requests')
-                .select('*, users(display_name, email)')
+                .select('*, users!leave_requests_user_id_fkey(display_name, email)')
                 .order('created_at', { ascending: false });
                 
             if (error) throw error;
@@ -107,8 +166,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let actionButtons = '-';
                 if (leave.status === 'pending') {
                     actionButtons = `
-                        <button class="btn btn-sm btn-success btn-approve" data-id="${leave.id}" title="Onayla"><i class="fas fa-check"></i></button>
-                        <button class="btn btn-sm btn-danger btn-reject" data-id="${leave.id}" title="Reddet"><i class="fas fa-times"></i></button>
+                        <div class="d-flex justify-content-center align-items-center" style="gap: 8px; white-space: nowrap;">
+                            <button class="btn btn-sm btn-success btn-approve" data-id="${leave.id}" title="Onayla"><i class="fas fa-check"></i></button>
+                            <button class="btn btn-sm btn-danger btn-reject" data-id="${leave.id}" title="Reddet"><i class="fas fa-times"></i></button>
+                        </div>
+                    `;
+                } else if (leave.status === 'approved') {
+                    actionButtons = `
+                        <div class="d-flex justify-content-center align-items-center" style="gap: 8px; white-space: nowrap;">
+                            <button class="btn btn-sm btn-warning btn-edit-leave text-dark" data-id="${leave.id}" data-days="${leave.requested_days}" title="Süreyi Düzenle"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-sm btn-secondary btn-cancel-leave" data-id="${leave.id}" title="İzni İptal Et"><i class="fas fa-ban"></i></button>
+                        </div>
                     `;
                 }
 
@@ -132,6 +200,45 @@ document.addEventListener('DOMContentLoaded', async () => {
                 btn.addEventListener('click', (e) => updateLeaveStatus(e.currentTarget.dataset.id, 'rejected'));
             });
 
+            // İptal Et Buton Dinleyicisi
+            document.querySelectorAll('.btn-cancel-leave').forEach(btn => {
+                btn.addEventListener('click', (e) => updateLeaveStatus(e.currentTarget.dataset.id, 'cancelled'));
+            });
+
+            // Düzenle (Süre Kısaltma/Uzatma) Buton Dinleyicisi
+            document.querySelectorAll('.btn-edit-leave').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const leaveId = e.currentTarget.dataset.id;
+                    const oldDays = e.currentTarget.dataset.days;
+                    
+                    const { value: newDays } = await Swal.fire({
+                        title: 'İzin Süresini Güncelle',
+                        html: `Mevcut Olarak Onaylanan: <b>${oldDays} Gün</b><br><br>Yeni izin süresini (Gün) giriniz:`,
+                        input: 'number',
+                        inputValue: oldDays,
+                        inputAttributes: { step: '0.5', min: '0.5' },
+                        showCancelButton: true,
+                        confirmButtonText: 'Güncelle',
+                        cancelButtonText: 'Vazgeç'
+                    });
+
+                    // Eğer yeni bir değer girildiyse ve eskisinden farklıysa
+                    if (newDays && parseFloat(newDays) !== parseFloat(oldDays)) {
+                        try {
+                            const { error } = await supabase.from('leave_requests')
+                                .update({ requested_days: parseFloat(newDays), updated_at: new Date().toISOString() })
+                                .eq('id', leaveId);
+                            
+                            if (error) throw error;
+                            Swal.fire('Başarılı', 'İzin süresi güncellendi ve personelin bakiyesi yeniden hesaplandı.', 'success');
+                            await loadTeamLeaves();
+                        } catch (err) {
+                            Swal.fire('Hata', err.message, 'error');
+                        }
+                    }
+                });
+            });
+
         } catch (error) {
             console.error("Ekip izinleri yükleme hatası:", error);
         }
@@ -139,7 +246,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // İzin Durumunu Güncelle (Yönetici Aksiyonu)
     async function updateLeaveStatus(leaveId, newStatus) {
-        const actionText = newStatus === 'approved' ? 'onaylamak' : 'reddetmek';
+        let actionText = '';
+        if (newStatus === 'approved') actionText = 'onaylamak';
+        else if (newStatus === 'rejected') actionText = 'reddetmek';
+        else if (newStatus === 'cancelled') actionText = 'iptal etmek (Bakiyeyi iade etmek)';
+
         if (!confirm(`Bu izin talebini ${actionText} istediğinize emin misiniz?`)) return;
 
         try {
@@ -149,7 +260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (error) throw error;
             
-            Swal.fire('Başarılı!', `İzin talebi ${newStatus === 'approved' ? 'onaylandı' : 'reddedildi'}.`, 'success');
+            Swal.fire('Başarılı!', `İşlem başarıyla gerçekleştirildi.`, 'success');
             await loadTeamLeaves(); // Tabloyu yenile
             await loadLeaveBalance(); // (Eğer kendi iznini onayladıysa) Bakiyeyi yenile
 

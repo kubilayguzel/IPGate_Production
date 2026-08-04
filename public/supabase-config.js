@@ -2705,15 +2705,15 @@ export const feeCalculationService = {
                     switch (rule) {
                         case 'fixed': quantity = 1; break;
                         case 'per_class': quantity = finalClassCount > 0 ? finalClassCount : 1; break;
-                        case 'extra_class': quantity = Math.max(0, finalClassCount - 1); break;
+                        case 'extra_class': quantity = Math.max(0, finalClassCount - 2); break;
                         case 'second_class_only': quantity = finalClassCount >= 2 ? 1 : 0; break;
                         case 'extra_class_over_2': quantity = Math.max(0, finalClassCount - 2); break;
                         case 'extra_class_over_3': quantity = Math.max(0, finalClassCount - 3); break;
                         case 'per_priority': quantity = extraParams.priorityCount || 0; break;
                         case 'fixed_normal': quantity = !isPenalty ? 1 : 0; break;
                         case 'fixed_penalty': quantity = isPenalty ? 1 : 0; break;
-                        case 'extra_class_normal': quantity = !isPenalty ? Math.max(0, finalClassCount - 1) : 0; break;
-                        case 'extra_class_penalty': quantity = isPenalty ? Math.max(0, finalClassCount - 1) : 0; break;
+                        case 'extra_class_normal': quantity = !isPenalty ? Math.max(0, finalClassCount - 2) : 0; break;
+                        case 'extra_class_penalty': quantity = isPenalty ? Math.max(0, finalClassCount - 2) : 0; break;
                         default: quantity = 1; break;
                     }
                 }

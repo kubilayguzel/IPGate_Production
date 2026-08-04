@@ -419,6 +419,13 @@
                         "is_nullable": "YES",
                         "column_default": "'[]'::jsonb",
                         "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "boolean",
+                        "column_name": "requires_invoice",
+                        "is_nullable": "YES",
+                        "column_default": "true",
+                        "character_maximum_length": null
                     }
                 ],
                 "table_name": "accruals",
@@ -1484,15 +1491,15 @@
                 "table_name": "ip_record_applicants",
                 "foreign_keys": [
                     {
-                        "column_name": "ip_record_id",
-                        "constraint_name": "ip_record_applicants_ip_record_id_fkey",
-                        "foreign_table_name": "ip_records",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "person_id",
                         "constraint_name": "fk_ip_record_applicants_person",
                         "foreign_table_name": "persons",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "ip_record_id",
+                        "constraint_name": "ip_record_applicants_ip_record_id_fkey",
+                        "foreign_table_name": "ip_records",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -1885,6 +1892,109 @@
                 ],
                 "table_name": "ip_records",
                 "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "uuid",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "gen_random_uuid()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "user_id",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "leave_type",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "start_date",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "date",
+                        "column_name": "end_date",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "requested_days",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "status",
+                        "is_nullable": "YES",
+                        "column_default": "'pending'::text",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "approved_by",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "description",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "rejection_reason",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "updated_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "leave_requests",
+                "foreign_keys": [
+                    {
+                        "column_name": "approved_by",
+                        "constraint_name": "leave_requests_approved_by_fkey",
+                        "foreign_table_name": "users",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "user_id",
+                        "constraint_name": "leave_requests_user_id_fkey",
+                        "foreign_table_name": "users",
+                        "foreign_column_name": "id"
+                    }
                 ]
             },
             {
@@ -3128,15 +3238,15 @@
                 "table_name": "price_list_items",
                 "foreign_keys": [
                     {
-                        "column_name": "fee_id",
-                        "constraint_name": "price_list_items_fee_id_fkey",
-                        "foreign_table_name": "fee_tariffs",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "price_list_id",
                         "constraint_name": "price_list_items_list_id_fkey",
                         "foreign_table_name": "price_lists",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "fee_id",
+                        "constraint_name": "price_list_items_fee_id_fkey",
+                        "foreign_table_name": "fee_tariffs",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -3525,15 +3635,15 @@
                 "table_name": "suit_parties",
                 "foreign_keys": [
                     {
-                        "column_name": "suit_id",
-                        "constraint_name": "suit_parties_suit_id_fkey",
-                        "foreign_table_name": "suits",
-                        "foreign_column_name": "id"
-                    },
-                    {
                         "column_name": "person_id",
                         "constraint_name": "suit_parties_person_id_fkey",
                         "foreign_table_name": "persons",
+                        "foreign_column_name": "id"
+                    },
+                    {
+                        "column_name": "suit_id",
+                        "constraint_name": "suit_parties_suit_id_fkey",
+                        "foreign_table_name": "suits",
                         "foreign_column_name": "id"
                     }
                 ]
@@ -4600,6 +4710,68 @@
                         "character_maximum_length": null
                     },
                     {
+                        "data_type": "date",
+                        "column_name": "hire_date",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "earned_annual_leave",
+                        "is_nullable": "YES",
+                        "column_default": "0",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "used_annual_leave",
+                        "is_nullable": "YES",
+                        "column_default": "0",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "numeric",
+                        "column_name": "manual_adjustment",
+                        "is_nullable": "YES",
+                        "column_default": "0",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "created_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "updated_at",
+                        "is_nullable": "YES",
+                        "column_default": "now()",
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "user_leave_balances",
+                "foreign_keys": [
+                    {
+                        "column_name": "user_id",
+                        "constraint_name": "user_leave_balances_user_id_fkey",
+                        "foreign_table_name": "users",
+                        "foreign_column_name": "id"
+                    }
+                ]
+            },
+            {
+                "columns": [
+                    {
+                        "data_type": "text",
+                        "column_name": "user_id",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
                         "data_type": "text",
                         "column_name": "person_id",
                         "is_nullable": "NO",
@@ -4730,6 +4902,11 @@
                 "definition": "CREATE TRIGGER trigger_renewal_task_closure AFTER UPDATE OF status ON public.tasks FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION handle_renewal_task_closure()",
                 "table_name": "tasks",
                 "trigger_name": "trigger_renewal_task_closure"
+            },
+            {
+                "definition": "CREATE TRIGGER trigger_handle_leave_approval AFTER UPDATE ON public.leave_requests FOR EACH ROW WHEN (((old.status IS DISTINCT FROM new.status) OR (old.requested_days IS DISTINCT FROM new.requested_days))) EXECUTE FUNCTION trg_update_leave_balance()",
+                "table_name": "leave_requests",
+                "trigger_name": "trigger_handle_leave_approval"
             }
         ],
         "functions": [
@@ -4750,6 +4927,10 @@
                 "function_name": "trg_handle_accrual_task_status"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.get_task_distribution_stats(start_date_param date DEFAULT NULL::date, end_date_param date DEFAULT NULL::date, task_type_param text DEFAULT NULL::text)\n RETURNS TABLE(user_id text, user_name text, status_counts jsonb, total_tasks bigint)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  WITH user_tasks AS (\r\n    SELECT\r\n      t.assigned_to,\r\n      u.display_name,\r\n      t.status\r\n    FROM tasks AS t\r\n    JOIN users AS u ON t.assigned_to = u.id\r\n    WHERE \r\n        t.assigned_to IS NOT NULL \r\n        AND u.display_name IS NOT NULL\r\n        AND (start_date_param IS NULL OR t.created_at >= start_date_param)\r\n        AND (end_date_param IS NULL OR t.created_at <= end_date_param)\r\n        AND (task_type_param IS NULL OR t.task_type_id = task_type_param)\r\n  )\r\n  SELECT\r\n    ut.assigned_to AS user_id,\r\n    ut.display_name AS user_name,\r\n    jsonb_object_agg(\r\n      ut.status,\r\n      (SELECT count(*) FROM user_tasks WHERE assigned_to = ut.assigned_to AND status = ut.status)\r\n    ) AS status_counts,\r\n    count(*) AS total_tasks\r\n  FROM user_tasks ut\r\n  GROUP BY ut.assigned_to, ut.display_name\r\n  ORDER BY total_tasks DESC;\r\nEND;\r\n$function$\n",
+                "function_name": "get_task_distribution_stats"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.export_mini_db()\n RETURNS json\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n    tbl record;\r\n    result jsonb := '{}'::jsonb;\r\n    rows jsonb;\r\nBEGIN\r\n    -- public şemasındaki tüm tabloları dön\r\n    FOR tbl IN \r\n        SELECT table_name \r\n        FROM information_schema.tables \r\n        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'\r\n    LOOP\r\n        -- Her tablodan 3 kayıt çek ve JSON'a çevir\r\n        EXECUTE format('SELECT COALESCE(jsonb_agg(row_to_json(t)), ''[]''::jsonb) FROM (SELECT * FROM public.%I LIMIT 3) t', tbl.table_name)\r\n        INTO rows;\r\n        \r\n        -- Sonuç objesine tablo adıyla birlikte ekle\r\n        result := jsonb_set(result, ARRAY[tbl.table_name], rows);\r\n    END LOOP;\r\n    \r\n    RETURN result;\r\nEND;\r\n$function$\n",
                 "function_name": "export_mini_db"
             },
@@ -4762,12 +4943,32 @@
                 "function_name": "trg_unlock_evaluation_mail"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.get_user_task_details(user_id_param text)\n RETURNS jsonb\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n    task_stats jsonb;\r\n    completion_stats jsonb;\r\n    recent_tasks jsonb;\r\n    user_info jsonb;\r\n    result jsonb;\r\nBEGIN\r\n    -- 1. Kullanıcı Bilgisi\r\n    SELECT to_jsonb(u)\r\n    INTO user_info\r\n    FROM users u\r\n    WHERE u.id = user_id_param\r\n    LIMIT 1;\r\n\r\n    -- 2. Görev Dağılımı (Statülere Göre)\r\n    SELECT jsonb_build_object(\r\n        'status_counts', COALESCE(jsonb_object_agg(status, count), '{}'::jsonb),\r\n        'total_tasks', COALESCE(SUM(count), 0)\r\n    )\r\n    INTO task_stats\r\n    FROM (\r\n        SELECT status, count(*) as count\r\n        FROM tasks\r\n        WHERE assigned_to = user_id_param\r\n        GROUP BY status\r\n    ) AS status_subquery;\r\n\r\n    -- 3. Görev Tamamlama İstatistikleri\r\n    SELECT jsonb_build_object(\r\n        'avg_completion_days', ROUND(AVG(EXTRACT(EPOCH FROM (th.created_at - t.created_at)) / 86400.0), 2),\r\n        'completed_task_count', COUNT(*)\r\n    )\r\n    INTO completion_stats\r\n    FROM tasks t\r\n    JOIN task_history th ON t.id = th.task_id\r\n    WHERE t.assigned_to = user_id_param\r\n      AND (th.action LIKE '%completed%' OR th.action LIKE '%closed%')\r\n      AND th.created_at > t.created_at;\r\n\r\n    -- 4. Son 10 Aktif Görev\r\n    SELECT jsonb_agg(\r\n        jsonb_build_object(\r\n            'id', t.id,\r\n            'title', t.title,\r\n            'status', t.status,\r\n            'due_date', t.operational_due_date\r\n        )\r\n    )\r\n    INTO recent_tasks\r\n    FROM (\r\n        SELECT id, title, status, operational_due_date\r\n        FROM tasks\r\n        WHERE assigned_to = user_id_param\r\n          AND status NOT IN ('completed', 'cancelled', 'closed')\r\n        ORDER BY created_at DESC\r\n        LIMIT 10\r\n    ) AS t;\r\n\r\n    -- Tüm verileri birleştir\r\n    result := jsonb_build_object(\r\n        'user', COALESCE(user_info, '{}'::jsonb),\r\n        'task_distribution', COALESCE(task_stats, '{\"total_tasks\": 0, \"status_counts\": {}}'::jsonb),\r\n        'completion_stats', COALESCE(completion_stats, '{\"avg_completion_days\": 0, \"completed_task_count\": 0}'::jsonb),\r\n        'recent_tasks', COALESCE(recent_tasks, '[]'::jsonb)\r\n    );\r\n\r\n    RETURN result;\r\nEND;\r\n$function$\n",
+                "function_name": "get_user_task_details"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.trg_update_leave_balance()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    -- Sadece 'Yıllık İzin' türündeki talepler bakiyeden düşer\r\n    IF NEW.leave_type = 'Yıllık İzin' THEN\r\n        \r\n        -- 1. YENİ ONAY: 'pending' veya 'rejected' durumundan 'approved' durumuna geçiş\r\n        IF NEW.status = 'approved' AND OLD.status != 'approved' THEN\r\n            UPDATE public.user_leave_balances\r\n            SET used_annual_leave = used_annual_leave + NEW.requested_days,\r\n                updated_at = NOW()\r\n            WHERE user_id = NEW.user_id;\r\n        \r\n        -- 2. İPTAL / RED: 'approved' durumundan 'cancelled' veya 'rejected' durumuna geçiş (İADE)\r\n        ELSIF OLD.status = 'approved' AND NEW.status != 'approved' THEN\r\n            UPDATE public.user_leave_balances\r\n            SET used_annual_leave = used_annual_leave - OLD.requested_days,\r\n                updated_at = NOW()\r\n            WHERE user_id = NEW.user_id;\r\n\r\n        -- 3. DÜZENLEME: Zaten 'approved' iken yönetici GÜN SAYISINI değiştirirse (FARKI YANSIT)\r\n        ELSIF OLD.status = 'approved' AND NEW.status = 'approved' AND OLD.requested_days != NEW.requested_days THEN\r\n            UPDATE public.user_leave_balances\r\n            SET used_annual_leave = used_annual_leave - OLD.requested_days + NEW.requested_days,\r\n                updated_at = NOW()\r\n            WHERE user_id = NEW.user_id;\r\n        END IF;\r\n\r\n    END IF;\r\n    \r\n    RETURN NEW;\r\nEND;\r\n$function$\n",
+                "function_name": "trg_update_leave_balance"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.handle_renewal_task_closure()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    -- Sadece Yenileme İşlemi (Görev Tipi: 22) ise ve \r\n    -- statü Müvekkil Reddi ('client_approval_closed') veya Cevapsız Kapatma ('client_no_response_closed') olduysa çalış\r\n    IF NEW.task_type_id = '22' AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n        \r\n        -- Bağlı olduğu portföy kaydının (ip_records) statüsünü 'renewal - check' olarak güncelle\r\n        UPDATE public.ip_records\r\n        SET \r\n            status = 'renewal - check',\r\n            updated_at = NOW()\r\n        WHERE id = NEW.ip_record_id;\r\n\r\n    END IF;\r\n    \r\n    RETURN NEW;\r\nEND;\r\n$function$\n",
                 "function_name": "handle_renewal_task_closure"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.calculate_annual_leave_accruals()\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n    r record;\r\n    years_worked integer;\r\n    days_to_add numeric;\r\nBEGIN\r\n    -- Sadece bugün işe girişinin yıl dönümü olan (ay ve gün eşleşen) kişileri bul\r\n    FOR r IN \r\n        SELECT user_id, hire_date \r\n        FROM public.user_leave_balances\r\n        WHERE EXTRACT(month FROM hire_date) = EXTRACT(month FROM CURRENT_DATE)\r\n          AND EXTRACT(day FROM hire_date) = EXTRACT(day FROM CURRENT_DATE)\r\n          AND hire_date < CURRENT_DATE -- Bugün işe ilk kez girenleri es geç\r\n    LOOP\r\n        -- Kaçıncı yılını doldurdu?\r\n        years_worked := EXTRACT(year FROM CURRENT_DATE) - EXTRACT(year FROM r.hire_date);\r\n        \r\n        -- İş Kanunu Oranları: \r\n        -- 1 yıldan 5 yıla kadar (5 dahil) -> 14 Gün\r\n        -- 5 yıldan fazla 15 yıldan az (6-14 yıl arası) -> 20 Gün\r\n        -- 15 yıl (dahil) ve daha fazla -> 26 Gün\r\n        IF years_worked >= 1 AND years_worked <= 5 THEN\r\n            days_to_add := 14;\r\n        ELSIF years_worked >= 6 AND years_worked <= 14 THEN\r\n            days_to_add := 20;\r\n        ELSIF years_worked >= 15 THEN\r\n            days_to_add := 26;\r\n        ELSE\r\n            days_to_add := 0;\r\n        END IF;\r\n\r\n        -- Hak edişi bakiyeye ekle\r\n        IF days_to_add > 0 THEN\r\n            UPDATE public.user_leave_balances\r\n            SET earned_annual_leave = earned_annual_leave + days_to_add,\r\n                updated_at = NOW()\r\n            WHERE user_id = r.user_id;\r\n        END IF;\r\n    END LOOP;\r\nEND;\r\n$function$\n",
+                "function_name": "calculate_annual_leave_accruals"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.auto_expire_unrenewed_records()\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    UPDATE public.ip_records r\r\n    SET \r\n        status = 'expired',\r\n        updated_at = NOW()\r\n    WHERE status = 'renewal - check'\r\n      AND r.renewal_date + INTERVAL '6 months 10 days' < NOW()\r\n      AND NOT EXISTS (\r\n          SELECT 1 FROM public.tasks t\r\n          WHERE t.ip_record_id = r.id\r\n            AND t.task_type_id = '22'\r\n            AND t.status IN ('open', 'awaiting_client_approval')\r\n      );\r\nEND;\r\n$function$\n",
                 "function_name": "auto_expire_unrenewed_records"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.get_task_distribution_stats()\n RETURNS TABLE(user_id text, user_name text, status_counts jsonb, total_tasks bigint)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  WITH user_tasks AS (\r\n    SELECT\r\n      t.assigned_to,\r\n      u.display_name,\r\n      t.status\r\n    FROM tasks AS t\r\n    JOIN users AS u ON t.assigned_to = u.id\r\n    WHERE t.assigned_to IS NOT NULL AND u.display_name IS NOT NULL\r\n  )\r\n  SELECT\r\n    ut.assigned_to AS user_id,\r\n    ut.display_name AS user_name,\r\n    jsonb_object_agg(\r\n      ut.status,\r\n      (SELECT count(*) FROM user_tasks WHERE assigned_to = ut.assigned_to AND status = ut.status)\r\n    ) AS status_counts,\r\n    count(*) AS total_tasks\r\n  FROM user_tasks ut\r\n  GROUP BY ut.assigned_to, ut.display_name\r\n  ORDER BY total_tasks DESC;\r\nEND;\r\n$function$\n",
+                "function_name": "get_task_distribution_stats"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.get_task_completion_time_stats()\n RETURNS TABLE(user_id text, user_name text, avg_completion_days numeric, min_completion_days numeric, max_completion_days numeric, completed_task_count integer)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  WITH completion_times AS (\r\n    SELECT\r\n      t.assigned_to,\r\n      EXTRACT(EPOCH FROM (th.created_at - t.created_at)) / 86400.0 AS completion_duration_days\r\n    FROM tasks t\r\n    JOIN task_history th ON t.id = th.task_id\r\n    WHERE\r\n      -- Sadece \"tamamlandı\" veya \"kapatıldı\" aksiyonlarını dikkate al\r\n      (th.action LIKE '%completed%' OR th.action LIKE '%closed%')\r\n      AND t.assigned_to IS NOT NULL\r\n      AND t.created_at IS NOT NULL\r\n      AND th.created_at > t.created_at\r\n  )\r\n  SELECT\r\n    ct.assigned_to AS user_id,\r\n    (SELECT u.display_name FROM users u WHERE u.id = ct.assigned_to LIMIT 1) AS user_name,\r\n    ROUND(AVG(ct.completion_duration_days), 2) AS avg_completion_days,\r\n    ROUND(MIN(ct.completion_duration_days), 2) AS min_completion_days,\r\n    ROUND(MAX(ct.completion_duration_days), 2) AS max_completion_days,\r\n    COUNT(*)::int AS completed_task_count\r\n  FROM completion_times ct\r\n  WHERE ct.completion_duration_days IS NOT NULL AND ct.completion_duration_days >= 0\r\n  GROUP BY ct.assigned_to\r\n  HAVING (SELECT u.display_name FROM users u WHERE u.id = ct.assigned_to LIMIT 1) IS NOT NULL\r\n  ORDER BY avg_completion_days ASC;\r\nEND;\r\n$function$\n",
+                "function_name": "get_task_completion_time_stats"
             },
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.trg_on_task_delete_cleanup()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n    -- A) Bu göreve bağlı TAHAKKUKLARI (accruals) sil\r\n    DELETE FROM accruals WHERE task_id = OLD.id;\r\n\r\n    -- B) Bu göreve bağlı DAVA KAYITLARINI (suits) sil\r\n    DELETE FROM suits WHERE task_id = OLD.id;\r\n\r\n    -- C) Bu göreve bağlı TRANSACTION GEÇMİŞİNİ SİL (Hiyerarşik Silme)\r\n    DELETE FROM transactions WHERE parent_id IN (\r\n        SELECT id FROM transactions WHERE task_id = OLD.id\r\n    );\r\n    DELETE FROM transactions WHERE task_id = OLD.id;\r\n\r\n    -- D) Bu göreve bağlı BİLDİRİMLERİ (mail_notifications) güncelle/sil\r\n    UPDATE mail_notifications \r\n    SET associated_task_id = NULL \r\n    WHERE associated_task_id = OLD.id AND status = 'sent';\r\n\r\n    DELETE FROM mail_notifications \r\n    WHERE associated_task_id = OLD.id AND status != 'sent';\r\n\r\n    -- E) ALT GÖREVLERİ SİL (details->>'parent_task_id' kontrolü ile)\r\n    DELETE FROM tasks WHERE details->>'parent_task_id' = OLD.id;\r\n\r\n    -- 🔥 F) GÖREV GEÇMİŞİNİ SİLMEK YERİNE, \"SİLİNDİ\" LOGU EKLİYORUZ\r\n    -- Eski 'DELETE FROM task_history...' satırını kaldırdık!\r\n    \r\n    INSERT INTO public.task_history (\r\n        task_id,\r\n        action,\r\n        user_id,\r\n        details\r\n    ) VALUES (\r\n        OLD.id,\r\n        'task_deleted',\r\n        auth.uid(), -- Supabase üzerinden işlemi yapan kullanıcının ID'sini otomatik çeker\r\n        jsonb_build_object(\r\n            'note', 'Görev sistemden silindi.',\r\n            'task_title', OLD.title,\r\n            'task_type_id', OLD.task_type_id,\r\n            'ip_record_id', OLD.ip_record_id,\r\n            'deleted_at', NOW()\r\n        )\r\n    );\r\n\r\n    -- G) GÖREVE EKLENEN BELGELERİ SİL (task_documents)\r\n    DELETE FROM task_documents WHERE task_id = OLD.id;\r\n\r\n    -- İşlemi tamamla ve devam et\r\n    RETURN OLD;\r\nEND;\r\n$function$\n",

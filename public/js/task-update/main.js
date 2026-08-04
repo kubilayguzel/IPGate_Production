@@ -11,6 +11,11 @@ import { TaskUpdateDataManager } from './TaskUpdateDataManager.js';
 import { TaskUpdateUIManager } from './TaskUpdateUIManager.js';
 import { AccrualFormManager } from '../components/AccrualFormManager.js';
 
+// --- WORD İNDİRME KÜTÜPHANELERİ ---
+import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
+import Docxtemplater from 'https://cdn.jsdelivr.net/npm/docxtemplater@3.55.8/+esm';
+import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
+
 class TaskUpdateController {
     constructor() {
         this.dataManager = new TaskUpdateDataManager();
@@ -47,6 +52,7 @@ class TaskUpdateController {
             await this.refreshTaskData();
             this.setupEvents();
             this.setupAccrualModal();
+            this.setupAIPetitionEvent(); // ✨ AI Dinleyicisini Başlat
         } catch (e) {
             console.error('Başlatma hatası:', e);
             showNotification('Sayfa yüklenirken hata oluştu: ' + e.message, 'error');
@@ -1140,6 +1146,170 @@ class TaskUpdateController {
             setTimeout(() => { window.location.href = 'task-management.html'; }, 1000); 
         } else {
             showNotification('Hata: ' + res.error, 'error');
+        }
+    }
+
+    // ✨ YENİ: WORD OLUŞTURMA VE İNDİRME FONKSİYONU
+    async generateAndDownloadWord(geminiItirazMetni, payload) {
+        try {
+            console.log("Word şablonu indiriliyor...");
+            
+            const templateUrl = 'https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/templates/yayina%20itiraz%20dilekce%20taslagi.docx';
+            
+            const response = await fetch(templateUrl);
+            if (!response.ok) throw new Error("Şablon dosyası bulunamadı. URL'yi kontrol edin.");
+            
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+
+            const zip = new PizZip(arrayBuffer);
+            const doc = new Docxtemplater(zip, {
+                paragraphLoop: true,
+                linebreaks: true,
+            });
+
+            // Şablondaki {etiketleri} güncel payload ile eşleştiriyoruz
+            doc.render({
+                itiraz_eden: payload.clientName || "Müvekkil",
+                vekil_ad_soyad: "Evreka Group Danışmanlık", 
+                basvuru_sahibi: payload.opponentName || "Karşı Taraf",
+                basvuru_no: payload.opponentAppNo || "Belirtilmemiş",
+                itiraz_edilen_marka: payload.opponentMark || "Belirtilmemiş",
+                bulten_bilgisi: payload.bultenBilgisi || "İlgili Bülten", 
+                itiraz_metni: geminiItirazMetni,
+                tarih: new Date().toLocaleDateString('tr-TR')
+            });
+
+            const out = doc.getZip().generate({
+                type: 'blob',
+                mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            });
+            
+            const fileName = payload.opponentAppNo && payload.opponentAppNo !== "Belirtilmemiş" 
+                ? `${payload.opponentAppNo}_Itiraz_Dilekcesi.docx` 
+                : 'Itiraz_Dilekcesi.docx';
+                
+            saveAs(out, fileName);
+            
+            showNotification('Word belgesi başarıyla oluşturuldu ve indirildi!', 'success');
+        } catch (error) {
+            console.error("Word oluşturulurken hata:", error);
+            showNotification('Word dosyası oluşturulurken bir hata oluştu.', 'error');
+        }
+    }
+
+    // ✨ ADIM 3: FRONTEND (main.js) GÜNCELLEMESİ (Yeni Mimariye Uygun)
+    setupAIPetitionEvent() {
+        const aiBtn = document.getElementById('ai-petition-btn');
+        if (aiBtn) {
+            aiBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                
+                if (!this.taskData) return;
+                const details = this.taskData.details || {};
+
+                // 1. BAŞLIKTAN RAKİP MARKAYI VE AÇIKLAMADAN MÜSTENİT MARKAYI ÇIKARMA
+                let extractedOpponentMark = 'Belirtilmemiş';
+                if (this.taskData.title && this.taskData.title.includes('Yayına İtiraz:')) {
+                    const match = this.taskData.title.match(/Yayına İtiraz:\s*(.*?)\s*\(/);
+                    extractedOpponentMark = match && match[1] ? match[1].trim() : this.taskData.title.split('Yayına İtiraz:')[1].trim();
+                }
+
+                const clientMarkText = this.taskData.iprecordTitle || details.brand_name || 
+                    (this.taskData.description && this.taskData.description.includes('markamız için') 
+                        ? this.taskData.description.split(' markamız')[0].replace(/"/g, '') 
+                        : 'Müstenit Marka');
+
+                // 2. SINIFLARI DÜZENLEME (Emtia listesi dizisine çevirme)
+                // Not: İleride tam emtia metinlerini veritabanından çekmeniz analiz kalitesini zirveye taşıyacaktır.
+                // Şimdilik sistemin hata vermemesi için numaraları diziye çeviriyoruz.
+                const rawClasses = details.target_nice_classes || details.classes || 'Belirtilmemiş';
+                const classArray = rawClasses.split(',').map(c => `${c.trim()}. Sınıf kapsamındaki mal ve hizmetler`);
+
+                // 3. YENİ MİMARİ PAYLOAD (Edge Function'ın beklediği katı format)
+                const payload = {
+                    clientName: this.taskData.iprecordApplicantName || details.applicant_name || 'Müvekkil',
+                    
+                    clientMarks: [{
+                        markText: clientMarkText,
+                        markType: "word", 
+                        goodsServices: classArray, 
+                    }],
+
+                    opponentApplication: {
+                        markText: extractedOpponentMark,
+                        applicationNo: details.target_app_no || details.opponent_app_no || 'Belirtilmemiş',
+                        markType: "word",
+                        goodsServices: classArray 
+                    },
+                    
+                    selectedGrounds: ["SMK_6_1"]
+                };
+
+                this.uiManager.setAILoadingState(true);
+
+                try {
+                    // YENİ 4 AŞAMALI EDGE FUNCTION'A JWT(Token) İLE GÜVENLİ İSTEK
+                    const session = await supabase.auth.getSession();
+                    const token = session.data.session?.access_token;
+
+                    const response = await fetch('https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/generate-petition', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const result = await response.json();
+
+                    // DURUM 1: EKSİK VERİ (Dosya Yeterlilik Kontrolüne Takıldı - 422 Hatası)
+                    if (response.status === 422 && result.status === "needs_input") {
+                        const eksikler = result.missingCriticalFacts.map(e => `<li>${e}</li>`).join('');
+                        showNotification(`Eksik Veri! Dilekçe yazılamıyor:<br><ul class="text-left mb-0 pl-3">${eksikler}</ul>`, 'error');
+                        this.uiManager.setAILoadingState(false);
+                        return;
+                    }
+
+                    // DURUM 2: HUKUKİ ANALİZ OLUMSUZ (Dosya reddedildi - 200 ama needs_input)
+                    if (response.status === 200 && result.status === "needs_input") {
+                        showNotification(`Yapay Zeka bu dosya verileriyle itiraz yazmayı reddetti! Lütfen konsolu inceleyin.`, 'warning');
+                        console.warn("Hukuki Analiz Red Gerekçesi:", result.analysis);
+                        this.uiManager.setAILoadingState(false);
+                        return;
+                    }
+
+                    if (!response.ok) throw new Error(result.error || "Sunucu hatası.");
+
+                    // DURUM 3: BAŞARI (Dilekçe Üretildi ve Denetlendi)
+                    if (result.petition) {
+                        this.uiManager.setAIPetitionText(result.petition);
+                        
+                        // İçgörüleri (Insights) konsola yazdırıyoruz. (İleride bunları UI'da gösterebilirsiniz)
+                        console.log("✅ Başarılı Hukuki Analiz Raporu:", result.analysis);
+                        if (result.status === "completed_with_corrections") {
+                            console.warn("🛠️ Düzeltilen Halüsinasyonlar / Denetim Raporu:", result.auditIssues);
+                        }
+
+                        // Word şablonu için verileri eski "Düz" formata getirip metoda gönderiyoruz
+                        const wordPayload = {
+                            clientName: payload.clientName,
+                            opponentName: details.opposed_mark_owner || 'Karşı Taraf',
+                            opponentMark: payload.opponentApplication.markText,
+                            opponentAppNo: payload.opponentApplication.applicationNo,
+                            bultenBilgisi: details.bulletin_date ? `${new Date(details.bulletin_date).toLocaleDateString('tr-TR')} tarihli ve ${details.bulletin_no} sayılı` : "İlgili Bülten"
+                        };
+
+                        await this.generateAndDownloadWord(result.petition, wordPayload);
+                    }
+
+                } catch (error) {
+                    showNotification('Sistem Hatası: ' + error.message, 'error');
+                } finally {
+                    this.uiManager.setAILoadingState(false);
+                }
+            });
         }
     }
 }

@@ -1577,18 +1577,74 @@ class ClientPortalController {
         });
 
         $(document).on('click', '.task-compare-goods', async (e) => {
-            const btn = e.currentTarget;
-            document.getElementById('monitoredGoodsContent').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
-            document.getElementById('competitorGoodsContent').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
-            $('#goodsComparisonModal').modal('show');
-            try {
-                const { data: myRecord } = await supabase.from('ip_record_classes').select('class_no, items').eq('ip_record_id', btn.dataset.ipRecordId);
-                document.getElementById('monitoredGoodsContent').innerHTML = myRecord?.length > 0 ? myRecord.map(c => `<div><h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6><p style="font-size:0.85rem">${Array.isArray(c.items) ? c.items.join('; ') : c.items}</p></div>`).join('<hr>') : '<p class="text-muted">Sınıf verisi bulunamadı.</p>';
-                const cleanAppNo = String(btn.dataset.targetAppNo).replace(/[^a-zA-Z0-9]/g, '');
-                const { data: compRecord } = await supabase.from('trademark_bulletin_records').select('goods').like('application_number', `%${cleanAppNo}%`).limit(1).maybeSingle();
-                document.getElementById('competitorGoodsContent').innerHTML = compRecord?.goods ? (Array.isArray(compRecord.goods) ? compRecord.goods : [compRecord.goods]).map(g => `<p style="font-size:0.85rem; margin-bottom:10px;">${g}</p>`).join('') : '<p class="text-muted">Bülten kaydı eşya listesi bulunamadı.</p>';
-            } catch(err) { document.getElementById('monitoredGoodsContent').innerHTML = '<p class="text-danger">Veriler yüklenirken hata oluştu.</p>'; }
-        });
+    const btn = e.currentTarget;
+    const monitoredEl = document.getElementById('monitoredGoodsContent');
+    const competitorEl = document.getElementById('competitorGoodsContent');
+
+    monitoredEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+    competitorEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+    $('#goodsComparisonModal').modal('show');
+
+    // ==========================================
+    // 1. SOL TARAF: Kendi Markamız (İzlenen Marka)
+    // ==========================================
+    try {
+        const { data: myRecord, error: myError } = await supabase
+            .from('ip_record_classes')
+            .select('class_no, items')
+            .eq('ip_record_id', btn.dataset.ipRecordId)
+            .order('class_no', { ascending: true });
+            
+        if (myError) throw myError;
+
+        monitoredEl.innerHTML = myRecord?.length > 0 
+            ? myRecord.map(c => `<div><h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6><p style="font-size:0.85rem">${Array.isArray(c.items) ? c.items.join('; ') : (c.items || '-')}</p></div>`).join('<hr>') 
+            : '<p class="text-muted">Kendi markanıza ait sınıf verisi bulunamadı.</p>';
+    } catch (err) {
+        console.error("Sol taraf (İzlenen Marka) yükleme hatası:", err);
+        monitoredEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>';
+    }
+
+    // ==========================================
+    // 2. SAĞ TARAF: Rakip Marka (Bülten Kaydı - trademark_bulletin_goods tablosundan)
+    // ==========================================
+        try {
+            // Başvuru numarasını temizliyoruz (Örn: "2026/084281" -> "2026084281")
+            const cleanAppNo = String(btn.dataset.targetAppNo).replace(/[^a-zA-Z0-9]/g, '');
+            
+            // trademark_bulletin_goods tablosundan bulletin_record_id içinde "_2026084281" geçenleri çekiyoruz
+            const { data: compGoods, error: compError } = await supabase
+                .from('trademark_bulletin_goods')
+                .select('class_number, class_text') 
+                .like('bulletin_record_id', `%_${cleanAppNo}%`)
+                .order('class_number', { ascending: true });
+
+            if (compError) throw compError;
+
+            let compGoodsHtml = '<p class="text-muted">Bülten kaydı eşya listesi bulunamadı.</p>';
+
+            if (compGoods && compGoods.length > 0) {
+                compGoodsHtml = compGoods.map(c => {
+                    // Veritabanındaki \n (yeni satır) karakterlerini HTML <br> etiketine çeviriyoruz
+                    // Boş veya tanımsız gelme ihtimaline karşı fallback ('-') ekledik
+                    const rawText = c.class_text || '-';
+                    const formattedText = rawText.replace(/\n/g, '<br>');
+
+                    return `
+                    <div>
+                        <h6 class="text-danger font-weight-bold">Sınıf ${c.class_number || '-'}</h6>
+                        <p style="font-size:0.85rem">${formattedText}</p>
+                    </div>`;
+                }).join('<hr>');
+            }
+            
+            competitorEl.innerHTML = compGoodsHtml;
+
+        } catch (err) { 
+            console.error("Sağ taraf (Rakip Marka) yükleme hatası:", err);
+            competitorEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>'; 
+        }
+    });
 
         // ==========================================
         // TABLO SIRALAMA (SORT) TIKLAMASI

@@ -168,4 +168,24 @@ export class TaskUpdateDataManager {
             return { success: false, error: error.message };
         }
     }
+
+    // ✨ YENİ: Yapay Zeka Dilekçe Üretim İsteği
+    async generatePetitionWithAI(payload) {
+        try {
+            // 401 Hatası almamak için oturum bilgisini zorla ekliyoruz
+            const { data: { session } } = await supabase.auth.getSession();
+            const authHeader = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+
+            const { data, error } = await supabase.functions.invoke('generate-petition', {
+                headers: authHeader,
+                body: payload
+            });
+
+            if (error) throw error;
+            return { success: true, data: data.petition };
+        } catch (error) {
+            console.error("AI API Hatası:", error);
+            return { success: false, error: error.message || 'Yapay zeka servisine ulaşılamadı.' };
+        }
+    }
 }

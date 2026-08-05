@@ -17,8 +17,15 @@ function uniq(arr) { return Array.from(new Set(arr)); }
 // 🔥 KURAL 1: Sadece GEÇERSİZ veya RED yazıyorsa rejected yap! (Published veya diğerlerini sildik)
 export function mapStatusToUtils(turkpatentStatus) {
   if (!turkpatentStatus) return null;
-  const s = turkpatentStatus.toString().trim().toUpperCase();
-  if (/GEÇERSİZ|RED|RET|İPTAL/i.test(s)) return 'rejected';
+  
+  // Regex yerine Türkçe dil desteğiyle tüm metni güvenle büyük harfe çeviriyoruz
+  const s = turkpatentStatus.toString().toLocaleUpperCase('tr-TR');
+  
+  // Basit ve hatasız string arama yöntemi
+  if (s.includes('GEÇERSİZ') || s.includes('RED') || s.includes('RET') || s.includes('İPTAL')) {
+    return 'rejected';
+  }
+  
   return null;
 }
 
@@ -111,7 +118,7 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
   // ==========================================
   // 🔥 SİZİN KESİN DURUM (STATUS) ALGORİTMANIZ
   // ==========================================
-  let turkpatentStatusText = details?.['Durumu'] || details?.['Karar'] || status || '';
+  let turkpatentStatusText = status || details?.['Karar'] || details?.['Durumu'] || '';
   
   // 1. KURAL: GEÇERSİZ veya RED yazıyorsa anında rejected!
   let finalStatus = mapStatusToUtils(turkpatentStatusText); 

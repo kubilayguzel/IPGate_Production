@@ -411,17 +411,26 @@ export class RenderHelper {
                 }
             }
 
+            // Eski "Son Onay Tarihi" etiketini kafa karışıklığını önlemek için "Evreka Son Onay Tarihi" yapıyoruz
             const dateVal = this.formatDate(task.dueDate);
-            const dateLabel = isCompletedView ? 'Oluşturma Tarihi:' : 'Son Onay Tarihi:';
+            const dateLabel = isCompletedView ? 'Oluşturma Tarihi:' : 'Evreka Son Onay Tarihi:';
             
-            // 🔥 YENİ: Yenileme görevleri (22) için özel uyarı metni
+            // ==========================================
+            // 🔥 YENİ EKLENEN: RESMİ KURUM SON TARİHİ
+            // ==========================================
+            let officialDateHtml = '';
+            if (!isCompletedView && task.officialDueDate) {
+                // Kırmızı renkli ve ikonlu resmi tarih gösterimi
+                officialDateHtml = `<span class="ml-0 ml-md-3 mt-1 mt-md-0 d-block d-md-inline text-danger" style="font-size: 0.95rem;"><i class="fas fa-university mr-1"></i> <strong>Resmi Son Tarih: ${this.formatDate(task.officialDueDate)}</strong></span>`;
+            }
+
+            // 🔥 YENİ: Uyarı metinlerini de "Evreka Son Onay Tarihi" kavramına uyumlu hale getiriyoruz
             let dateWarning = '';
             if (!isCompletedView) {
-            // 🔥 DÜZELTME: Uzun metin butonları kaydırdığı için ikinci cümleyi <br> ile alt satıra alıyoruz
-            if (String(task.taskType) === '22') {
-                dateWarning = `<span class="text-muted ml-2 d-block d-sm-inline" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların bu tarihten önce iletilmesi beklenmektedir.<br>Bu tarihten sonra yenileme işleminin ek süre içinde yapılıp yapılmayacağı hususunu müvekkil temsilcinizden teyit etmeniz beklenmektedir.)</span>`;
-            } else {
-                    dateWarning = `<span class="text-muted ml-2 d-block d-sm-inline" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların bu tarihten önce iletilmesi beklenmektedir.)</span>`;
+                if (String(task.taskType) === '22') {
+                    dateWarning = `<span class="text-muted mt-2 d-block" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların Evreka Son Onay Tarihinden önce iletilmesi beklenmektedir. Bu tarihten sonraki talepleriniz için cezalı yenileme yapılıp yapılamayacağını müvekkil temsilcinizden teyit ediniz.)</span>`;
+                } else {
+                    dateWarning = `<span class="text-muted mt-2 d-block" style="font-size:0.85rem; font-style:italic;">(Hak kaybı yaşanmaması adına talimatların Evreka Son Onay Tarihinden önce iletilmesi beklenmektedir.)</span>`;
                 }
             }
 
@@ -433,8 +442,15 @@ export class RenderHelper {
                     ${comparisonRow}
                     <div class="ml-4 mt-2 mb-2"><span class="badge badge-${badgeClass}" style="font-size:0.85rem;">${statusText}</span></div>
                     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mt-3 border-top pt-2">
-                        <div class="mb-2 mb-md-0"><small class="task-meta"><i class="fas fa-clock mr-1"></i> <strong>${dateLabel} ${dateVal}</strong>${dateWarning}</small></div>
-                        <div class="text-right">${buttons}</div>
+                        <div class="mb-2 mb-md-0">
+                            <!-- 🔥 HTML GÜNCELLEMESİ: officialDateHtml buraya eklendi -->
+                            <small class="task-meta d-block">
+                                <i class="fas fa-clock mr-1 text-primary"></i> <strong class="text-primary">${dateLabel} ${dateVal}</strong>
+                                ${officialDateHtml}
+                            </small>
+                            ${dateWarning}
+                        </div>
+                        <div class="text-right mt-3 mt-md-0">${buttons}</div>
                     </div>
                 </div>
             </div>`;

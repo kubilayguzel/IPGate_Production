@@ -382,32 +382,39 @@ async function handleSaveToPortfolio() {
                 // Config'i bozmadan doğrudan bu sayfadan DB'ye yazıyoruz
                 // =======================================================
                 if (mappedRecord.transactions && mappedRecord.transactions.length > 0) {
-                    const txRows = mappedRecord.transactions.map(tx => {
-                        let typeId = tx.type || null;
-                        if (!typeId && tx.description && tx.description.toLowerCase().includes('başvuru')) {
-                            typeId = '2'; // Sistemdeki "Marka Başvurusu" tip ID'si
-                        }
-
-                        // Tarih formatını garantiye al
-                        let txDate = new Date().toISOString();
-                        if (tx.date) {
-                            const parsedDate = new Date(tx.date);
-                            if (!isNaN(parsedDate.getTime())) txDate = parsedDate.toISOString();
-                        }
-
-                        return {
-                            id: crypto.randomUUID(),
-                            ip_record_id: result.id, // Supabase'in yeni ürettiği dosya ID'si
-                            transaction_type_id: typeId,
-                            description: tx.description || 'Sistem Kaydı',
-                            transaction_date: txDate,
-                            transaction_hierarchy: 'parent'
-                        };
-                    });
                     
-                    // İşlemleri (Transactions) doğrudan veritabanına ekle
-                    const { error: txError } = await supabase.from('transactions').insert(txRows);
-                    if (txError) console.error("İşlem geçmişi yazılamadı:", txError);
+                    // SADECE "Başvuru" KELİMESİ GEÇEN İŞLEMLERİ FİLTRELE
+                    const applicationTransactions = mappedRecord.transactions.filter(tx => 
+                        (tx.description || '').toLowerCase().includes('başvuru')
+                    );
+
+                    // Eğer filtreleme sonucu elimizde başvuru işlemi varsa veritabanına yaz
+                    if (applicationTransactions.length > 0) {
+                        const txRows = applicationTransactions.map(tx => {
+                            // Artık sadece başvuru işlemi geleceği için doğrudan tip 2 veriyoruz
+                            let typeId = '2'; // Sistemdeki "Marka Başvurusu" tip ID'si
+
+                            // Tarih formatını garantiye al
+                            let txDate = new Date().toISOString();
+                            if (tx.date) {
+                                const parsedDate = new Date(tx.date);
+                                if (!isNaN(parsedDate.getTime())) txDate = parsedDate.toISOString();
+                            }
+
+                            return {
+                                id: crypto.randomUUID(),
+                                ip_record_id: result.id, // Supabase'in yeni ürettiği dosya ID'si
+                                transaction_type_id: typeId,
+                                description: tx.description || 'Marka Başvurusu',
+                                transaction_date: txDate,
+                                transaction_hierarchy: 'parent'
+                            };
+                        });
+                        
+                        // İşlemleri (Transactions) doğrudan veritabanına ekle
+                        const { error: txError } = await supabase.from('transactions').insert(txRows);
+                        if (txError) console.error("İşlem geçmişi yazılamadı:", txError);
+                    }
                 }
                 // =======================================================
 

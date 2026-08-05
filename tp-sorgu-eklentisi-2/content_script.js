@@ -219,7 +219,14 @@ async function processApiQueueWithBatching(baseRecords) {
                                 status: info.state || record.status,
                                 brandImageDataUrl: info.figure ? (info.figure.startsWith('/9j/') ? 'data:image/jpeg;base64,' + info.figure : info.figure) : null,
                                 niceClasses: info.niceClasses,
-                                details: { "Durumu": record.status, "Tescil Numarası": info.registrationNo, "Tescil Tarihi": info.protectionDate, "Karar": info.state, "Vekil": info.agentName ? (info.agentName + (info.agentInfo ? ' - ' + info.agentInfo : '')) : '' },
+                                details: { 
+                                              "Durumu": record.status, 
+                                              "Tescil Numarası": info.registrationNo, 
+                                              "Tescil Tarihi": info.registrationDate, // API'den gelen asıl tescil tarihi
+                                              "Koruma Tarihi": info.protectionDate, // protectionDate aslında koruma (başvuru) tarihidir
+                                              "Karar": info.state, 
+                                              "Vekil": info.agentName ? (info.agentName + (info.agentInfo ? ' - ' + info.agentInfo : '')) : '' 
+                                          },                           
                                 goodsAndServicesByClass: niceInfo.map(n => ({ classNo: parseInt(n.niceCode), items: [n.niceDescription] })),
                                 transactions: txList // 🔥 GARANTİLİ LİSTE BURAYA EKLENDİ
                             };

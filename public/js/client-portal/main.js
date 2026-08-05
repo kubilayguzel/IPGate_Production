@@ -1245,6 +1245,23 @@ class ClientPortalController {
                 return true;
             });
 
+            // 🔥 YENİ EKLENEN: Tarihe göre sıralama mantığı
+        if (taskTypeFilter === 'pending-approval' || taskTypeFilter === 'renewal-approval') {
+            filtered.sort((a, b) => {
+                // Son onay tarihi (dueDate) verisini alıyoruz, eğer tarih yoksa en sona (Infinity) atıyoruz
+                const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                return dateA - dateB; // En yakından (küçük) en uzağa (büyük) sıralar
+            });
+        } else {
+            // Diğer sekmelerde (Örn: Tamamlananlar veya Bültenler) standart olarak en yeni işlemler en üstte kalsın
+            filtered.sort((a, b) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return dateB - dateA;
+            });
+        }
+
         this.state.filteredTasks = filtered;
         this.renderHelper.renderTaskSection(filtered, 'task-list-container', taskTypeFilter);
     }
@@ -1450,13 +1467,134 @@ class ClientPortalController {
 
         $(document).on('click', '.portfolio-detail-link', async (e) => {
             e.preventDefault();
-            const item = this.state.portfolios.find(p => p.id === e.currentTarget.dataset.itemId);
+            const itemId = e.currentTarget.dataset.itemId;
+            if (!itemId) return;
+
+            // 1. Önce müvekkilin kendi portföyünde ara
+            let item = this.state.portfolios.find(p => p.id === itemId);
+
+            // 2. Kendi portföyünde yoksa (3. Taraf / Rakip dosyası ise) veritabanından anlık çek
+            if (!item) {
+                document.getElementById('portfolioDetailModalLabel').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Dosya Bilgileri Yükleniyor...';
+                $('#portfolioDetailModal').modal('show');
+                
+                try {
+                    const { data: ipData, error } = await supabase
+                        .from('ip_records')
+                        .select(`
+                            id, ip_type, origin, status, country_code, application_number, registration_number, 
+                            application_date, renewal_date, record_owner_type,
+                            ip_record_trademark_details (brand_name, brand_image_url),
+                            ip_record_classes (class_no, items),
+                            ip_record_applicants (persons (name))
+                        `)
+                        .eq('id', itemId)
+                        .single();
+                        
+                    if (error || !ipData) throw error;
+
+                    // 🔥 ÇÖZÜM 1 & 3: Başvuru Sahibi ve Eşya Listesi Eksikliği
+                    // Rakip marka ise bu verileri bülten tablolarından tamamlıyoruz
+                    let bulletinHolders = [];
+                    let bulletinGoods = [];
+
+                    // Zaten bu kod bloğuna düştüysek bu dosya 3. taraftır. record_owner_type boş (null) gelse bile veriyi çek.
+                    if (ipData.application_number) {
+                        const cleanAppNo = String(ipData.application_number).replace(/[^a-zA-Z0-9]/g, '');
+                        
+                        // Sahip (Holders) Bilgisini Çek
+                        const { data: tbrData } = await supabase
+                            .from('trademark_bulletin_records')
+                            .select('holders')
+                            .like('application_number', `%${cleanAppNo}%`)
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (tbrData && tbrData.holders) {
+                            try {
+                                let hData = typeof tbrData.holders === 'string' ? JSON.parse(tbrData.holders) : tbrData.holders;
+                                if (typeof hData === 'string') hData = JSON.parse(hData); // Çift stringify ihtimali
+                                if (Array.isArray(hData)) {
+                                    bulletinHolders = hData.map(h => ({ name: h.holderName || h.name }));
+                                }
+                            } catch (err) { console.warn("Holders parse hatası", err); }
+                        }
+
+                        // Mal ve Hizmetleri (Goods) Çek
+                        const { data: tbgData } = await supabase
+                            .from('trademark_bulletin_goods')
+                            .select('class_number, class_text')
+                            .like('bulletin_record_id', `%${cleanAppNo}%`)
+                            .order('class_number', { ascending: true });
+
+                        if (tbgData && tbgData.length > 0) {
+                            // 🔥 ÇÖZÜM: Aynı sınıfın alt alta 2 kere yazılmasını engellemek için Tekilleştirme (Map) yapıyoruz
+                            const uniqueGoodsMap = new Map();
+                            
+                            tbgData.forEach(g => {
+                                if (!uniqueGoodsMap.has(g.class_number)) {
+                                    uniqueGoodsMap.set(g.class_number, g.class_text ? g.class_text.replace(/\n/g, '<br>') : '-');
+                                }
+                            });
+
+                            // Tekilleşen veriyi diziye çevirip bulletinGoods'a aktarıyoruz
+                            bulletinGoods = Array.from(uniqueGoodsMap.entries()).map(([class_no, items]) => ({
+                                class_no: class_no,
+                                items: items
+                            }));
+                        }
+                    }
+
+                    const details = Array.isArray(ipData.ip_record_trademark_details) ? ipData.ip_record_trademark_details[0] : (ipData.ip_record_trademark_details || {});
+                    
+                    // Eğer bültenden eşya ve sınıf geldiyse onu kullan, yoksa ip_record_classes'ı kullan
+                    const classesData = bulletinGoods.length > 0 
+                        ? bulletinGoods 
+                        : (ipData.ip_record_classes ? ipData.ip_record_classes.sort((a,b) => a.class_no - b.class_no) : []);
+                    const classesArray = classesData.map(c => c.class_no).filter(Boolean);
+                    
+                    // Eğer bültenden sahip geldiyse onu kullan, yoksa ip_record_applicants'ı kullan
+                    const applicantsArray = bulletinHolders.length > 0 
+                        ? bulletinHolders 
+                        : (ipData.ip_record_applicants || []).map(a => ({ name: a.persons?.name }));
+
+                    let imageUrl = details.brand_image_url;
+                    if (!imageUrl || imageUrl.trim() === '') {
+                        imageUrl = `https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/brand_images/${ipData.id}/logo.png`;
+                    }
+
+                    item = {
+                        id: ipData.id,
+                        type: ipData.ip_type,
+                        origin: ipData.origin || 'TÜRKPATENT',
+                        country: ipData.country_code,
+                        title: details.brand_name || '-',
+                        brandImageUrl: imageUrl,
+                        applicationNumber: ipData.application_number || '-',
+                        registrationNumber: ipData.registration_number || '-',
+                        applicationDate: ipData.application_date,
+                        renewalDate: ipData.renewal_date,
+                        status: ipData.status,
+                        classes: classesArray.join(', ') || '-',
+                        fullClasses: classesData,
+                        applicants: applicantsArray,
+                        recordOwnerType: ipData.record_owner_type || 'third_party'
+                    };
+                } catch (err) {
+                    console.error("3. Taraf dosya detayı çekilemedi:", err);
+                    $('#portfolioDetailModal').modal('hide');
+                    alert("Bu dosyanın detayları yüklenirken bir hata oluştu veya dosya silinmiş.");
+                    return;
+                }
+            }
+
             if (!item) return;
 
-            // 🔥 ÇÖZÜM 1: Tür ve Durum Çevirileri
+            // Tür ve Durum Çevirileri
             const typeTranslations = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım' };
             const statusTranslations = {
                 'registered': 'Tescilli', 'application': 'Başvuru', 'filed': 'Başvuru', 'published': 'Yayınlandı',
+                'published_in_bulletin': 'Bültende Yayınlandı', // 🔥 ÇÖZÜM 2: published_in_bulletin ibaresi Türkçeleştirildi
                 'rejected': 'Geçersiz', 'partially_rejected': 'Kısmen Reddedildi', 'partially rejected': 'Kısmen Reddedildi',
                 'withdrawn': 'Geri Çekildi', 'cancelled': 'İptal Edildi', 'expired': 'Süresi Doldu', 'dead': 'Geçersiz',
                 'opposition': 'İtiraz Aşamasında', 'appealed': 'Karara İtiraz', 'pending': 'İşlem Bekliyor'
@@ -1464,26 +1602,29 @@ class ClientPortalController {
             
             const displayType = typeTranslations[item.type?.toLowerCase()] || item.type || '-';
             const displayStatus = statusTranslations[item.status?.toLowerCase()] || item.status || 'Bilinmiyor';
+            
+            // Başvuru Sahibi Bilgisi
+            const applicantNames = item.applicants && item.applicants.length > 0 ? item.applicants.map(a => a.name).join(', ') : '-';
 
-            document.getElementById('portfolioDetailModalLabel').textContent = item.title;
+            // Eğer 3. Taraf dosyasıysa başlığa (Rakip) ibaresi ekleyelim
+            const titlePrefix = item.recordOwnerType === 'third_party' ? '<span class="badge badge-danger mr-2">3. Taraf / Rakip</span>' : '';
+            document.getElementById('portfolioDetailModalLabel').innerHTML = `${titlePrefix}${item.title}`;
             document.getElementById('modal-img').src = item.brandImageUrl || 'https://placehold.co/150x150?text=Yok';
             
-            // 🔥 YENİ: Menşe ve Ülke bilgisini hazırlıyoruz
+            // Menşe ve Ülke bilgisini hazırlıyoruz
             let originText = item.origin || 'TÜRKPATENT';
             let countryHtml = '';
             
-            // 🔥 DÜZELTME: Ülke bilgisi sadece Yurtdışı Ulusal ise gösterilecek. 
-            // WIPO ve ARIPO sadece Menşe olarak görünecek.
             const upperOrigin = originText.toUpperCase();
             if (upperOrigin === 'YURTDIŞI ULUSAL' || upperOrigin === 'YURTDISI ULUSAL') {
-                // Ülke kodunu Türkçe isme çeviriyoruz (örn: US -> Amerika Birleşik Devletleri)
                 const countryName = this.state.countries.get(item.country) || item.country || 'Belirtilmedi';
                 countryHtml = `<p><strong>Ülke:</strong> ${countryName}</p>`;
             }
 
-            // 🔥 YENİ: Varlık Detayları kartına Menşe ve Ülkeyi basıyoruz
+            // Varlık Detayları kartı
             document.getElementById('modal-details-card').innerHTML = `
                 <p><strong>Tür:</strong> ${displayType}</p>
+                <p><strong>Başvuru Sahibi:</strong> ${applicantNames}</p>
                 <p><strong>Menşe:</strong> ${originText}</p>
                 ${countryHtml}
                 <p><strong>Başvuru No:</strong> ${item.applicationNumber}</p>
@@ -1491,7 +1632,8 @@ class ClientPortalController {
             `;
             
             document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.renderHelper.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.renderHelper.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${displayStatus}</span>`;
-            // 🔥 ÇÖZÜM 2: Eşya Listesi Gösterimi (Veritabanından gelen items'lar)
+            
+            // Eşya Listesi Gösterimi
             if (item.fullClasses && item.fullClasses.length > 0) {
                 const classesHtml = item.fullClasses.map(c => `
                     <div class="mb-3">
@@ -1504,23 +1646,21 @@ class ClientPortalController {
                 document.getElementById('esyaListesiContent').innerHTML = '<p class="text-muted">Eşya listesi detayı bulunamadı.</p>';
             }
 
-            // 🔥 YENİ: Ülkeler Sekmesi Kontrolü (Sadece WIPO/ARIPO ve Alt Kaydı Olanlar İçin)
+            // Ülkeler Sekmesi Kontrolü
             const originRaw = (item.origin || '').toUpperCase();
             const childRecords = this.state.portfolios.filter(p => p.parentId === item.id);
             const ulkelerTabContainer = document.getElementById('modal-ulkeler-tab-container');
             const ulkelerTbody = document.querySelector('#modal-ulkeler tbody');
             
             if ((originRaw === 'WIPO' || originRaw === 'ARIPO') && childRecords.length > 0) {
-                ulkelerTabContainer.style.display = 'block'; // Sekmeyi Görünür Yap
+                ulkelerTabContainer.style.display = 'block'; 
                 
-                // Ülkeleri alfabeye göre sıralıyoruz
                 childRecords.sort((a, b) => {
                     const cA = (this.state.countries.get(a.country) || a.country || '').toLowerCase();
                     const cB = (this.state.countries.get(b.country) || b.country || '').toLowerCase();
                     return cA.localeCompare(cB, 'tr');
                 });
 
-                // public/js/client-portal/main.js içindeki ilgili map fonksiyonu
                 ulkelerTbody.innerHTML = childRecords.map((child, index) => {
                     const cCountry = this.state.countries.get(child.country) || child.country || '-';
                     const cSt = (child.status || '').toLowerCase();
@@ -1539,34 +1679,28 @@ class ClientPortalController {
                     </tr>`;
                 }).join('');
             } else {
-                // Eğer WIPO değilse veya alt ülkesi yoksa sekmeyi tamamen gizle
                 ulkelerTabContainer.style.display = 'none';
                 if (ulkelerTbody) ulkelerTbody.innerHTML = '';
             }
             
             document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
-            $('#portfolioDetailModal').modal('show'); $('#myTab a[href="#modal-islemler"]').tab('show');
+            $('#portfolioDetailModal').modal('show'); 
+            $('#myTab a[href="#modal-islemler"]').tab('show');
             
-            // 🔥 ÇÖZÜM 3: Güvenli İşlem Geçmişi Çekimi (Zırhlı)
+            // İşlem Geçmişi Çekimi (Rakip dosyalar için de çalışır)
             try {
-                // 1. İşlemleri ve İşlem Evraklarını Çek
                 const { data: txs, error: txError } = await supabase.from('transactions')
                     .select('*, transaction_types(alias, name), transaction_documents(*)')
                     .eq('ip_record_id', item.id);
                 
-                if (txError) {
-                    console.error("İşlemler çekilirken hata:", txError);
-                    throw txError;
-                }
+                if (txError) throw txError;
 
-                // 2. Görevleri ve Görev Evraklarını Çek
                 const { data: tasksData, error: taskError } = await supabase.from('tasks')
                     .select('*, task_documents(*)')
                     .eq('ip_record_id', item.id);
                 
-                if (taskError) console.warn("Görevler çekilirken hata (Önemli değil):", taskError);
+                if (taskError) console.warn("Görevler çekilirken hata:", taskError);
 
-                // 3. Merkezi Servisle Hiyerarşiyi Kur
                 const processedTransactions = transactionService.processAndOrganizeTransactions(txs || [], tasksData || []);
                 this.renderHelper.renderTransactionHistory(processedTransactions, 'modal-islemler');
                 
@@ -1577,74 +1711,74 @@ class ClientPortalController {
         });
 
         $(document).on('click', '.task-compare-goods', async (e) => {
-    const btn = e.currentTarget;
-    const monitoredEl = document.getElementById('monitoredGoodsContent');
-    const competitorEl = document.getElementById('competitorGoodsContent');
+        const btn = e.currentTarget;
+        const monitoredEl = document.getElementById('monitoredGoodsContent');
+        const competitorEl = document.getElementById('competitorGoodsContent');
 
-    monitoredEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
-    competitorEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
-    $('#goodsComparisonModal').modal('show');
+        monitoredEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+        competitorEl.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+        $('#goodsComparisonModal').modal('show');
 
-    // ==========================================
-    // 1. SOL TARAF: Kendi Markamız (İzlenen Marka)
-    // ==========================================
-    try {
-        const { data: myRecord, error: myError } = await supabase
-            .from('ip_record_classes')
-            .select('class_no, items')
-            .eq('ip_record_id', btn.dataset.ipRecordId)
-            .order('class_no', { ascending: true });
-            
-        if (myError) throw myError;
-
-        monitoredEl.innerHTML = myRecord?.length > 0 
-            ? myRecord.map(c => `<div><h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6><p style="font-size:0.85rem">${Array.isArray(c.items) ? c.items.join('; ') : (c.items || '-')}</p></div>`).join('<hr>') 
-            : '<p class="text-muted">Kendi markanıza ait sınıf verisi bulunamadı.</p>';
-    } catch (err) {
-        console.error("Sol taraf (İzlenen Marka) yükleme hatası:", err);
-        monitoredEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>';
-    }
-
-    // ==========================================
-    // 2. SAĞ TARAF: Rakip Marka (Bülten Kaydı - trademark_bulletin_goods tablosundan)
-    // ==========================================
+        // ==========================================
+        // 1. SOL TARAF: Kendi Markamız (İzlenen Marka)
+        // ==========================================
         try {
-            // Başvuru numarasını temizliyoruz (Örn: "2026/084281" -> "2026084281")
-            const cleanAppNo = String(btn.dataset.targetAppNo).replace(/[^a-zA-Z0-9]/g, '');
-            
-            // trademark_bulletin_goods tablosundan bulletin_record_id içinde "_2026084281" geçenleri çekiyoruz
-            const { data: compGoods, error: compError } = await supabase
-                .from('trademark_bulletin_goods')
-                .select('class_number, class_text') 
-                .like('bulletin_record_id', `%_${cleanAppNo}%`)
-                .order('class_number', { ascending: true });
+            const { data: myRecord, error: myError } = await supabase
+                .from('ip_record_classes')
+                .select('class_no, items')
+                .eq('ip_record_id', btn.dataset.ipRecordId)
+                .order('class_no', { ascending: true });
+                
+            if (myError) throw myError;
 
-            if (compError) throw compError;
-
-            let compGoodsHtml = '<p class="text-muted">Bülten kaydı eşya listesi bulunamadı.</p>';
-
-            if (compGoods && compGoods.length > 0) {
-                compGoodsHtml = compGoods.map(c => {
-                    // Veritabanındaki \n (yeni satır) karakterlerini HTML <br> etiketine çeviriyoruz
-                    // Boş veya tanımsız gelme ihtimaline karşı fallback ('-') ekledik
-                    const rawText = c.class_text || '-';
-                    const formattedText = rawText.replace(/\n/g, '<br>');
-
-                    return `
-                    <div>
-                        <h6 class="text-danger font-weight-bold">Sınıf ${c.class_number || '-'}</h6>
-                        <p style="font-size:0.85rem">${formattedText}</p>
-                    </div>`;
-                }).join('<hr>');
-            }
-            
-            competitorEl.innerHTML = compGoodsHtml;
-
-        } catch (err) { 
-            console.error("Sağ taraf (Rakip Marka) yükleme hatası:", err);
-            competitorEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>'; 
+            monitoredEl.innerHTML = myRecord?.length > 0 
+                ? myRecord.map(c => `<div><h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6><p style="font-size:0.85rem">${Array.isArray(c.items) ? c.items.join('; ') : (c.items || '-')}</p></div>`).join('<hr>') 
+                : '<p class="text-muted">Kendi markanıza ait sınıf verisi bulunamadı.</p>';
+        } catch (err) {
+            console.error("Sol taraf (İzlenen Marka) yükleme hatası:", err);
+            monitoredEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>';
         }
-    });
+
+        // ==========================================
+        // 2. SAĞ TARAF: Rakip Marka (Bülten Kaydı - trademark_bulletin_goods tablosundan)
+        // ==========================================
+            try {
+                // Başvuru numarasını temizliyoruz (Örn: "2026/084281" -> "2026084281")
+                const cleanAppNo = String(btn.dataset.targetAppNo).replace(/[^a-zA-Z0-9]/g, '');
+                
+                // trademark_bulletin_goods tablosundan bulletin_record_id içinde "_2026084281" geçenleri çekiyoruz
+                const { data: compGoods, error: compError } = await supabase
+                    .from('trademark_bulletin_goods')
+                    .select('class_number, class_text') 
+                    .like('bulletin_record_id', `%_${cleanAppNo}%`)
+                    .order('class_number', { ascending: true });
+
+                if (compError) throw compError;
+
+                let compGoodsHtml = '<p class="text-muted">Bülten kaydı eşya listesi bulunamadı.</p>';
+
+                if (compGoods && compGoods.length > 0) {
+                    compGoodsHtml = compGoods.map(c => {
+                        // Veritabanındaki \n (yeni satır) karakterlerini HTML <br> etiketine çeviriyoruz
+                        // Boş veya tanımsız gelme ihtimaline karşı fallback ('-') ekledik
+                        const rawText = c.class_text || '-';
+                        const formattedText = rawText.replace(/\n/g, '<br>');
+
+                        return `
+                        <div>
+                            <h6 class="text-danger font-weight-bold">Sınıf ${c.class_number || '-'}</h6>
+                            <p style="font-size:0.85rem">${formattedText}</p>
+                        </div>`;
+                    }).join('<hr>');
+                }
+                
+                competitorEl.innerHTML = compGoodsHtml;
+
+            } catch (err) { 
+                console.error("Sağ taraf (Rakip Marka) yükleme hatası:", err);
+                competitorEl.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i> Veriler yüklenirken hata oluştu.</p>'; 
+            }
+        });
 
         // ==========================================
         // TABLO SIRALAMA (SORT) TIKLAMASI

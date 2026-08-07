@@ -1130,22 +1130,33 @@ class ClientPortalController {
         tbody.innerHTML = '';
         if (dataSlice.length === 0) { tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">Kayıt bulunamadı.</td></tr>`; return; }
 
+        // Türkçe Para Formatlayıcı (Kuruşlu Gösterim)
+        const fmtMoney = (val, curr) => {
+            const num = parseFloat(val) || 0;
+            return `${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)} ${curr}`;
+        };
+
         dataSlice.forEach(inv => {
             let statusText = inv.status, badgeClass = 'secondary';
             if (inv.status === 'paid') { statusText = 'Ödendi'; badgeClass = 'success'; }
             else if (inv.status === 'unpaid') { statusText = 'Ödenmedi'; badgeClass = 'danger'; }
             else if (inv.status === 'partially_paid') { statusText = 'Kısmen Ödendi'; badgeClass = 'warning'; }
 
-            const formatArr = (arr) => (!arr || arr.length === 0) ? '0 TRY' : arr.map(x => `${x.amount} ${x.currency}`).join(' + ');
+            const formatArr = (arr) => (!arr || arr.length === 0) ? '0,00 TRY' : arr.map(x => fmtMoney(x.amount, x.currency)).join(' + ');
+
+            // 🔥 YENİ: Departman Ön Eki
+            const deptPrefix = inv.department === 'HUKUK' 
+                ? '<span class="badge badge-dark mr-1">EVREKA (HUKUK)</span>' 
+                : '<span class="badge badge-primary mr-1">EVREKA (PATENT)</span>';
 
             tbody.innerHTML += `<tr>
                 <td class="font-weight-bold">${inv.invoiceNo}</td>
                 <td>#${inv.taskId}</td>
                 <td>${inv.applicationNumber}</td>
                 <td>${this.renderHelper.formatDate(inv.createdAt)}</td>
-                <td>${inv.taskTitle}</td>
-                <td>${inv.officialFee.amount} ${inv.officialFee.currency}</td>
-                <td>${inv.serviceFee.amount} ${inv.serviceFee.currency}</td>
+                <td>${deptPrefix} ${inv.taskTitle}</td> <!-- 🔥 DEĞİŞEN SATIR -->
+                <td>${fmtMoney(inv.officialFee.amount, inv.officialFee.currency)}</td>
+                <td>${fmtMoney(inv.serviceFee.amount, inv.serviceFee.currency)}</td>
                 <td class="font-weight-bold text-primary">${formatArr(inv.totalAmount)}</td>
                 <td><span class="badge badge-${badgeClass}">${statusText}</span></td>
                 <td><button class="btn btn-sm btn-outline-primary"><i class="fas fa-download"></i></button></td>
@@ -2133,9 +2144,84 @@ class ClientPortalController {
     // 🔥 ÜST YÖNETİM RAPORU İÇİN AKILLI EXPORT FONKSİYONU
     // ==========================================
     async exportToExcel(type) {
-        const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href');
+        const activeTabId = $('#portfolioTopTabs a.nav-link.active').attr('href') || $('#sidebar a.nav-link.active').attr('href');
+        
+        // --- 1. FATURALARIM (TAHAKKUK) EXCEL EXPORT (YENİ EKLENDİ) ---
+        if (activeTabId === '#invoices' || activeTabId === '#faturalar') {
+            let dataToExport = this.state.filteredInvoices || [];
+            if (dataToExport.length === 0) return alert('Aktarılacak fatura bulunamadı.');
+
+            if (window.SimpleLoadingController) window.SimpleLoadingController.show('Mali Rapor Hazırlanıyor...');
+            try {
+                const loadScript = (src) => new Promise((resolve) => {
+                    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+                    const s = document.createElement('script'); s.src = src; s.onload = resolve; document.head.appendChild(s);
+                });
+                if (!window.ExcelJS) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
+                if (!window.saveAs) await loadScript('https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js');
+
+                const workbook = new window.ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Faturalar', { views: [{ showGridLines: false }] });
+
+                worksheet.columns = [
+                    { header: 'Fatura No', key: 'invoiceNo', width: 20 },
+                    { header: 'Durum', key: 'status', width: 15 },
+                    { header: 'Tarih', key: 'date', width: 15 },
+                    { header: 'Başvuru No', key: 'appNo', width: 18 },
+                    { header: 'İlgili İş', key: 'task', width: 40 },
+                    { header: 'Resmi Ücret', key: 'official', width: 18, style: { numFmt: '#,##0.00' } },
+                    { header: 'Hizmet Bedeli', key: 'service', width: 18, style: { numFmt: '#,##0.00' } },
+                    { header: 'Toplam Tutar', key: 'total', width: 18, style: { numFmt: '#,##0.00' } },
+                    { header: 'Para Birimi', key: 'currency', width: 12 }
+                ];
+
+                // Başlık Stili
+                const headerRow = worksheet.getRow(1);
+                headerRow.height = 25;
+                headerRow.eachCell(c => {
+                    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3C72' } };
+                    c.alignment = { vertical: 'middle', horizontal: 'center' };
+                });
+
+                dataToExport.forEach(inv => {
+                    let totalAmt = 0; let curr = 'TRY';
+                    if (inv.totalAmount && inv.totalAmount.length > 0) {
+                        totalAmt = parseFloat(inv.totalAmount[0].amount) || 0;
+                        curr = inv.totalAmount[0].currency || 'TRY';
+                    }
+
+                    let statusText = 'Ödenmedi';
+                    if (inv.status === 'paid') statusText = 'Ödendi';
+                    else if (inv.status === 'partially_paid') statusText = 'Kısmen Ödendi';
+
+                    // 🔥 YENİ: Excel İçin Departman Metni
+                    const deptText = inv.department === 'HUKUK' ? 'EVREKA (HUKUK)' : 'EVREKA (PATENT)';
+
+                    worksheet.addRow({
+                        invoiceNo: inv.invoiceNo,
+                        status: statusText,
+                        date: new Date(inv.createdAt).toLocaleDateString('tr-TR'),
+                        appNo: inv.applicationNumber,
+                        task: `${deptText} - ${inv.taskTitle}`, // 🔥 DEĞİŞEN SATIR
+                        official: parseFloat(inv.officialFee.amount) || 0,
+                        service: parseFloat(inv.serviceFee.amount) || 0,
+                        total: totalAmt,
+                        currency: curr
+                    });
+                });
+
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                window.saveAs(blob, `Muvekkil_Fatura_Raporu_${new Date().toISOString().slice(0,10)}.xlsx`);
+            } catch (e) { alert('Excel oluşturulurken hata: ' + e.message); }
+            finally { if (window.SimpleLoadingController) window.SimpleLoadingController.hide(); }
+            return; // Fatura export yapıldıysa alttaki Marka Export'una geçmesini engelle
+        }
+
+        // --- 2. MARKA (PORTFÖY) EXCEL EXPORT (Sizin mevcut kodunuz buradan itibaren devam ediyor) ---
         if (activeTabId !== '#marka-list') {
-            alert('Excel dışa aktarımı şimdilik sadece Marka sekmesi için aktiftir.');
+            alert('Excel dışa aktarımı şimdilik sadece Marka ve Faturalar sekmesi için aktiftir.');
             return;
         }
 

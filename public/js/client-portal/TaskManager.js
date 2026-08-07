@@ -29,26 +29,40 @@ export class TaskManager {
 
             const taskTypeIds = [...new Set(uniqueTasks.map(t => t.task_type_id).filter(Boolean))];
             const taskIpIds = [...new Set(uniqueTasks.map(t => t.ip_record_id).filter(Boolean))];
-            
             // Sadece Bülten İzleme Görevlerini (Tip: 20) Ayırıyoruz
             const bulletinTaskIds = uniqueTasks.filter(t => String(t.task_type_id) === '20').map(t => t.id);
 
-            // 1. Temel IP Verilerini Çek (Standart / Diğer görevler için)
+            // 🔥 ÇÖZÜM: URL Karakter Limitini (GET Request 4KB Sınırı) Aşmak İçin Parçalı (Chunk) Çekim
+            const fetchChunked = async (table, selectStr, colName, idArray, extraFilter = null) => {
+                if (!idArray || idArray.length === 0) return { data: [] };
+                const chunkSize = 80; // 80 UUID = Güvenli URL sınırı
+                let allData = [];
+                for (let i = 0; i < idArray.length; i += chunkSize) {
+                    const chunk = idArray.slice(i, i + chunkSize);
+                    let query = supabase.from(table).select(selectStr).in(colName, chunk);
+                    if (extraFilter) query = extraFilter(query);
+                    const { data, error } = await query;
+                    if (data) allData.push(...data);
+                }
+                return { data: allData };
+            };
+
+            // 1. Temel IP Verilerini Çek (URL Limiti Çözülmüş Hali)
             const promises = [];
             if (taskIpIds.length > 0) {
-                promises.push(supabase.from('ip_records').select('id, application_number, application_date, origin, country_code, record_owner_type').in('id', taskIpIds));
-                promises.push(supabase.from('ip_record_trademark_details').select('ip_record_id, brand_name, brand_image_url').in('ip_record_id', taskIpIds));
-                promises.push(supabase.from('ip_record_applicants').select('ip_record_id, person_id').in('ip_record_id', taskIpIds).eq('order_index', 0));
-                promises.push(supabase.from('ip_record_classes').select('ip_record_id, class_no').in('ip_record_id', taskIpIds));
+                promises.push(fetchChunked('ip_records', 'id, application_number, application_date, origin, country_code, record_owner_type', 'id', taskIpIds));
+                promises.push(fetchChunked('ip_record_trademark_details', 'ip_record_id, brand_name, brand_image_url', 'ip_record_id', taskIpIds));
+                promises.push(fetchChunked('ip_record_applicants', 'ip_record_id, person_id', 'ip_record_id', taskIpIds, q => q.eq('order_index', 0)));
+                promises.push(fetchChunked('ip_record_classes', 'ip_record_id, class_no', 'ip_record_id', taskIpIds));
             } else {
                 promises.push(Promise.resolve({data:[]}), Promise.resolve({data:[]}), Promise.resolve({data:[]}), Promise.resolve({data:[]}));
             }
             
-            if (taskTypeIds.length > 0) promises.push(supabase.from('transaction_types').select('id, name, alias').in('id', taskTypeIds));
+            if (taskTypeIds.length > 0) promises.push(fetchChunked('transaction_types', 'id, name, alias', 'id', taskTypeIds));
             else promises.push(Promise.resolve({data:[]}));
 
-            // 2. 🔥 MÜKEMMEL DOKUNUŞ: Bülten Görevleri İçin SQL View'i Çağırıyoruz!
-            if (bulletinTaskIds.length > 0) promises.push(supabase.from('v_client_bulletin_matches').select('*').in('task_id', bulletinTaskIds));
+            // 2. Bülten Görevleri İçin SQL View
+            if (bulletinTaskIds.length > 0) promises.push(fetchChunked('v_client_bulletin_matches', '*', 'task_id', bulletinTaskIds));
             else promises.push(Promise.resolve({data:[]}));
 
             const [ipRecordsRes, tmDetailsRes, applicantsRes, classesRes, txTypesRes, bulletinMatchesRes] = await Promise.all(promises);

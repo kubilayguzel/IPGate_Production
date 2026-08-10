@@ -460,57 +460,136 @@ const attachLazyLoadListeners = () => {
     });
 };
 
-// 🔥 YENİ: Arama kriterleri ile benzerlik yaratan kısımları soft highlight eden zeki fonksiyon
+    // 🔥 YENİ: Smith-Waterman Dizi Hizalama (Sequence Alignment) Tabanlı Akıllı Vurgulama
 const highlightMatchingSubstrings = (searchArray, targetStr) => {
     if (!targetStr || targetStr === '-') return targetStr;
     if (!searchArray || searchArray.length === 0) return targetStr;
 
+    // 1. Aranacak kelimeleri (Source Words) hazırla
     let sourceWords = [];
     searchArray.forEach(item => {
         if (!item) return;
         sourceWords.push(...item.toLowerCase().trim().split(/\s+/));
     });
-    
-    sourceWords = [...new Set(sourceWords)].filter(w => w.length > 0);
+    // 2 harften kısa olan bağlaçları (ve, vb.) boyamadan dışla
+    sourceWords = [...new Set(sourceWords)].filter(w => w.length >= 3); 
     if (sourceWords.length === 0) return targetStr;
 
-    let substrings = [];
-    sourceWords.forEach(word => {
-        const minLen = Math.min(word.length, 3); // En az 3 harfli (veya kelime 2 harfliyse 2 harfli) bloklar
-        for (let len = word.length; len >= minLen; len--) {
-            for (let i = 0; i <= word.length - len; i++) {
-                substrings.push(word.substr(i, len));
+    // 2. Hedef metni (Bültendeki marka) kelimelere böl ve orijinal indekslerini sakla
+    const targetWords = [];
+    const wordRegex = /[a-zA-Z0-9ğüşöçıĞÜŞÖÇİ]+/g;
+    let match;
+    while ((match = wordRegex.exec(targetStr)) !== null) {
+        targetWords.push({
+            word: match[0],
+            start: match.index,
+            end: match.index + match[0].length
+        });
+    }
+
+    // 3. Backend (rawVisualMap) ile Birebir Aynı Harf Grupları
+    const eqGroups = [
+        /[oö0]/, /[bpdt]/, /[cçsşz]/, /[gğkq]/, /[iıl1jy]/, /[mnr]/, /[üuvw]/
+    ];
+
+    // Harf eşleşme skorları (DNA Match mantığı)
+    const getMatchScore = (c1, c2) => {
+        if (c1 === c2) return 2.0; // Birebir aynı harf
+        for (let g of eqGroups) {
+            if (g.test(c1) && g.test(c2)) return 1.5; // Benzer harf (M ve N gibi)
+        }
+        return -1.0; // Uyumsuz harf
+    };
+
+    let finalMask = new Array(targetStr.length).fill(false);
+
+    // 4. Her bir hedef kelimeyi (örn: NEMA), aranacak kelimelerle (örn: MENA) hizala
+    targetWords.forEach(tObj => {
+        const tWord = tObj.word.toLowerCase();
+        let bestMaskForWord = new Array(tWord.length).fill(false);
+        let maxOverallScore = 0;
+
+        sourceWords.forEach(sWord => {
+            const s = sWord.toLowerCase();
+            const t = tWord;
+            
+            // Dinamik Programlama Matrisi (Smith-Waterman)
+            let H = Array(s.length + 1).fill(null).map(() => Array(t.length + 1).fill(0));
+            let maxScore = 0;
+            let maxPos = { i: 0, j: 0 };
+
+            for (let i = 1; i <= s.length; i++) {
+                for (let j = 1; j <= t.length; j++) {
+                    let matchVal = H[i - 1][j - 1] + getMatchScore(s[i - 1], t[j - 1]);
+                    let deleteGap = H[i - 1][j] - 1; // Aradan harf silinmesi
+                    let insertGap = H[i][j - 1] - 1; // Araya harf girmesi
+                    
+                    H[i][j] = Math.max(0, matchVal, deleteGap, insertGap);
+                    
+                    if (H[i][j] > maxScore) {
+                        maxScore = H[i][j];
+                        maxPos = { i, j };
+                    }
+                }
+            }
+
+            // KELİME BARAJI (GÜRÜLTÜYÜ ÖNLEYEN KISIM)
+            // Bir kelimenin boyanması için alması gereken minimum puan. (Örn: 4 harfliyse 4 * 1.3 = 5.2 puan almalı)
+            // Eğer "ambalaj" kelimesinde sadece "al" eşleşirse maxScore 4 olur, barajı geçemez ve BOYANMAZ!
+            let threshold = Math.max(s.length * 1.3, 3);
+            if (s.length <= 3) threshold = s.length * 1.5; 
+
+            if (maxScore >= threshold && maxScore > maxOverallScore) {
+                maxOverallScore = maxScore;
+                
+                // Traceback (Geriye Dönük İz Sürme): Sadece skoru yükselten gerçek benzer harfleri bul
+                let tempMask = new Array(tWord.length).fill(false);
+                let i = maxPos.i;
+                let j = maxPos.j;
+
+                while (i > 0 && j > 0 && H[i][j] > 0) {
+                    let currentScore = H[i][j];
+                    let diag = H[i - 1][j - 1];
+                    let left = H[i][j - 1];
+                    let up = H[i - 1][j];
+                    
+                    if (currentScore === diag + getMatchScore(s[i - 1], t[j - 1])) {
+                        // Harf eşleşti veya "M-N" gibi dönüştü -> Boya!
+                        tempMask[j - 1] = true;
+                        i--;
+                        j--;
+                    } else if (currentScore === left - 1) {
+                        // VOD[E]FONE örneğindeki gibi araya giren kaynaştırma harfini de blok bozulmasın diye boya
+                        tempMask[j - 1] = true;
+                        j--;
+                    } else if (currentScore === up - 1) {
+                        i--;
+                    } else {
+                        break;
+                    }
+                }
+                bestMaskForWord = tempMask;
+            }
+        });
+
+        // Eğer bu kelime barajı geçip boyanmaya hak kazandıysa, genel ana maskeye ekle
+        if (maxOverallScore > 0) {
+            for (let k = 0; k < bestMaskForWord.length; k++) {
+                if (bestMaskForWord[k]) {
+                    finalMask[tObj.start + k] = true;
+                }
             }
         }
     });
 
-    substrings = [...new Set(substrings)].sort((a,b) => b.length - a.length);
-
-    const cleanTarget = targetStr.toLowerCase();
-    let mask = new Array(targetStr.length).fill(false);
-
-    substrings.forEach(sub => {
-        let startIdx = 0;
-        while ((startIdx = cleanTarget.indexOf(sub, startIdx)) !== -1) {
-            let alreadyMasked = false;
-            for (let i = startIdx; i < startIdx + sub.length; i++) {
-                if (mask[i]) { alreadyMasked = true; break; }
-            }
-            if (!alreadyMasked) {
-                for (let i = startIdx; i < startIdx + sub.length; i++) mask[i] = true;
-            }
-            startIdx += sub.length;
-        }
-    });
-
+    // 5. HTML ÇIKTISINI OLUŞTUR
     let resultHtml = '';
     let inHighlight = false;
     for (let i = 0; i < targetStr.length; i++) {
-        if (mask[i] && !inHighlight) {
-            // 🔥 Göz yormayan soft highlight renkleri (Pastel sarı arka plan, kiremit rengi yazı)
-            resultHtml += `<span style="color: #b45309; background-color: #fef3c7; border-radius: 3px; padding: 0 2px;">`;
+        if (finalMask[i] && !inHighlight) {
+            resultHtml += `<span style="color: #b45309; background-color: #fef3c7; border-radius: 3px; padding: 0 2px; font-weight: 600;">`;
             inHighlight = true;
-        } else if (!mask[i] && inHighlight) {
+        } else if (!finalMask[i] && inHighlight) {
             resultHtml += `</span>`;
             inHighlight = false;
         }
@@ -521,11 +600,11 @@ const highlightMatchingSubstrings = (searchArray, targetStr) => {
     return resultHtml;
 };
 
-    const createResultRow = (hit, rowIndex) => {
-    // 🔥 YENİ: Şu anki listenin Yurtdışı/Serbest listesi olup olmadığını kontrol et
+const createResultRow = (hit, rowIndex) => {
+    // Şu anki listenin Yurtdışı/Serbest listesi olup olmadığını kontrol et
     const isManualList = document.getElementById('bulletinSelect')?.value === MANUAL_COLLECTION_ID;
 
-    // 🔥 ÇÖZÜM: Sahip verisi eğer bir Object (Obje) olarak gelirse onu metne çevirir, [object Object] yazmasını engeller.
+    // Sahip verisini çöz
     let rawHolders = hit.holders;
     if (typeof rawHolders === 'string' && (rawHolders.startsWith('{') || rawHolders.startsWith('['))) {
         try { rawHolders = JSON.parse(rawHolders); } catch(e) {}
@@ -541,7 +620,16 @@ const highlightMatchingSubstrings = (searchArray, targetStr) => {
     }
     if (String(holders).includes('[object Object]')) holders = 'Bilinmeyen Sahip';
     
+    // İzlenen markayı bul
     const monitoredTrademark = monitoringTrademarks.find(tm => tm.id === (hit.monitoredTrademarkId || hit.monitoredMarkId)) || {};
+    
+    // 🔥 YENİ: Aranan Marka Adını Belirleme (searchMarkName doluysa o, yoksa markanın kendi adı)
+    let searchedMarkName = monitoredTrademark.searchMarkName;
+    if (!searchedMarkName || searchedMarkName.trim() === '') {
+        searchedMarkName = monitoredTrademark.markName || monitoredTrademark.title || '-';
+    }
+
+    // Nice sınıfları işlemleri
     const resultClasses = normalizeNiceList(hit.niceClasses);
     let goodsAndServicesClasses = normalizeNiceList(getNiceClassNumbers(monitoredTrademark));
     if (goodsAndServicesClasses.length === 0) goodsAndServicesClasses = normalizeNiceList(monitoredTrademark?.niceClasses || _uniqNice(monitoredTrademark));
@@ -584,20 +672,20 @@ const highlightMatchingSubstrings = (searchArray, targetStr) => {
 
     const highlightedMarkName = highlightMatchingSubstrings(searchKeywords, hit.markName || '-');
 
-    // 🔥 DÜZELTME: Karar sütununa (2. td) "isManualList" şartıyla tekil Raporla butonunu ekledik
     row.innerHTML = `
         <td>${rowIndex}</td>
         <td style="white-space: nowrap;">
             <button class="action-btn ${hit.isSimilar ? 'similar' : 'not-similar'}" data-result-id="${hit.id || hit.applicationNo}" data-monitored-trademark-id="${hit.monitoredTrademarkId}">${hit.isSimilar ? 'Benzer' : 'Benzemez'}</button>
             ${isManualList ? `<button class="btn btn-sm btn-success ml-1 individual-report-btn" data-result-id="${hit.id || hit.applicationNo}" title="Sadece bu kayıt için İş Oluştur ve Raporla"><i class="fas fa-paper-plane"></i></button>` : ''}
         </td>
+        <td style="text-align: left; color: #6c757d; font-size: 0.95em; font-weight: 500;">${searchedMarkName}</td>
         <td style="text-align: left;"><strong>${highlightedMarkName}</strong></td>
         <td class="trademark-image-cell lazy-load-container" data-hit-data="${minimalHitData}"><div class="tm-img-box tm-img-box-lg"><div class="tm-placeholder"><i class="fas fa-spinner fa-spin text-muted"></i></div></div></td>
         <td>${holders}</td>
         <td>${niceClassHtml}</td>
-        <td>${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>
-        <td>${hit.similarityScore ? `${(hit.similarityScore * 100).toFixed(0)}%` : '-'}</td>
-        <td><select class="bs-select" data-result-id="${hit.id || hit.applicationNo}"><option value="">B.Ş</option>${['%0', '%20', '%30', '%40', '%45', '%50', '%55', '%60', '%70', '%80'].map(val => `<option value="${val}" ${hit.bs === val ? 'selected' : ''}>${val}</option>`).join('')}</select></td>
+        <td style="white-space: nowrap;">${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>
+        <td style="white-space: nowrap;">${hit.similarityScore ? `${(hit.similarityScore * 100).toFixed(0)}%` : '-'}</td>
+        <td style="white-space: nowrap;"><select class="bs-select" data-result-id="${hit.id || hit.applicationNo}"><option value="">B.Ş</option>${['%0', '%20', '%30', '%40', '%45', '%50', '%55', '%60', '%70', '%80'].map(val => `<option value="${val}" ${hit.bs === val ? 'selected' : ''}>${val}</option>`).join('')}</select></td>
         <td class="note-cell" data-result-id="${hit.id || hit.applicationNo}"><div class="note-cell-content"><span class="note-icon">📝</span>${hit.note ? `<span class="note-text">${hit.note}</span>` : `<span class="note-placeholder">Not ekle</span>`}</div></td>
     `;
     const imgContainer = row.querySelector('.lazy-load-container');
@@ -639,7 +727,7 @@ const renderCurrentPageOfResults = () => {
         const tmMeta = monitoringTrademarks.find(t => String(t.id) === String(group.key));
         if (!tmMeta) {
             const header = document.createElement('tr'); header.className = 'group-header';
-            header.innerHTML = `<td colspan="10"><div class="group-title"><span><strong>${group.results[0]?.monitoredTrademark || 'Bilinmeyen'}</strong> sonuçları (${group.results.length})</span></div></td>`;
+            header.innerHTML = `<td colspan="11"><div class="group-title"><span><strong>${group.results[0]?.monitoredTrademark || 'Bilinmeyen'}</strong> sonuçları (${group.results.length})</span></div></td>`;
             resultsTableBody.appendChild(header);
             group.results.forEach(hit => { globalRowIndex++; resultsTableBody.appendChild(createResultRow(hit, globalRowIndex)); });
             return;
@@ -672,7 +760,7 @@ const renderCurrentPageOfResults = () => {
 
         // 4. Kapsayıcı: Marka Adı 16px, Sahip Adı 14px yapıldı
         groupHeaderRow.innerHTML = `
-            <td colspan="10" style="padding: 14px 16px; background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+            <td colspan="11" style="padding: 14px 16px; background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
                 <div class="group-title" style="display: flex; align-items: center; gap: 16px; font-family: system-ui, -apple-system, sans-serif;">
                     ${imageHtml}
                     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 0;">

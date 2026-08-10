@@ -398,6 +398,24 @@ class NotificationsManager {
                 actionCell.appendChild(sendBtn);
             }
 
+            // SİL BUTONU EKLENTİSİ: Gönderilmiş mailler (sent) hariç hepsinde Sil butonu çıksın
+            if (notification.status !== 'sent') {
+                const deleteBtn = document.createElement('button');
+                // btn-danger class'ı ile kırmızı renk veriyoruz
+                deleteBtn.className = 'action-btn btn-sm btn-danger w-100 mt-1'; 
+                deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Sil';
+                
+                // Eğer mail beklemedeyse (is_held) silme butonunu da kilitlemek isterseniz:
+                if (notification.is_held) { 
+                    deleteBtn.disabled = true; 
+                    deleteBtn.style.opacity = '0.5'; 
+                } else { 
+                    deleteBtn.onclick = () => this.handleDeleteMail(notification.id); 
+                }
+                
+                actionCell.appendChild(deleteBtn);
+            }
+
             this.elements.tableBody.appendChild(tr);
         });
 
@@ -611,6 +629,43 @@ class NotificationsManager {
             alert("Hata: " + err.message); 
         } finally { 
             this.hideOverlay(); 
+        }
+    }
+
+    async handleDeleteMail(mailId) {
+        // 1. Teyit sorusu
+        const isConfirmed = window.confirm("Bu mail taslağını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.");
+        if (!isConfirmed) return;
+
+        try {
+            this.showOverlay('Siliniyor...');
+            
+            // 2. Aktif kullanıcıyı al (Silen kişiyi kaydetmek için)
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
+
+            // 3. Veritabanı güncellemesi (Soft Delete)
+            const { error } = await supabase
+                .from('mail_notifications')
+                .update({ 
+                    status: 'cancelled', // Gönderilmekten vazgeçildiğini belirtmek için
+                    deleted_at: new Date().toISOString(), 
+                    deleted_by: userId 
+                })
+                .eq('id', mailId);
+
+            if (error) throw error;
+
+            alert("Mail başarıyla silindi.");
+            
+            // 4. Tabloyu yenile (Silinen mail view'dan düşeceği için ekrandan kaybolur)
+            await this.loadData(); 
+            
+        } catch (err) {
+            console.error("Silme hatası:", err);
+            alert("Silme işlemi sırasında bir hata oluştu: " + err.message);
+        } finally {
+            this.hideOverlay();
         }
     }
 

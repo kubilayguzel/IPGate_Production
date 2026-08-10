@@ -155,12 +155,31 @@
                     </div>
 
                     <div style="overflow-x: auto; border: 1px solid #dee2e6; border-radius: 8px;">
-                        <table id="searchResultsTable" class="portfolio-table search-results-table mb-0">
+                        <table
+                            id="searchResultsTable"
+                            class="portfolio-table search-results-table mb-0"
+                            style="width: 100%; min-width: 1430px; table-layout: fixed;"
+                        >
+                            <colgroup>
+                                <col style="width: 50px;">   <!-- No -->
+                                <col style="width: 110px;">  <!-- Karar -->
+                                <col style="width: 150px;">  <!-- Aranan -->
+                                <col style="width: 170px;">  <!-- Marka Adı -->
+                                <col style="width: 100px;">  <!-- Görsel -->
+                                <col style="width: 245px;">  <!-- Sahip -->
+                                <col style="width: 175px;">  <!-- Nice -->
+                                <col style="width: 135px;">  <!-- Başvuru No -->
+                                <col style="width: 90px;">   <!-- Benzerlik -->
+                                <col style="width: 85px;">   <!-- B.Ş -->
+                                <col style="width: 120px;">  <!-- Not -->
+                            </colgroup>
+
                             <thead>
                                 <tr>
                                     <th>No</th>
                                     <th>Karar</th>
-                                    <th style="text-align: left; width: 160px;">Marka Adı</th>
+                                    <th style="text-align: left;">Aranan</th>
+                                    <th style="text-align: left;">Marka Adı</th>
                                     <th>Görsel</th>
                                     <th>Sahip</th>
                                     <th>Nice</th>
@@ -170,6 +189,7 @@
                                     <th>Not</th>
                                 </tr>
                             </thead>
+
                             <tbody id="resultsTableBody"></tbody>
                         </table>
                     </div>

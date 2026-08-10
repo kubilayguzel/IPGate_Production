@@ -347,7 +347,7 @@
                 let unpaidCount = 0;
                 
                 const currencyRisk = { 'TRY': 0, 'USD': 0, 'EUR': 0, 'GBP': 0, 'CHF': 0 };
-                const debtors = {};
+                const debtors = {}; // 🔥 Artık metin (isim) değil, Cari ID'ye göre birikecek
                 const monthlyTrend = {}; 
                 
                 for(let i=5; i>=0; i--) {
@@ -359,7 +359,6 @@
                     const status = String(acc.status || '').trim().toLowerCase();
                     if (status === 'cancelled' || status === 'draft') return;
 
-                    const clientName = String(acc.serviceInvoiceParty?.name || acc.paymentParty || acc.tpInvoiceParty?.name || 'Bilinmeyen Müşteri').trim();
                     const createdAt = acc.created_at || acc.createdAt || new Date().toISOString();
                     const monthKey = createdAt.slice(0, 7);
 
@@ -389,6 +388,7 @@
 
                     // =========================================================
                     // 🔥 HESAPLAMA MOTORU: YURTDIŞI BORÇ VE NET KASA HESABI
+                    // (Risk Kartının Doğru Çalıştığı Orijinal Mantık)
                     // =========================================================
                     const isForeign = String(acc.is_foreign_transaction) === 'true' || 
                                       String(acc.isForeignTransaction) === 'true' || 
@@ -397,8 +397,6 @@
                     
                     const fStatus = String(acc.foreign_status || acc.foreignStatus || 'unpaid').trim().toLowerCase();
                     
-                    // 🔥 BUG FIX: Kapsam hatasını (ReferenceError) önlemek için değişkeni if bloğunun dışında tanımlıyoruz.
-                    // Böylece yerel faturalarda da bu değer güvenle 0 kalacak ve hata fırlatmayacaktır.
                     let currentAccForeignOwedTRY = 0;
 
                     if (isForeign && fStatus !== 'paid') {
@@ -437,16 +435,34 @@
                         totalForeignPayableTRY += currentAccForeignOwedTRY;
                     }
 
-                    // Müşterinin toplam kalan borcundan (accRemTRY), yurtdışına ödenecek olanı düşüyoruz.
+                    // Müşterinin toplam kalan borcundan, yurtdışına ödenecek olanı düşüyoruz (Net Tutar).
                     const accNetReceivableTRY = Math.max(0, accRemTRY - currentAccForeignOwedTRY);
 
-                    // Sistem kirlilik filtreleri (Müşteri bazlı hem Net hem Brüt borcu biriktiriyoruz)
-                    if (accRemTRY > 0 && clientName !== 'Bilinmeyen Müşteri' && clientName !== 'Kayıtlı') {
-                        if (!debtors[clientName]) {
-                            debtors[clientName] = { net: 0, gross: 0 };
+                    // =========================================================
+                    // 🔥 CARİ BAZLI BİRİKTİRME (Sadece Gruplama Değişti)
+                    // =========================================================
+                    // TP ID öncelikli olacak şekilde ID'yi bul
+                    const clientId = acc.tp_invoice_party_id || acc.tpInvoicePartyId || acc.service_invoice_party_id || acc.serviceInvoicePartyId || 'unknown';
+                    // TP Unvanı öncelikli olacak şekilde ismi bul
+                    const clientName = String(acc.tpInvoiceParty?.name || acc.serviceInvoiceParty?.name || acc.paymentParty || 'Bilinmeyen Müşteri').trim();
+
+                    if (accRemTRY > 0 && clientId !== 'unknown' && clientName !== 'Bilinmeyen Müşteri' && clientName !== 'Kayıtlı' && clientName !== 'WIPO') {
+                        if (!debtors[clientId]) {
+                            debtors[clientId] = { 
+                                name: clientName, 
+                                gross: 0, 
+                                net: 0 
+                            };
                         }
-                        debtors[clientName].net += accNetReceivableTRY;
-                        debtors[clientName].gross += accRemTRY;
+                        
+                        // Daha uzun/düzgün unvan gelirse objeyi güncelle
+                        if (clientName.length > debtors[clientId].name.length) {
+                            debtors[clientId].name = clientName;
+                        }
+
+                        // Torbalara parayı ekle
+                        debtors[clientId].gross += accRemTRY;
+                        debtors[clientId].net += accNetReceivableTRY;
                     }
 
                     let offAmt = parseFloat(acc.official_fee_amount || acc.officialFee?.amount || 0);
@@ -511,24 +527,27 @@
                     
                     document.getElementById('kpiForeignPayable').textContent = this.formatMoney(totalForeignPayableTRY);
                     document.getElementById('kpiEvrekaNetReceivable').textContent = this.formatMoney(evrekaNetReceivableTRY);
-                    document.getElementById('kpiGrossReceivable').textContent = this.formatMoney(totalUnpaidTRY);
+                    
+                    if (document.getElementById('kpiGrossReceivable')) {
+                        document.getElementById('kpiGrossReceivable').textContent = this.formatMoney(totalUnpaidTRY);
+                    }
 
-                    // En yüksek Net alacağa göre sıralayıp ilk 5 müşteriyi alıyoruz
-                    const topDebtors = Object.entries(debtors)
-                        .sort((a, b) => b[1].net - a[1].net)
+                    // 🔥 MÜŞTERİ LİSTESİ DOLDURMA (Cari ID üzerinden birleşen veriler Net tutara göre sıralanır)
+                    const topDebtors = Object.values(debtors)
+                        .sort((a, b) => b.net - a.net)
                         .slice(0, 5);
 
                     document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `
                         <li>
-                            <div class="item-main">${d[0]}</div>
+                            <div class="item-main">${d.name}</div>
                             <div class="d-flex align-items-center" style="gap: 8px;">
                                 <!-- Brüt Alacak Rozeti -->
                                 <span class="item-value" style="background: #f8f9fa; color: #495057; border: 1px solid #dee2e6;" title="Toplam Müşteri Borcu (Brüt)">
-                                    Brüt: ${this.formatMoney(d[1].gross)}
+                                    Brüt: ${this.formatMoney(d.gross)}
                                 </span>
                                 <!-- Net Kasa Alacağı Rozeti -->
                                 <span class="item-value-green" title="Evreka Net Kasa Alacağı">
-                                    Net: ${this.formatMoney(d[1].net)}
+                                    Net: ${this.formatMoney(d.net)}
                                 </span>
                             </div>
                         </li>
@@ -549,7 +568,6 @@
 
                 this.renderPortfolioChart(typeCount);
             }
-
             renderTrendChart(monthlyTrend) {
                 const ctx = document.getElementById('financialTrendChart').getContext('2d');
                 const labels = Object.keys(monthlyTrend).sort();

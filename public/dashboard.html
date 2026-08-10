@@ -112,6 +112,11 @@
                                 <span class="font-weight-bold"><i class="fas fa-vault text-success"></i> Evreka Net Kasa Alacağı:</span>
                                 <span class="font-weight-bold text-success" id="kpiEvrekaNetReceivable">0 TL</span>
                             </div>
+                            <!-- YENİ EKLENEN SATIR -->
+                            <div class="d-flex justify-content-between mt-1 pt-1 border-top">
+                                <span class="font-weight-bold"><i class="fas fa-calculator text-primary"></i> Toplam Brüt Alacak:</span>
+                                <span class="font-weight-bold text-dark" id="kpiGrossReceivable">0 TL</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -171,7 +176,7 @@
                             <!-- En Yüksek Alacaklar (Mevcut) -->
                             <div class="col-lg-12 mb-4">
                                  <div class="list-card">
-                                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Net Kasa Alacakları</div>
+                                    <div class="list-title"><i class="fas fa-exclamation-circle text-danger"></i> En Yüksek Kasa Alacakları</div>
                                     <ul class="intelligence-list" id="topDebtorsList">
                                         <li>Yükleniyor...</li>
                                     </ul>
@@ -435,9 +440,13 @@
                     // Müşterinin toplam kalan borcundan (accRemTRY), yurtdışına ödenecek olanı düşüyoruz.
                     const accNetReceivableTRY = Math.max(0, accRemTRY - currentAccForeignOwedTRY);
 
-                    // Sistem kirlilik filtreleri
-                    if (accNetReceivableTRY > 0 && clientName !== 'Bilinmeyen Müşteri' && clientName !== 'Kayıtlı') {
-                        debtors[clientName] = (debtors[clientName] || 0) + accNetReceivableTRY;
+                    // Sistem kirlilik filtreleri (Müşteri bazlı hem Net hem Brüt borcu biriktiriyoruz)
+                    if (accRemTRY > 0 && clientName !== 'Bilinmeyen Müşteri' && clientName !== 'Kayıtlı') {
+                        if (!debtors[clientName]) {
+                            debtors[clientName] = { net: 0, gross: 0 };
+                        }
+                        debtors[clientName].net += accNetReceivableTRY;
+                        debtors[clientName].gross += accRemTRY;
                     }
 
                     let offAmt = parseFloat(acc.official_fee_amount || acc.officialFee?.amount || 0);
@@ -502,10 +511,29 @@
                     
                     document.getElementById('kpiForeignPayable').textContent = this.formatMoney(totalForeignPayableTRY);
                     document.getElementById('kpiEvrekaNetReceivable').textContent = this.formatMoney(evrekaNetReceivableTRY);
+                    document.getElementById('kpiGrossReceivable').textContent = this.formatMoney(totalUnpaidTRY);
 
-                    const topDebtors = Object.entries(debtors).sort((a,b) => b[1] - a[1]).slice(0, 5);
-                    document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `<li><div class="item-main">${d[0]}</div><div class="item-value-green">${this.formatMoney(d[1])}</div></li>`).join('') : '<li>Tebrikler, bekleyen yüksek riskli net kasa alacağı yok.</li>';
+                    // En yüksek Net alacağa göre sıralayıp ilk 5 müşteriyi alıyoruz
+                    const topDebtors = Object.entries(debtors)
+                        .sort((a, b) => b[1].net - a[1].net)
+                        .slice(0, 5);
 
+                    document.getElementById('topDebtorsList').innerHTML = topDebtors.length > 0 ? topDebtors.map(d => `
+                        <li>
+                            <div class="item-main">${d[0]}</div>
+                            <div class="d-flex align-items-center" style="gap: 8px;">
+                                <!-- Brüt Alacak Rozeti -->
+                                <span class="item-value" style="background: #f8f9fa; color: #495057; border: 1px solid #dee2e6;" title="Toplam Müşteri Borcu (Brüt)">
+                                    Brüt: ${this.formatMoney(d[1].gross)}
+                                </span>
+                                <!-- Net Kasa Alacağı Rozeti -->
+                                <span class="item-value-green" title="Evreka Net Kasa Alacağı">
+                                    Net: ${this.formatMoney(d[1].net)}
+                                </span>
+                            </div>
+                        </li>
+                    `).join('') : '<li>Tebrikler, bekleyen yüksek riskli kasa alacağı yok.</li>';
+                    
                     const activeCurrencies = Object.entries(currencyRisk).filter(c => c[1] > 0).sort((a,b) => b[1] - a[1]);
                     document.getElementById('currencyRiskList').innerHTML = activeCurrencies.length > 0 ? activeCurrencies.map(c => `<li><div class="item-main">Açık Bakiye (${c[0]})</div><div class="item-value" style="background:#fff3cd; color:#856404;">${this.formatMoney(c[1], c[0])}</div></li>`).join('') : '<li>Döviz bazlı alacak bulunmuyor.</li>';
 

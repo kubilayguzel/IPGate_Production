@@ -1152,48 +1152,80 @@ export class AccrualUIManager {
                 if(payFullCb) payFullCb.checked = true;
                 if(splitInputs) splitInputs.style.display = 'none';
                 } else {
-                if(localArea) localArea.style.display = 'block';
+                if(localArea) {
+                    localArea.style.display = 'block';
+                    let html = '';
 
-                const offAmt = Number((acc.dynamicOfficialFeeAmount || 0).toFixed(2));
-                const offCurr = acc.officialFee?.currency || 'TRY';
-                const offCard = document.getElementById('officialFeeBadge').closest('.card');
-                
-                if (offAmt <= 0) {
-                    // Kalan resmi ücret yoksa kartı gizle ve ödenecek tutarı 0 yap
-                    offCard.style.display = 'none';
-                    document.getElementById('payFullOfficial').checked = false;
-                    document.getElementById('manualOfficialAmount').value = 0;
-                } else {
-                    // Kalan bakiye varsa kartı göster
-                    offCard.style.display = 'flex';
-                    document.getElementById('officialFeeBadge').textContent = `${this._formatMoney(offAmt, offCurr)}`;
-                    document.getElementById('manualOfficialCurrencyLabel').textContent = offCurr;
-                    
-                    // DİKKAT: Tamamını öde seçili GELMESİN, manuel giriş kutusu AÇIK gelsin
-                    document.getElementById('payFullOfficial').checked = false;
-                    document.getElementById('officialAmountInputContainer').style.display = 'block';
-                    document.getElementById('manualOfficialAmount').value = '';
-                }
+                    // 1. Resmi Ücret Kartları (Dövize Göre Dinamik)
+                    Object.entries(acc.dynamicOffMap || {}).forEach(([curr, amt]) => {
+                        if (amt > 0.01) {
+                            html += `
+                            <div class="card mb-3 border-secondary shadow-sm">
+                                <div class="card-header bg-light d-flex justify-content-between align-items-center p-2">
+                                    <span class="font-weight-bold text-secondary"><i class="fas fa-university mr-1"></i> Resmi Ücret / Masraf (${curr})</span>
+                                    <span class="badge badge-secondary p-1 px-2" style="font-size:1em;">${this._formatMoney(amt, curr)}</span>
+                                </div>
+                                <div class="card-body p-2">
+                                    <div class="custom-control custom-checkbox mb-2">
+                                        <input type="checkbox" class="custom-control-input local-pay-full-cb" id="payFullOff_${curr}" data-type="off" data-curr="${curr}">
+                                        <label class="custom-control-label font-weight-bold" for="payFullOff_${curr}">Tamamını Öde</label>
+                                    </div>
+                                    <div class="input-group input-group-sm local-manual-input-container" id="manualOffContainer_${curr}">
+                                        <div class="input-group-prepend"><span class="input-group-text font-weight-bold bg-white">Ödenen Tutar</span></div>
+                                        <input type="number" class="form-control local-manual-input font-weight-bold text-primary" data-type="off" data-curr="${curr}" value="" max="${amt.toFixed(2)}" placeholder="Tutar girin...">
+                                        <div class="input-group-append"><span class="input-group-text font-weight-bold">${curr}</span></div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }
+                    });
 
-                const srvAmt = Number((acc.dynamicServiceFeeAmount || 0).toFixed(2));
-                const srvCurr = acc.serviceFee?.currency || 'TRY';
-                const srvCard = document.getElementById('serviceFeeBadge').closest('.card');
-                
-                if (srvAmt <= 0) {
-                    // Kalan hizmet bedeli yoksa kartı gizle ve ödenecek tutarı 0 yap
-                    srvCard.style.display = 'none';
-                    document.getElementById('payFullService').checked = false;
-                    document.getElementById('manualServiceAmount').value = 0;
-                } else {
-                    // Kalan bakiye varsa kartı göster
-                    srvCard.style.display = 'flex';
-                    document.getElementById('serviceFeeBadge').textContent = `${this._formatMoney(srvAmt, srvCurr)}`;
-                    document.getElementById('manualServiceCurrencyLabel').textContent = srvCurr;
-                    
-                    // DİKKAT: Tamamını öde seçili GELMESİN, manuel giriş kutusu AÇIK gelsin
-                    document.getElementById('payFullService').checked = false;
-                    document.getElementById('serviceAmountInputContainer').style.display = 'block';
-                    document.getElementById('manualServiceAmount').value = '';
+                    // 2. Hizmet Bedeli Kartları (Dövize Göre Dinamik)
+                    Object.entries(acc.dynamicSrvMap || {}).forEach(([curr, amt]) => {
+                        if (amt > 0.01) {
+                            html += `
+                            <div class="card mb-3 border-primary shadow-sm">
+                                <div class="card-header bg-light d-flex justify-content-between align-items-center p-2">
+                                    <span class="font-weight-bold text-primary"><i class="fas fa-briefcase mr-1"></i> Hizmet Bedeli (${curr})</span>
+                                    <span class="badge badge-primary p-1 px-2" style="font-size:1em;">${this._formatMoney(amt, curr)}</span>
+                                </div>
+                                <div class="card-body p-2">
+                                    <div class="custom-control custom-checkbox mb-2">
+                                        <input type="checkbox" class="custom-control-input local-pay-full-cb" id="payFullSrv_${curr}" data-type="srv" data-curr="${curr}">
+                                        <label class="custom-control-label font-weight-bold" for="payFullSrv_${curr}">Tamamını Öde</label>
+                                    </div>
+                                    <div class="input-group input-group-sm local-manual-input-container" id="manualSrvContainer_${curr}">
+                                        <div class="input-group-prepend"><span class="input-group-text font-weight-bold bg-white">Ödenen Tutar</span></div>
+                                        <input type="number" class="form-control local-manual-input font-weight-bold text-primary" data-type="srv" data-curr="${curr}" value="" max="${amt.toFixed(2)}" placeholder="Tutar girin...">
+                                        <div class="input-group-append"><span class="input-group-text font-weight-bold">${curr}</span></div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }
+                    });
+
+                    if (html === '') {
+                        html = '<div class="alert alert-success text-center font-weight-bold"><i class="fas fa-check-circle mr-2"></i> Kapatılacak bakiye bulunmuyor.</div>';
+                    }
+
+                    localArea.innerHTML = html;
+
+                    // Checkbox etkileşimleri
+                    localArea.querySelectorAll('.local-pay-full-cb').forEach(cb => {
+                        cb.addEventListener('change', (e) => {
+                            const type = e.target.dataset.type;
+                            const curr = e.target.dataset.curr;
+                            const container = document.getElementById(`manual${type === 'off' ? 'Off' : 'Srv'}Container_${curr}`);
+                            const input = container.querySelector('input');
+                            if (e.target.checked) {
+                                container.style.display = 'none';
+                            } else {
+                                container.style.display = 'flex';
+                                input.value = '';
+                                input.focus();
+                            }
+                        });
+                    });
                 }
             }
         }

@@ -1189,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const taxNo = person ? (person.taxNo || person.tax_no || person.tckn || '') : '';
                     const isCorporate = taxNo.length !== 11;
 
-                    let off = 0; let srv = 0;
+                    let offMap = {}; let srvMap = {}; // 🔥 YENİ: Map'ler ile dövize göre ayır
                     const items = acc.items || [];
                     if (items.length > 0) {
                         items.forEach(i => {
@@ -1197,6 +1197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const price = Number(i.unit_price) || 0;
                             const vat = Number(i.vat_rate) || 0;
                             const feeType = i.fee_type || '';
+                            const curr = i.currency || 'TRY'; // 🔥 Döviz cinsi
                             let amt = 0;
 
                             let effectiveVat = vat;
@@ -1214,40 +1215,48 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 amt = (qty * price) * (1 + (effectiveVat / 100)); 
                             }
 
-                            // KESİN GRUPLAMA
+                            // KESİN GRUPLAMA VE DÖVİZE GÖRE TOPLAMA
                             if (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık') {
-                                srv += amt;
+                                srvMap[curr] = (srvMap[curr] || 0) + amt;
                             } else {
-                                off += amt;
+                                offMap[curr] = (offMap[curr] || 0) + amt;
                             }
                         });
                     } else {
                         const vMult = 1 + ((acc.vatRate || 0) / 100);
-                        off = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vMult : (acc.officialFee?.amount || 0);
-                        srv = (acc.serviceFee?.amount || 0) * vMult;
+                        const off = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vMult : (acc.officialFee?.amount || 0);
+                        const srv = (acc.serviceFee?.amount || 0) * vMult;
+                        const offCurr = acc.officialFee?.currency || 'TRY';
+                        const srvCurr = acc.serviceFee?.currency || 'TRY';
+                        offMap[offCurr] = off;
+                        srvMap[srvCurr] = srv;
                     }
                     
-                    acc.dynamicOfficialFeeAmount = off;
-                    acc.dynamicServiceFeeAmount = srv;
+                    acc.dynamicOffMap = offMap;
+                    acc.dynamicSrvMap = srvMap;
 
                     // 🔥 ÇÖZÜM: EĞER TAHAKKUK KISMEN ÖDENMİŞSE, ORİJİNAL HEDEFLERİ DEĞİL "KALAN" BAKİYELERİ KULLAN!
                     if (acc.status === 'partially_paid' && Array.isArray(acc.remainingAmount) && acc.remainingAmount.length > 0) {
-                        const remData = acc.remainingAmount[0];
-                        // Veritabanına yeni eklediğimiz ayrıştırıcıları kontrol et
-                        if (remData.remOff !== undefined && remData.remSrv !== undefined) {
-                            acc.dynamicOfficialFeeAmount = remData.remOff;
-                            acc.dynamicServiceFeeAmount = remData.remSrv;
-                        } else {
-                            // Eski kayıtlarda bu ayrıştırıcı yoksa tahmini fallback yaparız (Servisten düşmeye başlar)
-                            const totalRem = Number(remData.amount) || 0;
-                            if (totalRem < srv) {
-                                acc.dynamicServiceFeeAmount = totalRem;
-                                acc.dynamicOfficialFeeAmount = 0;
+                        let tempOffMap = {}; let tempSrvMap = {};
+                        acc.remainingAmount.forEach(remData => {
+                            const c = remData.currency || 'TRY';
+                            if (remData.remOff !== undefined && remData.remSrv !== undefined) {
+                                tempOffMap[c] = remData.remOff;
+                                tempSrvMap[c] = remData.remSrv;
                             } else {
-                                acc.dynamicServiceFeeAmount = srv;
-                                acc.dynamicOfficialFeeAmount = Math.max(0, totalRem - srv);
+                                const totalRem = Number(remData.amount) || 0;
+                                const expectedSrv = srvMap[c] || 0;
+                                if (totalRem < expectedSrv) {
+                                    tempSrvMap[c] = totalRem;
+                                    tempOffMap[c] = 0;
+                                } else {
+                                    tempSrvMap[c] = expectedSrv;
+                                    tempOffMap[c] = Math.max(0, totalRem - expectedSrv);
+                                }
                             }
-                        }
+                        });
+                        acc.dynamicOffMap = tempOffMap;
+                        acc.dynamicSrvMap = tempSrvMap;
                     }
                 });
 

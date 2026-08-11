@@ -263,20 +263,18 @@ async function setupMenuBadges(supabase, userId) {
         localStorage.setItem('global_pending_users', pendingCount);
       }
 
-      // 3. LocalStorage'dan (reminders.html'in hesaplayıp yazdığı) okunmamış bildirimleri al
-      let unreadReminders = parseInt(localStorage.getItem('global_unread_reminders'));
+      // 3. Belleğe güvenmek yerine HER ZAMAN veritabanından CANLI sayım yap
+      const { count: manualNotesCount } = await supabase
+        .from('reminders')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .neq('status', 'completed')
+        .neq('status', 'read'); 
+        
+      let unreadReminders = manualNotesCount || 0;
       
-      // 🔥 KURTARICI KOD: Eğer giriş yeni bir bilgisayardan yapıldıysa (Bellek boşsa), 
-      // sadece aktif manuel notları veritabanından hızlıca sayıp başlangıç değeri veriyoruz.
-      if (isNaN(unreadReminders)) {
-          const { count: manualNotesCount } = await supabase
-            .from('reminders')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .neq('status', 'completed')
-            .neq('status', 'read'); // 🚀 ÇÖZÜM: 'is_read' kolonu yerine 'status' kullanıyoruz.
-          unreadReminders = manualNotesCount || 0;
-      }
+      // Çekilen taze veriyi diğer sayfaların da kullanabilmesi için belleğe yaz
+      localStorage.setItem('global_unread_reminders', unreadReminders);
 
       const totalReminders = pendingCount + unreadReminders;
       

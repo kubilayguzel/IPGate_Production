@@ -756,7 +756,7 @@ export class AccrualDataManager {
                 // Yurtiçi (Müşteri) Mantığı Aynen Korunuyor...
                 if (ids.length === 1 && singlePaymentDetails) {
                     updates.paymentDate = formattedDate;
-                    const { payFullOfficial, payFullService, manualOfficial, manualService } = singlePaymentDetails;
+                    const { localPayments } = singlePaymentDetails;
                     
                     const partyId = acc.tpInvoiceParty?.id || acc.tp_invoice_party_id;
                     const person = partyId ? this.allPersons.find(p => String(p.id) === String(partyId)) : null;
@@ -764,9 +764,9 @@ export class AccrualDataManager {
                     const taxNo = person ? (person.taxNo || person.tax_no || person.tckn || '') : '';
                     const isCorporate = taxNo.length !== 11;
 
-                    // Orijinal hedefleri hesapla
-                    let dynamicOffTarget = 0;
-                    let dynamicSrvTarget = 0;
+                    // Orijinal hedefleri dövize göre haritala (Map)
+                    let dynamicOffMap = {};
+                    let dynamicSrvMap = {};
 
                     const items = acc.items || [];
                     if (items.length > 0) {
@@ -775,6 +775,7 @@ export class AccrualDataManager {
                             const price = Number(i.unit_price) || 0;
                             const vat = Number(i.vat_rate) || 0;
                             const feeType = i.fee_type || '';
+                            const curr = i.currency || 'TRY';
                             let amt = 0;
 
                             let effectiveVat = vat;
@@ -794,63 +795,75 @@ export class AccrualDataManager {
                             }
 
                             if (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık') {
-                                dynamicSrvTarget += amt;
+                                dynamicSrvMap[curr] = (dynamicSrvMap[curr] || 0) + amt;
                             } else {
-                                dynamicOffTarget += amt;
+                                dynamicOffMap[curr] = (dynamicOffMap[curr] || 0) + amt;
                             }
                         });
                     } else {
                         const vatMultiplier = 1 + ((acc.vatRate || 0) / 100);
-                        dynamicOffTarget = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
-                        dynamicSrvTarget = (acc.serviceFee?.amount || 0) * vatMultiplier;
+                        const offAmt = acc.applyVatToOfficialFee ? (acc.officialFee?.amount || 0) * vatMultiplier : (acc.officialFee?.amount || 0);
+                        const srvAmt = (acc.serviceFee?.amount || 0) * vatMultiplier;
+                        dynamicOffMap[acc.officialFee?.currency || 'TRY'] = offAmt;
+                        dynamicSrvMap[acc.serviceFee?.currency || 'TRY'] = srvAmt;
                     }
 
-                    // 🔥 ÇÖZÜM: MEVCUT (KALAN) HEDEFLERİ BELİRLE
-                    let currentRemOff = dynamicOffTarget;
-                    let currentRemSrv = dynamicSrvTarget;
+                    // 🔥 ÇÖZÜM: MEVCUT (KALAN) HEDEFLERİ MAP OLARAK BELİRLE
+                    let currentRemOffMap = { ...dynamicOffMap };
+                    let currentRemSrvMap = { ...dynamicSrvMap };
 
                     if (acc.status === 'partially_paid' && Array.isArray(acc.remainingAmount) && acc.remainingAmount.length > 0) {
-                        const remData = acc.remainingAmount[0];
-                        if (remData.remOff !== undefined && remData.remSrv !== undefined) {
-                            currentRemOff = remData.remOff;
-                            currentRemSrv = remData.remSrv;
-                        } else {
-                            // Eski kayıtlar için fallback
-                            const totalRem = Number(remData.amount) || 0;
-                            if (totalRem < dynamicSrvTarget) {
-                                currentRemSrv = totalRem;
-                                currentRemOff = 0;
+                        currentRemOffMap = {}; currentRemSrvMap = {};
+                        acc.remainingAmount.forEach(remData => {
+                            const c = remData.currency || 'TRY';
+                            if (remData.remOff !== undefined && remData.remSrv !== undefined) {
+                                currentRemOffMap[c] = remData.remOff;
+                                currentRemSrvMap[c] = remData.remSrv;
                             } else {
-                                currentRemSrv = dynamicSrvTarget;
-                                currentRemOff = Math.max(0, totalRem - dynamicSrvTarget);
+                                const totalRem = Number(remData.amount) || 0;
+                                const expectedSrv = dynamicSrvMap[c] || 0;
+                                if (totalRem < expectedSrv) {
+                                    currentRemSrvMap[c] = totalRem;
+                                    currentRemOffMap[c] = 0;
+                                } else {
+                                    currentRemSrvMap[c] = expectedSrv;
+                                    currentRemOffMap[c] = Math.max(0, totalRem - expectedSrv);
+                                }
                             }
-                        }
+                        });
                     }
 
-                    // ŞİMDİ YAPILAN ÖDEME TUTARI (Artık orijinal değil, güncel kalan hedeflere göre bakılıyor)
-                    const newPaidOff = payFullOfficial ? currentRemOff : (parseFloat(manualOfficial) || 0);
-                    const newPaidSrv = payFullService ? currentRemSrv : (parseFloat(manualService) || 0);
+                    // ŞİMDİ YAPILAN ÖDEME TUTARI (Dinamik Inputlardan)
+                    if (localPayments && localPayments.length > 0) {
+                        localPayments.forEach(pay => {
+                            const { type, curr, isFull, amount } = pay;
+                            if (type === 'off') {
+                                const newPaidOff = isFull ? (currentRemOffMap[curr] || 0) : (parseFloat(amount) || 0);
+                                currentRemOffMap[curr] = Math.max(0, (currentRemOffMap[curr] || 0) - newPaidOff);
+                            } else if (type === 'srv') {
+                                const newPaidSrv = isFull ? (currentRemSrvMap[curr] || 0) : (parseFloat(amount) || 0);
+                                currentRemSrvMap[curr] = Math.max(0, (currentRemSrvMap[curr] || 0) - newPaidSrv);
+                            }
+                        });
+                    }
 
-                    // YENİ KALAN BAKİYE
-                    const remOff = Math.max(0, currentRemOff - newPaidOff);
-                    const remSrv = Math.max(0, currentRemSrv - newPaidSrv);
-
+                    // YENİ KALAN BAKİYE JSON FORMATINI OLUŞTUR
                     const remMap = {};
-                    const offCurr = acc.officialFee?.currency || 'TRY';
-                    const srvCurr = acc.serviceFee?.currency || 'TRY';
+                    Object.entries(currentRemOffMap).forEach(([c, amt]) => {
+                        if (amt > 0.01) {
+                            if (!remMap[c]) remMap[c] = { amount: 0, remOff: 0, remSrv: 0 };
+                            remMap[c].amount += amt;
+                            remMap[c].remOff += amt;
+                        }
+                    });
+                    Object.entries(currentRemSrvMap).forEach(([c, amt]) => {
+                        if (amt > 0.01) {
+                            if (!remMap[c]) remMap[c] = { amount: 0, remOff: 0, remSrv: 0 };
+                            remMap[c].amount += amt;
+                            remMap[c].remSrv += amt;
+                        }
+                    });
 
-                    if (remOff > 0.01) {
-                        if (!remMap[offCurr]) remMap[offCurr] = { amount: 0, remOff: 0, remSrv: 0 };
-                        remMap[offCurr].amount += remOff;
-                        remMap[offCurr].remOff += remOff;
-                    }
-                    if (remSrv > 0.01) {
-                        if (!remMap[srvCurr]) remMap[srvCurr] = { amount: 0, remOff: 0, remSrv: 0 };
-                        remMap[srvCurr].amount += remSrv;
-                        remMap[srvCurr].remSrv += remSrv;
-                    }
-
-                    // JSON formatını güncelliyoruz: Sadece total amount değil, remOff ve remSrv detaylarını da DB'ye yazıyoruz
                     updates.remainingAmount = Object.entries(remMap).map(([c, data]) => ({ 
                         amount: Number(data.amount.toFixed(2)), 
                         currency: c,
@@ -859,8 +872,7 @@ export class AccrualDataManager {
                     }));
 
                     if (updates.remainingAmount.length === 0) updates.status = 'paid';
-                    else if (newPaidOff > 0 || newPaidSrv > 0 || acc.status === 'partially_paid') updates.status = 'partially_paid';
-                    else updates.status = 'unpaid';
+                    else updates.status = 'partially_paid';
                 }
                 else {
                     updates.status = 'paid';

@@ -115,12 +115,8 @@
 
                     <div class="mb-4 mt-3">
                         <h4 class="font-weight-bold text-secondary" id="currentActionText">Sistem Hazır. Görev Bekleniyor...</h4>
-                        <p class="text-muted" id="currentAppNoText" style="font-size: 1.1rem;">-</p>
-                        
-                        <div id="robotImageContainer" class="mt-3 mb-2" style="display: none;">
-                            <img src="./kizlar.png" alt="Robot Aktif" style="max-width: 560px; width: 100%; height: auto; border-radius: 10px; border: 1px solid #e3e6f0; box-shadow: 0 4px 8px rgba(0,0,0,0.05);">
-                        </div>
-                    </div>
+                        <p class="text-muted" id="currentAppNoText" style="font-size: 1.1rem;">-</p>                     
+                   </div>
 
                     <div class="progress mb-4" style="height: 25px; border-radius: 12px;">
                         <div id="queueProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%; font-size: 14px; font-weight: bold;">%0</div>
@@ -502,10 +498,6 @@
         sessionTotalTasks = currentPending; // O anki bekleyenleri toplam hedefimiz yap
         sessionCompletedTasks = 0; // Oturum sıfırdan başlıyor
 
-        // 🔥 YENİ: Robot başladığı an resmi görünür yap
-        const imgBox = document.getElementById('robotImageContainer');
-        if (imgBox) imgBox.style.display = 'block';
-
         botIsRunning = true;
         document.getElementById('startBotBtn').style.display = 'none';
         document.getElementById('stopBotBtn').style.display = 'block';
@@ -519,10 +511,6 @@
 
     document.getElementById('stopBotBtn').addEventListener('click', () => {
         botIsRunning = false;
-        // 🔥 YENİ: Robot durdurulunca resmi gizle
-        const imgBox = document.getElementById('robotImageContainer');
-        if (imgBox) imgBox.style.display = 'none';
-
         document.getElementById('stopBotBtn').style.display = 'none';
         document.getElementById('startBotBtn').style.display = 'block';
         document.getElementById('startBotBtn').innerHTML = '<i class="fas fa-play mr-2"></i>Devam Et';
@@ -560,9 +548,6 @@
                     document.getElementById('currentActionText').innerText = "Kuyruk Tamamen Bitti! 🎉";
                     document.getElementById('stopBotBtn').style.display = 'none';
                     document.getElementById('startBotBtn').style.display = 'block';
-                    // 🔥 YENİ: Bütün işlemler başarıyla bittiğinde resmi gizle
-                    const imgBox = document.getElementById('robotImageContainer');
-                    if (imgBox) imgBox.style.display = 'none';
                 }
                 return;
             }

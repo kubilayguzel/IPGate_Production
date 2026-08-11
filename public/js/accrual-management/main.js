@@ -1199,16 +1199,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const feeType = i.fee_type || '';
                             let amt = 0;
 
+                            let effectiveVat = vat;
+                            if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
+                                effectiveVat = vat * 0.1;
+                            }
+
                             if (acc.department === 'HUKUK' && (feeType === 'Hukuk Danışmanlık' || feeType === 'Hizmet')) {
                                 if (isCorporate) {
-                                    amt = (qty * (price / 0.8)) * (1 + (vat / 100) - 0.20); 
+                                    amt = (qty * (price / 0.8)) * (1 + (effectiveVat / 100) - 0.20); 
                                 } else {
-                                    amt = (qty * price) * (1 + (vat / 100)); 
+                                    amt = (qty * price) * (1 + (effectiveVat / 100)); 
                                 }
-                            } else if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
-                                amt = (qty * price) * (1 + (vat * 0.1) / 100); 
                             } else {
-                                amt = (qty * price) * (1 + (vat / 100)); 
+                                amt = (qty * price) * (1 + (effectiveVat / 100)); 
                             }
 
                             // KESİN GRUPLAMA

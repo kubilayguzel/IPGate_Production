@@ -777,17 +777,20 @@ export class AccrualDataManager {
                             const feeType = i.fee_type || '';
                             let amt = 0;
 
+                            let effectiveVat = vat;
+                            if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
+                                effectiveVat = vat * 0.1;
+                            }
+
                             if (acc.department === 'HUKUK' && (feeType === 'Hukuk Danışmanlık' || feeType === 'Hizmet')) {
                                 if (isCorporate) {
                                     const grossPrice = price / 0.8; 
-                                    amt = (qty * grossPrice) * (1 + (vat / 100) - 0.20); 
+                                    amt = (qty * grossPrice) * (1 + (effectiveVat / 100) - 0.20); 
                                 } else {
-                                    amt = (qty * price) * (1 + (vat / 100)); 
+                                    amt = (qty * price) * (1 + (effectiveVat / 100)); 
                                 }
-                            } else if (isTevkifatli && (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık')) {
-                                amt = (qty * price) * (1 + (vat * 0.1) / 100); 
                             } else {
-                                amt = (qty * price) * (1 + (vat / 100)); 
+                                amt = (qty * price) * (1 + (effectiveVat / 100)); 
                             }
 
                             if (feeType === 'Hizmet' || feeType === 'Hukuk Danışmanlık') {

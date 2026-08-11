@@ -320,28 +320,32 @@ export class AccrualUIManager {
                     const price = Number(i.unit_price) || 0; // Eğer SMM ise bu net tutardır
                     const vat = Number(i.vat_rate) || 0;
 
+                    let effectiveVat = vat;
+                    if (isTevkifatli && (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık')) {
+                        effectiveVat = vat * 0.1; // 9/10 Tevkifat hesaplaması
+                    }
+
                     // 🔥 HUKUK SMM DÜZELTMESİ: Brüt ve Stopaj Hesabı
                     if (acc.department === 'HUKUK' && (i.fee_type === 'Hukuk Danışmanlık' || i.fee_type === 'Hizmet')) {
                         let isCorporate = true;
-                        // Müvekkil kimlik/vergi numarasından kurumsal/bireysel tespiti
                         if (partyId && lookups.persons) {
                             const person = lookups.persons.find(p => String(p.id) === String(partyId));
                             if (person) {
                                 const taxNo = person.taxNo || person.tax_no || person.tckn || '';
-                                if (taxNo.length === 11) isCorporate = false; // 11 Hane ise TCKN'dir (Bireysel)
+                                if (taxNo.length === 11) isCorporate = false;
                             }
                         }
                         
                         if (isCorporate) {
-                            const grossPrice = price / 0.8; // Neti brüte çevir
-                            amt = (qty * grossPrice) * (1 + (vat / 100) - 0.20); // Brüt + KDV - Stopaj
+                            const grossPrice = price / 0.8; 
+                            amt = (qty * grossPrice) * (1 + (effectiveVat / 100) - 0.20); // Brüt + Tevkifatlı KDV - Stopaj
                         } else {
-                            amt = (qty * price) * (1 + (vat / 100)); // Bireyselde stopaj yok
+                            amt = (qty * price) * (1 + (effectiveVat / 100)); 
                         }
                     } 
-                    // TEVKİFAT DÜZELTMESİ (Sadece Evreka departmanı için)
-                    else if (isTevkifatli && (i.fee_type === 'Hizmet' || i.fee_type === 'Hukuk Danışmanlık')) {
-                        amt = (qty * price) * (1 + (vat * 0.1) / 100); // 9/10 indirim
+                    // EVREKA DEPARTMANI İÇİN
+                    else {
+                        amt = (qty * price) * (1 + (effectiveVat / 100)); 
                     }
                     
                     srvMap[curr] = (srvMap[curr] || 0) + amt;

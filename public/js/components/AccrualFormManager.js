@@ -463,19 +463,26 @@ export class AccrualFormManager {
                 const isForeign = document.getElementById(`${this.prefix}IsForeignTransaction`)?.checked || false;
                 const activeParty = isForeign && this.selectedForeignParty ? this.selectedForeignParty : this.selectedTpParty;
                 
-                // Varsayılanı kurumsal (%20 stopaj) kabul ediyoruz. Müşteri TCKN ise (11 hane) bireyseldir, stopaj olmaz.
                 let isCorporate = true; 
+                let isTevkifatli = false;
+
                 if (activeParty) {
                     const taxNo = activeParty.taxNo || activeParty.tax_no || activeParty.tckn || '';
                     if (taxNo.length === 11) isCorporate = false;
+                    if (activeParty.has_tevkifat === true) isTevkifatli = true;
+                }
+
+                let effectiveVat = vat;
+                if (isTevkifatli) {
+                    effectiveVat = vat * 0.1; // 9/10 KDV Tevkifatı
                 }
 
                 if (isCorporate) {
-                    grossPrice = price / 0.8; // Netten Brüte çevrim (Örn: 44.000 / 0.8 = 55.000)
-                    // SMM Net Ödenecek = Brüt + KDV - Stopaj (%20)
-                    total = (qty * grossPrice) * (1 + (vat / 100) - 0.20); 
+                    grossPrice = price / 0.8; // Netten Brüte çevrim
+                    // SMM Net Ödenecek = Brüt + Tevkifatlı KDV - Stopaj (%20)
+                    total = (qty * grossPrice) * (1 + (effectiveVat / 100) - 0.20); 
                 } else {
-                    total = (qty * price) * (1 + (vat / 100)); // Bireyselde stopaj yok
+                    total = (qty * price) * (1 + (effectiveVat / 100)); 
                 }
             } else {
                 // Standart EVREKA veya Masraf Hesaplaması
@@ -533,11 +540,12 @@ export class AccrualFormManager {
         let activeParty = isForeign && this.selectedForeignParty ? this.selectedForeignParty : this.selectedTpParty;
         let isTevkifatli = activeParty ? (activeParty.has_tevkifat === true) : false;
         let hasTevkifatApplied = false;
+        let hasStopajApplied = false; // YENİ EKLENDİ
 
         tbody.querySelectorAll('tr').forEach(tr => {
             const qty = parseFloat(tr.dataset.rawQty) || 0;
-            const price = parseFloat(tr.dataset.rawPrice) || 0; // Formdaki Net rakam
-            const grossPrice = parseFloat(tr.dataset.grossPrice) || price; // Hukuk için arka plandaki Brüt rakam
+            const price = parseFloat(tr.dataset.rawPrice) || 0; 
+            const grossPrice = parseFloat(tr.dataset.grossPrice) || price; 
             const rowCalculatedTotal = parseFloat(tr.dataset.calculatedTotal) || 0; 
             const vat = parseFloat(tr.dataset.rawVat) || 0;
             const curr = tr.dataset.currency || 'TRY';
@@ -545,19 +553,30 @@ export class AccrualFormManager {
             const dept = document.getElementById(`${p}Department`)?.value;
             
             let actualAccrualTotal = rowCalculatedTotal;
-            let netAmount = qty * grossPrice; // KDV'siz Ara Toplam (Matrah) SMM/Hukuk'ta her zaman Brüt üzerinden görünmelidir!
+            let netAmount = qty * grossPrice; 
 
-            // Tevkifat İndirimi SADECE Evreka departmanındaki hizmetlerde olur. (Hukuk'ta SMM stopajı kullanıldığı için tevkifat uygulanmaz)
             if (dept !== 'HUKUK') {
                 let effectiveVat = vat;
                 if (isTevkifatli && (type === 'Hizmet' || type === 'Hukuk Danışmanlık')) {
-                    effectiveVat = vat * 0.1; // 9/10 kesinti
+                    effectiveVat = vat * 0.1; 
                     hasTevkifatApplied = true;
                     actualAccrualTotal = Number(((qty * price) * (1 + effectiveVat / 100)).toFixed(2));
                 } else {
                     actualAccrualTotal = Number(((qty * price) * (1 + vat / 100)).toFixed(2));
                 }
-            } 
+            } else {
+                // HUKUK Departmanı İçin Stopaj ve Tevkifat Kontrolü
+                if (type === 'Hukuk Danışmanlık' || type === 'Hizmet') {
+                    let isCorporate = true; 
+                    if (activeParty) {
+                        const taxNo = activeParty.taxNo || activeParty.tax_no || activeParty.tckn || '';
+                        if (taxNo.length === 11) isCorporate = false;
+                    }
+                    if (isCorporate) hasStopajApplied = true;
+                    if (isTevkifatli) hasTevkifatApplied = true;
+                }
+                actualAccrualTotal = rowCalculatedTotal; 
+            }
 
             if (netAmount > 0) {
                 netTotalsMap[curr] = (netTotalsMap[curr] || 0) + netAmount;
@@ -575,7 +594,14 @@ export class AccrualFormManager {
                 return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + ' ' + curr;
             });
 
-            let noteHtml = hasTevkifatApplied ? ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı Tahsilat)</small>' : '';
+            let noteHtml = '';
+            if (hasTevkifatApplied && hasStopajApplied) {
+                noteHtml = ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı ve Stopajlı Tahsilat)</small>';
+            } else if (hasTevkifatApplied) {
+                noteHtml = ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Tevkifatlı Tahsilat)</small>';
+            } else if (hasStopajApplied) {
+                noteHtml = ' <small class="text-danger ml-2" style="font-size: 0.65em;">(Stopajlı Tahsilat)</small>';
+            }
 
             if (parts.length === 0) {
                 valueSpan.innerHTML = '0.00 TRY';
@@ -938,15 +964,36 @@ export class AccrualFormManager {
             const currency = tr.querySelector('.item-currency').value;
 
             if (item_name && quantity > 0) {
-                // Fatura kalemleri için normal KDV'li (örn: %20) toplam tutar kaydedilir
-                const item_normal_total = Number(((quantity * unit_price) * (1 + vat_rate / 100)).toFixed(2));
+                let accrual_actual_total = 0;
+                let item_normal_total = 0;
                 
-                // Tahakkuk Listesi Genel Toplamı için Tevkifatlı (örn: %2) tutar hesaplanır
-                let effectiveVat = vat_rate;
-                if (isTevkifatliData && (fee_type === 'Hizmet' || fee_type === 'Hukuk Danışmanlık')) {
-                    effectiveVat = vat_rate * 0.1; 
+                // 🔥 SMM ve Evreka Ayrımına Göre Kaydedilecek Tutarları Belirle
+                if (department === 'HUKUK' && (fee_type === 'Hukuk Danışmanlık' || fee_type === 'Hizmet')) {
+                    let isCorporate = true;
+                    if (servicePartyForData) {
+                        const taxNo = servicePartyForData.taxNo || servicePartyForData.tax_no || servicePartyForData.tckn || '';
+                        if (taxNo.length === 11) isCorporate = false;
+                    }
+                    
+                    let effectiveVat = vat_rate;
+                    if (isTevkifatliData) effectiveVat = vat_rate * 0.1;
+
+                    if (isCorporate) {
+                        const grossPrice = unit_price / 0.8;
+                        item_normal_total = Number(((quantity * grossPrice) * (1 + vat_rate / 100)).toFixed(2)); // Stopajsız normal tutar
+                        accrual_actual_total = Number(((quantity * grossPrice) * (1 + effectiveVat / 100) - 0.20 * quantity * grossPrice).toFixed(2)); // Tevkifatlı ve Stopajlı
+                    } else {
+                        item_normal_total = Number(((quantity * unit_price) * (1 + vat_rate / 100)).toFixed(2));
+                        accrual_actual_total = Number(((quantity * unit_price) * (1 + effectiveVat / 100)).toFixed(2));
+                    }
+                } else {
+                    item_normal_total = Number(((quantity * unit_price) * (1 + vat_rate / 100)).toFixed(2));
+                    let effectiveVat = vat_rate;
+                    if (isTevkifatliData && (fee_type === 'Hizmet' || fee_type === 'Hukuk Danışmanlık')) {
+                        effectiveVat = vat_rate * 0.1; 
+                    }
+                    accrual_actual_total = Number(((quantity * unit_price) * (1 + effectiveVat / 100)).toFixed(2));
                 }
-                const accrual_actual_total = Number(((quantity * unit_price) * (1 + effectiveVat / 100)).toFixed(2));
                 
                 // 🔥 ÇÖZÜM 3: Satırlarda normal_total gösterilir
                 items.push({ fee_type, item_name, quantity, unit_price, vat_rate, total_amount: item_normal_total, currency });

@@ -104,6 +104,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             overflow: hidden;
             padding-bottom: 20px;
+            margin-bottom: 100px; /* 🔥 ÇÖZÜM: Toplu işlem barının pagination'ı kapatmaması için eklendi */
             flex-shrink: 0;
             height: auto;
         }
@@ -291,6 +292,16 @@
                     <div class="filter-group"><input type="text" id="filterSubject" class="filter-input" placeholder="Konu / Marka Adı..."></div>
                     <div class="filter-group"><input type="text" id="filterTask" class="filter-input" placeholder="İlgili İş (Örn: İtiraz, Yenileme)..."></div>
                     <div class="filter-group"><input type="text" id="filterDescription" class="filter-input" placeholder="Açıklama içinde ara..."></div>
+
+                    <!-- 🔥 YENİ EKLENEN YURTDIŞI İŞLEM FİLTRESİ -->
+                    <div class="filter-group">
+                        <label class="filter-label">İşlem Yönü</label>
+                        <select id="filterIsForeign" class="filter-select border-info">
+                            <option value="all">Tümü (Yurtiçi + Yurtdışı)</option>
+                            <option value="yes">Sadece Yurtdışı İşlemler</option>
+                            <option value="no">Sadece Yurtiçi İşlemler</option>
+                        </select>
+                    </div>
 
                     <div class="filter-group-title mt-4 text-danger border-danger">Yurtdışı Özel (Sadece Dış İşler)</div>
                     <div class="filter-group d-flex" style="gap:10px;">

@@ -418,6 +418,13 @@ export class AccrualDataManager {
                     return filters.foreignAdvisor === 'yes' ? (item.sentToAdvisor === true) : !item.sentToAdvisor;
                 });
             }
+
+            // 🔥 YENİ: Yurtdışı İşlem (Evet/Hayır) Filtresi
+            if (filters.isForeign && filters.isForeign !== 'all') {
+                data = data.filter(item => {
+                    return filters.isForeign === 'yes' ? (item.isForeignTransaction === true) : !item.isForeignTransaction;
+                });
+            }
         }
 
         if (sort && sort.column) {

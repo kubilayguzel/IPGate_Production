@@ -780,7 +780,7 @@ export class AccrualUIManager {
         }).join('');
 
         if (targetBody) targetBody.innerHTML = rowsHtml;
-        this.updateBulkActionsVisibility(selectedIds.size > 0, activeTab);
+        this.updateBulkActionsVisibility(selectedIds, activeTab);
     }
 
     initEditModal(accrual, personList, epatsDocument = null) {
@@ -1248,41 +1248,82 @@ export class AccrualUIManager {
         this.taskDetailManager.showError(msg);
     }
 
-    updateBulkActionsVisibility(hasSelection, activeTab = 'main') {
+    updateBulkActionsVisibility(hasSelectionOrSelectedIds, activeTab = 'main') {
         if (!this.bulkActions) return;
         
+        let hasSelection = false;
+        let selectedIds = new Set();
+        
+        // Gelen verinin boolean (eski yapı) veya Set objesi (yeni yapı) olmasını destekliyoruz
+        if (typeof hasSelectionOrSelectedIds === 'boolean') {
+            hasSelection = hasSelectionOrSelectedIds;
+        } else if (hasSelectionOrSelectedIds && typeof hasSelectionOrSelectedIds.size === 'number') {
+            hasSelection = hasSelectionOrSelectedIds.size > 0;
+            selectedIds = hasSelectionOrSelectedIds;
+        }
+
         const btnCreateInvoice = document.getElementById('bulkCreateInvoiceBtn');
         const btnMarkPaid = document.getElementById('bulkMarkPaidBtn');
         const btnMarkUnpaid = document.getElementById('bulkMarkUnpaidBtn');
         const btnSendAdvisor = document.getElementById('bulkSendAdvisorBtn');
         const btnSyncAll = document.getElementById('btnSyncAllInvoices');
 
+        // 🔥 YENİ: Seçilen tahakkukların ödenme durumunu kontrol et
+        let isAllPaid = false;
+        let isAllUnpaid = false;
+
+        if (hasSelection && selectedIds.size > 0 && this.currentData) {
+            const selectedItems = this.currentData.filter(a => selectedIds.has(String(a.id)));
+            if (selectedItems.length > 0) {
+                if (activeTab === 'foreign') {
+                    isAllPaid = selectedItems.every(a => a.foreignStatus === 'paid');
+                    isAllUnpaid = selectedItems.every(a => a.foreignStatus === 'unpaid');
+                } else {
+                    isAllPaid = selectedItems.every(a => a.status === 'paid');
+                    isAllUnpaid = selectedItems.every(a => a.status === 'unpaid');
+                }
+            }
+        }
+
+        // Butonların pasiflik/görünürlük durumlarını yöneten yardımcı fonksiyon
+        const applyBtnState = (btn, isHidden, isDisabled) => {
+            if (!btn) return;
+            if (isHidden) {
+                btn.style.display = 'none';
+            } else {
+                btn.style.display = 'inline-block';
+                btn.disabled = isDisabled;
+                btn.style.opacity = isDisabled ? '0.5' : '1';
+                btn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+                if (isDisabled && btn.id === 'bulkMarkPaidBtn') btn.title = "Seçilen tahakkuklar zaten ödendiği için işlem yapılamaz.";
+                else if (isDisabled && btn.id === 'bulkMarkUnpaidBtn') btn.title = "Seçilen tahakkuklar zaten ödenmediği için işlem yapılamaz.";
+                else btn.title = "";
+            }
+        };
+
         if (activeTab === 'invoices') {
-            // Faturalar sekmesi: Sadece "Tüm Bekleyenleri Güncelle" aktif (seçimden bağımsız hep görünür)
             this.bulkActions.style.display = 'flex';
-            if (btnCreateInvoice) btnCreateInvoice.style.display = 'none';
-            if (btnMarkPaid) btnMarkPaid.style.display = 'none';
-            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'none';
-            if (btnSendAdvisor) btnSendAdvisor.style.display = 'none';
-            if (btnSyncAll) btnSyncAll.style.display = 'inline-block';
+            applyBtnState(btnCreateInvoice, true, false);
+            applyBtnState(btnMarkPaid, true, false);
+            applyBtnState(btnMarkUnpaid, true, false);
+            applyBtnState(btnSendAdvisor, true, false);
+            applyBtnState(btnSyncAll, false, false);
         } else if (activeTab === 'foreign') {
-            // Yurtdışı sekmesi: Seçim yapıldığında ilgili 3 buton görünür
             this.bulkActions.style.display = hasSelection ? 'flex' : 'none';
-            if (btnCreateInvoice) btnCreateInvoice.style.display = 'none';
-            if (btnMarkPaid) btnMarkPaid.style.display = 'inline-block';
-            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'inline-block';
-            if (btnSendAdvisor) btnSendAdvisor.style.display = 'inline-block';
-            if (btnSyncAll) btnSyncAll.style.display = 'none';
+            applyBtnState(btnCreateInvoice, true, false);
+            applyBtnState(btnMarkPaid, false, isAllPaid);
+            applyBtnState(btnMarkUnpaid, false, isAllUnpaid);
+            applyBtnState(btnSendAdvisor, false, false);
+            applyBtnState(btnSyncAll, true, false);
         } else if (activeTab === 'recursive') {
             this.bulkActions.style.display = 'none';
         } else {
-            // Ana (Tüm Tahakkuklar) sekmesi
             this.bulkActions.style.display = hasSelection ? 'flex' : 'none';
-            if (btnCreateInvoice) btnCreateInvoice.style.display = 'inline-block';
-            if (btnMarkPaid) btnMarkPaid.style.display = 'inline-block';
-            if (btnMarkUnpaid) btnMarkUnpaid.style.display = 'inline-block';
-            if (btnSendAdvisor) btnSendAdvisor.style.display = 'none';
-            if (btnSyncAll) btnSyncAll.style.display = 'none';
+            applyBtnState(btnCreateInvoice, false, false);
+            applyBtnState(btnMarkPaid, false, isAllPaid);
+            applyBtnState(btnMarkUnpaid, false, isAllUnpaid);
+            applyBtnState(btnSendAdvisor, true, false);
+            applyBtnState(btnSyncAll, true, false);
         }
     }
 

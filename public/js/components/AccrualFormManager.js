@@ -688,24 +688,23 @@ export class AccrualFormManager {
         const p = this.prefix;
         const isForeign = document.getElementById(`${p}IsForeignTransaction`)?.checked || false;
         
-        // 🔥 HUKUK Departmanı ve Masraf seçilme durumunu kontrol et
-        const deptVal = document.getElementById(`${p}Department`)?.value || '';
+        // 1. KURAL: Ana Tahakkuk Türü "Masraf" mı?
         const typeVal = document.getElementById(`${p}AccrualType`)?.value || '';
+        const isMasrafType = (typeVal === 'Masraf');
 
-        // 1. KURAL: Evreka ve Masraf seçildiyse
-        const isEvrekaMasraf = (deptVal === 'EVREKA' && typeVal === 'Masraf');
-
-        // 2. KURAL: Kalemlerde 'Masraf' seçildiyse
+        // 2. KURAL: Kalemlerde (Satırlarda) "Masraf" var mı?
         let hasMasrafItem = false;
         const tbody = document.getElementById(`${p}LineItemsBody`);
         if (tbody) {
             tbody.querySelectorAll('.item-type').forEach(select => {
-                if (select.value === 'Masraf') hasMasrafItem = true;
+                if (select.value === 'Masraf') {
+                    hasMasrafItem = true;
+                }
             });
         }
 
-        // Masraf Dekontu Yükleme Alanı Gösterim Şartı
-        const showMasrafDekontu = isEvrekaMasraf || hasMasrafItem;
+        // Masraf Dekontu Yükleme Alanı Gösterim Şartı: (Ana tür Masraf İSE) VEYA (Kalemlerde Masraf VARSA)
+        const showMasrafDekontu = isMasrafType || hasMasrafItem;
 
         const foreignPartyDiv = document.getElementById(`${p}ForeignPaymentPartyContainer`);
         const fileDiv = document.getElementById(`${p}ForeignInvoiceContainer`);
@@ -713,18 +712,22 @@ export class AccrualFormManager {
         const titleLabel = document.getElementById(`${p}ForeignInvoiceTitleLabel`);
         const btnLabel = document.getElementById(`${p}ForeignInvoiceBtnLabel`);
 
+        // Yurtdışı taraf gösterimi
         if (foreignPartyDiv) {
             foreignPartyDiv.style.display = isForeign ? 'block' : 'none';
         }
 
+        // Belge yükleme kutusu gösterimi
         if (fileDiv) {
             if (isForeign || showMasrafDekontu) {
                 fileDiv.style.display = 'block';
                 
                 if (showMasrafDekontu && !isForeign) {
+                    // Sadece Masraf olduğu için çıkıyorsa (Yurtdışı değilse) "Masraf Dekontu" yazsın
                     if (titleLabel) titleLabel.innerHTML = '<i class="fas fa-file-invoice-dollar mr-2 text-warning"></i>Masraf Dekontu (PDF)';
                     if (btnLabel) btnLabel.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i> Dekont PDF Seç / Değiştir';
                 } else {
+                    // Yurtdışı olduğu için çıkıyorsa standart yazılar
                     if (titleLabel) titleLabel.innerHTML = '<i class="fas fa-file-pdf mr-2"></i>Yurtdışı Fatura/Debit (PDF)';
                     if (btnLabel) btnLabel.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i> Fatura PDF Seç / Değiştir';
                 }

@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.freestyleFormManager = null;
             this.state = {
                 activeTab: 'main',       
-                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all' },
+                filters: { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all', isForeign: 'all' },
                 sort: { column: 'createdAt', direction: 'desc' },
                 selectedIds: new Set(),
                 itemsPerPage: 50 
@@ -827,6 +827,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if(f.description) count++;
                 if(f.foreignReceipt && f.foreignReceipt !== 'all') count++;
                 if(f.foreignAdvisor && f.foreignAdvisor !== 'all') count++;
+                if(f.isForeign && f.isForeign !== 'all') count++;
 
                 const badge = document.getElementById('activeFilterCount');
                 const btn = document.getElementById('btnOpenFilters');
@@ -848,8 +849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
 
             // 🔥 YENİ: Input listesi ve filtre metodu
-            const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription', 'filterForeignReceipt', 'filterForeignAdvisor'];
-        
+            const filterInputs = ['filterDepartment', 'filterType', 'filterStartDate', 'filterEndDate', 'filterStatus', 'filterInvoiceStatus', 'filterField', 'filterParty', 'filterFileNo', 'filterSubject', 'filterTask', 'filterDescription', 'filterForeignReceipt', 'filterForeignAdvisor', 'filterIsForeign'];
             const handleFilterChange = () => {
             this.state.filters.department = document.getElementById('filterDepartment').value;
             this.state.filters.type = document.getElementById('filterType').value;
@@ -865,7 +865,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.state.filters.description = document.getElementById('filterDescription').value.trim();
             this.state.filters.foreignReceipt = document.getElementById('filterForeignReceipt') ? document.getElementById('filterForeignReceipt').value : 'all';
             this.state.filters.foreignAdvisor = document.getElementById('filterForeignAdvisor') ? document.getElementById('filterForeignAdvisor').value : 'all';
-            
+            this.state.filters.isForeign = document.getElementById('filterIsForeign') ? document.getElementById('filterIsForeign').value : 'all';
             updateFilterBadge(); // 🔥 YENİ: Filtre değiştikçe butondaki rakamı güncelle
             this.renderPage();
         };
@@ -877,22 +877,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             document.getElementById('btnClearFilters')?.addEventListener('click', () => {
-            filterInputs.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) { 
-                    if(el.tagName === 'SELECT') {
-                        el.value = (id === 'filterStatus' || id === 'filterInvoiceStatus' || id === 'filterForeignReceipt' || id === 'filterForeignAdvisor') ? 'all' : ''; 
-                    } else { 
-                        el.value = ''; 
-                    } 
-                }
+                filterInputs.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) { 
+                        if(el.tagName === 'SELECT') {
+                            // 🔥 filterIsForeign eklendi
+                            el.value = (id === 'filterStatus' || id === 'filterInvoiceStatus' || id === 'filterForeignReceipt' || id === 'filterForeignAdvisor' || id === 'filterIsForeign') ? 'all' : ''; 
+                        } else { 
+                            el.value = ''; 
+                        } 
+                    }
+                });
+                // State'i sıfırlarken isForeign'i de 'all' yapıyoruz
+                this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all', isForeign: 'all' };
+                
+                updateFilterBadge(); 
+                this.renderPage();
+                toggleFilters(false);
             });
-            this.state.filters = { department: '', type: '', startDate: '', endDate: '', status: 'all', invoiceStatus: 'all', field: '', party: '', fileNo: '', subject: '', task: '', description: '', foreignReceipt: 'all', foreignAdvisor: 'all' };
-            
-            updateFilterBadge(); // 🔥 YENİ: Filtreler sıfırlanınca rozeti sıfırla
-            this.renderPage();
-            toggleFilters(false); // 🔥 YENİ: Temizle butonuna basılınca çekmece kapansın
-        });
 
             // 🔥 2. ADIM EKLENTİSİ: MERKEZİ MOTORU ÇAĞIRAN YENİ DİNLEYİCİ
             document.addEventListener('accrual-auto-calc-request', async (e) => {
@@ -1022,10 +1024,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             const toggleSelection = (checked, id) => {
-                 if (id) {
-                     if(checked) this.state.selectedIds.add(id); else this.state.selectedIds.delete(id);
-                 }
-                 this.uiManager.updateBulkActionsVisibility(this.state.selectedIds.size > 0, this.state.activeTab);
+                if (id) {
+                    if(checked) this.state.selectedIds.add(id); else this.state.selectedIds.delete(id);
+                }
+                // 🔥 YENİ: Sadece boolean yerine Set objesini gönderiyoruz
+                this.uiManager.updateBulkActionsVisibility(this.state.selectedIds, this.state.activeTab);
             };
 
             const selectAll = (checked) => { document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = checked; toggleSelection(checked, cb.dataset.id); }); };

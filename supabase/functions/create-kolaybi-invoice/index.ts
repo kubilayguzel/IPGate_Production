@@ -761,9 +761,22 @@ serve(async (req) => {
                 invoiceParams.append("address_id", String(kolaybiAddressId));
             }
             
-            const turkeyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+            // 🔥 ÇÖZÜM: Türkiye saatine göre Y-m-d H:i:s formatında tam zaman oluşturma
+            const now = new Date();
+            const turkeyTimeString = now.toLocaleString("en-US", { timeZone: "Europe/Istanbul" });
+            const turkeyTime = new Date(turkeyTimeString);
+
+            const year = turkeyTime.getFullYear();
+            const month = String(turkeyTime.getMonth() + 1).padStart(2, '0');
+            const day = String(turkeyTime.getDate()).padStart(2, '0');
+            const hours = String(turkeyTime.getHours()).padStart(2, '0');
+            const minutes = String(turkeyTime.getMinutes()).padStart(2, '0');
+            const seconds = String(turkeyTime.getSeconds()).padStart(2, '0');
+
+            const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
             
-            invoiceParams.append("order_date", turkeyDate);
+            invoiceParams.append("order_date", formattedDate);
+            invoiceParams.append("issue_date", formattedDate); // SMM üzerinde saatin çıkması için asıl gerekli parametre
 
             // 🔥 ÇÖZÜM: isSmmDocument karmaşası kaldırıldı. Hukuk departmanıysa (config.isSmm) kesinlikle SMM kesilir!
             if (config.isSmm) {

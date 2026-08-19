@@ -1080,11 +1080,12 @@ export class AccrualFormManager {
     setReadOnlyState(isPaid) {
         const p = this.prefix;
         
+        // Kilitlenecek elemanlar listesinden `${p}AccrualDescription` ve `${p}ForeignInvoiceFile` çıkartıldı.
         const elementsToToggle = [
-            `${p}Structure`, `${p}Period`, `${p}StartDate`, // 🔥 YENİ EKLENDİ
+            `${p}Structure`, `${p}Period`, `${p}StartDate`, 
             `${p}Department`,
-            `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}AccrualDescription`, `${p}InvoiceDescription`,
-            `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, `${p}ForeignInvoiceFile`,
+            `${p}AccrualType`, `${p}IsForeignTransaction`, `${p}Subject`, `${p}InvoiceDescription`,
+            `${p}TpInvoicePartySearch`, `${p}ForeignPaymentPartySearch`, 
             `${p}AddLineItemBtn`, `${p}AutoCalcBtn`, `${p}OrderCode`
         ];
 
@@ -1105,10 +1106,11 @@ export class AccrualFormManager {
             });
         }
 
+        // PDF seçme butonunun her zaman tıklanabilir ve görünür olması sağlandı
         const fileLabel = this.container.querySelector(`label[for="${p}ForeignInvoiceFile"]`);
         if (fileLabel) {
-            fileLabel.style.pointerEvents = isPaid ? 'none' : 'auto';
-            fileLabel.style.opacity = isPaid ? '0.5' : '1';
+            fileLabel.style.pointerEvents = 'auto';
+            fileLabel.style.opacity = '1';
         }
 
         const removeBtns = this.container.querySelectorAll('.remove-selection');
@@ -1122,7 +1124,8 @@ export class AccrualFormManager {
                 warningMsg = document.createElement('div');
                 warningMsg.id = `${p}PaidWarningMessage`;
                 warningMsg.className = 'alert alert-warning p-2 text-center mb-3 font-weight-bold';
-                warningMsg.innerHTML = '<i class="fas fa-lock mr-2"></i> Bu tahakkuk ödendiği için sadece <u>Fatura Numaraları</u> güncellenebilir.';
+                // Uyarı mesajı güncellendi
+                warningMsg.innerHTML = '<i class="fas fa-lock mr-2"></i> Bu tahakkuk ödendiği için sadece <u>Fatura Numaraları, Tahakkuk Notu ve Ekli Belgeler</u> güncellenebilir.';
                 this.container.prepend(warningMsg);
             }
             warningMsg.style.display = 'block';

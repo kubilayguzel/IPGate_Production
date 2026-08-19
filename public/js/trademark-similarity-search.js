@@ -2232,15 +2232,19 @@ const setupManualTargetSearch = () => {
         );
 
         resultsContainer.innerHTML = matches.map(tm => {
-            // 🔥 YENİ: Yurtdışı mı Yurtiçi mi olduğunu gösteren şık bir rozet (Badge)
             const badgeHtml = tm.type === 'international' 
                 ? '<span class="badge badge-info ml-2" style="font-size: 0.75em;"><i class="fas fa-globe mr-1"></i>Yurtdışı</span>' 
                 : '<span class="badge badge-secondary ml-2" style="font-size: 0.75em;"><i class="fas fa-flag-turkey mr-1"></i>TR</span>';
 
+            // İsimdeki tırnak işaretlerini HTML attribute'unda kırılmaması için güvenli hale getiriyoruz
+            const displayName = tm.title || tm.markName || '';
+            const safeName = displayName.replace(/"/g, '&quot;');
+
+            // Inline onclick KALDIRILDI. Yerine data-id ve data-name eklendi, manual-target-item sınıfı atandı.
             return `
-            <a href="#" class="list-group-item list-group-item-action py-2" onclick="event.preventDefault(); document.getElementById('manualTargetSearchInput').value='${tm.title || tm.markName}'; document.getElementById('manualTargetId').value='${tm.id}'; document.getElementById('manualTargetSearchResults').style.display='none';">
+            <a href="#" class="list-group-item list-group-item-action py-2 manual-target-item" data-id="${tm.id}" data-name="${safeName}">
                 <div class="d-flex w-100 justify-content-between align-items-center">
-                    <h6 class="mb-0 font-weight-bold" style="font-size: 14px;">${tm.title || tm.markName} ${badgeHtml}</h6>
+                    <h6 class="mb-0 font-weight-bold" style="font-size: 14px;">${safeName} ${badgeHtml}</h6>
                     <small class="text-muted border px-2 py-1 rounded bg-light">${tm.applicationNo || '-'}</small>
                 </div>
             </a>
@@ -2248,6 +2252,25 @@ const setupManualTargetSearch = () => {
         }).join('');
         
         resultsContainer.style.display = matches.length ? 'block' : 'none';
+    });
+
+    // 🔥 ÇÖZÜM: Tıklama olayını sonuç kutusu (resultsContainer) üzerinden yakalıyoruz (Event Delegation)
+    resultsContainer.addEventListener('click', (e) => {
+        const item = e.target.closest('.manual-target-item');
+        if (item) {
+            e.preventDefault();
+            // Tıklanan öğeden güvenli verileri alıp inputlara yerleştir
+            input.value = item.dataset.name;
+            document.getElementById('manualTargetId').value = item.dataset.id;
+            resultsContainer.style.display = 'none';
+            
+            // Başarılı seçimi kullanıcıya göster
+            const infoLabel = document.getElementById('manualTargetSelectedInfo');
+            if (infoLabel) {
+                infoLabel.textContent = `Seçilen Kayıt: ${item.dataset.name}`;
+                infoLabel.style.display = 'block';
+            }
+        }
     });
 
     // Ekranın boş bir yerine tıklayınca arama listesini kapat

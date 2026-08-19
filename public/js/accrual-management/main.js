@@ -1537,38 +1537,64 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if(!date) { showNotification('Tarih seçiniz', 'error'); return; }
 
                 let singleDetails = null;
-                if (this.state.selectedIds.size === 1) {
-                    if (this.state.activeTab === 'foreign') {
-                        const isFull = document.getElementById('payFullForeign')?.checked;
-                        
-                        let manualPayments = [];
-                        if (!isFull) {
-                            document.querySelectorAll('.foreign-manual-input').forEach(inp => {
-                                manualPayments.push({
-                                    curr: inp.dataset.curr,
-                                    rawType: inp.dataset.rawtype,
-                                    amount: parseFloat(inp.value) || 0
+                
+                // 1. AŞAMA: Ekranda girilen ödeme tutarlarını güvenle oku
+                try {
+                    if (this.state.selectedIds.size === 1) {
+                        if (this.state.activeTab === 'foreign') {
+                            const isFull = document.getElementById('payFullForeign')?.checked;
+                            let manualPayments = [];
+                            if (!isFull) {
+                                document.querySelectorAll('.foreign-manual-input').forEach(inp => {
+                                    manualPayments.push({
+                                        curr: inp.dataset.curr,
+                                        rawType: inp.dataset.rawtype,
+                                        amount: parseFloat(inp.value) || 0
+                                    });
                                 });
+                            }
+                            singleDetails = { isForeignMode: true, payFullForeign: isFull, manualPayments: manualPayments };
+                        } else {
+                            // 🔥 GÜNCELLENDİ: Kutuları DOM üzerinden ID ile güvenli arama (Hata vermez)
+                            let localPayments = [];
+                            document.querySelectorAll('.local-pay-full-cb').forEach(cb => {
+                                const type = cb.dataset.type;
+                                const curr = cb.dataset.curr;
+                                const isFull = cb.checked;
+                                let amount = 0;
+                                
+                                if (!isFull) {
+                                    // Manuel girilen tutarı güvenle al
+                                    const container = document.getElementById(`manual${type === 'off' ? 'Off' : 'Srv'}Container_${curr}`);
+                                    if (container) {
+                                        const input = container.querySelector('input');
+                                        if (input) amount = parseFloat(input.value) || 0;
+                                    }
+                                }
+                                localPayments.push({ type, curr, isFull, amount });
                             });
+                            singleDetails = { isForeignMode: false, localPayments };
                         }
-                        
-                        singleDetails = { 
-                            isForeignMode: true, 
-                            payFullForeign: isFull, 
-                            manualPayments: manualPayments 
-                        };
-                     } else {
-                        singleDetails = { isForeignMode: false, payFullOfficial: document.getElementById('payFullOfficial').checked, payFullService: document.getElementById('payFullService').checked, manualOfficial: document.getElementById('manualOfficialAmount').value, manualService: document.getElementById('manualServiceAmount').value };
-                     }
+                    }
+                } catch (err) {
+                    console.error("DOM Veri Okuma Hatası:", err);
+                    showNotification('Ödeme bilgileri okunurken hata oluştu.', 'error');
+                    return; // Hata varsa işlemi durdur
                 }
 
+                // 2. AŞAMA: Veritabanına kaydet
                 this.uiManager.toggleLoading(true);
                 try {
-                    await this.dataManager.savePayment(this.state.selectedIds, { date, receiptFiles: this.uploadedPaymentReceipts, singlePaymentDetails: singleDetails, isForeignTab: this.state.activeTab === 'foreign' });
+                    await this.dataManager.savePayment(this.state.selectedIds, { 
+                        date, 
+                        receiptFiles: this.uploadedPaymentReceipts, 
+                        singlePaymentDetails: singleDetails, 
+                        isForeignTab: this.state.activeTab === 'foreign' 
+                    });
+                    
                     this.uiManager.closeModal('markPaidModal');
                     this.state.selectedIds.clear();
                     
-                    // 🔥 ÇÖZÜM 2: DOSYA INPUTUNU TEMİZLİYORUZ (Aynı dosyayı tekrar seçebilmek için)
                     const fileInput = document.getElementById('paymentReceiptFile');
                     if (fileInput) fileInput.value = '';
                     this.uploadedPaymentReceipts = [];
@@ -1576,10 +1602,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     this.renderPage();
                     showNotification('Ödeme işlendi ve dekont kaydedildi.', 'success');
                 } catch(e) { 
-                    // Yükleme veya veritabanı hatası fırlatılırsa kırmızı bildirim olarak gösterilecek
+                    console.error("Ödeme Kaydetme Hatası:", e);
                     showNotification(e.message, 'error'); 
+                } finally { 
+                    this.uiManager.toggleLoading(false); 
                 }
-                finally { this.uiManager.toggleLoading(false); }
             });
 
             document.querySelectorAll('.close-modal-btn, #cancelEditAccrualBtn, #cancelMarkPaidBtn').forEach(b => {

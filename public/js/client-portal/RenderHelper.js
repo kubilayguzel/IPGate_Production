@@ -291,7 +291,13 @@ export class RenderHelper {
                         originSuffix = ` (${origin})`;
                     }
 
-                    cardTitle += ` - ${task.appNo} - ${task.recordTitle}${originSuffix}`;
+                    // 🔥 WIPO veya ARIPO ise ve Başvuru No yoksa Tescil No'sunu kullan
+                    let displayNo = task.appNo;
+                    if ((upperOrigin === 'WIPO' || upperOrigin === 'ARIPO') && (!task.appNo || task.appNo === '-')) {
+                        displayNo = (task.regNo && task.regNo !== '-') ? task.regNo : task.appNo;
+                    }
+                    
+                    cardTitle += ` - ${displayNo} - ${task.recordTitle}${originSuffix}`;
                 }
             }
 

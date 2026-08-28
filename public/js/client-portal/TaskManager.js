@@ -50,7 +50,7 @@ export class TaskManager {
             // 1. Temel IP Verilerini Çek (URL Limiti Çözülmüş Hali)
             const promises = [];
             if (taskIpIds.length > 0) {
-                promises.push(fetchChunked('ip_records', 'id, application_number, application_date, origin, country_code, record_owner_type', 'id', taskIpIds));
+                promises.push(fetchChunked('ip_records', 'id, application_number, registration_number, wipo_ir, aripo_ir, application_date, origin, country_code, record_owner_type', 'id', taskIpIds));
                 promises.push(fetchChunked('ip_record_trademark_details', 'ip_record_id, brand_name, brand_image_url', 'ip_record_id', taskIpIds));
                 promises.push(fetchChunked('ip_record_applicants', 'ip_record_id, person_id', 'ip_record_id', taskIpIds, q => q.eq('order_index', 0)));
                 promises.push(fetchChunked('ip_record_classes', 'ip_record_id, class_no', 'ip_record_id', taskIpIds));
@@ -86,7 +86,8 @@ export class TaskManager {
             const ipMap = new Map(); 
             (ipRecordsRes.data || []).forEach(ip => {
                 ipMap.set(ip.id, { 
-                    appNo: ip.application_number, 
+                    appNo: ip.application_number,
+                    regNo: ip.registration_number || ip.wipo_ir || ip.aripo_ir || '-', // 🔥 YENİ EKLENEN
                     appDate: ip.application_date,
                     origin: ip.origin, 
                     country: ip.country_code, 
@@ -196,6 +197,7 @@ export class TaskManager {
                     createdAt: task.created_at,
                     relatedIpRecordId: task.ip_record_id, 
                     appNo: ipRecord.appNo || '-',
+                    regNo: ipRecord.regNo || '-', // 🔥 YENİ EKLENEN
                     appDate: ipRecord.appDate || '-',
                     recordTitle: ipRecord.brandName || '-',
                     brandImageUrl: ipRecord.brandImageUrl || '',

@@ -87,6 +87,15 @@
     .dark-mode .form-control:focus { background-color: #40444b; color: #fff; border-color: #4da6ff; }
     
     /* Task Kartları */
+    @keyframes card-click-pulse {
+        0% { transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        50% { transform: scale(0.98); box-shadow: 0 1px 3px rgba(0,0,0,0.2); background-color: #f4f6f9; border-color: #007bff; }
+        100% { transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    }
+    
+    .task-card-clicked {
+        animation: card-click-pulse 0.3s ease-out !important;
+    }
     .task-card { border-left: 5px solid; border-radius: 12px; padding: 20px; margin-bottom: 20px; position: relative; padding-top: 35px !important; transition: transform 0.3s; }
     .light-mode .task-card { background-color: #fff; border: 1px solid #eee; border-left-width: 5px; }
     .dark-mode .task-card { background-color: #36393e; border: 1px solid #585b63; border-left-width: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
@@ -97,6 +106,36 @@
     .task-number-tag { position: absolute; top: 8px; left: 15px; font-size: 1.3rem; font-weight: 700; color: #4da6ff; opacity: 0.9; }
     .dark-mode .task-card .task-title { color: #4da6ff !important; font-weight: 600; }
     .dark-mode .task-card .task-meta, .dark-mode .task-card .task-meta i { color: #f0ad4e !important; }
+    /* 🔥 İŞLERİM MENÜSÜ - SEÇİLİ KART (KATEGORİ) VURGUSU */
+    
+    /* Üst Menü (Marka, Patent, Tasarım, Dava) Seçili Durumu */
+    .active-task-area .card {
+        border: 2px solid #4e73df !important;
+        background-color: #f4f6fc !important;
+        transform: translateY(-5px);
+        box-shadow: 0 8px 15px rgba(78, 115, 223, 0.2) !important;
+    }
+    
+    /* Alt Menü (Onay Bekleyenler, Tamamlananlar vb.) Seçili Durumu */
+    .active-list-type .card {
+        border: 2px solid #f6c23e !important;
+        background-color: #fffdf5 !important;
+        transform: translateY(-5px);
+        box-shadow: 0 8px 15px rgba(246, 194, 62, 0.2) !important;
+    }
+
+    /* Koyu Tema (Dark Mode) İçin Seçili Kart Vurgusu */
+    .dark-mode .active-task-area .card {
+        border-color: #4da6ff !important;
+        background-color: #293241 !important;
+        box-shadow: 0 8px 15px rgba(77, 166, 255, 0.2) !important;
+    }
+
+    .dark-mode .active-list-type .card {
+        border-color: #f0ad4e !important;
+        background-color: #3b3528 !important;
+        box-shadow: 0 8px 15px rgba(240, 173, 78, 0.2) !important;
+    }
 
     /* Görseller */
     .table td.col-sample { height: 110px; width: 120px; vertical-align: middle !important; text-align: center; padding: 4px; }

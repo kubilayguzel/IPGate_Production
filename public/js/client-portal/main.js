@@ -1899,6 +1899,20 @@ class ClientPortalController {
             if(this.state.selectedRecords.size === 0) return alert('Lütfen kayıt seçin.');
             this.exportToPDF('selected'); 
         });
+
+        // 🔥 İş kartlarına tıklama animasyonu efekti
+        $(document).on('mousedown', '.task-card', function(e) {
+            // İncele, Onayla gibi butonların tıklanmasını engellemesin diye kontrol ediyoruz
+            if ($(e.target).closest('.btn, a').length) return; 
+            
+            const $card = $(this);
+            $card.addClass('task-card-clicked');
+            
+            // Animasyon bittiğinde class'ı geri al (0.3s = 300ms)
+            setTimeout(() => {
+                $card.removeClass('task-card-clicked');
+            }, 300);
+        });
     }
 
     toggleColumnFilter(icon) {

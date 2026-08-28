@@ -266,18 +266,24 @@ export class RenderHelper {
 
             let cardTitle = `#${task.id} - ${task.taskTypeDisplay}`;
             if (!isBulletinWatch) {
-                // 🔥 KESİN ÇÖZÜM: İşlem tipi 20 (Bülten) ise kart başlığına müvekkili değil, doğrudan rakip markanın (competitor) verilerini bas!
                 if (String(task.taskType) === '20') {
                     const compName = task.details?.objectionTarget || task.details?.brandInfo?.brandName || 'İsimsiz Marka';
                     cardTitle += ` - ${targetAppNo} - ${compName}`;
                 } else {
-                    // Diğer işlerde müvekkilin kendi markasını göster
-                    // 🔥 YENİ: Menşe ve Ülke bilgisini başlığa ekleme
                     let originSuffix = '';
                     const origin = task.origin || '';
                     const upperOrigin = origin.toUpperCase();
 
-                    if (upperOrigin === 'YURTDIŞI ULUSAL' || upperOrigin === 'YURTDISI ULUSAL') {
+                    // 🔥 WIPO veya ARIPO ise sözlükten ülke adını bul ve formatla
+                    if (upperOrigin === 'WIPO' || upperOrigin === 'ARIPO') {
+                        const countryCode = task.country;
+                        const countryName = this.state?.countries?.get(countryCode) || countryCode || 'Belirtilmedi';
+                        originSuffix = ` (${upperOrigin} - ${countryName})`;
+                        
+                        // Başlığın içinde halihazırda "(WIPO)" geçiyorsa onu temizle (Çift yazmayı önler)
+                        task.recordTitle = task.recordTitle.replace(`(${upperOrigin})`, '').trim();
+                        
+                    } else if (upperOrigin === 'YURTDIŞI ULUSAL' || upperOrigin === 'YURTDISI ULUSAL') {
                         const countryCode = task.country;
                         const countryName = this.state?.countries?.get(countryCode) || countryCode || 'Belirtilmedi';
                         originSuffix = ` (${countryName})`;

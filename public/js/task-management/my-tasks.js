@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.allUsers = []; 
             this.allAccruals = [];
             this.allTransactionTypes = [];
+            this.countryDictionary = {};
 
             this.processedData = [];
             this.filteredData = [];
@@ -120,7 +121,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (this.allTransactionTypes.length === 0) this.allTransactionTypes = results[resIdx++]?.success ? results[resIdx-1].data : [];
                 if (this.allUsers.length === 0) this.allUsers = results[resIdx++]?.success ? results[resIdx-1].data : [];
 
-                this.buildMaps(); 
+                // 🔥 YENİ EKLENEN: Ülkeleri 'common' tablosundan çek ve sözlüğü dinamik oluştur
+                if (Object.keys(this.countryDictionary).length === 0) {
+                    const { data: cData } = await supabase.from('common').select('data').eq('id', 'countries').maybeSingle();
+                    if (cData && cData.data) {
+                        let parsed = typeof cData.data === 'string' ? JSON.parse(cData.data) : cData.data;
+                        if (parsed.list) {
+                            parsed.list.forEach(c => {
+                                this.countryDictionary[c.code] = c.name.toUpperCase();
+                            });
+                        }
+                    }
+                }
+
+                this.buildMaps();
                 
                 this.accrualFormManager.allPersons = this.allPersons;
                 this.accrualFormManager.render();
@@ -221,11 +235,47 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const taskTypeDisplay = transactionType ? (transactionType.alias || transactionType.name) : 'Bilinmiyor';
                 const statusText = this.statusDisplayMap[task.status] || task.status;
 
-                const searchString = `${task.id} ${task.title || ''} ${appNo} ${recordTitleDisplay} ${applicantName} ${taskTypeDisplay} ${statusText}`.toLowerCase();
+                // 🔥 EN GÜNCEL HALİ: Menşe (Origin) Belirleme Mantığı
+                let originVal = (task.iprecordOrigin || task.origin || (task.details && task.details.origin) || '').toUpperCase().trim();
+                let countryCode = (task.iprecordCountryCode || task.country_code || task.countryCode || (task.details && (task.details.countryCode || task.details.country_code)) || '').toUpperCase().trim();
+                
+                // Ülkeyi veritabanından dinamik çektiğimiz hafızadan okuyoruz
+                let countryName = this.countryDictionary[countryCode] || countryCode;
+
+                // Üçüncü Taraf (Rakip) veya Eksik Kayıtlar İçin Tahmin
+                if (!originVal || originVal === '-' || originVal === 'UNDEFINED' || originVal === 'NULL') {
+                    if (!countryCode || countryCode === 'TR' || countryCode === 'TURKEY') {
+                        originVal = 'TÜRKPATENT'; 
+                    } else {
+                        originVal = 'ULUSAL'; 
+                    }
+                }
+
+                let originHtml = '-';
+                let originDisplay = '-';
+
+                if (originVal === 'TÜRKPATENT' || originVal === 'TURKPATENT' || originVal === 'TP' || originVal === 'YURTİÇİ' || originVal === 'TURKEY') {
+                    originDisplay = 'TÜRKPATENT';
+                    originHtml = '<span class="badge badge-secondary shadow-sm">TÜRKPATENT</span>';
+                } else if (originVal === 'WIPO' || originVal === 'ARIPO' || originVal === 'MADRID') {
+                    const suffix = countryName ? ` - ${countryName}` : '';
+                    originDisplay = `${originVal}${suffix}`;
+                    originHtml = `<span class="badge badge-info shadow-sm">${originDisplay}</span>`;
+                } else if (originVal === 'ULUSAL' || originVal === 'NATIONAL' || originVal === 'YURTDIŞI') {
+                    originDisplay = countryName || 'YURTDIŞI';
+                    originHtml = `<span class="badge badge-warning text-dark shadow-sm">${originDisplay}</span>`;
+                } else {
+                    originDisplay = originVal;
+                    if (countryName && originVal !== countryName && countryName !== countryCode) originDisplay += ` - ${countryName}`;
+                    originHtml = `<span class="badge badge-light border text-muted">${originDisplay}</span>`;
+                }
+
+                const searchString = `${task.id} ${task.title || ''} ${appNo} ${recordTitleDisplay} ${applicantName} ${taskTypeDisplay} ${statusText} ${originDisplay}`.toLowerCase();
 
                 return {
                     ...task,
                     appNo,
+                    originHtml, originDisplay, // 🔥 YENİ EKLENDİ
                     recordTitleDisplay,
                     applicantName,
                     relatedRecordDisplay: appNo,
@@ -618,6 +668,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             #${task.id}
                         </div>
                     </td>
+                    <td class="align-middle text-center">${task.originHtml}</td> <!-- 🔥 YENİ EKLENDİ -->
                     <td>
                         <div class="font-weight-bold text-primary">${task.appNo}</div>
                         <div class="small text-dark">${task.recordTitleDisplay}</div>

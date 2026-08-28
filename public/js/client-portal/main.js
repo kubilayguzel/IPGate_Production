@@ -2379,7 +2379,17 @@ class ClientPortalController {
 
                 // Child (Alt) Markalar için başlığın önüne Ok işareti koyuyoruz
                 let titleDisplay = record.title || '-';
-                if (record.exportType === 'child') titleDisplay = `↳ ${record.title || record.parentTitle}`;
+                
+                // 🔥 WIPO veya ARIPO ise Marka Adının sonuna formatlı ibareyi ekle
+                const originUpper = (record.origin || '').toUpperCase();
+                if (originUpper === 'WIPO' || originUpper === 'ARIPO') {
+                    const cName = this.state.countries.get(record.country) || record.country || 'Belirtilmedi';
+                    // Marka adının içinde "(WIPO)" varsa önce temizle, sonra formatlı halini ekle
+                    titleDisplay = titleDisplay.replace(`(${originUpper})`, '').trim();
+                    titleDisplay = `${titleDisplay} (${originUpper} - ${cName})`;
+                }
+
+                if (record.exportType === 'child') titleDisplay = `↳ ${titleDisplay}`;
 
                 // Durumu Türkçe yap
                 const st = (record.status || '').toLowerCase();
@@ -2635,9 +2645,19 @@ PDF raporuna marka görselleri de eklensin mi?
 
             const statusKey = String(record.status || '').toLowerCase();
             const displayStatus = statusTranslations[statusKey] || normalizeTR(record.status) || '-';
+            let rawTitle = record.title || record.parentTitle || '-';
+            const originUpper = (record.origin || '').toUpperCase();
+            
+            // 🔥 WIPO veya ARIPO ise Marka Adının sonuna formatlı ibareyi ekle
+            if (originUpper === 'WIPO' || originUpper === 'ARIPO') {
+                const cName = this.state.countries.get(record.country) || record.country || 'Belirtilmedi';
+                rawTitle = rawTitle.replace(`(${originUpper})`, '').trim();
+                rawTitle = `${rawTitle} (${originUpper} - ${cName})`;
+            }
+            
             const titleDisplay = record.exportType === 'child'
-                ? `↳ ${normalizeTR(record.title || record.parentTitle)}`
-                : normalizeTR(record.title);
+                ? `↳ ${normalizeTR(rawTitle)}`
+                : normalizeTR(rawTitle);
 
             reportRows.push({
                 index: normalizeTR(record.displayIndex),

@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.allUsers = [];
             this.allTransactionTypes = [];
             this.allAccruals = [];
+            this.countryDictionary = {};
 
             // --- PERFORMANS HARİTALARI (MAPS) ---
             this.usersMap = new Map();
@@ -132,6 +133,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (this.allPersons.length === 0) this.allPersons = results[resIndex++]?.success ? results[resIndex-1].data : [];
                 if (this.allUsers.length === 0) this.allUsers = results[resIndex++]?.success ? results[resIndex-1].data : [];
                 if (this.allTransactionTypes.length === 0) this.allTransactionTypes = results[resIndex++]?.success ? results[resIndex-1].data : [];
+
+                // 🔥 YENİ EKLENEN: Ülkeleri 'common' tablosundan çek ve sözlüğü dinamik oluştur
+                if (Object.keys(this.countryDictionary).length === 0) {
+                    const { data: cData } = await supabase.from('common').select('data').eq('id', 'countries').maybeSingle();
+                    if (cData && cData.data) {
+                        let parsed = typeof cData.data === 'string' ? JSON.parse(cData.data) : cData.data;
+                        if (parsed.list) {
+                            parsed.list.forEach(c => {
+                                this.countryDictionary[c.code] = c.name.toUpperCase();
+                            });
+                        }
+                    }
+                }
 
                 this.buildMaps();
                 this.initForms();
@@ -290,7 +304,43 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const operationalDueDisplay = formatDateTR(operationalDueObj);
                 const officialDueDisplay = formatDateTR(officialDueObj);
                 const statusText = this.statusDisplayMap[task.status] || task.status;                
-                const searchString = [task.title, appNo, recordTitle, applicantName, taskTypeDisplay, assignedToDisplay]
+
+                // 🔥 EN GÜNCEL HALİ: Menşe (Origin) Belirleme Mantığı
+                let originVal = (task.iprecordOrigin || task.origin || (task.details && task.details.origin) || '').toUpperCase().trim();
+                let countryCode = (task.iprecordCountryCode || task.country_code || task.countryCode || (task.details && (task.details.countryCode || task.details.country_code)) || '').toUpperCase().trim();
+                
+                // Ülkeyi veritabanından dinamik çektiğimiz hafızadan okuyoruz
+                let countryName = this.countryDictionary[countryCode] || countryCode;
+
+                // Üçüncü Taraf (Rakip) veya Eksik Kayıtlar İçin Tahmin
+                if (!originVal || originVal === '-' || originVal === 'UNDEFINED' || originVal === 'NULL') {
+                    if (!countryCode || countryCode === 'TR' || countryCode === 'TURKEY') {
+                        originVal = 'TÜRKPATENT'; 
+                    } else {
+                        originVal = 'ULUSAL'; 
+                    }
+                }
+
+                let originHtml = '-';
+                let originDisplay = '-';
+
+                if (originVal === 'TÜRKPATENT' || originVal === 'TURKPATENT' || originVal === 'TP' || originVal === 'YURTİÇİ' || originVal === 'TURKEY') {
+                    originDisplay = 'TÜRKPATENT';
+                    originHtml = '<span class="badge badge-secondary shadow-sm">TÜRKPATENT</span>';
+                } else if (originVal === 'WIPO' || originVal === 'ARIPO' || originVal === 'MADRID') {
+                    const suffix = countryName ? ` - ${countryName}` : '';
+                    originDisplay = `${originVal}${suffix}`;
+                    originHtml = `<span class="badge badge-info shadow-sm">${originDisplay}</span>`;
+                } else if (originVal === 'ULUSAL' || originVal === 'NATIONAL' || originVal === 'YURTDIŞI') {
+                    originDisplay = countryName || 'YURTDIŞI';
+                    originHtml = `<span class="badge badge-warning text-dark shadow-sm">${originDisplay}</span>`;
+                } else {
+                    originDisplay = originVal;
+                    if (countryName && originVal !== countryName && countryName !== countryCode) originDisplay += ` - ${countryName}`;
+                    originHtml = `<span class="badge badge-light border text-muted">${originDisplay}</span>`;
+                }
+
+                const searchString = [task.title, appNo, recordTitle, applicantName, taskTypeDisplay, assignedToDisplay, originDisplay]
                     .filter(Boolean)
                     .join(' ')
                     .toLowerCase();
@@ -298,6 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return {
                     ...task,
                     appNo, recordTitle, applicantName, relatedRecord: appNo,
+                    originHtml, originDisplay, // 🔥 YENİ EKLENDİ
                     taskTypeDisplay, assignedToDisplay, statusText,
                     operationalDueDisplay, officialDueDisplay,
                     operationalDueObj, officialDueObj, // 🔥 Tarihleri listeye dahil ettik
@@ -486,7 +537,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 #${task.id}
                             </div>
                         </td>
-
+                        <td class="align-middle text-center">${task.originHtml}</td> <!-- 🔥 YENİ EKLENDİ -->
                         <td>
                             <div class="font-weight-bold text-primary">${task.appNo}</div>
                             <div class="small text-dark">${task.recordTitle}</div>

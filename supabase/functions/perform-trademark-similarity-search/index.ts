@@ -464,7 +464,7 @@ serve(async (req) => {
             const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
             
             try {
-                const BATCH_SIZE = 150; 
+                const BATCH_SIZE = 50; 
                 const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
                 let currentOffset = parseInt(lastId, 10) || 0;
 

@@ -419,10 +419,20 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
     }
 
     let phase2Final = fullStringScore;
-    if (bestWordPairScore >= 0.6) {
-        phase2Final = Math.max(phase2Final, bestWordPairScore);
-    } else if (bestWordPairScore > fullStringScore) {
-        phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
+    
+    // 🔥 2. YENİ KURAL: Aranan marka (veya ayrıştırılıp sepete atılan tekil kelime) TEK BİR kelimeyse, 
+    // bültendeki marka kaç kelime olursa olsun (örn: "ünüdolu çeltik"), cümlenin bütünüyle kıyaslayıp 
+    // puanı düşürmek yerine, yakaladığı en iyi kelime skorunu (bestWordPairScore) geçerli say.
+    if (w1.length === 1 && w2.length >= 1) {
+        phase2Final = Math.max(fullStringScore, bestWordPairScore);
+    } else {
+        // Eğer aranan marka da birden fazla kelimeyse (örn: "anadolu parse" vs "ünüdolu çeltik")
+        // eski harmanlama mantığını koru.
+        if (bestWordPairScore >= 0.6) {
+            phase2Final = Math.max(phase2Final, bestWordPairScore);
+        } else if (bestWordPairScore > fullStringScore) {
+            phase2Final = fullStringScore + ((bestWordPairScore - fullStringScore) * 0.5);
+        }
     }
     
     phase2Final = Math.max(phase2Final, substringBonus);
@@ -516,6 +526,21 @@ serve(async (req) => {
                         if (sortedName !== primaryCleaned) {
                             alternatives.push(sortedName);
                         }
+                    }
+
+                    // 🔥 1. YENİ KURAL: Çok kelimeli markaların kelimelerini ayrı ayrı aramaya sok.
+                    // Orijinal isimdeki (primaryName) kelimeleri böl ve jenerik olmayanları arama sepetine tekil olarak ekle.
+                    const rawWords = primaryName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+                    if (rawWords.length > 1) {
+                        rawWords.forEach(w => {
+                            const stemmedWord = removeTurkishSuffixes(w);
+                            // Sadece jenerik (sanayi, ticaret vb.) OLMAYAN kelimeleri tekil aramaya ekle
+                            if (w.length >= 3 && !GENERIC_WORDS.includes(w) && !GENERIC_WORDS.includes(stemmedWord)) {
+                                if (!alternatives.includes(w) && primaryName !== w) {
+                                    alternatives.push(w);
+                                }
+                            }
+                        });
                     }
 
                     // 🔥 VIP LİSTESİNİ OLUŞTURMA BAŞLANGICI 🔥

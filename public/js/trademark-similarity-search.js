@@ -850,18 +850,20 @@ const updateSearchButtonsState = () => {
         if (startSearchBtn) startSearchBtn.disabled = true;
         if (researchBtn) researchBtn.disabled = false;
         
-        // Rapor butonunu, sadece ekrandaki markaların 'Benzer' sonucu varsa aktif et
-        const hasAnySimilar = allSimilarResults.some(r => filteredIds.has(r.monitoredTrademarkId) && r.isSimilar);
-        if (btnGenerateReport) btnGenerateReport.disabled = !hasAnySimilar;
-        
         if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message success"><strong>Bilgi:</strong> Listedeki markaların (en az birinin) sonuçları mevcut. Yeniden arama yapabilirsiniz.</div>`;
     } else {
         // Hiçbiri daha önce aranmamış: Aramayı Başlat aktif
         if (startSearchBtn) startSearchBtn.disabled = !hasOriginal;
         if (researchBtn) researchBtn.disabled = true;
-        if (btnGenerateReport) btnGenerateReport.disabled = true;
+        
         if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message info"><strong>Bilgi:</strong> Listedeki markalar için henüz arama yapılmamış. Aramayı başlatabilirsiniz.</div>`;
     }
+
+    // 🔥 ÇÖZÜM: Global Raporla butonu filtreden bağımsız olarak, 
+    // genel sonuç listesinde (allSimilarResults) en az bir tane 'Benzer' varsa aktif kalmalıdır!
+    // Böylece butona tıklandığında eklediğimiz 'warning' uyarısı sorunsuzca çalışabilir.
+    const hasAnySimilarOverall = allSimilarResults.some(r => r.isSimilar);
+    if (btnGenerateReport) btnGenerateReport.disabled = !hasAnySimilarOverall;
 };
 
 const applyMonitoringListFilters = () => {
@@ -1304,6 +1306,59 @@ const performSearch = async () => {
         const realBulletinId = String(bulletinKey).split('_')[0];
         await loadDataFromCache(realBulletinId);
 
+        // 🔥 2. YENİ KURAL: Eğer RAM'de yedeklenmiş eski tercihler varsa, bunları yeni sonuçlara uygula
+        if (window._tempSearchBackup && window._tempSearchBackup.size > 0) {
+            if (typeof SimpleLoading !== 'undefined') {
+                SimpleLoading.update('Kayıtlar Kurtarılıyor...', 'Önceki işaretlemeleriniz ve notlarınız geri getiriliyor...');
+            }
+
+            const updatesToPush = [];
+            
+            // Yeni gelen sonuçların üzerinde dön ve hafızadaki (backup) ID'ler ile eşleşen var mı kontrol et
+            allSimilarResults.forEach(r => {
+                if (window._tempSearchBackup.has(r.id)) {
+                    const backup = window._tempSearchBackup.get(r.id);
+                    
+                    // Arayüzdeki (RAM) listeyi anında güncelle
+                    r.isSimilar = backup.isSimilar;
+                    r.bs = backup.bs;
+                    r.note = backup.note;
+                    
+                    // DB'ye toplu güncelleme (update) için pakete ekle
+                    updatesToPush.push({
+                        id: r.id,
+                        is_similar: backup.isSimilar,
+                        success_chance: backup.bs,
+                        note: backup.note
+                    });
+                }
+            });
+
+            // Eşleşen kayıtları Veritabanında (Supabase) güncelle
+            if (updatesToPush.length > 0) {
+                // Hızlı işlem için 50'şerli asenkron paketler halinde yolluyoruz
+                for (let i = 0; i < updatesToPush.length; i += 50) {
+                    const chunk = updatesToPush.slice(i, i + 50);
+                    const updatePromises = chunk.map(u => 
+                        supabase.from('monitoring_trademark_records')
+                            .update({ 
+                                is_similar: u.is_similar, 
+                                success_chance: u.success_chance, 
+                                note: u.note 
+                            })
+                            .eq('id', u.id)
+                    );
+                    await Promise.all(updatePromises);
+                }
+            }
+            
+            // İşlem bitti, hafızayı temizle
+            window._tempSearchBackup.clear(); 
+            
+            // Ekranı yeni güncellenmiş (kurtarılmış) notlarla birlikte yeniden çiz
+            renderCurrentPageOfResults();
+        }
+
     } catch (error) {
         console.error("Arama hatası:", error);
         infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> ${error.message}</div>`;
@@ -1329,6 +1384,21 @@ const performResearch = async () => {
     if (bulletinKey === MANUAL_COLLECTION_ID) {
         showNotification('Yurtdışı/Serbest liste üzerinde yeniden otomatik arama yapılamaz.', 'warning');
         return;
+    }
+
+    // 🔥 1. YENİ KURAL: Silmeden önce kullanıcı tercihlerini RAM'de (Hafızada) yedekle
+    window._tempSearchBackup = new Map();
+    if (allSimilarResults && allSimilarResults.length > 0) {
+        allSimilarResults.forEach(r => {
+            // Eğer "Benzer" seçilmişse VEYA Başarı Şansı (bs) girilmişse VEYA Not girilmişse yedekle
+            if (r.isSimilar || (r.bs && r.bs !== '') || (r.note && r.note !== '')) {
+                window._tempSearchBackup.set(r.id, { 
+                    isSimilar: r.isSimilar, 
+                    bs: r.bs, 
+                    note: r.note 
+                });
+            }
+        });
     }
 
     if (typeof SimpleLoading !== 'undefined') {
@@ -1988,8 +2058,24 @@ const handleIndividualReportGeneration = async (event) => {
 
 const handleOwnerReportGeneration = async (event) => { const btn = event.currentTarget; await handleReportGeneration(event, { ownerId: btn.dataset.ownerId, ownerName: btn.dataset.ownerName, createTasks: false, isGlobal: false }); };
 const handleOwnerReportAndNotifyGeneration = async (event) => { const btn = event.currentTarget; await handleReportGeneration(event, { ownerId: btn.dataset.ownerId, ownerName: btn.dataset.ownerName, createTasks: true, isGlobal: false }); };
-const handleGlobalReportAndNotifyGeneration = async (event) => { await handleReportGeneration(event, { createTasks: true, isGlobal: true }); };
+const handleGlobalReportAndNotifyGeneration = async (event) => {
+    // 🔥 YENİ KURAL: İzlenen markalar listesinde filtre olup olmadığını kontrol et
+    const hasActiveFilters = [
+        document.getElementById('ownerSearch')?.value || '',
+        document.getElementById('niceClassSearch')?.value || '',
+        document.getElementById('brandNameSearch')?.value || '',
+        document.getElementById('appNoSearch')?.value || ''
+    ].some(val => val.trim().length > 0);
 
+    // Eğer filtreleme varsa kullanıcıyı uyar ve işlemi durdur
+    if (hasActiveFilters) {
+        showNotification('İzlenen markalar listesinde aktif filtreler bulunuyor. Toplu raporlama yapabilmek için lütfen önce filtreleri temizleyin.', 'warning');
+        return; 
+    }
+
+    // Filtre yoksa normal şekilde global raporlama fonksiyonunu çalıştır
+    await handleReportGeneration(event, { createTasks: true, isGlobal: true }); 
+};
 const addGlobalOptionToBulletinSelect = () => {
     const select = document.getElementById('bulletinSelect');
     if (!select || select.querySelector('option[value="' + MANUAL_COLLECTION_ID + '"]')) return;

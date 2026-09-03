@@ -534,6 +534,28 @@ export class PortfolioDataManager {
             
             for (let i = 0; i < activeFilters.length; i++) {
                 const f = activeFilters[i];
+                
+                // 🔥 Ülke Filtresi için WIPO/ARIPO Alt Kayıt Kontrolü
+                if (f.key === 'country') {
+                    const parentCode = String(item.country || '').toLowerCase();
+                    const parentName = String(item.formattedCountryName || '').toLowerCase();
+                    let isMatch = parentCode.includes(f.val) || parentName.includes(f.val);
+
+                    // Eğer ana kayıtta (parent) eşleşme yoksa ve kayıt WIPO/ARIPO ise alt kayıtlara (children) bak
+                    if (!isMatch && (item.origin === 'WIPO' || item.origin === 'ARIPO') && item.transactionHierarchy === 'parent') {
+                        const children = this.getWipoChildren(item.id);
+                        isMatch = children.some(child => {
+                            const childCode = String(child.country || child.countryCode || '').toLowerCase();
+                            const childName = String(this.getCountryName(child.country || child.countryCode)).toLowerCase();
+                            return childCode.includes(f.val) || childName.includes(f.val);
+                        });
+                    }
+                    
+                    if (!isMatch) return false; // Ne ana kayıtta ne de alt kayıtlarda bulunamadıysa ele
+                    continue; // Eşleşme bulunduysa bir sonraki filtreye geç
+                }
+
+                // Diğer kolonlar (Marka, Başvuru No vb.) için standart filtreleme
                 const itemVal = String(item[f.key] || '').toLowerCase();
                 if (!itemVal.includes(f.val)) return false;
             }

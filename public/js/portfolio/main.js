@@ -845,7 +845,7 @@ class PortfolioController {
             columns.push({ key: 'origin', label: 'Menşe', sortable: true, width: '140px' });
             // 🔥 ÇÖZÜM: Sadece alt sekme TÜRKPATENT "değilse" ülke kolonunu göster
             if (this.state.subTab !== 'turkpatent') {
-                columns.push({ key: 'country', label: 'Ülke', sortable: true, width: '130px' });
+                columns.push({ key: 'country', label: 'Ülke', sortable: true, filterable: true, width: '130px' });
             }
         }
 

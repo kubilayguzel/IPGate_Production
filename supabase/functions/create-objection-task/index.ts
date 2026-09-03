@@ -61,7 +61,11 @@ serve(async (req) => {
 
         // 3. RESMİ SON TARİH HESAPLAMA
         let officialDueDate = null;
-        const { data: bulletinData } = await supabase.from('trademark_bulletins').select('bulletin_date').eq('bulletin_no', String(bulletinNo).trim()).maybeSingle();
+        const { data: bulletinData } = await supabase
+            .from('trademark_bulletins')
+            .select('id, bulletin_date')
+            .eq('bulletin_no', String(bulletinNo).trim())
+            .maybeSingle();
         if (bulletinData && bulletinData.bulletin_date) {
             const bDate = new Date(bulletinData.bulletin_date);
             if (!isNaN(bDate.getTime())) {
@@ -80,7 +84,66 @@ serve(async (req) => {
 
         // 🔥 ÇÖZÜM 2: BAŞVURU NUMARASI, STATÜ VE MÜVEKKİL İLE KESİN MÜKERRERLİK KONTROLÜ
         const opponentAppNo = similarMark.applicationNo;
+
         let existingIpRecordId = null;
+        let bulletinRecordId: string | null = null;
+        let monitoringMatchId: string | null = null;
+
+        // ---------------------------------------------------------
+        // YAYINA İTİRAZ DOSYASI İÇİN KAYNAK KAYITLARI KESİNLEŞTİR
+        // ---------------------------------------------------------
+
+        if (opponentAppNo && opponentAppNo !== "-") {
+
+            let bulletinRecordQuery = supabase
+                .from('trademark_bulletin_records')
+                .select('id')
+                .eq('application_number', opponentAppNo);
+
+            if (bulletinData?.id) {
+                bulletinRecordQuery = bulletinRecordQuery
+                    .eq('bulletin_id', String(bulletinData.id));
+            }
+
+            const {
+                data: bulletinRecord,
+                error: bulletinRecordError
+            } = await bulletinRecordQuery
+                .limit(1)
+                .maybeSingle();
+
+            if (bulletinRecordError) {
+                console.warn(
+                    '⚠️ Bulletin record tespit edilemedi:',
+                    bulletinRecordError.message
+                );
+            }
+
+            bulletinRecordId = bulletinRecord?.id || null;
+
+            if (bulletinRecordId) {
+
+                const {
+                    data: monitoringMatch,
+                    error: monitoringMatchError
+                } = await supabase
+                    .from('monitoring_trademark_records')
+                    .select('id')
+                    .eq('monitored_trademark_id', cleanMonitoredId)
+                    .eq('bulletin_record_id', bulletinRecordId)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (monitoringMatchError) {
+                    console.warn(
+                        '⚠️ Monitoring match tespit edilemedi:',
+                        monitoringMatchError.message
+                    );
+                }
+
+                monitoringMatchId = monitoringMatch?.id || null;
+            }
+        }
 
         // a) Önce rakibin "Başvuru Numarasına" sahip bir rakip (third_party) kayıt var mı buluyoruz
         if (opponentAppNo && opponentAppNo !== "-") {
@@ -229,6 +292,12 @@ serve(async (req) => {
             // 🔥 TERTEMİZ MİNİMAL JSON (Arayüz / Frontend ile Birebir Aynı)
             details: {
                 assigned_to_email: assignedEmail,
+                source_ip_record_id: targetIpRecordId,
+                competitor_ip_record_id: thirdPartyPortfolioId,
+                monitored_trademark_id: cleanMonitoredId,
+                bulletin_record_id: bulletinRecordId,
+                monitoring_match_id: monitoringMatchId,
+                target_app_no: opponentAppNo,
                 bulletin_no: String(bulletinNo),
                 bulletin_date: bulletinData?.bulletin_date ? new Date(bulletinData.bulletin_date).toISOString().split('T')[0] : null,
                 similarity_score: similarMark.similarityScore || 0,
@@ -253,7 +322,92 @@ serve(async (req) => {
         // 8. İŞLEMİ (TRANSACTION) TASK ID İLE GÜNCELLE
         await supabase.from('transactions').update({ task_id: taskId }).eq('id', transactionId);
 
-        return new Response(JSON.stringify({ success: true, taskId: taskId, message: "İtiraz işi başarıyla oluşturuldu." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+        // =========================================================
+        // 9. OPPOSITION CASE OLUŞTUR
+        // =========================================================
+
+        const {
+            data: oppositionCase,
+            error: oppositionCaseError
+        } = await supabase
+            .from('opposition_cases')
+            .upsert({
+                task_id: taskId,
+                transaction_id: transactionId,
+                client_id: finalClientId,
+                opposed_ip_record_id: thirdPartyPortfolioId,
+
+                bulletin_record_id: bulletinRecordId,
+                monitoring_trademark_id: cleanMonitoredId,
+                monitoring_match_id: monitoringMatchId,
+
+                status: 'analysis',
+                complexity: 'green',
+
+                selected_grounds: ['SMK_6_1'],
+
+                created_by: isTestEnv ? null : assignedUid,
+
+                facts_snapshot: {
+                    created_from: 'monitoring',
+
+                    source_ip_record_id: targetIpRecordId,
+                    opposed_ip_record_id: thirdPartyPortfolioId,
+
+                    bulletin_record_id: bulletinRecordId,
+                    monitoring_trademark_id: cleanMonitoredId,
+                    monitoring_match_id: monitoringMatchId,
+
+                    opponent_application_no: opponentAppNo,
+                    opponent_mark: hitMarkName,
+
+                    bulletin_no: String(bulletinNo),
+
+                    created_at: new Date().toISOString()
+                }
+            }, {
+                onConflict: 'task_id'
+            })
+            .select('id')
+            .single();
+
+        if (oppositionCaseError) {
+            throw new Error(
+                `Opposition Case oluşturulamadı: ${oppositionCaseError.message}`
+            );
+        }
+
+
+        // =========================================================
+        // 10. İLK MÜSTENİT MARKAYI DOSYAYA EKLE
+        // =========================================================
+
+        const {
+            error: priorMarkError
+        } = await supabase
+            .from('opposition_case_prior_marks')
+            .upsert({
+                opposition_case_id: oppositionCase.id,
+                ip_record_id: targetIpRecordId,
+                is_selected: true,
+                selection_order: 0,
+                proof_of_use_status: 'unknown'
+            }, {
+                onConflict: 'opposition_case_id,ip_record_id'
+            });
+
+        if (priorMarkError) {
+            throw new Error(
+                `Müstenit marka Opposition Case'e eklenemedi: ${priorMarkError.message}`
+            );
+        }
+
+        return new Response(JSON.stringify({
+            success: true,
+            taskId: taskId,
+            oppositionCaseId: oppositionCase.id,
+            message: "İtiraz işi ve Opposition Case başarıyla oluşturuldu."
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 
     } catch (error: any) {
         console.error("❌ Edge Function Hatası:", error.message);

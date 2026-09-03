@@ -9,6 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 import { TaskUpdateDataManager } from './TaskUpdateDataManager.js';
 import { TaskUpdateUIManager } from './TaskUpdateUIManager.js';
+import { OppositionWorkspaceManager } from './OppositionWorkspaceManager.js';
 import { AccrualFormManager } from '../components/AccrualFormManager.js';
 
 // --- WORD İNDİRME KÜTÜPHANELERİ ---
@@ -32,6 +33,7 @@ class TaskUpdateController {
         this.selectedPersonId = null;
         this.tempRenewalData = null;
         this.suitParties = { plaintifs: [], defendants: [] };
+        this.oppositionWorkspaceManager = null;
     }
 
     async init() {
@@ -49,10 +51,19 @@ class TaskUpdateController {
         
         try {
             this.masterData = await this.dataManager.loadAllInitialData();
+
             await this.refreshTaskData();
+
             this.setupEvents();
             this.setupAccrualModal();
-            this.setupAIPetitionEvent(); // ✨ AI Dinleyicisini Başlat
+
+            this.oppositionWorkspaceManager =
+                new OppositionWorkspaceManager(
+                    this.taskId,
+                    this.taskData
+                );
+
+            await this.oppositionWorkspaceManager.init();
         } catch (e) {
             console.error('Başlatma hatası:', e);
             showNotification('Sayfa yüklenirken hata oluştu: ' + e.message, 'error');

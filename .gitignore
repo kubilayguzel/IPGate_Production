@@ -1,6 +1,26 @@
+# ==========================================
+# IP GATE - Git Ignore
+# ==========================================
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Firebase credentials
 firebase-key.json
-firebase-key.json
-firebase-key.json
-firebase-key.json
-firebase-key.json
+*-firebase-key.json
+service-account*.json
+
+# Node
+node_modules/
+
+# Cache
 *.cache
+
+# Supabase local temp
+supabase/.temp/
+
+# Operating system / IDE
+.DS_Store
+Thumbs.db

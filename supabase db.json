@@ -7,11 +7,11 @@
             },
             {
                 "view_name": "v_tasks_expanded",
-                "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tm.brand_name, s.title, t.title, (t.details ->> 'brand_name'::text)) AS \"iprecordTitle\",\n    COALESCE(p.name, plv.applicant_names, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    b.bulletin_no AS \"bulletinNo\",\n    b.bulletin_date AS \"bulletinDate\"\n   FROM ((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tm ON ((ip.id = tm.ip_record_id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p ON ((t.task_owner_id = p.id)))\n     LEFT JOIN portfolio_list_view plv ON ((t.ip_record_id = plv.id)))\n     LEFT JOIN ip_record_bulletins b ON ((t.ip_record_id = b.ip_record_id)));"
+                "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tm.brand_name, s.title, t.title, (t.details ->> 'brand_name'::text)) AS \"iprecordTitle\",\n    COALESCE(p.name, plv.applicant_names, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    b.bulletin_no AS \"bulletinNo\",\n    b.bulletin_date AS \"bulletinDate\",\n    COALESCE(ip.origin, s.origin, (t.details ->> 'origin'::text)) AS \"iprecordOrigin\",\n    COALESCE(ip.country_code, (t.details ->> 'country_code'::text)) AS \"iprecordCountryCode\"\n   FROM ((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tm ON ((ip.id = tm.ip_record_id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p ON ((t.task_owner_id = p.id)))\n     LEFT JOIN portfolio_list_view plv ON ((t.ip_record_id = plv.id)))\n     LEFT JOIN ip_record_bulletins b ON ((t.ip_record_id = b.ip_record_id)));"
             },
             {
                 "view_name": "v_mail_notifications_list",
-                "view_definition": " SELECT mn.id,\n    mn.subject,\n    mn.status,\n    mn.created_at,\n    mn.is_held,\n    mn.to_list,\n    mn.cc_list,\n    mn.objection_deadline,\n    mn.associated_transaction_id,\n    mn.source_document_id,\n    mn.related_ip_record_id,\n    ir.application_number AS app_no,\n    tt.alias AS type_text,\n    COALESCE(( SELECT p.name\n           FROM (tasks t\n             JOIN persons p ON ((p.id = t.task_owner_id)))\n          WHERE (t.id = tx.task_id)\n         LIMIT 1), ( SELECT p.name\n           FROM (ip_record_applicants ira\n             JOIN persons p ON ((p.id = ira.person_id)))\n          WHERE (ira.ip_record_id = ir.id)\n         LIMIT 1), '-'::text) AS client_name,\n    mn.associated_task_id,\n    mn.triggered_by_user_id,\n    mn.sent_by,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.triggered_by_user_id)\n         LIMIT 1) AS triggered_by_name,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.sent_by)\n         LIMIT 1) AS sent_by_name,\n    tsk.status AS task_status,\n    td.brand_name\n   FROM (((((mail_notifications mn\n     LEFT JOIN ip_records ir ON ((ir.id = mn.related_ip_record_id)))\n     LEFT JOIN transactions tx ON ((tx.id = mn.associated_transaction_id)))\n     LEFT JOIN transaction_types tt ON ((tt.id = tx.transaction_type_id)))\n     LEFT JOIN tasks tsk ON ((tsk.id = mn.associated_task_id)))\n     LEFT JOIN ip_record_trademark_details td ON ((td.ip_record_id = ir.id)));"
+                "view_definition": " SELECT mn.id,\n    mn.subject,\n    mn.status,\n    mn.created_at,\n    mn.is_held,\n    mn.to_list,\n    mn.cc_list,\n    mn.objection_deadline,\n    mn.associated_transaction_id,\n    mn.source_document_id,\n    mn.related_ip_record_id,\n    ir.application_number AS app_no,\n    tt.alias AS type_text,\n    COALESCE(( SELECT p.name\n           FROM (tasks t\n             JOIN persons p ON ((p.id = t.task_owner_id)))\n          WHERE (t.id = tx.task_id)\n         LIMIT 1), ( SELECT p.name\n           FROM (ip_record_applicants ira\n             JOIN persons p ON ((p.id = ira.person_id)))\n          WHERE (ira.ip_record_id = ir.id)\n         LIMIT 1), '-'::text) AS client_name,\n    mn.associated_task_id,\n    mn.triggered_by_user_id,\n    mn.sent_by,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.triggered_by_user_id)\n         LIMIT 1) AS triggered_by_name,\n    ( SELECT u.display_name\n           FROM users u\n          WHERE (u.id = mn.sent_by)\n         LIMIT 1) AS sent_by_name,\n    tsk.status AS task_status,\n    td.brand_name\n   FROM (((((mail_notifications mn\n     LEFT JOIN ip_records ir ON ((ir.id = mn.related_ip_record_id)))\n     LEFT JOIN transactions tx ON ((tx.id = mn.associated_transaction_id)))\n     LEFT JOIN transaction_types tt ON ((tt.id = tx.transaction_type_id)))\n     LEFT JOIN tasks tsk ON ((tsk.id = mn.associated_task_id)))\n     LEFT JOIN ip_record_trademark_details td ON ((td.ip_record_id = ir.id)))\n  WHERE (mn.deleted_at IS NULL);"
             },
             {
                 "view_name": "v_client_bulletin_matches",
@@ -19,7 +19,7 @@
             },
             {
                 "view_name": "v_tasks_dashboard",
-                "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tmd.brand_name, s.title, s.court_name, (t.details ->> 'brand_name'::text), t.title) AS \"iprecordTitle\",\n    COALESCE(p_owner.name, p_suit_client.name, p_task_owner.name, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    COALESCE((t.details ->> 'bulletin_no'::text), bull.bulletin_no) AS \"bulletinNo\",\n    COALESCE((t.details ->> 'bulletin_date'::text), (bull.bulletin_date)::text) AS \"bulletinDate\",\n    (t.details ->> 'opposed_mark_owner'::text) AS \"opposedMarkOwner\",\n    tx_sub.opposition_owner AS \"oppositionOwner\",\n    ip.record_owner_type AS \"recordOwnerType\",\n    (t.details ->> 'epatsDocumentDate'::text) AS \"epatsDocumentDate\",\n    ch.client_action_user,\n    ch.client_action_type,\n    COALESCE(tmd.brand_image_url, (t.details ->> 'competitorBrandImage'::text), (t.details ->> 'image_url'::text)) AS \"brandImageUrl\"\n   FROM ((((((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tmd ON ((ip.id = tmd.ip_record_id)))\n     LEFT JOIN ip_record_bulletins bull ON ((ip.id = bull.ip_record_id)))\n     LEFT JOIN ip_record_applicants ipa ON (((ip.id = ipa.ip_record_id) AND (ipa.order_index = 0))))\n     LEFT JOIN persons p_owner ON ((ipa.person_id = p_owner.id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p_suit_client ON ((s.client_id = p_suit_client.id)))\n     LEFT JOIN persons p_task_owner ON ((t.task_owner_id = p_task_owner.id)))\n     LEFT JOIN LATERAL ( SELECT tx.opposition_owner\n           FROM transactions tx\n          WHERE ((tx.task_id = t.id) AND (tx.opposition_owner IS NOT NULL))\n          ORDER BY tx.created_at DESC\n         LIMIT 1) tx_sub ON (true))\n     LEFT JOIN LATERAL ( SELECT u.display_name AS client_action_user,\n            th.action AS client_action_type\n           FROM (task_history th\n             LEFT JOIN users u ON ((th.user_id = u.id)))\n          WHERE ((th.task_id = t.id) AND (th.action = ANY (ARRAY['client_approval'::text, 'client_rejection'::text])))\n          ORDER BY th.created_at DESC\n         LIMIT 1) ch ON (true));"
+                "view_definition": " SELECT t.id,\n    t.title,\n    t.description,\n    t.task_type_id,\n    t.status,\n    t.priority,\n    t.ip_record_id,\n    t.transaction_id,\n    t.task_owner_id,\n    t.created_by,\n    t.assigned_to,\n    t.delivery_date,\n    t.official_due_date,\n    t.operational_due_date,\n    t.details,\n    t.created_at,\n    t.updated_at,\n    COALESCE(ip.application_number, s.file_no, (t.details ->> 'application_number'::text)) AS \"iprecordApplicationNo\",\n    COALESCE(tmd.brand_name, s.title, s.court_name, (t.details ->> 'brand_name'::text), t.title) AS \"iprecordTitle\",\n    COALESCE(p_owner.name, p_suit_client.name, p_task_owner.name, (t.details ->> 'applicant_name'::text)) AS \"iprecordApplicantName\",\n    COALESCE((t.details ->> 'bulletin_no'::text), bull.bulletin_no) AS \"bulletinNo\",\n    COALESCE((t.details ->> 'bulletin_date'::text), (bull.bulletin_date)::text) AS \"bulletinDate\",\n    (t.details ->> 'opposed_mark_owner'::text) AS \"opposedMarkOwner\",\n    tx_sub.opposition_owner AS \"oppositionOwner\",\n    ip.record_owner_type AS \"recordOwnerType\",\n    (t.details ->> 'epatsDocumentDate'::text) AS \"epatsDocumentDate\",\n    ch.client_action_user,\n    ch.client_action_type,\n    COALESCE(tmd.brand_image_url, (t.details ->> 'competitorBrandImage'::text), (t.details ->> 'image_url'::text)) AS \"brandImageUrl\",\n    COALESCE(ip.origin, s.origin, (t.details ->> 'origin'::text)) AS \"iprecordOrigin\",\n    COALESCE(ip.country_code, (t.details ->> 'country_code'::text)) AS \"iprecordCountryCode\"\n   FROM ((((((((((tasks t\n     LEFT JOIN ip_records ip ON ((t.ip_record_id = ip.id)))\n     LEFT JOIN ip_record_trademark_details tmd ON ((ip.id = tmd.ip_record_id)))\n     LEFT JOIN ip_record_bulletins bull ON ((ip.id = bull.ip_record_id)))\n     LEFT JOIN ip_record_applicants ipa ON (((ip.id = ipa.ip_record_id) AND (ipa.order_index = 0))))\n     LEFT JOIN persons p_owner ON ((ipa.person_id = p_owner.id)))\n     LEFT JOIN suits s ON ((t.ip_record_id = s.id)))\n     LEFT JOIN persons p_suit_client ON ((s.client_id = p_suit_client.id)))\n     LEFT JOIN persons p_task_owner ON ((t.task_owner_id = p_task_owner.id)))\n     LEFT JOIN LATERAL ( SELECT tx.opposition_owner\n           FROM transactions tx\n          WHERE ((tx.task_id = t.id) AND (tx.opposition_owner IS NOT NULL))\n          ORDER BY tx.created_at DESC\n         LIMIT 1) tx_sub ON (true))\n     LEFT JOIN LATERAL ( SELECT u.display_name AS client_action_user,\n            th.action AS client_action_type\n           FROM (task_history th\n             LEFT JOIN users u ON ((th.user_id = u.id)))\n          WHERE ((th.task_id = t.id) AND (th.action = ANY (ARRAY['client_approval'::text, 'client_rejection'::text])))\n          ORDER BY th.created_at DESC\n         LIMIT 1) ch ON (true));"
             }
         ],
         "tables": [
@@ -1897,6 +1897,41 @@
             {
                 "columns": [
                     {
+                        "data_type": "bigint",
+                        "column_name": "id",
+                        "is_nullable": "NO",
+                        "column_default": "nextval('knowledge_base_id_seq'::regclass)",
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "content",
+                        "is_nullable": "NO",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "jsonb",
+                        "column_name": "metadata",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "USER-DEFINED",
+                        "column_name": "embedding",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    }
+                ],
+                "table_name": "knowledge_base",
+                "foreign_keys": [
+                ]
+            },
+            {
+                "columns": [
+                    {
                         "data_type": "uuid",
                         "column_name": "id",
                         "is_nullable": "NO",
@@ -2345,6 +2380,20 @@
                     {
                         "data_type": "text",
                         "column_name": "triggered_by_user_id",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "timestamp with time zone",
+                        "column_name": "deleted_at",
+                        "is_nullable": "YES",
+                        "column_default": null,
+                        "character_maximum_length": null
+                    },
+                    {
+                        "data_type": "text",
+                        "column_name": "deleted_by",
                         "is_nullable": "YES",
                         "column_default": null,
                         "character_maximum_length": null
@@ -4911,12 +4960,120 @@
         ],
         "functions": [
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_vector(integer[], integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_vector$function$\n",
+                "function_name": "array_to_vector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_vector(real[], integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_vector$function$\n",
+                "function_name": "array_to_vector"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.trg_cleanup_transaction_on_rejection()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n-- Eğer statü \"Onay Bekliyor\"dan \"Kapalı/Reddedildi\" statülerinden birine geçerse\r\nIF OLD.status IN ('awaiting_client_approval', 'awaiting-approval') \r\n    AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n    \r\n    -- A) Önce bu göreve ait ana işlemlerin alt (child) işlemlerini sil\r\n    DELETE FROM transactions WHERE parent_id IN (\r\n        SELECT id FROM transactions WHERE task_id = NEW.id\r\n    );\r\n    \r\n    -- B) Ardından ana işlemi (transaction) sil\r\n    DELETE FROM transactions WHERE task_id = NEW.id;\r\n\r\nEND IF;\r\n\r\nRETURN NEW;\r\nEND;\r\n$function$\n",
                 "function_name": "trg_cleanup_transaction_on_rejection"
             },
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.handle_new_user()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nbegin\r\ninsert into public.users (id, email, display_name, role)\r\nvalues (\r\n    new.id,\r\n    new.email,\r\n    -- Kayıtta isim verilmişse onu al, yoksa e-postanın '@' öncesini isim yap\r\n    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)), \r\n    'belirsiz' -- Varsayılan rol\r\n);\r\nreturn new;\r\nend;\r\n$function$\n",
                 "function_name": "handle_new_user"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_vector(double precision[], integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_vector$function$\n",
+                "function_name": "array_to_vector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_vector(numeric[], integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_vector$function$\n",
+                "function_name": "array_to_vector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_to_float4(vector, integer, boolean)\n RETURNS real[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_to_float4$function$\n",
+                "function_name": "vector_to_float4"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.ivfflathandler(internal)\n RETURNS index_am_handler\n LANGUAGE c\nAS '$libdir/vector', $function$ivfflathandler$function$\n",
+                "function_name": "ivfflathandler"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.hnswhandler(internal)\n RETURNS index_am_handler\n LANGUAGE c\nAS '$libdir/vector', $function$hnswhandler$function$\n",
+                "function_name": "hnswhandler"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.ivfflat_halfvec_support(internal)\n RETURNS internal\n LANGUAGE c\nAS '$libdir/vector', $function$ivfflat_halfvec_support$function$\n",
+                "function_name": "ivfflat_halfvec_support"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.ivfflat_bit_support(internal)\n RETURNS internal\n LANGUAGE c\nAS '$libdir/vector', $function$ivfflat_bit_support$function$\n",
+                "function_name": "ivfflat_bit_support"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.hnsw_halfvec_support(internal)\n RETURNS internal\n LANGUAGE c\nAS '$libdir/vector', $function$hnsw_halfvec_support$function$\n",
+                "function_name": "hnsw_halfvec_support"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.hnsw_bit_support(internal)\n RETURNS internal\n LANGUAGE c\nAS '$libdir/vector', $function$hnsw_bit_support$function$\n",
+                "function_name": "hnsw_bit_support"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.hnsw_sparsevec_support(internal)\n RETURNS internal\n LANGUAGE c\nAS '$libdir/vector', $function$hnsw_sparsevec_support$function$\n",
+                "function_name": "hnsw_sparsevec_support"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_in(cstring, oid, integer)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_in$function$\n",
+                "function_name": "halfvec_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_out(halfvec)\n RETURNS cstring\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_out$function$\n",
+                "function_name": "halfvec_out"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_typmod_in(cstring[])\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_typmod_in$function$\n",
+                "function_name": "halfvec_typmod_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_recv(internal, oid, integer)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_recv$function$\n",
+                "function_name": "halfvec_recv"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_send(halfvec)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_send$function$\n",
+                "function_name": "halfvec_send"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_distance(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_l2_distance$function$\n",
+                "function_name": "l2_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.inner_product(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_inner_product$function$\n",
+                "function_name": "inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.cosine_distance(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_cosine_distance$function$\n",
+                "function_name": "cosine_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l1_distance(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_l1_distance$function$\n",
+                "function_name": "l1_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_dims(halfvec)\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_vector_dims$function$\n",
+                "function_name": "vector_dims"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_norm(halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_l2_norm$function$\n",
+                "function_name": "l2_norm"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_normalize(halfvec)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_l2_normalize$function$\n",
+                "function_name": "l2_normalize"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.binary_quantize(halfvec)\n RETURNS bit\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_binary_quantize$function$\n",
+                "function_name": "binary_quantize"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.subvector(halfvec, integer, integer)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_subvector$function$\n",
+                "function_name": "subvector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_add(halfvec, halfvec)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_add$function$\n",
+                "function_name": "halfvec_add"
             },
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.get_all_tables()\n RETURNS TABLE(table_name text)\n LANGUAGE sql\nAS $function$\r\nSELECT table_name::text\r\nFROM information_schema.tables\r\nWHERE table_schema = 'public' AND table_type = 'BASE TABLE';\r\n$function$\n",
@@ -4951,20 +5108,332 @@
                 "function_name": "trg_update_leave_balance"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_sub(halfvec, halfvec)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_sub$function$\n",
+                "function_name": "halfvec_sub"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_mul(halfvec, halfvec)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_mul$function$\n",
+                "function_name": "halfvec_mul"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.handle_renewal_task_closure()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    -- Sadece Yenileme İşlemi (Görev Tipi: 22) ise ve \r\n    -- statü Müvekkil Reddi ('client_approval_closed') veya Cevapsız Kapatma ('client_no_response_closed') olduysa çalış\r\n    IF NEW.task_type_id = '22' AND NEW.status IN ('client_approval_closed', 'client_no_response_closed') THEN\r\n        \r\n        -- Bağlı olduğu portföy kaydının (ip_records) statüsünü 'renewal - check' olarak güncelle\r\n        UPDATE public.ip_records\r\n        SET \r\n            status = 'renewal - check',\r\n            updated_at = NOW()\r\n        WHERE id = NEW.ip_record_id;\r\n\r\n    END IF;\r\n    \r\n    RETURN NEW;\r\nEND;\r\n$function$\n",
                 "function_name": "handle_renewal_task_closure"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_concat(halfvec, halfvec)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_concat$function$\n",
+                "function_name": "halfvec_concat"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_lt(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_lt$function$\n",
+                "function_name": "halfvec_lt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_le(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_le$function$\n",
+                "function_name": "halfvec_le"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_eq(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_eq$function$\n",
+                "function_name": "halfvec_eq"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_ne(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_ne$function$\n",
+                "function_name": "halfvec_ne"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_ge(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_ge$function$\n",
+                "function_name": "halfvec_ge"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_gt(halfvec, halfvec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_gt$function$\n",
+                "function_name": "halfvec_gt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_cmp(halfvec, halfvec)\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_cmp$function$\n",
+                "function_name": "halfvec_cmp"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_l2_squared_distance(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_l2_squared_distance$function$\n",
+                "function_name": "halfvec_l2_squared_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_negative_inner_product(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_negative_inner_product$function$\n",
+                "function_name": "halfvec_negative_inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_spherical_distance(halfvec, halfvec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_spherical_distance$function$\n",
+                "function_name": "halfvec_spherical_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_accum(double precision[], halfvec)\n RETURNS double precision[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_accum$function$\n",
+                "function_name": "halfvec_accum"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_avg(double precision[])\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_avg$function$\n",
+                "function_name": "halfvec_avg"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_combine(double precision[], double precision[])\n RETURNS double precision[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_combine$function$\n",
+                "function_name": "halfvec_combine"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec(halfvec, integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec$function$\n",
+                "function_name": "halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_to_vector(halfvec, integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_to_vector$function$\n",
+                "function_name": "halfvec_to_vector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_to_halfvec(vector, integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_to_halfvec$function$\n",
+                "function_name": "vector_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_halfvec(integer[], integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_halfvec$function$\n",
+                "function_name": "array_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_halfvec(real[], integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_halfvec$function$\n",
+                "function_name": "array_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_halfvec(double precision[], integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_halfvec$function$\n",
+                "function_name": "array_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_halfvec(numeric[], integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_halfvec$function$\n",
+                "function_name": "array_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_to_float4(halfvec, integer, boolean)\n RETURNS real[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_to_float4$function$\n",
+                "function_name": "halfvec_to_float4"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.hamming_distance(bit, bit)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$hamming_distance$function$\n",
+                "function_name": "hamming_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.jaccard_distance(bit, bit)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$jaccard_distance$function$\n",
+                "function_name": "jaccard_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_in(cstring, oid, integer)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_in$function$\n",
+                "function_name": "sparsevec_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_out(sparsevec)\n RETURNS cstring\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_out$function$\n",
+                "function_name": "sparsevec_out"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_typmod_in(cstring[])\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_typmod_in$function$\n",
+                "function_name": "sparsevec_typmod_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_recv(internal, oid, integer)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_recv$function$\n",
+                "function_name": "sparsevec_recv"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_send(sparsevec)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_send$function$\n",
+                "function_name": "sparsevec_send"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_distance(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_l2_distance$function$\n",
+                "function_name": "l2_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.inner_product(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_inner_product$function$\n",
+                "function_name": "inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.cosine_distance(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_cosine_distance$function$\n",
+                "function_name": "cosine_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l1_distance(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_l1_distance$function$\n",
+                "function_name": "l1_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_norm(sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_l2_norm$function$\n",
+                "function_name": "l2_norm"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_normalize(sparsevec)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_l2_normalize$function$\n",
+                "function_name": "l2_normalize"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_lt(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_lt$function$\n",
+                "function_name": "sparsevec_lt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_le(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_le$function$\n",
+                "function_name": "sparsevec_le"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_eq(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_eq$function$\n",
+                "function_name": "sparsevec_eq"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_ne(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_ne$function$\n",
+                "function_name": "sparsevec_ne"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_ge(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_ge$function$\n",
+                "function_name": "sparsevec_ge"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_gt(sparsevec, sparsevec)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_gt$function$\n",
+                "function_name": "sparsevec_gt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_cmp(sparsevec, sparsevec)\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_cmp$function$\n",
+                "function_name": "sparsevec_cmp"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_l2_squared_distance(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_l2_squared_distance$function$\n",
+                "function_name": "sparsevec_l2_squared_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_negative_inner_product(sparsevec, sparsevec)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_negative_inner_product$function$\n",
+                "function_name": "sparsevec_negative_inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec(sparsevec, integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec$function$\n",
+                "function_name": "sparsevec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_to_sparsevec(vector, integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_to_sparsevec$function$\n",
+                "function_name": "vector_to_sparsevec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_to_vector(sparsevec, integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_to_vector$function$\n",
+                "function_name": "sparsevec_to_vector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.halfvec_to_sparsevec(halfvec, integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$halfvec_to_sparsevec$function$\n",
+                "function_name": "halfvec_to_sparsevec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.sparsevec_to_halfvec(sparsevec, integer, boolean)\n RETURNS halfvec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$sparsevec_to_halfvec$function$\n",
+                "function_name": "sparsevec_to_halfvec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_sparsevec(integer[], integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_sparsevec$function$\n",
+                "function_name": "array_to_sparsevec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_sparsevec(real[], integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_sparsevec$function$\n",
+                "function_name": "array_to_sparsevec"
             },
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.calculate_annual_leave_accruals()\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n    r record;\r\n    years_worked integer;\r\n    days_to_add numeric;\r\nBEGIN\r\n    -- Sadece bugün işe girişinin yıl dönümü olan (ay ve gün eşleşen) kişileri bul\r\n    FOR r IN \r\n        SELECT user_id, hire_date \r\n        FROM public.user_leave_balances\r\n        WHERE EXTRACT(month FROM hire_date) = EXTRACT(month FROM CURRENT_DATE)\r\n          AND EXTRACT(day FROM hire_date) = EXTRACT(day FROM CURRENT_DATE)\r\n          AND hire_date < CURRENT_DATE -- Bugün işe ilk kez girenleri es geç\r\n    LOOP\r\n        -- Kaçıncı yılını doldurdu?\r\n        years_worked := EXTRACT(year FROM CURRENT_DATE) - EXTRACT(year FROM r.hire_date);\r\n        \r\n        -- İş Kanunu Oranları: \r\n        -- 1 yıldan 5 yıla kadar (5 dahil) -> 14 Gün\r\n        -- 5 yıldan fazla 15 yıldan az (6-14 yıl arası) -> 20 Gün\r\n        -- 15 yıl (dahil) ve daha fazla -> 26 Gün\r\n        IF years_worked >= 1 AND years_worked <= 5 THEN\r\n            days_to_add := 14;\r\n        ELSIF years_worked >= 6 AND years_worked <= 14 THEN\r\n            days_to_add := 20;\r\n        ELSIF years_worked >= 15 THEN\r\n            days_to_add := 26;\r\n        ELSE\r\n            days_to_add := 0;\r\n        END IF;\r\n\r\n        -- Hak edişi bakiyeye ekle\r\n        IF days_to_add > 0 THEN\r\n            UPDATE public.user_leave_balances\r\n            SET earned_annual_leave = earned_annual_leave + days_to_add,\r\n                updated_at = NOW()\r\n            WHERE user_id = r.user_id;\r\n        END IF;\r\n    END LOOP;\r\nEND;\r\n$function$\n",
                 "function_name": "calculate_annual_leave_accruals"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_sparsevec(double precision[], integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_sparsevec$function$\n",
+                "function_name": "array_to_sparsevec"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.array_to_sparsevec(numeric[], integer, boolean)\n RETURNS sparsevec\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$array_to_sparsevec$function$\n",
+                "function_name": "array_to_sparsevec"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.auto_expire_unrenewed_records()\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n    UPDATE public.ip_records r\r\n    SET \r\n        status = 'expired',\r\n        updated_at = NOW()\r\n    WHERE status = 'renewal - check'\r\n      AND r.renewal_date + INTERVAL '6 months 10 days' < NOW()\r\n      AND NOT EXISTS (\r\n          SELECT 1 FROM public.tasks t\r\n          WHERE t.ip_record_id = r.id\r\n            AND t.task_type_id = '22'\r\n            AND t.status IN ('open', 'awaiting_client_approval')\r\n      );\r\nEND;\r\n$function$\n",
                 "function_name": "auto_expire_unrenewed_records"
             },
             {
+                "definition": "CREATE OR REPLACE FUNCTION public.match_knowledge(query_embedding vector, match_threshold double precision, match_count integer)\n RETURNS TABLE(id bigint, content text, metadata jsonb, similarity double precision)\n LANGUAGE sql\n STABLE\nAS $function$\r\n  select\r\n    knowledge_base.id,\r\n    knowledge_base.content,\r\n    knowledge_base.metadata,\r\n    1 - (knowledge_base.embedding <=> query_embedding) as similarity\r\n  from knowledge_base\r\n  where 1 - (knowledge_base.embedding <=> query_embedding) > match_threshold\r\n  order by similarity desc\r\n  limit match_count;\r\n$function$\n",
+                "function_name": "match_knowledge"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_in(cstring, oid, integer)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_in$function$\n",
+                "function_name": "vector_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_out(vector)\n RETURNS cstring\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_out$function$\n",
+                "function_name": "vector_out"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_typmod_in(cstring[])\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_typmod_in$function$\n",
+                "function_name": "vector_typmod_in"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_recv(internal, oid, integer)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_recv$function$\n",
+                "function_name": "vector_recv"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_send(vector)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_send$function$\n",
+                "function_name": "vector_send"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_distance(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$l2_distance$function$\n",
+                "function_name": "l2_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.inner_product(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$inner_product$function$\n",
+                "function_name": "inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.cosine_distance(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$cosine_distance$function$\n",
+                "function_name": "cosine_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l1_distance(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$l1_distance$function$\n",
+                "function_name": "l1_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_dims(vector)\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_dims$function$\n",
+                "function_name": "vector_dims"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_norm(vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_norm$function$\n",
+                "function_name": "vector_norm"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.l2_normalize(vector)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$l2_normalize$function$\n",
+                "function_name": "l2_normalize"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.binary_quantize(vector)\n RETURNS bit\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$binary_quantize$function$\n",
+                "function_name": "binary_quantize"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.subvector(vector, integer, integer)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$subvector$function$\n",
+                "function_name": "subvector"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_add(vector, vector)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_add$function$\n",
+                "function_name": "vector_add"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_sub(vector, vector)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_sub$function$\n",
+                "function_name": "vector_sub"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_mul(vector, vector)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_mul$function$\n",
+                "function_name": "vector_mul"
+            },
+            {
                 "definition": "CREATE OR REPLACE FUNCTION public.get_task_distribution_stats()\n RETURNS TABLE(user_id text, user_name text, status_counts jsonb, total_tasks bigint)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  WITH user_tasks AS (\r\n    SELECT\r\n      t.assigned_to,\r\n      u.display_name,\r\n      t.status\r\n    FROM tasks AS t\r\n    JOIN users AS u ON t.assigned_to = u.id\r\n    WHERE t.assigned_to IS NOT NULL AND u.display_name IS NOT NULL\r\n  )\r\n  SELECT\r\n    ut.assigned_to AS user_id,\r\n    ut.display_name AS user_name,\r\n    jsonb_object_agg(\r\n      ut.status,\r\n      (SELECT count(*) FROM user_tasks WHERE assigned_to = ut.assigned_to AND status = ut.status)\r\n    ) AS status_counts,\r\n    count(*) AS total_tasks\r\n  FROM user_tasks ut\r\n  GROUP BY ut.assigned_to, ut.display_name\r\n  ORDER BY total_tasks DESC;\r\nEND;\r\n$function$\n",
                 "function_name": "get_task_distribution_stats"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_concat(vector, vector)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_concat$function$\n",
+                "function_name": "vector_concat"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_lt(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_lt$function$\n",
+                "function_name": "vector_lt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_le(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_le$function$\n",
+                "function_name": "vector_le"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_eq(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_eq$function$\n",
+                "function_name": "vector_eq"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_ne(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_ne$function$\n",
+                "function_name": "vector_ne"
             },
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.get_task_completion_time_stats()\n RETURNS TABLE(user_id text, user_name text, avg_completion_days numeric, min_completion_days numeric, max_completion_days numeric, completed_task_count integer)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  WITH completion_times AS (\r\n    SELECT\r\n      t.assigned_to,\r\n      EXTRACT(EPOCH FROM (th.created_at - t.created_at)) / 86400.0 AS completion_duration_days\r\n    FROM tasks t\r\n    JOIN task_history th ON t.id = th.task_id\r\n    WHERE\r\n      -- Sadece \"tamamlandı\" veya \"kapatıldı\" aksiyonlarını dikkate al\r\n      (th.action LIKE '%completed%' OR th.action LIKE '%closed%')\r\n      AND t.assigned_to IS NOT NULL\r\n      AND t.created_at IS NOT NULL\r\n      AND th.created_at > t.created_at\r\n  )\r\n  SELECT\r\n    ct.assigned_to AS user_id,\r\n    (SELECT u.display_name FROM users u WHERE u.id = ct.assigned_to LIMIT 1) AS user_name,\r\n    ROUND(AVG(ct.completion_duration_days), 2) AS avg_completion_days,\r\n    ROUND(MIN(ct.completion_duration_days), 2) AS min_completion_days,\r\n    ROUND(MAX(ct.completion_duration_days), 2) AS max_completion_days,\r\n    COUNT(*)::int AS completed_task_count\r\n  FROM completion_times ct\r\n  WHERE ct.completion_duration_days IS NOT NULL AND ct.completion_duration_days >= 0\r\n  GROUP BY ct.assigned_to\r\n  HAVING (SELECT u.display_name FROM users u WHERE u.id = ct.assigned_to LIMIT 1) IS NOT NULL\r\n  ORDER BY avg_completion_days ASC;\r\nEND;\r\n$function$\n",
@@ -4973,6 +5442,46 @@
             {
                 "definition": "CREATE OR REPLACE FUNCTION public.trg_on_task_delete_cleanup()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n    -- A) Bu göreve bağlı TAHAKKUKLARI (accruals) sil\r\n    DELETE FROM accruals WHERE task_id = OLD.id;\r\n\r\n    -- B) Bu göreve bağlı DAVA KAYITLARINI (suits) sil\r\n    DELETE FROM suits WHERE task_id = OLD.id;\r\n\r\n    -- C) Bu göreve bağlı TRANSACTION GEÇMİŞİNİ SİL (Hiyerarşik Silme)\r\n    DELETE FROM transactions WHERE parent_id IN (\r\n        SELECT id FROM transactions WHERE task_id = OLD.id\r\n    );\r\n    DELETE FROM transactions WHERE task_id = OLD.id;\r\n\r\n    -- D) Bu göreve bağlı BİLDİRİMLERİ (mail_notifications) güncelle/sil\r\n    UPDATE mail_notifications \r\n    SET associated_task_id = NULL \r\n    WHERE associated_task_id = OLD.id AND status = 'sent';\r\n\r\n    DELETE FROM mail_notifications \r\n    WHERE associated_task_id = OLD.id AND status != 'sent';\r\n\r\n    -- E) ALT GÖREVLERİ SİL (details->>'parent_task_id' kontrolü ile)\r\n    DELETE FROM tasks WHERE details->>'parent_task_id' = OLD.id;\r\n\r\n    -- 🔥 F) GÖREV GEÇMİŞİNİ SİLMEK YERİNE, \"SİLİNDİ\" LOGU EKLİYORUZ\r\n    -- Eski 'DELETE FROM task_history...' satırını kaldırdık!\r\n    \r\n    INSERT INTO public.task_history (\r\n        task_id,\r\n        action,\r\n        user_id,\r\n        details\r\n    ) VALUES (\r\n        OLD.id,\r\n        'task_deleted',\r\n        auth.uid(), -- Supabase üzerinden işlemi yapan kullanıcının ID'sini otomatik çeker\r\n        jsonb_build_object(\r\n            'note', 'Görev sistemden silindi.',\r\n            'task_title', OLD.title,\r\n            'task_type_id', OLD.task_type_id,\r\n            'ip_record_id', OLD.ip_record_id,\r\n            'deleted_at', NOW()\r\n        )\r\n    );\r\n\r\n    -- G) GÖREVE EKLENEN BELGELERİ SİL (task_documents)\r\n    DELETE FROM task_documents WHERE task_id = OLD.id;\r\n\r\n    -- İşlemi tamamla ve devam et\r\n    RETURN OLD;\r\nEND;\r\n$function$\n",
                 "function_name": "trg_on_task_delete_cleanup"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_ge(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_ge$function$\n",
+                "function_name": "vector_ge"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_gt(vector, vector)\n RETURNS boolean\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_gt$function$\n",
+                "function_name": "vector_gt"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_cmp(vector, vector)\n RETURNS integer\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_cmp$function$\n",
+                "function_name": "vector_cmp"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_l2_squared_distance(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_l2_squared_distance$function$\n",
+                "function_name": "vector_l2_squared_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_negative_inner_product(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_negative_inner_product$function$\n",
+                "function_name": "vector_negative_inner_product"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_spherical_distance(vector, vector)\n RETURNS double precision\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_spherical_distance$function$\n",
+                "function_name": "vector_spherical_distance"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_accum(double precision[], vector)\n RETURNS double precision[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_accum$function$\n",
+                "function_name": "vector_accum"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_avg(double precision[])\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_avg$function$\n",
+                "function_name": "vector_avg"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector_combine(double precision[], double precision[])\n RETURNS double precision[]\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector_combine$function$\n",
+                "function_name": "vector_combine"
+            },
+            {
+                "definition": "CREATE OR REPLACE FUNCTION public.vector(vector, integer, boolean)\n RETURNS vector\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/vector', $function$vector$function$\n",
+                "function_name": "vector"
             }
         ]
     }

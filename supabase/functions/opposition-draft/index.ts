@@ -362,6 +362,7 @@ async function loadCaseMeta(
                 id,
                 task_id,
                 client_id,
+                opposed_ip_record_id,
                 bulletin_record_id,
                 selected_grounds,
                 status,
@@ -430,6 +431,10 @@ async function loadCaseMeta(
         string | null =
         null;
 
+    let opponentImageUrl:
+        string | null =
+        null;
+
     if (oppositionCase.bulletin_record_id) {
 
         const {
@@ -441,7 +446,7 @@ async function loadCaseMeta(
                     "trademark_bulletin_records"
                 )
                 .select(
-                    "bulletin_id, holders"
+                    "bulletin_id, holders, image_url"
                 )
                 .eq(
                     "id",
@@ -466,6 +471,12 @@ async function loadCaseMeta(
             opponentName =
                 holderNames.join(", ");
         }
+
+        opponentImageUrl =
+            normalizeText(
+                bulletinRecord?.image_url
+            ) ||
+            null;
 
         if (bulletinRecord?.bulletin_id) {
 
@@ -506,12 +517,49 @@ async function loadCaseMeta(
         }
     }
 
+    if (
+        !opponentImageUrl &&
+        oppositionCase.opposed_ip_record_id
+    ) {
+
+        const {
+            data: opponentDetails,
+            error: opponentDetailsError,
+        } =
+            await supabase
+                .from(
+                    "ip_record_trademark_details"
+                )
+                .select(
+                    "brand_image_url"
+                )
+                .eq(
+                    "ip_record_id",
+                    oppositionCase.opposed_ip_record_id,
+                )
+                .maybeSingle();
+
+        if (opponentDetailsError) {
+
+            throw new Error(
+                `Rakip marka görseli okunamadı: ${opponentDetailsError.message}`,
+            );
+        }
+
+        opponentImageUrl =
+            normalizeText(
+                opponentDetails?.brand_image_url
+            ) ||
+            null;
+    }
+
     return {
         oppositionCase,
         clientName,
         opponentName,
         bulletinNo,
         bulletinDate,
+        opponentImageUrl,
     };
 }
 
@@ -822,6 +870,10 @@ function buildCanonicalPayload(
                     markType:
                         right.markType,
 
+                    imageUrl:
+                        right.imageUrl ??
+                        null,
+
                     applicationNo:
                         right.applicationNo,
 
@@ -1023,6 +1075,11 @@ function buildCanonicalPayload(
             applicationDate:
                 opponent.applicationDate,
 
+            niceClasses:
+                asStringArray(
+                    opponent.niceClasses
+                ),
+
             requestedRefusalClasses:
                 selectedRefusalClasses,
 
@@ -1103,6 +1160,559 @@ function buildCanonicalPayload(
 
         selectedRefusalScopes:
             requestedRefusalScopes,
+    };
+}
+
+
+
+// =========================================================
+// PAKET 5 - PROFESSIONAL DOCUMENT DATA
+// =========================================================
+
+const GOODS_CRITERIA_LABELS:
+    Record<string, string> = {
+
+    nature:
+        "Nitelik / doğa",
+
+    purpose:
+        "Amaç",
+
+    use_method:
+        "Kullanım biçimi",
+
+    complementary:
+        "Tamamlayıcılık",
+
+    competitive:
+        "Rekabet / ikame",
+
+    distribution_channels:
+        "Dağıtım / sunum kanalları",
+
+    relevant_public:
+        "İlgili tüketici kesimi",
+};
+
+
+const GOODS_SIMILARITY_LABELS:
+    Record<string, string> = {
+
+    identical:
+        "Aynı",
+
+    high:
+        "Yüksek",
+
+    medium:
+        "Orta",
+
+    low:
+        "Düşük",
+
+    none:
+        "Benzer değil",
+
+    not_assessed:
+        "Değerlendirilmedi",
+};
+
+
+function normalizedClassNumbers(
+    value: unknown,
+): number[] {
+
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return [
+        ...new Set(
+            value
+                .map(
+                    item =>
+                        Number(item)
+                )
+                .filter(
+                    item =>
+                        Number.isFinite(item)
+                )
+        )
+    ].sort(
+        (a, b) =>
+            a - b
+    );
+}
+
+
+function buildProfessionalDocumentData(
+    caseMeta: any,
+    canonical: any,
+) {
+
+    const payload =
+        canonical.payload ??
+        {};
+
+    const opponent =
+        payload.opponentApplication ??
+        {};
+
+    const priorMarks =
+        (
+            payload.clientMarks ??
+            []
+        ).map(
+            (mark: any) => ({
+
+                ipRecordId:
+                    mark.ipRecordId,
+
+                markText:
+                    mark.markText,
+
+                markType:
+                    mark.markType,
+
+                imageUrl:
+                    mark.imageUrl ??
+                    null,
+
+                applicationNo:
+                    mark.applicationNo,
+
+                applicationDate:
+                    mark.applicationDate,
+
+                registrationNo:
+                    mark.registrationNo,
+
+                registrationDate:
+                    mark.registrationDate,
+
+                proofOfUseRequired:
+                    mark.proofOfUseRequired,
+
+                proofOfUseStatus:
+                    mark.proofOfUseStatus,
+
+                classes:
+                    (
+                        mark.classes ??
+                        []
+                    ).map(
+                        (cls: any) => ({
+                            classNo:
+                                Number(
+                                    cls.classNo
+                                ),
+
+                            items:
+                                Array.isArray(
+                                    cls.items
+                                )
+                                    ? cls.items.map(String)
+                                    : [],
+                        })
+                    ),
+            })
+        );
+
+
+    const refusalScopes =
+        (
+            canonical.selectedRefusalScopes ??
+            []
+        ).map(
+            (scope: any) => ({
+
+                classNo:
+                    Number(
+                        scope.classNo
+                    ),
+
+                mode:
+                    scope.mode,
+
+                modeLabel:
+                    scope.mode ===
+                    "full_class"
+
+                        ? "Sınıfın tamamı"
+
+                        : "Kısmi kapsam",
+
+                text:
+                    normalizeText(
+                        scope.text
+                    ),
+
+                fullClassText:
+                    normalizeText(
+                        scope.fullClassText
+                    ),
+            })
+        );
+
+
+    const opponentNiceClasses =
+        normalizedClassNumbers(
+            opponent.niceClasses
+        );
+
+
+    const refusalClassNumbers =
+        normalizedClassNumbers(
+            refusalScopes.map(
+                (scope: any) =>
+                    scope.classNo
+            )
+        );
+
+
+    const isWholeApplicationRefusal =
+        opponentNiceClasses.length > 0 &&
+        opponentNiceClasses.length ===
+        refusalClassNumbers.length &&
+        opponentNiceClasses.every(
+            classNo =>
+                refusalClassNumbers.includes(
+                    classNo
+                )
+        ) &&
+        refusalScopes.every(
+            (scope: any) =>
+                scope.mode ===
+                "full_class"
+        );
+
+
+    const goodsAssessments =
+        Array.isArray(
+            payload
+                ?.lawyerAssessment
+                ?.goodsAssessments
+        )
+            ? payload
+                .lawyerAssessment
+                .goodsAssessments
+            : [];
+
+
+    const goodsComparisons:
+        any[] =
+        [];
+
+
+    for (
+        const row of
+        goodsAssessments
+    ) {
+
+        if (
+            row.requestedRefusal !==
+            true
+        ) {
+
+            continue;
+        }
+
+
+        const opponentClassNo =
+            Number(
+                row.opponentClassNo
+            );
+
+
+        const scope =
+            refusalScopes.find(
+                (item: any) =>
+                    Number(
+                        item.classNo
+                    ) ===
+                    opponentClassNo
+            );
+
+
+        for (
+            const key of
+            asStringArray(
+                row.matchedPriorClasses
+            )
+        ) {
+
+            const splitIndex =
+                key.lastIndexOf(":");
+
+
+            if (
+                splitIndex <= 0
+            ) {
+
+                continue;
+            }
+
+
+            const priorId =
+                key.slice(
+                    0,
+                    splitIndex
+                );
+
+
+            const priorClassNo =
+                Number(
+                    key.slice(
+                        splitIndex + 1
+                    )
+                );
+
+
+            const priorMark =
+                priorMarks.find(
+                    (mark: any) =>
+                        String(
+                            mark.ipRecordId
+                        ) ===
+                        String(
+                            priorId
+                        )
+                );
+
+
+            const priorClass =
+                priorMark
+                    ?.classes
+                    ?.find(
+                        (cls: any) =>
+                            Number(
+                                cls.classNo
+                            ) ===
+                            priorClassNo
+                    );
+
+
+            if (
+                !priorMark ||
+                !priorClass
+            ) {
+
+                continue;
+            }
+
+
+            goodsComparisons.push({
+
+                opponentClassNo,
+
+                opponentText:
+                    scope?.text ??
+                    normalizeText(
+                        row.opponentText
+                    ),
+
+                priorIpRecordId:
+                    priorMark.ipRecordId,
+
+                priorMarkText:
+                    priorMark.markText,
+
+                priorApplicationNo:
+                    priorMark.applicationNo,
+
+                priorClassNo,
+
+                priorText:
+                    (
+                        priorClass.items ??
+                        []
+                    ).join("; "),
+
+                similarityLevel:
+                    normalizeText(
+                        row.similarityLevel
+                    ),
+
+                similarityLabel:
+                    GOODS_SIMILARITY_LABELS[
+                        normalizeText(
+                            row.similarityLevel
+                        )
+                    ] ??
+                    normalizeText(
+                        row.similarityLevel
+                    ),
+
+                criteria:
+                    asStringArray(
+                        row.criteria
+                    ),
+
+                criteriaLabels:
+                    asStringArray(
+                        row.criteria
+                    ).map(
+                        criterion =>
+                            GOODS_CRITERIA_LABELS[
+                                criterion
+                            ] ??
+                            criterion
+                    ),
+
+                note:
+                    normalizeText(
+                        row.note
+                    ),
+            });
+        }
+    }
+
+
+    const opponentApplicationNo =
+        normalizeText(
+            opponent.applicationNo
+        );
+
+
+    const opponentMarkText =
+        normalizeText(
+            opponent.markText
+        );
+
+
+    const topicText =
+        isWholeApplicationRefusal
+
+            ? `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca tüm mal ve hizmetleri bakımından reddi talebimizdir.`
+
+            : `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca aşağıda belirtilen mal ve hizmetler bakımından reddi talebimizdir.`;
+
+
+    const resultItems =
+        isWholeApplicationRefusal
+
+            ? [
+                `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun tüm mal ve hizmetleri bakımından reddine,`,
+                "İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.",
+            ]
+
+            : [
+                ...refusalScopes.map(
+                    (scope: any) =>
+
+                        scope.mode ===
+                        "full_class"
+
+                            ? `${opponentApplicationNo} sayılı başvurunun ${scope.classNo}. sınıfında yer alan tüm mal ve hizmetler bakımından reddine,`
+
+                            : `${opponentApplicationNo} sayılı başvurunun ${scope.classNo}. sınıfında yer alan şu mal/hizmetler bakımından reddine: ${scope.text}`,
+                ),
+
+                "İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.",
+            ];
+
+
+    const bulletinDateText =
+        caseMeta.bulletinDate
+
+            ? new Date(
+                `${String(caseMeta.bulletinDate).slice(0, 10)}T00:00:00Z`
+            )
+                .toLocaleDateString(
+                    "tr-TR",
+                    {
+                        timeZone:
+                            "UTC",
+                    },
+                )
+
+            : null;
+
+
+    const bulletinText =
+        caseMeta.bulletinNo &&
+        bulletinDateText
+
+            ? `${bulletinDateText} tarihli ve ${caseMeta.bulletinNo} sayılı`
+
+            : caseMeta.bulletinNo
+
+                ? `${caseMeta.bulletinNo} sayılı`
+
+                : "İlgili Bülten";
+
+
+    return {
+
+        version:
+            1,
+
+        packageVersion:
+            "5.0",
+
+        sourceFingerprint:
+            payload.sourceFingerprint,
+
+        clientName:
+            caseMeta.clientName ||
+            "Müvekkil",
+
+        representativeName:
+            "Evreka Group Danışmanlık",
+
+        bulletinNo:
+            caseMeta.bulletinNo,
+
+        bulletinDate:
+            caseMeta.bulletinDate,
+
+        bulletinText,
+
+        topicText,
+
+        wholeApplicationRefusal:
+            isWholeApplicationRefusal,
+
+        opponent: {
+
+            ownerName:
+                caseMeta.opponentName ||
+                "Karşı Taraf",
+
+            markText:
+                opponentMarkText,
+
+            imageUrl:
+                caseMeta.opponentImageUrl ??
+                null,
+
+            applicationNo:
+                opponentApplicationNo,
+
+            applicationDate:
+                opponent.applicationDate,
+
+            niceClasses:
+                opponentNiceClasses,
+        },
+
+        priorMarks,
+
+        refusalScopes,
+
+        goodsComparisons,
+
+        resultItems,
+
+        documentDate:
+            new Date()
+                .toLocaleDateString(
+                    "tr-TR",
+                    {
+                        timeZone:
+                            "Europe/Istanbul",
+                    },
+                ),
     };
 }
 
@@ -2361,7 +2971,7 @@ async function loadDraftHistory(
                 "opposition_case_drafts"
             )
             .select(
-                "id, version_no, stage, content, qa_report, generated_by, created_at"
+                "id, version_no, stage, content, qa_report, generation_context, generated_by, created_at"
             )
             .eq(
                 "opposition_case_id",
@@ -2418,6 +3028,12 @@ async function buildStatus(
             caseMeta.oppositionCase.id,
         );
 
+    const documentData =
+        buildProfessionalDocumentData(
+            caseMeta,
+            canonical,
+        );
+
     return {
 
         canGenerate:
@@ -2451,6 +3067,8 @@ async function buildStatus(
 
         drafts,
 
+        documentData,
+
         wordData: {
 
             clientName:
@@ -2478,6 +3096,24 @@ async function buildStatus(
 
             bulletinDate:
                 caseMeta.bulletinDate,
+
+            opponentImageUrl:
+                caseMeta.opponentImageUrl,
+
+            priorMarks:
+                documentData.priorMarks,
+
+            refusalScopes:
+                documentData.refusalScopes,
+
+            goodsComparisons:
+                documentData.goodsComparisons,
+
+            topicText:
+                documentData.topicText,
+
+            resultItems:
+                documentData.resultItems,
         },
 
         selectedRefusalClasses:
@@ -2605,7 +3241,13 @@ async function persistDraft(
                         canonical.payload,
 
                     packageVersion:
-                        "4.2",
+                        "5.0",
+
+                    documentDataSnapshot:
+                        buildProfessionalDocumentData(
+                            caseMeta,
+                            canonical,
+                        ),
 
                     analysisCacheKey:
                         generation

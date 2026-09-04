@@ -1,9 +1,7 @@
 import { supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
 
-import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
-import Docxtemplater from 'https://cdn.jsdelivr.net/npm/docxtemplater@3.55.8/+esm';
-import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
+import { ProfessionalOppositionDocument } from './ProfessionalOppositionDocument.js';
 
 
 export class OppositionDraftManager {
@@ -29,6 +27,9 @@ export class OppositionDraftManager {
 
         this.transientQa =
             null;
+
+        this.documentGenerator =
+            new ProfessionalOppositionDocument();
 
         this.boundRefresh =
             () => this.loadStatus();
@@ -556,7 +557,7 @@ export class OppositionDraftManager {
 
                             <i class="fas fa-file-word mr-2"></i>
 
-                            Word Oluştur
+                            Profesyonel Word Oluştur
 
                         </button>
 
@@ -1522,6 +1523,12 @@ export class OppositionDraftManager {
 
     async generateWord() {
 
+        const button =
+            document.getElementById(
+                'oppDraftWordBtn'
+            );
+
+
         const editor =
             document.getElementById(
                 'oppDraftEditor'
@@ -1543,168 +1550,164 @@ export class OppositionDraftManager {
         }
 
 
+        const currentDraft =
+            this.currentDraftObject();
+
+
+        const snapshot =
+            currentDraft
+                ?.generation_context
+                ?.documentDataSnapshot ||
+            null;
+
+
+        const currentDocumentData =
+            this.status
+                ?.documentData ||
+            null;
+
+
+        const versionFingerprint =
+            currentDraft
+                ?.generation_context
+                ?.sourceFingerprint ||
+            null;
+
+
+        const currentFingerprint =
+            currentDocumentData
+                ?.sourceFingerprint ||
+            null;
+
+
+        if (
+            !snapshot &&
+            versionFingerprint &&
+            currentFingerprint &&
+            versionFingerprint !==
+            currentFingerprint
+        ) {
+
+            return showNotification(
+                'Seçili eski dilekçe versiyonunun Paket 5 belge snapshot’ı yok ve güncel analiz verileri değişmiş. Yanlış kapsamla Word oluşturmamak için işlem durduruldu. Önce yeni bir dilekçe versiyonu üretin.',
+                'warning'
+            );
+        }
+
+
+        const documentData =
+            snapshot ||
+            currentDocumentData ||
+            this.status
+                ?.wordData ||
+            null;
+
+
+        if (!documentData) {
+
+            return showNotification(
+                'Profesyonel Word için doğrulanmış belge verisi bulunamadı.',
+                'warning'
+            );
+        }
+
+
+        if (button) {
+
+            button.disabled =
+                true;
+
+
+            button.innerHTML = `
+                <i class="fas fa-spinner fa-spin mr-2"></i>
+                Profesyonel Word hazırlanıyor...
+            `;
+        }
+
+
         try {
 
-            const templateUrl =
-                'https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/templates/yayina%20itiraz%20dilekce%20taslagi.docx';
-
-
-            const response =
-                await fetch(
-                    templateUrl
-                );
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    'Word şablonu indirilemedi.'
-                );
-            }
-
-
-            const blob =
-                await response.blob();
-
-
-            const arrayBuffer =
-                await blob.arrayBuffer();
-
-
-            const zip =
-                new PizZip(
-                    arrayBuffer
-                );
-
-
-            const doc =
-                new Docxtemplater(
-                    zip,
-                    {
-                        paragraphLoop: true,
-                        linebreaks: true
-                    }
-                );
-
-
-            const word =
-                this.status?.wordData ||
-                {};
-
-
-            let bulletinInfo =
-                'İlgili Bülten';
-
-
-            if (
-                word.bulletinNo &&
-                word.bulletinDate
-            ) {
-
-                bulletinInfo =
-                    `${
-                        new Date(
-                            word.bulletinDate
-                        ).toLocaleDateString(
-                            'tr-TR'
-                        )
-                    } tarihli ve ${word.bulletinNo} sayılı`;
-
-            } else if (
-                word.bulletinNo
-            ) {
-
-                bulletinInfo =
-                    `${word.bulletinNo} sayılı`;
-            }
-
-
-            doc.render({
-                itiraz_eden:
-                    word.clientName ||
-                    'Müvekkil',
-
-                vekil_ad_soyad:
-                    'Evreka Group Danışmanlık',
-
-                basvuru_sahibi:
-                    word.opponentName ||
-                    'Karşı Taraf',
-
-                basvuru_no:
-                    word.opponentAppNo ||
-                    'Belirtilmemiş',
-
-                itiraz_edilen_marka:
-                    word.opponentMark ||
-                    'Belirtilmemiş',
-
-                bulten_bilgisi:
-                    bulletinInfo,
-
-                itiraz_metni:
-                    petitionText,
-
-                tarih:
-                    new Date()
-                        .toLocaleDateString(
-                            'tr-TR'
-                        )
-            });
-
-
-            const out =
-                doc
-                    .getZip()
-                    .generate({
-                        type: 'blob',
-
-                        mimeType:
-                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                    });
+            const applicationNo =
+                documentData
+                    ?.opponent
+                    ?.applicationNo ||
+                this.status
+                    ?.wordData
+                    ?.opponentAppNo ||
+                '';
 
 
             const fileName =
-                word.opponentAppNo &&
-                word.opponentAppNo !==
-                'Belirtilmemiş'
+                applicationNo
 
                     ? `${
-                        word
-                            .opponentAppNo
+                        String(
+                            applicationNo
+                        )
                             .replace(
                                 /[\\/]/g,
                                 '-'
                             )
-                    }_Itiraz_Dilekcesi.docx`
+                    }_Yayima_Itiraz_Dilekcesi.docx`
 
-                    : 'Itiraz_Dilekcesi.docx';
+                    : 'Yayima_Itiraz_Dilekcesi.docx';
 
 
-            saveAs(
-                out,
-                fileName
-            );
+            const result =
+                await this
+                    .documentGenerator
+                    .generate({
+                        documentData,
+                        petitionText,
+                        fileName,
+                    });
+
+
+            const imageSummary =
+                `${
+                    result.priorImageCount
+                } müstenit görsel` +
+                (
+                    result.opponentImageIncluded
+                        ? ' + rakip görsel'
+                        : ''
+                );
 
 
             showNotification(
-                'Word belgesi oluşturuldu.',
+                `Profesyonel Word belgesi oluşturuldu (${imageSummary}).`,
                 'success'
             );
+
 
         } catch (error) {
 
             console.error(
-                'Word oluşturma hatası:',
+                'Profesyonel Word oluşturma hatası:',
                 error
             );
 
 
             showNotification(
-                'Word oluşturma hatası: ' +
+                'Profesyonel Word oluşturma hatası: ' +
                 error.message,
                 'error'
             );
+
+
+        } finally {
+
+            if (button) {
+
+                button.disabled =
+                    false;
+
+
+                button.innerHTML = `
+                    <i class="fas fa-file-word mr-2"></i>
+                    Profesyonel Word Oluştur
+                `;
+            }
         }
     }
 }

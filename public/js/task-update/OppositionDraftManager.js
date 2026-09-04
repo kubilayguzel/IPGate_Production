@@ -1554,6 +1554,68 @@ export class OppositionDraftManager {
             this.currentDraftObject();
 
 
+        if (!currentDraft) {
+
+            return showNotification(
+                'Profesyonel Word yalnız kaydedilmiş ve QA kontrolünden geçmiş bir dilekçe versiyonundan oluşturulabilir.',
+                'warning'
+            );
+        }
+
+
+        const qaReport =
+            this.transientDraft
+                ? this.transientQa
+                : currentDraft
+                    ?.qa_report;
+
+
+        const qaVersion =
+            Number(
+                qaReport
+                    ?.version ??
+                0
+            );
+
+
+        if (
+            !qaReport ||
+            qaReport.finalPass !==
+            true ||
+            !Number.isFinite(
+                qaVersion
+            ) ||
+            qaVersion <
+            3 ||
+            String(
+                qaReport
+                    ?.packageVersion ??
+                ''
+            ) !==
+            '4.2'
+        ) {
+
+            return showNotification(
+                'Seçili dilekçe güncel filing-safety QA kontrolünü geçmemiştir. Paket 5.1 Word export için önce Paket 4.2 veya daha yeni güvenli bir dilekçe versiyonu üretin.',
+                'warning'
+            );
+        }
+
+
+        if (
+            this.transientDraft &&
+            this.transientQa
+                ?.finalPass !==
+            true
+        ) {
+
+            return showNotification(
+                'Ekrandaki geçici taslak QA kontrolünü geçmediği için Word oluşturulamaz.',
+                'warning'
+            );
+        }
+
+
         const snapshot =
             currentDraft
                 ?.generation_context
@@ -1589,7 +1651,7 @@ export class OppositionDraftManager {
         ) {
 
             return showNotification(
-                'Seçili eski dilekçe versiyonunun Paket 5 belge snapshot’ı yok ve güncel analiz verileri değişmiş. Yanlış kapsamla Word oluşturmamak için işlem durduruldu. Önce yeni bir dilekçe versiyonu üretin.',
+                'Seçili dilekçe versiyonunun belge snapshot’ı yok ve güncel analiz verileri değişmiş. Yanlış kapsamla Word oluşturmamak için işlem durduruldu. Önce yeni bir dilekçe versiyonu üretin.',
                 'warning'
             );
         }
@@ -1598,8 +1660,6 @@ export class OppositionDraftManager {
         const documentData =
             snapshot ||
             currentDocumentData ||
-            this.status
-                ?.wordData ||
             null;
 
 
@@ -1659,6 +1719,7 @@ export class OppositionDraftManager {
                     .generate({
                         documentData,
                         petitionText,
+                        qaReport,
                         fileName,
                     });
 
@@ -1700,7 +1761,11 @@ export class OppositionDraftManager {
             if (button) {
 
                 button.disabled =
-                    false;
+                    !this.status
+                        ?.canGenerate &&
+                    !Boolean(
+                        petitionText
+                    );
 
 
                 button.innerHTML = `
@@ -1709,5 +1774,4 @@ export class OppositionDraftManager {
                 `;
             }
         }
-    }
-}
+    }}

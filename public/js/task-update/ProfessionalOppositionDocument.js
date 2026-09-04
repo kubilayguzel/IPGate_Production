@@ -60,6 +60,7 @@ export class ProfessionalOppositionDocument {
         documentData,
         petitionText,
         fileName,
+        qaReport,
     }) {
 
         if (!documentData) {
@@ -68,6 +69,13 @@ export class ProfessionalOppositionDocument {
                 'Profesyonel Word için documentData bulunamadı.'
             );
         }
+
+
+        this.assertWordExportEligibility({
+            documentData,
+            petitionText,
+            qaReport,
+        });
 
 
         const cleanPetition =
@@ -86,7 +94,7 @@ export class ProfessionalOppositionDocument {
 
         const templateResponse =
             await fetch(
-                `${this.templateUrl}?package=5`,
+                `${this.templateUrl}?package=5.1`,
                 {
                     cache:
                         'no-store'
@@ -418,7 +426,15 @@ export class ProfessionalOppositionDocument {
                         ''
                     )
                     .replace(
+                        /\*/g,
+                        ''
+                    )
+                    .replace(
                         /__/g,
+                        ''
+                    )
+                    .replace(
+                        /`/g,
                         ''
                     );
 
@@ -446,6 +462,411 @@ export class ProfessionalOppositionDocument {
         return result
             .join('\n')
             .trim();
+    }
+
+
+    assertWordExportEligibility({
+        documentData,
+        petitionText,
+        qaReport,
+    }) {
+
+        const qaVersion =
+            Number(
+                qaReport
+                    ?.version ??
+                0
+            );
+
+
+        if (
+            !qaReport ||
+            qaReport.finalPass !==
+            true ||
+            !Number.isFinite(
+                qaVersion
+            ) ||
+            qaVersion <
+            3
+        ) {
+
+            throw new Error(
+                'Seçili dilekçe güncel filing-safety QA kontrolünü geçmemiştir. Profesyonel Word oluşturmak için Paket 4.2 veya daha yeni güvenli bir dilekçe versiyonu üretin.'
+            );
+        }
+
+
+        const packageVersion =
+            String(
+                qaReport
+                    ?.packageVersion ??
+                ''
+            )
+                .trim();
+
+
+        if (
+            packageVersion !==
+            '4.2'
+        ) {
+
+            throw new Error(
+                `Seçili dilekçenin QA paketi (${packageVersion || 'belirsiz'}) Word export için güvenli kabul edilmiyor. Güncel bir dilekçe versiyonu üretin.`
+            );
+        }
+
+
+        const text =
+            String(
+                petitionText ??
+                ''
+            );
+
+
+        if (
+            /\bK\d{1,3}\b/i.test(
+                text
+            )
+        ) {
+
+            throw new Error(
+                'Dilekçe metninde iç RAG kaynak kodu (K1, K12 vb.) bulundu. Kuruma sunulacak Word belgesi oluşturulmadı. Güncel dilekçe versiyonu üretin.'
+            );
+        }
+
+
+        const internalEnumPattern =
+            /\b(?:negligible|secondary_distinctive|co_dominant|not_assessed|not_applicable|full_class)\b/i;
+
+
+        if (
+            internalEnumPattern.test(
+                text
+            )
+        ) {
+
+            throw new Error(
+                'Dilekçe metninde uygulama içi teknik enum/etiket bulundu. Kuruma sunulacak Word belgesi oluşturulmadı.'
+            );
+        }
+
+
+        const contradiction =
+            this.detectSimilarityContradiction(
+                text
+            );
+
+
+        if (contradiction) {
+
+            throw new Error(
+                `${contradiction} benzerliği bakımından metin içinde birbiriyle çelişen seviye ifadeleri bulundu. Word export durduruldu.`
+            );
+        }
+
+
+        if (
+            documentData
+                ?.wholeApplicationRefusal !==
+            true &&
+            (
+                /\bbaşvurunun\s+tümden\s+redd/i.test(
+                    text
+                ) ||
+                /\bbaşvurunun\s+tamamen\s+redd/i.test(
+                    text
+                ) ||
+                /\btüm\s+mal\s+ve\s+hizmetleri\s+bakımından\s+redd/i.test(
+                    text
+                )
+            )
+        ) {
+
+            throw new Error(
+                'Dilekçe metni başvurunun tamamının reddini talep ediyor; ancak canonical ret kapsamı başvurunun tamamını kapsamıyor. Word export durduruldu.'
+            );
+        }
+    }
+
+
+    detectSimilarityContradiction(
+        text
+    ) {
+
+        const normalized =
+            String(
+                text ??
+                ''
+            )
+                .toLocaleLowerCase(
+                    'tr-TR'
+                )
+                .replace(
+                    /\s+/g,
+                    ' '
+                );
+
+
+        const dimensions = [
+            {
+                label:
+                    'Görsel',
+
+                token:
+                    '(?:görsel|gorsel)',
+            },
+            {
+                label:
+                    'İşitsel',
+
+                token:
+                    '(?:işitsel|isitsel)',
+            },
+            {
+                label:
+                    'Kavramsal',
+
+                token:
+                    'kavramsal',
+            },
+        ];
+
+
+        const levelTokens = [
+            {
+                key:
+                    'high',
+
+                token:
+                    'yüksek',
+            },
+            {
+                key:
+                    'medium',
+
+                token:
+                    'orta',
+            },
+            {
+                key:
+                    'low',
+
+                token:
+                    'düşük',
+            },
+        ];
+
+
+        const otherDimension =
+            '(?:görsel|gorsel|işitsel|isitsel|kavramsal)';
+
+
+        for (
+            const dimension of
+            dimensions
+        ) {
+
+            const found =
+                new Set();
+
+
+            for (
+                const level of
+                levelTokens
+            ) {
+
+                const patterns = [
+                    new RegExp(
+                        `${level.token}(?:\\s+düzeyde)?\\s+(?:bir\\s+)?${dimension.token}(?:\\s+ve\\s+${otherDimension})?\\s+benzerlik`,
+                        'i'
+                    ),
+
+                    new RegExp(
+                        `${dimension.token}(?:\\s+ve\\s+${otherDimension})?\\s+benzerlik(?:\\s+düzeyi)?\\s+${level.token}(?:\\s+düzeyde)?`,
+                        'i'
+                    ),
+
+                    new RegExp(
+                        `${dimension.token}\\s+(?:olarak|açıdan)\\s+${level.token}(?:\\s+düzeyde)?(?:\\s+bir)?\\s+benzerlik`,
+                        'i'
+                    ),
+                ];
+
+
+                if (
+                    patterns.some(
+                        pattern =>
+                            pattern.test(
+                                normalized
+                            )
+                    )
+                ) {
+
+                    found.add(
+                        level.key
+                    );
+                }
+            }
+
+
+            const nonePatterns = [
+                new RegExp(
+                    `${dimension.token}(?:\\s+ve\\s+${otherDimension})?\\s+benzerlik\\s+bulunmamaktadır`,
+                    'i'
+                ),
+
+                new RegExp(
+                    `${dimension.token}(?:\\s+ve\\s+${otherDimension})?\\s+bakımından\\s+benzerlik\\s+bulunmamaktadır`,
+                    'i'
+                ),
+            ];
+
+
+            if (
+                nonePatterns.some(
+                    pattern =>
+                        pattern.test(
+                            normalized
+                        )
+                )
+            ) {
+
+                found.add(
+                    'none'
+                );
+            }
+
+
+            if (
+                found.size >
+                1
+            ) {
+
+                return dimension.label;
+            }
+        }
+
+
+        return null;
+    }
+
+
+    buildPreciseTopicText(
+        data
+    ) {
+
+        const opponent =
+            data.opponent ||
+            {};
+
+
+        const appNo =
+            String(
+                opponent.applicationNo ||
+                ''
+            )
+                .trim();
+
+
+        const mark =
+            String(
+                opponent.markText ||
+                ''
+            )
+                .trim();
+
+
+        const scopes =
+            Array.isArray(
+                data.refusalScopes
+            )
+                ? data.refusalScopes
+                : [];
+
+
+        if (
+            scopes.length ===
+            1
+        ) {
+
+            const scope =
+                scopes[0];
+
+
+            if (
+                scope.mode ===
+                'full_class'
+            ) {
+
+                return `${appNo} sayılı “${mark}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca ${scope.classNo}. sınıfta yer alan mal ve hizmetlerin tamamı bakımından reddi talebimizdir.`;
+            }
+
+
+            return `${appNo} sayılı “${mark}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca ${scope.classNo}. sınıfta aşağıda belirtilen mal ve hizmetler bakımından reddi talebimizdir.`;
+        }
+
+
+        return `${appNo} sayılı “${mark}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca aşağıda belirtilen sınıf ve kapsamlar bakımından reddi talebimizdir.`;
+    }
+
+
+    buildPreciseResultItems(
+        data
+    ) {
+
+        const opponent =
+            data.opponent ||
+            {};
+
+
+        const appNo =
+            String(
+                opponent.applicationNo ||
+                ''
+            )
+                .trim();
+
+
+        const mark =
+            String(
+                opponent.markText ||
+                ''
+            )
+                .trim();
+
+
+        const scopes =
+            Array.isArray(
+                data.refusalScopes
+            )
+                ? data.refusalScopes
+                : [];
+
+
+        const items =
+            scopes.map(
+                scope => {
+
+                    if (
+                        scope.mode ===
+                        'full_class'
+                    ) {
+
+                        return `${appNo} sayılı “${mark}” ibareli marka başvurusunun ${scope.classNo}. sınıfta yer alan mal ve hizmetlerin tamamı bakımından reddine,`;
+                    }
+
+
+                    return `${appNo} sayılı “${mark}” ibareli marka başvurusunun ${scope.classNo}. sınıfta yer alan şu mal ve hizmetler bakımından reddine: ${scope.text || '-'}`;
+                }
+            );
+
+
+        items.push(
+            'İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.'
+        );
+
+
+        return items;
     }
 
 
@@ -1171,7 +1592,7 @@ export class ProfessionalOppositionDocument {
 
         parts.push(
             this.sectionHeading(
-                'DOSYA VERİLERİ VE MARKA KARŞILAŞTIRMASI'
+                'MARKA KARŞILAŞTIRMASI'
             )
         );
 
@@ -1200,7 +1621,7 @@ export class ProfessionalOppositionDocument {
 
         parts.push(
             this.sectionHeading(
-                'İTİRAZ KAPSAMI'
+                'RET TALEP EDİLEN MAL VE HİZMETLER'
             )
         );
 
@@ -1215,7 +1636,7 @@ export class ProfessionalOppositionDocument {
 
         parts.push(
             this.sectionHeading(
-                'MAL / HİZMET KARŞILAŞTIRMASI'
+                'MAL VE HİZMET KARŞILAŞTIRMASI'
             )
         );
 
@@ -1262,8 +1683,9 @@ export class ProfessionalOppositionDocument {
 
         for (
             const item of
-            data.resultItems ||
-            []
+            this.buildPreciseResultItems(
+                data
+            )
         ) {
 
             parts.push(
@@ -1352,8 +1774,9 @@ export class ProfessionalOppositionDocument {
             ],
             [
                 'KONU',
-                data.topicText ||
-                '',
+                this.buildPreciseTopicText(
+                    data
+                ),
             ],
         ];
 
@@ -1666,8 +2089,8 @@ export class ProfessionalOppositionDocument {
         const rows = [
             [
                 'Sınıf',
-                'Ret Türü',
-                'Exact Ret Kapsamı',
+                'Ret Kapsamı',
+                'Ret Talep Edilen Mal / Hizmetler',
             ],
 
             ...scopes.map(
@@ -1725,19 +2148,25 @@ export class ProfessionalOppositionDocument {
         }
 
 
+        const grouped =
+            this.groupGoodsComparisons(
+                rows
+            );
+
+
         const tableRows = [
             [
-                'İtiraza Konu Kapsam',
-                'Müstenit Kapsam',
+                'İtiraza Konu Sınıf',
+                'Müstenit Marka / Dayanılan Sınıflar',
                 'Benzerlik',
                 'Kriterler',
             ],
 
-            ...rows.map(
+            ...grouped.map(
                 row => [
-                    `Sınıf ${row.opponentClassNo}\n${row.opponentText || '-'}`,
+                    `Sınıf ${row.opponentClassNo}`,
 
-                    `${row.priorMarkText || '-'} · Sınıf ${row.priorClassNo || '-'}\n${row.priorText || '-'}`,
+                    `${row.priorMarkText || '-'}\nSınıf ${row.priorClassNumbers.join(', ') || '-'}`,
 
                     row.similarityLabel ||
                     row.similarityLevel ||
@@ -1757,18 +2186,148 @@ export class ProfessionalOppositionDocument {
         return this.simpleTextTable(
             tableRows,
             [
-                2850,
-                2850,
-                1200,
-                2100,
+                1650,
+                3150,
+                1400,
+                2800,
             ],
             {
                 header:
                     true,
 
                 size:
-                    17,
+                    18,
             }
+        );
+    }
+
+
+    groupGoodsComparisons(
+        rows
+    ) {
+
+        const groups =
+            new Map();
+
+
+        for (
+            const row of
+            rows ||
+            []
+        ) {
+
+            const criteriaLabels =
+                [
+                    ...new Set(
+                        (
+                            row.criteriaLabels ||
+                            row.criteria ||
+                            []
+                        ).map(
+                            item =>
+                                String(
+                                    item ?? ''
+                                ).trim()
+                        ).filter(Boolean)
+                    )
+                ];
+
+
+            const key =
+                [
+                    row.opponentClassNo,
+                    row.priorIpRecordId ||
+                    row.priorApplicationNo ||
+                    row.priorMarkText ||
+                    '',
+                    row.similarityLevel ||
+                    row.similarityLabel ||
+                    '',
+                    criteriaLabels
+                        .slice()
+                        .sort()
+                        .join('|'),
+                ].join('::');
+
+
+            if (
+                !groups.has(
+                    key
+                )
+            ) {
+
+                groups.set(
+                    key,
+                    {
+                        opponentClassNo:
+                            row.opponentClassNo,
+
+                        priorMarkText:
+                            row.priorMarkText,
+
+                        similarityLevel:
+                            row.similarityLevel,
+
+                        similarityLabel:
+                            row.similarityLabel,
+
+                        criteria:
+                            row.criteria ||
+                            [],
+
+                        criteriaLabels,
+
+                        priorClassNumbers:
+                            [],
+                    }
+                );
+            }
+
+
+            const group =
+                groups.get(
+                    key
+                );
+
+
+            const classNo =
+                Number(
+                    row.priorClassNo
+                );
+
+
+            if (
+                Number.isFinite(
+                    classNo
+                ) &&
+                !group.priorClassNumbers.includes(
+                    classNo
+                )
+            ) {
+
+                group.priorClassNumbers.push(
+                    classNo
+                );
+            }
+        }
+
+
+        return [
+            ...groups.values()
+        ].map(
+            group => ({
+                ...group,
+
+                priorClassNumbers:
+                    group.priorClassNumbers
+                        .sort(
+                            (
+                                a,
+                                b
+                            ) =>
+                                a - b
+                        ),
+            })
         );
     }
 

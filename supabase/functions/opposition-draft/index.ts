@@ -1581,35 +1581,35 @@ function buildProfessionalDocumentData(
 
 
     const topicText =
-        isWholeApplicationRefusal
+        refusalScopes.length ===
+        1
 
-            ? `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca tüm mal ve hizmetleri bakımından reddi talebimizdir.`
+            ? (
+                refusalScopes[0].mode ===
+                "full_class"
 
-            : `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca aşağıda belirtilen mal ve hizmetler bakımından reddi talebimizdir.`;
+                    ? `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca ${refusalScopes[0].classNo}. sınıfta yer alan mal ve hizmetlerin tamamı bakımından reddi talebimizdir.`
+
+                    : `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca ${refusalScopes[0].classNo}. sınıfta aşağıda belirtilen mal ve hizmetler bakımından reddi talebimizdir.`
+            )
+
+            : `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun 6769 sayılı Sınai Mülkiyet Kanunu’nun 6/1. maddesi uyarınca aşağıda belirtilen sınıf ve kapsamlar bakımından reddi talebimizdir.`;
 
 
-    const resultItems =
-        isWholeApplicationRefusal
+    const resultItems = [
+        ...refusalScopes.map(
+            (scope: any) =>
 
-            ? [
-                `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun tüm mal ve hizmetleri bakımından reddine,`,
-                "İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.",
-            ]
+                scope.mode ===
+                "full_class"
 
-            : [
-                ...refusalScopes.map(
-                    (scope: any) =>
+                    ? `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun ${scope.classNo}. sınıfta yer alan mal ve hizmetlerin tamamı bakımından reddine,`
 
-                        scope.mode ===
-                        "full_class"
+                    : `${opponentApplicationNo} sayılı “${opponentMarkText}” ibareli marka başvurusunun ${scope.classNo}. sınıfta yer alan şu mal ve hizmetler bakımından reddine: ${scope.text}`,
+        ),
 
-                            ? `${opponentApplicationNo} sayılı başvurunun ${scope.classNo}. sınıfında yer alan tüm mal ve hizmetler bakımından reddine,`
-
-                            : `${opponentApplicationNo} sayılı başvurunun ${scope.classNo}. sınıfında yer alan şu mal/hizmetler bakımından reddine: ${scope.text}`,
-                ),
-
-                "İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.",
-            ];
+        "İtirazımızın kabulüne karar verilmesini saygılarımızla arz ve talep ederiz.",
+    ];
 
 
     const bulletinDateText =
@@ -1648,7 +1648,7 @@ function buildProfessionalDocumentData(
             1,
 
         packageVersion:
-            "5.0",
+            "5.1",
 
         sourceFingerprint:
             payload.sourceFingerprint,
@@ -1672,6 +1672,17 @@ function buildProfessionalDocumentData(
 
         wholeApplicationRefusal:
             isWholeApplicationRefusal,
+
+        wordExportPolicy: {
+            minimumQaVersion:
+                3,
+
+            requiredQaPackageVersion:
+                "4.2",
+
+            documentPackageVersion:
+                "5.1",
+        },
 
         opponent: {
 

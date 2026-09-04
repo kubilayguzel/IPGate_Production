@@ -3252,7 +3252,21 @@ async function persistDraft(
                         canonical.payload,
 
                     packageVersion:
-                        "5.0",
+                        "5.1",
+
+                    legalResearchPackageVersion:
+                        generation
+                            ?.generationCache
+                            ?.packageVersion ??
+                        generation
+                            ?.packageVersion ??
+                        "6.0",
+
+                    legalCorpusFingerprint:
+                        generation
+                            ?.generationCache
+                            ?.legalCorpusFingerprint ??
+                        null,
 
                     documentDataSnapshot:
                         buildProfessionalDocumentData(
@@ -3269,6 +3283,16 @@ async function persistDraft(
                     telemetry:
                         generation
                             ?.telemetry ??
+                        null,
+
+                    legalSources:
+                        generation
+                            ?.sources ??
+                        [],
+
+                    citationAudit:
+                        generation
+                            ?.citationAudit ??
                         null,
 
                     ragSourceIds:
@@ -3310,10 +3334,27 @@ async function persistDraft(
                         {}
                     ),
 
+                    _generationCache:
+                        generation
+                            ?.generationCache ??
+                        null,
+
+                    // Geriye dönük uyumluluk: eski frontend/iş akışları
+                    // _package42 alanını okuyabilir. İçerik artık P6 cache olabilir.
                     _package42:
                         generation
                             ?.generationCache ??
                         null,
+
+                    _lastCitationAudit:
+                        generation
+                            ?.citationAudit ??
+                        null,
+
+                    _lastLegalSources:
+                        generation
+                            ?.sources ??
+                        [],
 
                     _lastTelemetry:
                         generation
@@ -3394,6 +3435,10 @@ async function generate(
             caseMeta
                 ?.oppositionCase
                 ?.ai_analysis
+                ?._generationCache ??
+            caseMeta
+                ?.oppositionCase
+                ?.ai_analysis
                 ?._package42 ??
             null,
     };
@@ -3456,15 +3501,51 @@ async function generate(
             canonical.payload,
         );
 
+    const citationAudit =
+        generationResponse
+            ?.citationAudit ?? {
+                version:
+                    0,
+                packageVersion:
+                    generationResponse
+                        ?.packageVersion ??
+                    "6.0",
+                pass:
+                    true,
+                blockers:
+                    [],
+                warnings:
+                    [
+                        "Citation audit bilgisi dönmedi; legacy compatibility mode.",
+                    ],
+                citedSourceIds:
+                    [],
+                citableSourcesAvailable:
+                    0,
+            };
+
+
     const qaReport = {
 
         version:
             3,
 
+        // Paket 5.1 Word export güvenlik kilidi bu değeri bekliyor.
+        // Hukuk araştırma paketi ayrı alanda sürümlenir.
         packageVersion:
             "4.2",
 
+        legalResearchPackageVersion:
+            generationResponse
+                ?.packageVersion ??
+            generationResponse
+                ?.generationCache
+                ?.packageVersion ??
+            "6.0",
+
         deterministic,
+
+        citationAudit,
 
         aiAuditIssues:
             generationResponse
@@ -3483,14 +3564,16 @@ async function generate(
                 ?.hit === true,
 
         finalPass:
-            deterministic.pass,
+            deterministic.pass &&
+            citationAudit.pass !==
+            false,
 
         checkedAt:
             new Date().toISOString(),
     };
 
     if (
-        !deterministic.pass
+        !qaReport.finalPass
     ) {
 
         return {
@@ -3510,6 +3593,13 @@ async function generate(
                 null,
 
             qaReport,
+
+            citationAudit,
+
+            sources:
+                generationResponse
+                    ?.sources ??
+                [],
 
             telemetry:
                 generationResponse
@@ -3547,6 +3637,13 @@ async function generate(
             null,
 
         qaReport,
+
+        citationAudit,
+
+        sources:
+            generationResponse
+                ?.sources ??
+            [],
 
         telemetry:
             generationResponse

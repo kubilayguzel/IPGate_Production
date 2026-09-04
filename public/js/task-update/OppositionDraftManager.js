@@ -619,6 +619,10 @@ export class OppositionDraftManager {
                 }
 
                 ${
+                    this.sourcesHtml(current)
+                }
+
+                ${
                     this.costHtml(current)
                 }
 
@@ -974,6 +978,435 @@ export class OppositionDraftManager {
                 </td>
 
             </tr>
+        `;
+    }
+
+
+    sourceTypeLabel(
+        value
+    ) {
+
+        const labels = {
+
+            official_guideline:
+                'Resmî İnceleme Kılavuzu',
+
+            statute:
+                'Kanun',
+
+            regulation:
+                'Yönetmelik / Düzenleme',
+
+            court_decision:
+                'Mahkeme / Yargıtay Kararı',
+
+            yidk_decision:
+                'YİDK Kararı',
+
+            eu_case:
+                'AB / EUIPO İçtihadı',
+
+            academic:
+                'Akademik Kaynak',
+
+            internal_paragraph_bank:
+                'EVREKA İç Paragraf Bankası',
+
+            legacy_knowledge:
+                'Legacy İç Bilgi',
+
+            other:
+                'Hukukî Kaynak',
+        };
+
+
+        return labels[
+            String(
+                value ||
+                'other'
+            )
+        ] ||
+        'Hukukî Kaynak';
+    }
+
+
+    sourcesHtml(current) {
+
+        const context =
+            current
+                ?.generation_context ||
+            {};
+
+
+        const sources =
+            Array.isArray(
+                context.legalSources
+            )
+
+                ? context.legalSources
+
+                : [];
+
+
+        const citationAudit =
+            context
+                ?.citationAudit ||
+            current
+                ?.qa_report
+                ?.citationAudit ||
+            null;
+
+
+        if (
+            !sources.length &&
+            !citationAudit
+        ) {
+
+            return '';
+        }
+
+
+        const citedIds =
+            new Set(
+                citationAudit
+                    ?.citedSourceIds ||
+                []
+            );
+
+
+        const citableCount =
+            sources.filter(
+                source =>
+                    source?.citable ===
+                    true &&
+                    source?.verified ===
+                    true
+            ).length;
+
+
+        const citedCount =
+            sources.filter(
+                source =>
+                    citedIds.has(
+                        String(
+                            source?.sourceId ||
+                            ''
+                        )
+                    )
+            ).length;
+
+
+        const blockers =
+            citationAudit
+                ?.blockers ||
+            [];
+
+
+        const warnings =
+            citationAudit
+                ?.warnings ||
+            [];
+
+
+        const rows =
+            sources
+                .map(
+                    source => {
+
+                        const id =
+                            String(
+                                source
+                                    ?.sourceId ||
+                                ''
+                            );
+
+
+                        const isCited =
+                            citedIds.has(id);
+
+
+                        const pageFrom =
+                            Number(
+                                source
+                                    ?.page_from ||
+                                source
+                                    ?.page_number ||
+                                0
+                            );
+
+
+                        const pageTo =
+                            Number(
+                                source
+                                    ?.page_to ||
+                                source
+                                    ?.page_number ||
+                                0
+                            );
+
+
+                        const pageText =
+                            pageFrom > 0
+
+                                ? (
+                                    pageTo > 0 &&
+                                    pageTo !==
+                                    pageFrom
+
+                                        ? `s. ${pageFrom}-${pageTo}`
+
+                                        : `s. ${pageFrom}`
+                                )
+
+                                : '';
+
+
+                        const location =
+                            [
+                                source
+                                    ?.section_title,
+                                pageText,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ');
+
+
+                        const similarity =
+                            Number(
+                                source
+                                    ?.similarity ||
+                                0
+                            );
+
+
+                        const similarityText =
+                            similarity > 0
+
+                                ? `%${Math.round(
+                                    similarity *
+                                    100
+                                )}`
+
+                                : '';
+
+
+                        return `
+                            <div
+                                style="
+                                    padding: 10px 12px;
+                                    border: 1px solid #e5e7eb;
+                                    border-radius: 8px;
+                                    margin-top: 8px;
+                                    background: ${
+                                        isCited
+                                            ? '#f0fdf4'
+                                            : '#ffffff'
+                                    };
+                                "
+                            >
+                                <div
+                                    class="
+                                        d-flex
+                                        justify-content-between
+                                        align-items-start
+                                        flex-wrap
+                                    "
+                                >
+                                    <div style="min-width: 0; flex: 1;">
+
+                                        <div
+                                            style="
+                                                font-weight: 600;
+                                                color: #1f2937;
+                                            "
+                                        >
+                                            ${
+                                                this.escape(
+                                                    source
+                                                        ?.citation_label ||
+                                                    source
+                                                        ?.document_title ||
+                                                    source
+                                                        ?.title ||
+                                                    'Hukukî kaynak'
+                                                )
+                                            }
+                                        </div>
+
+                                        <div
+                                            class="text-muted"
+                                            style="
+                                                font-size: 12px;
+                                                margin-top: 3px;
+                                            "
+                                        >
+                                            ${
+                                                this.escape(
+                                                    this.sourceTypeLabel(
+                                                        source
+                                                            ?.source_type ||
+                                                        source
+                                                            ?.document_type
+                                                    )
+                                                )
+                                            }
+                                            ${
+                                                location
+                                                    ? ` · ${this.escape(location)}`
+                                                    : ''
+                                            }
+                                            ${
+                                                similarityText
+                                                    ? ` · eşleşme ${this.escape(similarityText)}`
+                                                    : ''
+                                            }
+                                        </div>
+
+                                    </div>
+
+                                    <div
+                                        style="
+                                            margin-left: 10px;
+                                            white-space: nowrap;
+                                        "
+                                    >
+                                        ${
+                                            source?.verified === true
+                                                ? `
+                                                    <span class="badge badge-success">
+                                                        DOĞRULANDI
+                                                    </span>
+                                                `
+                                                : `
+                                                    <span class="badge badge-secondary">
+                                                        İÇ BAĞLAM
+                                                    </span>
+                                                `
+                                        }
+
+                                        ${
+                                            isCited
+                                                ? `
+                                                    <span class="badge badge-primary">
+                                                        DİLEKÇEDE KULLANILDI
+                                                    </span>
+                                                `
+                                                : (
+                                                    source?.citable === true
+                                                        ? `
+                                                            <span class="badge badge-light">
+                                                                ATIF YAPILABİLİR
+                                                            </span>
+                                                        `
+                                                        : ''
+                                                )
+                                        }
+                                    </div>
+
+                                </div>
+                            </div>
+                        `;
+                    }
+                )
+                .join('');
+
+
+        const issueHtml =
+            [
+                ...blockers.map(
+                    item => `
+                        <li style="color:#b91c1c;">
+                            ${this.escape(item)}
+                        </li>
+                    `
+                ),
+                ...warnings.map(
+                    item => `
+                        <li style="color:#92400e;">
+                            ${this.escape(item)}
+                        </li>
+                    `
+                ),
+            ]
+                .join('');
+
+
+        return `
+            <details
+                class="oppdraft-qa mt-3"
+                ${
+                    citationAudit &&
+                    citationAudit.pass === false
+                        ? 'open'
+                        : ''
+                }
+            >
+
+                <summary>
+                    <strong>
+                        Kullanılan Hukukî Kaynaklar
+                    </strong>
+
+                    <span class="ml-2 text-muted">
+                        ${citedCount} atıf · ${citableCount} doğrulanmış kaynak
+                    </span>
+
+                    ${
+                        citationAudit
+                            ? (
+                                citationAudit.pass
+                                    ? `
+                                        <span class="badge badge-success ml-2">
+                                            CITATION QA PASS
+                                        </span>
+                                    `
+                                    : `
+                                        <span class="badge badge-danger ml-2">
+                                            CITATION QA BLOCK
+                                        </span>
+                                    `
+                            )
+                            : ''
+                    }
+                </summary>
+
+                <div class="mt-3">
+
+                    ${
+                        rows ||
+                        `
+                            <div class="text-muted">
+                                Bu versiyonda kaynak snapshot'ı bulunmuyor.
+                            </div>
+                        `
+                    }
+
+                    ${
+                        issueHtml
+                            ? `
+                                <div
+                                    class="mt-3"
+                                    style="
+                                        padding: 10px 12px;
+                                        background: #fffbeb;
+                                        border-radius: 8px;
+                                    "
+                                >
+                                    <strong>
+                                        Kaynak denetimi notları
+                                    </strong>
+
+                                    <ul class="mb-0 mt-2">
+                                        ${issueHtml}
+                                    </ul>
+                                </div>
+                            `
+                            : ''
+                    }
+
+                </div>
+
+            </details>
         `;
     }
 

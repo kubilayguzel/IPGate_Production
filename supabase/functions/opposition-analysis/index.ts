@@ -25,6 +25,21 @@ const GOODS_CRITERIA = new Set([
   "relevant_public",
 ]);
 
+const REFUSAL_SCOPE_MODES = new Set([
+  "full_class",
+  "partial",
+]);
+
+const ELEMENT_DISTINCTIVENESS_LEVELS = new Set([
+  "high",
+  "normal",
+  "weak",
+  "descriptive",
+  "non_distinctive",
+  "not_assessed",
+  "not_applicable",
+]);
+
 const DISTINCTIVENESS_LEVELS = new Set([
   "high",
   "normal",
@@ -38,6 +53,7 @@ const ADDITIONAL_ELEMENT_ROLES = new Set([
   "secondary_distinctive",
   "co_dominant",
   "dominant",
+  "not_assessed",
   "not_applicable",
 ]);
 
@@ -122,6 +138,65 @@ function asStringArray(value: unknown): string[] {
 
 function normalizeText(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function normalizeComparableText(value: unknown): string {
+  return String(value ?? "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[^a-z0-9çğıöşü]+/gi, " ")
+    .replace(/[\s\u00A0]+/g, " ")
+    .trim();
+}
+
+function splitScopeSegments(value: unknown): string[] {
+  return String(value ?? "")
+    .split(/[;\n]+/)
+    .map((item) => normalizeComparableText(item))
+    .filter((item) => item.length >= 3);
+}
+
+function isPartialScopeSupported(
+  fullText: unknown,
+  partialText: unknown,
+): boolean {
+
+  const full =
+    normalizeComparableText(fullText);
+
+  const partial =
+    normalizeComparableText(partialText);
+
+
+  if (!full || !partial) {
+    return false;
+  }
+
+
+  // Kısmi kapsam, tam kapsamın aynısı olamaz.
+  if (full === partial) {
+    return false;
+  }
+
+
+  // Tek parça birebir metin.
+  if (full.includes(partial)) {
+    return true;
+  }
+
+
+  // Birden fazla exact bölüm ";" veya satır sonuyla
+  // verilmiş olabilir.
+  const segments =
+    splitScopeSegments(partialText);
+
+
+  return (
+    segments.length > 0 &&
+    segments.every(
+      (segment) =>
+        full.includes(segment)
+    )
+  );
 }
 
 function parseDate(value?: string | null): Date | null {
@@ -538,16 +613,72 @@ function buildDefaultForm(
       (row: any) => Number(row.opponentClassNo) === Number(goods.classNo),
     );
 
+        const requestedRefusal =
+      existing?.requestedRefusal === true;
+
+
+    const refusalScopeMode =
+      requestedRefusal &&
+      REFUSAL_SCOPE_MODES.has(
+        existing?.refusalScopeMode,
+      )
+        ? existing.refusalScopeMode
+        : "";
+
+
+    const refusalScopeText =
+      refusalScopeMode === "full_class"
+
+        ? normalizeText(
+          goods.text,
+        )
+
+        : refusalScopeMode === "partial"
+
+          ? normalizeText(
+            existing?.refusalScopeText,
+          )
+
+          : "";
+
+
     return {
-      opponentClassNo: Number(goods.classNo),
-      opponentText: goods.text ?? "",
-      similarityLevel: GOODS_SIMILARITY_LEVELS.has(existing?.similarityLevel)
-        ? existing.similarityLevel
-        : "not_assessed",
-      matchedPriorClasses: asStringArray(existing?.matchedPriorClasses),
-      criteria: asStringArray(existing?.criteria).filter((item) => GOODS_CRITERIA.has(item)),
-      requestedRefusal: existing?.requestedRefusal === true,
-      note: normalizeText(existing?.note),
+      opponentClassNo:
+        Number(goods.classNo),
+
+      opponentText:
+        goods.text ?? "",
+
+      similarityLevel:
+        GOODS_SIMILARITY_LEVELS.has(
+          existing?.similarityLevel,
+        )
+          ? existing.similarityLevel
+          : "not_assessed",
+
+      matchedPriorClasses:
+        asStringArray(
+          existing?.matchedPriorClasses,
+        ),
+
+      criteria:
+        asStringArray(
+          existing?.criteria,
+        ).filter(
+          (item) =>
+            GOODS_CRITERIA.has(item),
+        ),
+
+      requestedRefusal,
+
+      refusalScopeMode,
+
+      refusalScopeText,
+
+      note:
+        normalizeText(
+          existing?.note,
+        ),
     };
   });
 
@@ -559,10 +690,48 @@ function buildDefaultForm(
       : "",
     clientDominantElements: normalizeText(saved.signAssessment?.clientDominantElements),
     opponentDominantElements: normalizeText(saved.signAssessment?.opponentDominantElements),
-    additionalElementsRole: ADDITIONAL_ELEMENT_ROLES.has(saved.signAssessment?.additionalElementsRole)
-      ? saved.signAssessment.additionalElementsRole
-      : "",
-    independentDistinctiveRole: INDEPENDENT_ROLE_OPTIONS.has(saved.signAssessment?.independentDistinctiveRole)
+        clientAdditionalElements:
+      normalizeText(
+        saved.signAssessment?.clientAdditionalElements,
+      ),
+
+    clientAdditionalDistinctiveness:
+      ELEMENT_DISTINCTIVENESS_LEVELS.has(
+        saved.signAssessment?.clientAdditionalDistinctiveness,
+      )
+        ? saved.signAssessment.clientAdditionalDistinctiveness
+        : "",
+
+    clientAdditionalRole:
+      ADDITIONAL_ELEMENT_ROLES.has(
+        saved.signAssessment?.clientAdditionalRole,
+      )
+        ? saved.signAssessment.clientAdditionalRole
+        : "",
+
+    opponentAdditionalElements:
+      normalizeText(
+        saved.signAssessment?.opponentAdditionalElements,
+      ),
+
+    opponentAdditionalDistinctiveness:
+      ELEMENT_DISTINCTIVENESS_LEVELS.has(
+        saved.signAssessment?.opponentAdditionalDistinctiveness,
+      )
+        ? saved.signAssessment.opponentAdditionalDistinctiveness
+        : "",
+
+    opponentAdditionalRole:
+      ADDITIONAL_ELEMENT_ROLES.has(
+        saved.signAssessment?.opponentAdditionalRole,
+      )
+        ? saved.signAssessment.opponentAdditionalRole
+        : "",
+
+    independentDistinctiveRole:
+      INDEPENDENT_ROLE_OPTIONS.has(
+        saved.signAssessment?.independentDistinctiveRole,
+      )
       ? saved.signAssessment.independentDistinctiveRole
       : "",
     visualSimilarity: SIGN_SIMILARITY_LEVELS.has(saved.signAssessment?.visualSimilarity)
@@ -706,11 +875,62 @@ function assessReadiness(
       }
     }
 
-    if (row.requestedRefusal === true) {
+        if (row.requestedRefusal === true) {
+
       requestedRefusalCount += 1;
 
+
       if (row.similarityLevel === "none") {
-        blockers.push(`Rakip Sınıf ${opponentClassNo} bakımından "benzer değil" sonucu varken ret talebi işaretlenmiş.`);
+
+        blockers.push(
+          `Rakip Sınıf ${opponentClassNo} bakımından "benzer değil" sonucu varken ret talebi işaretlenmiş.`,
+        );
+      }
+
+
+      if (
+        !REFUSAL_SCOPE_MODES.has(
+          row.refusalScopeMode,
+        )
+      ) {
+
+        blockers.push(
+          `Rakip Sınıf ${opponentClassNo} için ret kapsamı seçilmedi: sınıfın tamamı mı, sınıf içinde kısmi kapsam mı?`,
+        );
+
+      } else if (
+        row.refusalScopeMode === "partial"
+      ) {
+
+        const canonicalText =
+          opponent.goodsByClass.find(
+            (goods: any) =>
+              Number(goods.classNo) ===
+              opponentClassNo,
+          )?.text ?? "";
+
+
+        if (
+          !normalizeText(
+            row.refusalScopeText,
+          )
+        ) {
+
+          blockers.push(
+            `Rakip Sınıf ${opponentClassNo} için kısmi ret kapsamının exact mal/hizmet metni girilmedi.`,
+          );
+
+        } else if (
+          !isPartialScopeSupported(
+            canonicalText,
+            row.refusalScopeText,
+          )
+        ) {
+
+          blockers.push(
+            `Rakip Sınıf ${opponentClassNo} için girilen kısmi ret kapsamı, rakip başvurunun kayıtlı mal/hizmet metniyle birebir eşleştirilemedi.`,
+          );
+        }
       }
     }
   }
@@ -724,10 +944,99 @@ function assessReadiness(
   if (!normalizeText(sign.commonElements)) blockers.push("Ortak unsur(lar) değerlendirilmedi.");
   if (!normalizeText(sign.differences)) blockers.push("Farklı unsur(lar) değerlendirilmedi.");
   if (!DISTINCTIVENESS_LEVELS.has(sign.commonElementDistinctiveness)) blockers.push("Ortak unsurun ayırt edicilik düzeyi seçilmedi.");
-  if (!normalizeText(sign.clientDominantElements)) blockers.push("Müstenit markanın baskın/ayırt edici unsuru değerlendirilmedi.");
-  if (!normalizeText(sign.opponentDominantElements)) blockers.push("Rakip markanın baskın/ayırt edici unsuru değerlendirilmedi.");
-  if (!ADDITIONAL_ELEMENT_ROLES.has(sign.additionalElementsRole)) blockers.push("Ek unsurların rolü değerlendirilmedi.");
-  if (!INDEPENDENT_ROLE_OPTIONS.has(sign.independentDistinctiveRole)) blockers.push("Bağımsız ayırt edici rol değerlendirilmedi.");
+  
+    if (!normalizeText(sign.clientDominantElements)) {
+    blockers.push(
+      "Müstenit markanın baskın/ayırt edici unsuru değerlendirilmedi.",
+    );
+  }
+
+  if (!normalizeText(sign.opponentDominantElements)) {
+    blockers.push(
+      "Rakip markanın baskın/ayırt edici unsuru değerlendirilmedi.",
+    );
+  }
+
+
+  // ==========================================
+  // MÜSTENİT MARKANIN EK UNSURLARI
+  // ==========================================
+
+  if (!normalizeText(sign.clientAdditionalElements)) {
+
+    blockers.push(
+      "Müstenit markanın ortak unsur dışındaki ek unsurları belirtilmedi. Ek unsur yoksa 'yok' yazılmalı.",
+    );
+  }
+
+  if (
+    !ELEMENT_DISTINCTIVENESS_LEVELS.has(
+      sign.clientAdditionalDistinctiveness,
+    )
+  ) {
+
+    blockers.push(
+      "Müstenit markanın ek unsurlarının ayırt edicilik değerlendirmesi seçilmedi.",
+    );
+  }
+
+  if (
+    !ADDITIONAL_ELEMENT_ROLES.has(
+      sign.clientAdditionalRole,
+    )
+  ) {
+
+    blockers.push(
+      "Müstenit markanın ek unsurlarının rolü seçilmedi.",
+    );
+  }
+
+
+  // ==========================================
+  // RAKİP MARKANIN EK UNSURLARI
+  // ==========================================
+
+  if (!normalizeText(sign.opponentAdditionalElements)) {
+
+    blockers.push(
+      "Rakip markanın ortak unsur dışındaki ek unsurları belirtilmedi. Ek unsur yoksa 'yok' yazılmalı.",
+    );
+  }
+
+  if (
+    !ELEMENT_DISTINCTIVENESS_LEVELS.has(
+      sign.opponentAdditionalDistinctiveness,
+    )
+  ) {
+
+    blockers.push(
+      "Rakip markanın ek unsurlarının ayırt edicilik değerlendirmesi seçilmedi.",
+    );
+  }
+
+  if (
+    !ADDITIONAL_ELEMENT_ROLES.has(
+      sign.opponentAdditionalRole,
+    )
+  ) {
+
+    blockers.push(
+      "Rakip markanın ek unsurlarının rolü seçilmedi.",
+    );
+  }
+
+
+  if (
+    !INDEPENDENT_ROLE_OPTIONS.has(
+      sign.independentDistinctiveRole,
+    )
+  ) {
+
+    blockers.push(
+      "Bağımsız ayırt edici rol değerlendirilmedi.",
+    );
+  }
+
   if (!SIGN_SIMILARITY_LEVELS.has(sign.visualSimilarity)) blockers.push("Görsel benzerlik derecesi seçilmedi.");
   if (!SIGN_SIMILARITY_LEVELS.has(sign.auralSimilarity)) blockers.push("İşitsel benzerlik derecesi seçilmedi.");
   if (!SIGN_SIMILARITY_LEVELS.has(sign.conceptualSimilarity)) blockers.push("Kavramsal benzerlik/farklılık değerlendirilmedi.");
@@ -917,10 +1226,48 @@ function sanitizePayload(payload: any, context: any) {
           : "not_assessed",
         matchedPriorClasses: asStringArray(row.matchedPriorClasses)
           .filter((key) => validPriorClassKeys.has(key)),
-        criteria: asStringArray(row.criteria)
-          .filter((item) => GOODS_CRITERIA.has(item)),
-        requestedRefusal: row.requestedRefusal === true,
-        note: normalizeText(row.note),
+                criteria:
+          asStringArray(
+            row.criteria,
+          ).filter(
+            (item) =>
+              GOODS_CRITERIA.has(item),
+          ),
+
+        requestedRefusal:
+          row.requestedRefusal === true,
+
+        refusalScopeMode:
+          row.requestedRefusal === true &&
+          REFUSAL_SCOPE_MODES.has(
+            row.refusalScopeMode,
+          )
+            ? row.refusalScopeMode
+            : "",
+
+        refusalScopeText:
+          row.requestedRefusal === true &&
+          row.refusalScopeMode === "full_class"
+
+            ? (
+              opponent.goodsByClass.find(
+                (goods: any) =>
+                  Number(goods.classNo) ===
+                  Number(row.opponentClassNo),
+              )?.text ?? ""
+            )
+
+            : row.requestedRefusal === true &&
+              row.refusalScopeMode === "partial"
+
+              ? normalizeText(
+                row.refusalScopeText,
+              )
+
+              : "",
+
+        note:
+          normalizeText(row.note),
       }))
     : [];
 
@@ -939,10 +1286,48 @@ function sanitizePayload(payload: any, context: any) {
         : "",
       clientDominantElements: normalizeText(sign.clientDominantElements),
       opponentDominantElements: normalizeText(sign.opponentDominantElements),
-      additionalElementsRole: ADDITIONAL_ELEMENT_ROLES.has(sign.additionalElementsRole)
-        ? sign.additionalElementsRole
-        : "",
-      independentDistinctiveRole: INDEPENDENT_ROLE_OPTIONS.has(sign.independentDistinctiveRole)
+            clientAdditionalElements:
+        normalizeText(
+          sign.clientAdditionalElements,
+        ),
+
+      clientAdditionalDistinctiveness:
+        ELEMENT_DISTINCTIVENESS_LEVELS.has(
+          sign.clientAdditionalDistinctiveness,
+        )
+          ? sign.clientAdditionalDistinctiveness
+          : "",
+
+      clientAdditionalRole:
+        ADDITIONAL_ELEMENT_ROLES.has(
+          sign.clientAdditionalRole,
+        )
+          ? sign.clientAdditionalRole
+          : "",
+
+      opponentAdditionalElements:
+        normalizeText(
+          sign.opponentAdditionalElements,
+        ),
+
+      opponentAdditionalDistinctiveness:
+        ELEMENT_DISTINCTIVENESS_LEVELS.has(
+          sign.opponentAdditionalDistinctiveness,
+        )
+          ? sign.opponentAdditionalDistinctiveness
+          : "",
+
+      opponentAdditionalRole:
+        ADDITIONAL_ELEMENT_ROLES.has(
+          sign.opponentAdditionalRole,
+        )
+          ? sign.opponentAdditionalRole
+          : "",
+
+      independentDistinctiveRole:
+        INDEPENDENT_ROLE_OPTIONS.has(
+          sign.independentDistinctiveRole,
+        )
         ? sign.independentDistinctiveRole
         : "",
       visualSimilarity: SIGN_SIMILARITY_LEVELS.has(sign.visualSimilarity)
@@ -1005,7 +1390,7 @@ async function saveAnalysis(
   const currentLawyerFindings = asObject(oppositionCase.lawyer_findings);
 
   const smk61Findings = {
-    version: 1,
+    version: 2,
     sourceFingerprint: context.sourceFingerprint,
     ...sanitized,
     readiness,

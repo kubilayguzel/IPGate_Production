@@ -617,6 +617,10 @@ export class OppositionDraftManager {
                     this.qaHtml(current)
                 }
 
+                ${
+                    this.costHtml(current)
+                }
+
             </div>
         `;
 
@@ -768,6 +772,535 @@ export class OppositionDraftManager {
                             `
                             : ''
                     }
+
+                </div>
+
+            </details>
+        `;
+    }
+
+
+    formatTokenCount(value) {
+
+        const number =
+            Number(
+                value ??
+                0
+            );
+
+
+        return Number.isFinite(number)
+            ? number.toLocaleString(
+                'tr-TR'
+            )
+            : '0';
+    }
+
+
+    formatUsd(value) {
+
+        const number =
+            Number(
+                value
+            );
+
+
+        if (
+            !Number.isFinite(number)
+        ) {
+
+            return '—';
+        }
+
+
+        const digits =
+            number < 0.01
+                ? 5
+                : 3;
+
+
+        return new Intl
+            .NumberFormat(
+                'en-US',
+                {
+                    style:
+                        'currency',
+
+                    currency:
+                        'USD',
+
+                    minimumFractionDigits:
+                        digits,
+
+                    maximumFractionDigits:
+                        digits
+                }
+            )
+            .format(number);
+    }
+
+
+    formatTry(value) {
+
+        const number =
+            Number(
+                value
+            );
+
+
+        if (
+            !Number.isFinite(number)
+        ) {
+
+            return '';
+        }
+
+
+        return new Intl
+            .NumberFormat(
+                'tr-TR',
+                {
+                    style:
+                        'currency',
+
+                    currency:
+                        'TRY',
+
+                    minimumFractionDigits:
+                        2,
+
+                    maximumFractionDigits:
+                        2
+                }
+            )
+            .format(number);
+    }
+
+
+    costStageRow(
+        label,
+        stage
+    ) {
+
+        if (!stage) {
+            return '';
+        }
+
+
+        const skipped =
+            stage.skipped ===
+            true;
+
+
+        const model =
+            stage.model ||
+            '—';
+
+
+        const promptTokens =
+            this.formatTokenCount(
+                stage.promptTokenCount
+            );
+
+
+        const outputTokens =
+            this.formatTokenCount(
+                (
+                    Number(
+                        stage.candidatesTokenCount ??
+                        0
+                    ) +
+                    Number(
+                        stage.thoughtsTokenCount ??
+                        0
+                    )
+                )
+            );
+
+
+        const cost =
+            skipped
+                ? 'CACHE / ÇAĞRI YOK'
+                : this.formatUsd(
+                    stage.estimatedUsd
+                );
+
+
+        return `
+            <tr>
+
+                <td>
+                    <strong>
+                        ${this.escape(label)}
+                    </strong>
+                </td>
+
+                <td>
+                    ${this.escape(model)}
+                </td>
+
+                <td class="text-right">
+                    ${
+                        skipped
+                            ? '—'
+                            : promptTokens
+                    }
+                </td>
+
+                <td class="text-right">
+                    ${
+                        skipped
+                            ? '—'
+                            : outputTokens
+                    }
+                </td>
+
+                <td class="text-right">
+                    ${
+                        skipped
+                            ? `
+                                <span
+                                    class="
+                                        badge
+                                        badge-success
+                                    "
+                                >
+                                    ${cost}
+                                </span>
+                            `
+                            : this.escape(cost)
+                    }
+                </td>
+
+            </tr>
+        `;
+    }
+
+
+    costHtml(current) {
+
+        const qa =
+            this.transientQa ||
+            current?.qa_report;
+
+
+        const telemetry =
+            qa?.aiTelemetry;
+
+
+        if (!telemetry) {
+            return '';
+        }
+
+
+        const cacheHit =
+            telemetry
+                ?.cache
+                ?.hit ===
+            true;
+
+
+        const totalUsd =
+            telemetry
+                ?.total
+                ?.estimatedUsd;
+
+
+        const totalTry =
+            telemetry
+                ?.total
+                ?.estimatedTry;
+
+
+        const tryRate =
+            telemetry
+                ?.total
+                ?.usdTryRate;
+
+
+        const rag =
+            telemetry.rag ||
+            {};
+
+
+        const stages =
+            telemetry.stages ||
+            {};
+
+
+        const totalTryHtml =
+            Number.isFinite(
+                Number(totalTry)
+            )
+                ? `
+                    <span class="ml-2">
+                        ≈
+                        ${this.escape(
+                            this.formatTry(
+                                totalTry
+                            )
+                        )}
+                    </span>
+                `
+                : '';
+
+
+        const rateNote =
+            Number.isFinite(
+                Number(tryRate)
+            )
+                ? `
+                    <div
+                        class="
+                            text-muted
+                            small
+                            mt-2
+                        "
+                    >
+                        TRY tahmini için
+                        1 USD =
+                        ${this.escape(tryRate)}
+                        TRY oranı kullanıldı.
+                        Google faturası ve vergi/kur
+                        farkları nedeniyle gerçek tutar
+                        değişebilir.
+                    </div>
+                `
+                : `
+                    <div
+                        class="
+                            text-muted
+                            small
+                            mt-2
+                        "
+                    >
+                        USD tutarı API usage metadata ve
+                        model fiyat tarifesine göre
+                        tahminidir. TRY karşılığı Google'ın
+                        faturalama kuru/vergi uygulamasına
+                        göre değişebilir.
+                    </div>
+                `;
+
+
+        return `
+            <details
+                class="
+                    oppdraft-qa
+                    mt-3
+                "
+            >
+
+                <summary>
+
+                    <strong>
+                        AI Kullanım / Maliyet
+                    </strong>
+
+                    ·
+
+                    ${
+                        cacheHit
+                            ? 'CACHE HIT'
+                            : 'CACHE MISS'
+                    }
+
+                    ·
+
+                    ${
+                        this.escape(
+                            this.formatUsd(
+                                totalUsd
+                            )
+                        )
+                    }
+
+                    ${totalTryHtml}
+
+                </summary>
+
+
+                <div class="oppdraft-qa-body">
+
+                    <div
+                        class="
+                            alert
+                            ${
+                                cacheHit
+                                    ? 'alert-success'
+                                    : 'alert-light'
+                            }
+                            py-2
+                        "
+                    >
+
+                        ${
+                            cacheHit
+                                ? `
+                                    <strong>
+                                        Analiz cache kullanıldı.
+                                    </strong>
+
+                                    RAG embedding ve hukuki analiz
+                                    API çağrıları tekrar edilmedi.
+                                `
+                                : `
+                                    <strong>
+                                        Yeni hukuki analiz yapıldı.
+                                    </strong>
+
+                                    Bu versiyon sonraki aynı
+                                    Decision Tree girdileri için
+                                    cache oluşturur.
+                                `
+                        }
+
+                    </div>
+
+
+                    <div
+                        class="
+                            table-responsive
+                            mt-2
+                        "
+                    >
+
+                        <table
+                            class="
+                                table
+                                table-sm
+                                mb-0
+                            "
+                        >
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>
+                                        Aşama
+                                    </th>
+
+                                    <th>
+                                        Model
+                                    </th>
+
+                                    <th
+                                        class="text-right"
+                                    >
+                                        Input
+                                    </th>
+
+                                    <th
+                                        class="text-right"
+                                    >
+                                        Output + Thinking
+                                    </th>
+
+                                    <th
+                                        class="text-right"
+                                    >
+                                        Tahmini
+                                    </th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody>
+
+                                ${
+                                    this.costStageRow(
+                                        'Embedding / RAG',
+                                        stages.embedding
+                                    )
+                                }
+
+                                ${
+                                    this.costStageRow(
+                                        'Hukuki Analiz',
+                                        stages.analysis
+                                    )
+                                }
+
+                                ${
+                                    this.costStageRow(
+                                        'Dilekçe Yazımı',
+                                        stages.draft
+                                    )
+                                }
+
+                                ${
+                                    this.costStageRow(
+                                        'AI Audit',
+                                        stages.audit
+                                    )
+                                }
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+
+                    <div
+                        class="
+                            d-flex
+                            flex-wrap
+                            justify-content-between
+                            mt-3
+                        "
+                    >
+
+                        <div class="small">
+
+                            <strong>
+                                RAG:
+                            </strong>
+
+                            ${
+                                this.escape(
+                                    rag.sourcesRetrieved ??
+                                    0
+                                )
+                            }
+                            kaynak bulundu /
+
+                            ${
+                                this.escape(
+                                    rag.sourcesUsed ??
+                                    0
+                                )
+                            }
+                            kaynak dilekçe aşamasına taşındı
+
+                        </div>
+
+
+                        <div>
+
+                            <strong>
+                                Tahmini API toplamı:
+                            </strong>
+
+                            ${
+                                this.escape(
+                                    this.formatUsd(
+                                        totalUsd
+                                    )
+                                )
+                            }
+
+                            ${totalTryHtml}
+
+                        </div>
+
+                    </div>
+
+
+                    ${rateNote}
 
                 </div>
 

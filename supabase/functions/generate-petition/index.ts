@@ -23,7 +23,7 @@ const EMBEDDING_MODEL =
     Deno.env.get("GEMINI_EMBEDDING_MODEL") ??
     "gemini-embedding-2";
 
-const PACKAGE_VERSION = "6.0.5";
+const PACKAGE_VERSION = "6.0.6";
 
 const RAG_SOURCE_MIN =
     Math.max(
@@ -1222,6 +1222,600 @@ function normalizeLegacySource(
 }
 
 
+
+type GoodsRetailRelationPair = {
+    opponentClassNo: number;
+    priorClassNo: number;
+    priorMarkId: string;
+    retailSide: "opponent" | "prior";
+};
+
+
+function normalizeLegalRuleText(
+    value: unknown,
+): string {
+
+    return String(
+        value ?? ""
+    )
+        .toLocaleLowerCase(
+            "tr-TR"
+        )
+        .replace(
+            /[^a-z0-9çğıöşü]+/gi,
+            " "
+        )
+        .replace(
+            /\s+/g,
+            " "
+        )
+        .trim();
+}
+
+
+function looksLikeRetailServiceText(
+    value: unknown,
+): boolean {
+
+    const normalized =
+        normalizeLegalRuleText(
+            value
+        );
+
+    if (!normalized) {
+        return false;
+    }
+
+    return /(?:perakende|toptan|mağazacılık|magazacilik|mağaza|magaza|satın alması için|satin almasi icin|malların bir araya getirilmesi|mallarin bir araya getirilmesi|ürünlerin bir araya getirilmesi|urunlerin bir araya getirilmesi)/i
+        .test(
+            normalized
+        );
+}
+
+
+function parsePriorClassKey(
+    value: unknown,
+): {
+    priorMarkId: string;
+    classNo: number;
+} | null {
+
+    const raw =
+        String(
+            value ?? ""
+        ).trim();
+
+    const splitIndex =
+        raw.lastIndexOf(
+            ":"
+        );
+
+    if (splitIndex <= 0) {
+        return null;
+    }
+
+    const priorMarkId =
+        raw.slice(
+            0,
+            splitIndex
+        );
+
+    const classNo =
+        Number(
+            raw.slice(
+                splitIndex + 1
+            )
+        );
+
+    if (
+        !priorMarkId ||
+        !Number.isFinite(
+            classNo
+        )
+    ) {
+        return null;
+    }
+
+    return {
+        priorMarkId,
+        classNo,
+    };
+}
+
+
+function findPriorClassText(
+    payload: any,
+    priorMarkId: string,
+    classNo: number,
+): string {
+
+    const mark =
+        (
+            payload.clientMarks ??
+            []
+        ).find(
+            (item: any) =>
+                String(
+                    item.ipRecordId ??
+                    ""
+                ) ===
+                String(
+                    priorMarkId
+                )
+        );
+
+    if (!mark) {
+        return "";
+    }
+
+    const cls =
+        (
+            mark.classes ??
+            []
+        ).find(
+            (item: any) =>
+                Number(
+                    item.classNo
+                ) ===
+                Number(
+                    classNo
+                )
+        );
+
+    return (
+        cls
+            ?.items ??
+        []
+    )
+        .map(
+            String
+        )
+        .join(
+            "; "
+        );
+}
+
+
+function findOpponentClassText(
+    payload: any,
+    classNo: number,
+): string {
+
+    const goodsByClass =
+        payload
+            ?.opponentApplication
+            ?.goodsByClass ??
+        [];
+
+    const row =
+        goodsByClass.find(
+            (item: any) =>
+                Number(
+                    item.classNo
+                ) ===
+                Number(
+                    classNo
+                )
+        );
+
+    if (row) {
+        return String(
+            row.text ??
+            row.fullClassText ??
+            ""
+        );
+    }
+
+    const scope =
+        (
+            payload
+                ?.opponentApplication
+                ?.requestedRefusalScopes ??
+            []
+        ).find(
+            (item: any) =>
+                Number(
+                    item.classNo
+                ) ===
+                Number(
+                    classNo
+                )
+        );
+
+    return String(
+        scope
+            ?.text ??
+        scope
+            ?.fullClassText ??
+        ""
+    );
+}
+
+
+function goodsRetailRelationPairs(
+    payload: any,
+): GoodsRetailRelationPair[] {
+
+    const rows =
+        payload
+            ?.lawyerAssessment
+            ?.goodsAssessments ??
+        [];
+
+    const pairs:
+        GoodsRetailRelationPair[] =
+        [];
+
+    for (
+        const row of
+        rows
+    ) {
+
+        const opponentClassNo =
+            Number(
+                row
+                    ?.opponentClassNo
+            );
+
+        if (
+            !Number.isFinite(
+                opponentClassNo
+            )
+        ) {
+            continue;
+        }
+
+        for (
+            const rawPriorClass of
+            row
+                ?.matchedPriorClasses ??
+            []
+        ) {
+
+            const parsed =
+                parsePriorClassKey(
+                    rawPriorClass
+                );
+
+            if (!parsed) {
+                continue;
+            }
+
+            const priorClassNo =
+                parsed.classNo;
+
+            if (
+                opponentClassNo ===
+                    35 &&
+                priorClassNo !==
+                    35
+            ) {
+
+                const retailText =
+                    findOpponentClassText(
+                        payload,
+                        35,
+                    );
+
+                if (
+                    looksLikeRetailServiceText(
+                        retailText
+                    )
+                ) {
+
+                    pairs.push({
+                        opponentClassNo,
+                        priorClassNo,
+                        priorMarkId:
+                            parsed.priorMarkId,
+                        retailSide:
+                            "opponent",
+                    });
+                }
+
+                continue;
+            }
+
+            if (
+                priorClassNo ===
+                    35 &&
+                opponentClassNo !==
+                    35
+            ) {
+
+                const retailText =
+                    findPriorClassText(
+                        payload,
+                        parsed.priorMarkId,
+                        35,
+                    );
+
+                if (
+                    looksLikeRetailServiceText(
+                        retailText
+                    )
+                ) {
+
+                    pairs.push({
+                        opponentClassNo,
+                        priorClassNo,
+                        priorMarkId:
+                            parsed.priorMarkId,
+                        retailSide:
+                            "prior",
+                    });
+                }
+            }
+        }
+    }
+
+    const unique =
+        new Map<
+            string,
+            GoodsRetailRelationPair
+        >();
+
+    for (
+        const pair of
+        pairs
+    ) {
+
+        unique.set(
+            [
+                pair.priorMarkId,
+                pair.priorClassNo,
+                pair.opponentClassNo,
+                pair.retailSide,
+            ].join(
+                "|"
+            ),
+            pair,
+        );
+    }
+
+    return [
+        ...unique.values()
+    ];
+}
+
+
+function hasGoodsRetailCrossRelation(
+    payload: any,
+): boolean {
+
+    return (
+        goodsRetailRelationPairs(
+            payload
+        ).length >
+        0
+    );
+}
+
+
+function sourceUsageRestrictions(
+    source: any,
+    payload: any,
+): string[] {
+
+    if (
+        !hasGoodsRetailCrossRelation(
+            payload
+        )
+    ) {
+        return [];
+    }
+
+    if (
+        String(
+            source
+                ?.source_type ??
+            source
+                ?.document_type ??
+            ""
+        ) !==
+        "official_guideline"
+    ) {
+        return [];
+    }
+
+    const heading =
+        normalizeLegalRuleText(
+            [
+                source
+                    ?.section_title,
+                ...(
+                    Array.isArray(
+                        source
+                            ?.heading_path
+                    )
+                        ? source
+                            .heading_path
+                        : []
+                ),
+            ]
+                .filter(
+                    Boolean
+                )
+                .join(
+                    " "
+                )
+        );
+
+    const content =
+        normalizeLegalRuleText(
+            source
+                ?.content
+        );
+
+    const isIdentitySection =
+        /(?:2\s*3\s*1|aynılık|aynilik)/i
+            .test(
+                heading
+            );
+
+    const isRetailInternalScopeRule =
+        looksLikeRetailServiceText(
+            content
+        ) &&
+        /(?:genel|özel|ozel|dar|geniş|genis|kapsam|aynı hizmet|ayni hizmet|birbirini kaps)/i
+            .test(
+                content
+            );
+
+    if (
+        isIdentitySection &&
+        isRetailInternalScopeRule
+    ) {
+
+        return [
+            "no_goods_retail_cross_relation",
+        ];
+    }
+
+    return [];
+}
+
+
+function sourceRestrictionNote(
+    source: any,
+): string {
+
+    const restrictions =
+        Array.isArray(
+            source
+                ?.usage_restrictions
+        )
+            ? source
+                .usage_restrictions
+            : [];
+
+    if (
+        restrictions.includes(
+            "no_goods_retail_cross_relation"
+        )
+    ) {
+
+        return "BU KAYNAK İÇİN PROPOSITION SINIRI: Kaynak, 35. sınıf perakendecilik/mağazacılık hizmetlerinin kendi aralarındaki aynılık veya genel/özel kapsam ilişkisini açıklamaktadır. Fizikî mallar ile 35. sınıf perakendecilik/mağazacılık hizmetleri arasındaki benzerliği, tamamlayıcılığı veya ticari kaynak ilişkisini temellendirmek için KULLANILAMAZ.";
+    }
+
+    return "Özel proposition kısıtı yok.";
+}
+
+
+function paragraphLooksGoodsRetailCrossRelation(
+    paragraph: string,
+    payload: any,
+): boolean {
+
+    const pairs =
+        goodsRetailRelationPairs(
+            payload
+        );
+
+    if (
+        pairs.length ===
+        0
+    ) {
+        return false;
+    }
+
+    const normalized =
+        normalizeLegalRuleText(
+            paragraph
+        );
+
+    const retailMention =
+        /(?:35 sınıf|perakende|toptan|mağazacılık|magazacilik|mağaza|magaza|malların bir araya getirilmesi|mallarin bir araya getirilmesi)/i
+            .test(
+                normalized
+            );
+
+    if (!retailMention) {
+        return false;
+    }
+
+    const physicalClassMention =
+        pairs.some(
+            (pair) =>
+                (
+                    pair.priorClassNo !==
+                        35 &&
+                    new RegExp(
+                        `\\b${pair.priorClassNo}\\s*sınıf\\b`,
+                        "i",
+                    ).test(
+                        normalized
+                    )
+                ) ||
+                (
+                    pair.opponentClassNo !==
+                        35 &&
+                    new RegExp(
+                        `\\b${pair.opponentClassNo}\\s*sınıf\\b`,
+                        "i",
+                    ).test(
+                        normalized
+                    )
+                )
+        );
+
+    const physicalGoodsLanguage =
+        /(?:fiziki mal|fiziksel mal|mallar|ürünler|urunler|emtia|eşya|esya)/i
+            .test(
+                normalized
+            );
+
+    return (
+        retailMention &&
+        (
+            physicalClassMention ||
+            physicalGoodsLanguage
+        )
+    );
+}
+
+
+function paragraphUsesNatureAsPositiveBridge(
+    paragraph: string,
+): boolean {
+
+    const normalized =
+        normalizeLegalRuleText(
+            paragraph
+        );
+
+    const positiveNaturePatterns = [
+        /(?:nitelik|doğa|doga|mahiyet)(?:leri|ları|lari)?\s+(?:bakımından|bakimindan)?\s*(?:aynı|ayni|benzer|yakın|yakin|örtüş|ortus)/i,
+        /(?:aynı|ayni|benzer|yakın|yakin|örtüşen|ortusen)\s+(?:bir\s+)?(?:nitelik|doğa|doga|mahiyet)/i,
+        /(?:niteliksel|doğaları|dogalari)\s+(?:benzer|aynı|ayni|yakın|yakin)/i,
+    ];
+
+    return positiveNaturePatterns.some(
+        (pattern) =>
+            pattern.test(
+                normalized
+            )
+    );
+}
+
+
+function sourceHasUsageRestriction(
+    source: any,
+    restriction: string,
+): boolean {
+
+    return Array.isArray(
+        source
+            ?.usage_restrictions
+    ) &&
+    source
+        .usage_restrictions
+        .includes(
+            restriction
+        );
+}
+
+
 async function retrieveLegalContext(
     apiKey: string,
     supabase: ReturnType<typeof createClient>,
@@ -1275,6 +1869,12 @@ async function retrieveLegalContext(
         {};
 
 
+    const goodsRetailPairs =
+        goodsRetailRelationPairs(
+            payload
+        );
+
+
     const queries = [
 
         `SMK 6/1 karıştırılma ihtimali, bütünsel değerlendirme ve karşılıklı bağımlılık. Markalar: ${clientMarks} ve ${opponentMark}. Avukat sonucu: ${JSON.stringify(lawyerAssessment.globalAssessment ?? {})}`,
@@ -1284,6 +1884,14 @@ async function retrieveLegalContext(
         `Görsel, işitsel ve kavramsal marka benzerliği ölçütleri. Markalar: ${clientMarks} ve ${opponentMark}. Avukat bulgusu: ${JSON.stringify(lawyerAssessment.signAssessment ?? {})}`,
 
         `Mal ve hizmet benzerliği; nitelik, amaç, kullanıcı, dağıtım kanalı, tamamlayıcılık ve rekabet. Önceki marka kapsamı: ${clientGoods}. Başvuru kapsamı: ${opponentGoods}. Avukat değerlendirmesi: ${JSON.stringify(lawyerAssessment.goodsAssessments ?? [])}`,
+
+        ...(
+            goodsRetailPairs.length > 0
+                ? [
+                    `Fizikî mallar ile Nice 35. sınıf perakendecilik/mağazacılık hizmetleri arasındaki benzerlik. Mal ile hizmetin doğası/niteliği aynı kabul edilmeden; özellikle tamamlayıcılık, rekabet veya ikame, dağıtım ve satış kanalları, ilgili tüketici, kullanım amacı ve tüketicinin aynı ya da ekonomik olarak bağlantılı ticari kaynak algısı kriterlerinin uygulanması. 35. sınıf mağazacılık hizmetlerinin kendi aralarındaki genel/özel kapsam aynılığı bu proposition için yeterli değildir. Somut sınıf eşleşmeleri: ${JSON.stringify(goodsRetailPairs)}. Önceki marka kapsamı: ${clientGoods}. Başvuru kapsamı: ${opponentGoods}. Avukat değerlendirmesi: ${JSON.stringify(lawyerAssessment.goodsAssessments ?? [])}`,
+                ]
+                : []
+        ),
 
         `İlgili tüketici kesimi ve dikkat düzeyi. Mal ve hizmetler: ${clientGoods}; ${opponentGoods}. Avukat bulgusu: ${JSON.stringify(lawyerAssessment.publicAssessment ?? {})}`,
 
@@ -1519,6 +2127,12 @@ async function retrieveLegalContext(
                 citation_label:
                     buildCitationLabel(
                         chunk
+                    ),
+
+                usage_restrictions:
+                    sourceUsageRestrictions(
+                        chunk,
+                        payload,
                     ),
             })
         );
@@ -2052,6 +2666,9 @@ ${pageRangeLabel(
     source.page_to ?? source.page_number,
 ) || "Belirtilmemiş"}
 
+Proposition kullanım sınırı:
+${sourceRestrictionNote(source)}
+
 İçerik:
 ${source.content}
 
@@ -2157,6 +2774,9 @@ function buildAnalysisCacheBasis(
 
 
     return {
+
+        packageVersion:
+            PACKAGE_VERSION,
 
         sourceFingerprint:
             payload
@@ -2428,6 +3048,17 @@ function sourceCacheSnapshot(
         quote_safe:
             source.quote_safe ===
             true,
+
+        usage_restrictions:
+            Array.isArray(
+                source
+                    ?.usage_restrictions
+            )
+                ? [
+                    ...source
+                        .usage_restrictions
+                ]
+                : [],
 
         section_title:
             source.section_title ??
@@ -3016,6 +3647,7 @@ function extractCitationIds(
 function auditLegalCitations(
     draft: string,
     sources: any[],
+    payload: any,
 ) {
 
     const blockers:
@@ -3151,6 +3783,56 @@ function auditLegalCitations(
             blockers.push(
                 `Kaynak işareti olmadan dış otorite/karar atfı yapıldı: ${paragraph.slice(0, 180)}`,
             );
+        }
+
+
+        const isGoodsRetailCrossParagraph =
+            paragraphLooksGoodsRetailCrossRelation(
+                paragraph,
+                payload,
+            );
+
+
+        if (
+            isGoodsRetailCrossParagraph &&
+            paragraphUsesNatureAsPositiveBridge(
+                paragraph
+            )
+        ) {
+
+            blockers.push(
+                `Fizikî mal ↔ 35. sınıf perakendecilik/mağazacılık hizmeti ilişkisinde nitelik/doğa/mahiyet benzerliği pozitif gerekçe olarak kullanıldı: ${paragraph.slice(0, 220)}`,
+            );
+        }
+
+
+        if (
+            isGoodsRetailCrossParagraph
+        ) {
+
+            for (
+                const sourceId of
+                paragraphSourceIds
+            ) {
+
+                const source =
+                    sourceMap.get(
+                        sourceId
+                    );
+
+                if (
+                    source &&
+                    sourceHasUsageRestriction(
+                        source,
+                        "no_goods_retail_cross_relation",
+                    )
+                ) {
+
+                    blockers.push(
+                        `${sourceId} kaynağı 35. sınıf mağazacılık hizmetlerinin kendi iç aynılık/genel-özel kapsam ilişkisine aittir; fizikî mal ↔ 35. sınıf perakendecilik/mağazacılık proposition'ı için kullanılamaz.`,
+                    );
+                }
+            }
         }
 
 
@@ -3744,6 +4426,8 @@ serve(async (req) => {
         const cacheHit =
             Boolean(
                 cacheCandidate &&
+                cacheCandidate.packageVersion ===
+                    PACKAGE_VERSION &&
                 cacheCandidate.cacheKey ===
                     analysisCacheKey &&
                 cacheCandidate
@@ -3944,6 +4628,13 @@ SMK 6/5, SMK 6/9, tanınmışlık, kötü niyet, seri marka veya marka ailesi ar
 
 10. Resmî TÜRKPATENT kılavuzu mevcutsa, somut hukuki sorunla gerçekten ilgili bölümleri kullan.
 Doğrulanmış mahkeme/YİDK/AB içtihadı mevcutsa ve somut sorunla analojik olarak ilgiliyse destekleyici kaynak olarak kullan.
+
+10-A. HUKUKİ KAYNAK içindeki "Proposition kullanım sınırı" notu BAĞLAYICIDIR.
+Bir kaynak "no_goods_retail_cross_relation" anlamındaki kısıta sahipse o kaynağı fizikî mallar ile 35. sınıf perakendecilik/mağazacılık hizmetleri arasındaki benzerlik, tamamlayıcılık, dağıtım kanalı veya ticari kaynak proposition'ı için sourceIds alanına ekleme.
+
+10-B. Fizikî mal ↔ 35. sınıf perakendecilik/mağazacılık hizmeti karşılaştırmasında mal ile hizmetin nitelik/doğa/mahiyet bakımından benzer veya aynı olduğu şeklinde pozitif bir benzerlik köprüsü kurma.
+Bu ilişkinin hukuken uygun eksenleri; somut avukat teşhisinde seçilmiş olmaları koşuluyla tamamlayıcılık, rekabet/ikame, dağıtım ve satış kanalları, amaç, ilgili tüketici ve aynı ya da ekonomik olarak bağlantılı ticari kaynak algısıdır.
+lawyerAssessment.criteria içinde "nature" bulunması, bu özel mal-hizmet ilişkisinde "nitelik/doğa benzerliği" yazma yetkisi vermez; similarityLevel ve ret sonucu değiştirilmeksizin yalnız hukuken uygulanabilir seçili kriterler kullanılmalıdır.
 
 11. Kaynaklarla desteklenemeyen iddiaları prohibitedOrUnsupportedClaims alanına yaz.
 
@@ -4248,6 +4939,12 @@ Salt "Kılavuzda belirtildiği üzere" demekle yetinme; kaynaktaki hukuki ölç�
 
 21. Mal ve hizmetleri yalnız sınıf numarasıyla değil, verilen gerçek ifadeler ve avukatın seçtiği benzerlik kriterleri üzerinden tartış.
 
+21-A. FILING-SAFE HUKUKİ KAYNAKLAR içindeki "Proposition kullanım sınırı" BAĞLAYICIDIR.
+"No_goods_retail_cross_relation" kapsamındaki bir kaynağı fizikî mallar ile 35. sınıf perakendecilik/mağazacılık hizmetleri arasındaki ilişkiyi desteklemek için kullanma ve ilgili paragrafta o kaynağın ⟦S#⟧ kodunu yazma.
+
+21-B. Fizikî mallar ile 35. sınıf perakendecilik/mağazacılık hizmetleri karşılaştırılıyorsa "nitelikleri/doğaları/mahiyetleri benzerdir", "aynı niteliktedir" veya aynı anlamdaki bir gerekçe kurma.
+Mal ve hizmetin farklı doğası, benzerlik sonucunu tek başına ortadan kaldırmıyorsa bunu ancak ölçülü biçimde belirtebilirsin; pozitif benzerlik gerekçesini somut avukat teşhisinde seçilmiş ve hukuken uygulanabilir tamamlayıcılık, rekabet/ikame, dağıtım ve satış kanalları, amaç, ilgili tüketici veya ticari kaynak algısı kriterleri üzerinden kur.
+
 22. Mekanik harf/hece sayımı yapma.
 
 23. Bu dosyada SMK 6/5 veya SMK 6/9 argümanı kurma.
@@ -4384,6 +5081,10 @@ olan kaynakta birebir bulunmaması.
 
 20. Kaynak mevcut olduğu hâlde hukukî tartışmanın yalnız soyut genel cümlelerle bırakılması. Ancak kaynak, somut avukat teşhisine gerçekten ilgili olmalıdır.
 
+21. Fizikî mallar ile 35. sınıf perakendecilik/mağazacılık hizmetleri arasındaki ilişki açıklanırken, yalnız 35. sınıf mağazacılık hizmetlerinin kendi aralarındaki aynılık veya genel/özel kapsam ilişkisini açıklayan bir kaynağın bu cross-relation proposition için kullanılması.
+
+22. Fizikî mal ↔ 35. sınıf perakendecilik/mağazacılık hizmeti ilişkisinde "nitelik/doğa/mahiyet bakımından benzer veya aynı" şeklinde pozitif benzerlik gerekçesi kurulması. Bu durumda correctedDraft; avukatın similarityLevel/ret sonucunu değiştirmeden, yalnız hukuken uygulanabilir seçili kriterler üzerinden yeniden kurulmalıdır.
+
 KAYNAK İŞARETLERİ:
 
 - ⟦S1⟧, ⟦S2⟧ vb. yalnız iç citation handle'dır.
@@ -4446,6 +5147,7 @@ ${draftResult.text}
             auditLegalCitations(
                 audit.correctedDraft,
                 selectedSources,
+                payload,
             );
 
 

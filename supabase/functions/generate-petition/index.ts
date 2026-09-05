@@ -23,7 +23,7 @@ const EMBEDDING_MODEL =
     Deno.env.get("GEMINI_EMBEDDING_MODEL") ??
     "gemini-embedding-2";
 
-const PACKAGE_VERSION = "6.0";
+const PACKAGE_VERSION = "6.0.5";
 
 const RAG_SOURCE_MIN =
     Math.max(
@@ -3936,6 +3936,8 @@ lawyerAssessment.signAssessment bulgularına bağlı kal.
 
 8. Bu payload yalnız SMK 6/1 içindir.
 SMK 6/5, SMK 6/9, tanınmışlık, kötü niyet, seri marka veya marka ailesi argümanı kurma.
+"yeni bir serisi", "marka serisi", "serinin devamı", "marka ailesinin yeni üyesi" gibi aynı iddiayı örtülü biçimde kuran ifadeleri de kullanma.
+İlişkilendirilme ihtimali tartışılacaksa bunu yalnız lawyerAssessment.globalAssessment desteklediği ölçüde, tüketicinin işaretleri aynı veya ekonomik olarak bağlantılı işletmelerden kaynaklanıyor sanması ihtimali üzerinden açıkla; gerçek bir ticari bağlantı varmış gibi yazma.
 
 9. Her hukuki önerme için kullandığın S kaynaklarını sourceIds alanında belirt.
 Özellikle citable=true doğrulanmış kaynakları tercih et.
@@ -4250,6 +4252,8 @@ Salt "Kılavuzda belirtildiği üzere" demekle yetinme; kaynaktaki hukuki ölç�
 
 23. Bu dosyada SMK 6/5 veya SMK 6/9 argümanı kurma.
 Seri marka, marka ailesi, tanınmışlık, kötü niyet veya uzun yıllara dayalı kullanım iddiası üretme.
+Özellikle "yeni bir serisi", "marka serisi", "serinin devamı", "aynı seri", "marka ailesinin yeni üyesi" veya benzeri ifadelerle örtülü seri marka/marka ailesi teorisi kurma.
+İlişkilendirilme ihtimali lawyerAssessment tarafından destekleniyorsa güvenli ifade şudur: ilgili tüketicinin işaretleri aynı veya ekonomik olarak bağlantılı işletmelerden kaynaklanıyor sanması ihtimali. Bu ifade gerçek bir ekonomik/ticari bağlantının bulunduğu iddiasına dönüştürülemez.
 
 24. Muhtemel karşı argümanı kendin icat etme.
 Karşı argüman yalnız lawyerAssessment içindeki avukat notlarında veya doğrulanmış vaka verisinde açıkça kayıtlıysa yazılabilir.
@@ -4342,6 +4346,7 @@ HATA KABUL EDİLECEK DURUMLAR:
 3. Müstenit veya rakip markadaki ek unsur hakkında avukatın vermediği yeni ayırt edicilik/rol nitelendirmesi yapılması.
 
 4. Vaka verilerinde bulunmayan kullanım, itibar, pazar payı, tüketici davranışı, ticari ilişki, marka ailesi veya başka olgu eklenmesi.
+Buna "seri marka", "marka serisi", "yeni bir serisi", "serinin devamı", "aynı seri", "marka ailesinin yeni üyesi" gibi örtülü seri/marka ailesi anlatımları da dahildir.
 
 5. Sınıf numarasından otomatik mal/hizmet benzerliği çıkarılması veya matchedPriorClasses dışında bir sınıfa dayanılması.
 
@@ -4392,6 +4397,11 @@ DÜZELTME KURALI:
 correctedDraft alanında yalnız tespit edilen sorunları giderilmiş metni ver.
 Yeni olgu, yeni karar, yeni karşı argüman veya avukatın seçmediği yeni hukukî teşhis üretme.
 Kaynakça listesi oluşturma; kaynakları hukukî tartışmanın içinde doğal biçimde kullan.
+
+ÖZEL ZORUNLU DÜZELTME — SERİ/MARKA AİLESİ:
+Taslakta "seri marka", "marka ailesi", "marka serisi", "yeni bir serisi", "serinin devamı", "aynı seri", "marka ailesinin yeni üyesi" veya aynı anlamı veren bir ifade varsa correctedDraft içinde MUTLAKA kaldır.
+Bağlam yalnız ilişkilendirilme ihtimalini anlatıyor ve lawyerAssessment.globalAssessment bunu destekliyorsa cümleyi, "ilgili tüketicinin işaretleri aynı veya ekonomik olarak bağlantılı işletmelerden kaynaklanıyor sanması ihtimali" ekseninde yeniden kur.
+Bu düzeltme gerçek bir ticari/ekonomik bağlantı bulunduğu iddiasına dönüşemez. lawyerAssessment ilişkilendirilme ihtimalini desteklemiyorsa ilgili seri/marka ailesi cümlesini tamamen sil.
 
 `,
 

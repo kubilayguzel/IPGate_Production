@@ -2828,7 +2828,7 @@ function deterministicDraftQa(
 
         {
             regex:
-                /\bseri\s+marka\b/i,
+                /seri\s+marka/i,
 
             label:
                 "seri marka",
@@ -2836,10 +2836,42 @@ function deterministicDraftQa(
 
         {
             regex:
-                /\bmarka\s+ailesi\b/i,
+                /marka\s+ailesi/i,
 
             label:
                 "marka ailesi",
+        },
+
+        {
+            regex:
+                /marka\s+serisi/i,
+
+            label:
+                "örtülü seri marka: marka serisi",
+        },
+
+        {
+            regex:
+                /yeni\s+bir\s+serisi/i,
+
+            label:
+                "örtülü seri marka: yeni bir serisi",
+        },
+
+        {
+            regex:
+                /serinin\s+(?:devamı|parçası|üyesi)/i,
+
+            label:
+                "örtülü seri marka: serinin devamı/parçası/üyesi",
+        },
+
+        {
+            regex:
+                /marka\s+ailesinin\s+(?:yeni\s+)?(?:üyesi|parçası)/i,
+
+            label:
+                "örtülü marka ailesi",
         },
     ];
 

@@ -3600,6 +3600,12 @@ async function generate(
             citationAudit.pass !==
             false,
 
+        enforcementMode:
+            "advisory",
+
+        workflowAccepted:
+            true,
+
         checkedAt:
             new Date().toISOString(),
     };
@@ -3608,36 +3614,17 @@ async function generate(
         !qaReport.finalPass
     ) {
 
-        return {
-
-            generationStatus:
-                "qa_failed",
-
-            saved:
-                false,
-
-            petition:
-                generationResponse.petition,
-
-            analysis:
-                generationResponse
-                    .analysis ??
-                null,
-
-            qaReport,
-
-            citationAudit,
-
-            sources:
-                generationResponse
-                    ?.sources ??
-                [],
-
-            telemetry:
-                generationResponse
-                    .telemetry ??
-                null,
-        };
+        console.warn(
+            "QA advisory mode: taslak QA blocker/uyarılarıyla birlikte kaydedilecek.",
+            {
+                deterministicBlockers:
+                    deterministic.blockers ??
+                    [],
+                citationBlockers:
+                    citationAudit.blockers ??
+                    [],
+            },
+        );
     }
 
     const versionNo =

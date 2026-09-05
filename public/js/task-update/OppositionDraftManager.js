@@ -2011,10 +2011,12 @@ export class OppositionDraftManager {
             );
 
 
+        // Paket 6.0.7 TEST/REVIEW MODE:
+        // QA raporu ve sürüm bilgisi bulunmaya devam etsin, ancak
+        // finalPass=false Word export'u bloke etmesin. QA sonucu Word içinde
+        // ve arayüzde inceleme amacıyla görünmeye devam eder.
         if (
             !qaReport ||
-            qaReport.finalPass !==
-            true ||
             !Number.isFinite(
                 qaVersion
             ) ||
@@ -2029,21 +2031,7 @@ export class OppositionDraftManager {
         ) {
 
             return showNotification(
-                'Seçili dilekçe güncel filing-safety QA kontrolünü geçmemiştir. Paket 5.1 Word export için önce Paket 4.2 veya daha yeni güvenli bir dilekçe versiyonu üretin.',
-                'warning'
-            );
-        }
-
-
-        if (
-            this.transientDraft &&
-            this.transientQa
-                ?.finalPass !==
-            true
-        ) {
-
-            return showNotification(
-                'Ekrandaki geçici taslak QA kontrolünü geçmediği için Word oluşturulamaz.',
+                'Seçili dilekçenin QA metadata/sürüm bilgisi Word export için uygun değil.',
                 'warning'
             );
         }

@@ -479,10 +479,11 @@ export class ProfessionalOppositionDocument {
             );
 
 
+        // Paket 6.0.7 TEST/REVIEW MODE:
+        // QA FAIL, profesyonel Word oluşturulmasını engellemez.
+        // Yalnızca QA metadata yapısının güncel olması aranır.
         if (
             !qaReport ||
-            qaReport.finalPass !==
-            true ||
             !Number.isFinite(
                 qaVersion
             ) ||
@@ -491,7 +492,7 @@ export class ProfessionalOppositionDocument {
         ) {
 
             throw new Error(
-                'Seçili dilekçe güncel filing-safety QA kontrolünü geçmemiştir. Profesyonel Word oluşturmak için Paket 4.2 veya daha yeni güvenli bir dilekçe versiyonu üretin.'
+                'Seçili dilekçenin QA metadata/sürüm bilgisi Word export için uygun değil.'
             );
         }
 

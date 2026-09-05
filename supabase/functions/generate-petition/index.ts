@@ -23,7 +23,7 @@ const EMBEDDING_MODEL =
     Deno.env.get("GEMINI_EMBEDDING_MODEL") ??
     "gemini-embedding-2";
 
-const PACKAGE_VERSION = "6.0.6";
+const PACKAGE_VERSION = "6.0.7";
 
 const RAG_SOURCE_MIN =
     Math.max(
@@ -484,6 +484,29 @@ async function callGemini(
 }
 
 
+function sleepMs(ms: number): Promise<void> {
+    return new Promise(
+        (resolve) =>
+            setTimeout(resolve, ms)
+    );
+}
+
+
+function isRetryableEmbeddingStatus(
+    status: number,
+): boolean {
+
+    return [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+    ].includes(status);
+}
+
+
 async function createEmbedding(
     apiKey: string,
     rawQuery: string,
@@ -492,83 +515,159 @@ async function createEmbedding(
     const preparedQuery =
         `task: search result | query: ${rawQuery}`;
 
-
-    const response =
-        await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
-            {
-                method:
-                    "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json",
-
-                    "x-goog-api-key":
-                        apiKey,
-                },
-
-                body:
-                    JSON.stringify({
-
-                        model:
-                            `models/${EMBEDDING_MODEL}`,
-
-                        content: {
-                            parts: [
-                                {
-                                    text:
-                                        preparedQuery,
-                                },
-                            ],
-                        },
-
-                        outputDimensionality:
-                            768,
-                    }),
-            },
+    const maxAttempts =
+        Math.max(
+            1,
+            Number(
+                Deno.env.get("EMBEDDING_RETRY_ATTEMPTS") ??
+                "5"
+            ) || 5,
         );
 
+    let lastError =
+        "Embedding API çağrısı başarısız oldu.";
 
-    const data =
-        await response.json();
-
-
-    if (!response.ok) {
-
-        throw new Error(
-            `Embedding API hatası: ${data.error?.message ?? response.statusText}`,
-        );
-    }
-
-
-    const values =
-        data.embedding
-            ?.values;
-
-
-    if (
-        !Array.isArray(
-            values
-        )
+    for (
+        let attempt = 1;
+        attempt <= maxAttempts;
+        attempt++
     ) {
 
-        throw new Error(
-            "Embedding vektörü oluşturulamadı.",
+        const response =
+            await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
+                {
+                    method:
+                        "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "x-goog-api-key":
+                            apiKey,
+                    },
+
+                    body:
+                        JSON.stringify({
+
+                            model:
+                                `models/${EMBEDDING_MODEL}`,
+
+                            content: {
+                                parts: [
+                                    {
+                                        text:
+                                            preparedQuery,
+                                    },
+                                ],
+                            },
+
+                            outputDimensionality:
+                                768,
+                        }),
+                },
+            );
+
+        let data: any =
+            {};
+
+        try {
+            data =
+                await response.json();
+        } catch {
+            data =
+                {};
+        }
+
+        if (response.ok) {
+
+            const values =
+                data.embedding
+                    ?.values;
+
+            if (
+                !Array.isArray(
+                    values
+                )
+            ) {
+
+                throw new Error(
+                    "Embedding vektörü oluşturulamadı.",
+                );
+            }
+
+            return {
+                values,
+
+                promptTokenCount:
+                    numberOrZero(
+                        data
+                            ?.usageMetadata
+                            ?.promptTokenCount
+                    ),
+            };
+        }
+
+        lastError =
+            `Embedding API hatası (${response.status}): ${data.error?.message ?? response.statusText}`;
+
+        if (
+            !isRetryableEmbeddingStatus(
+                response.status
+            ) ||
+            attempt >= maxAttempts
+        ) {
+            break;
+        }
+
+        const retryAfterHeader =
+            Number(
+                response.headers.get(
+                    "retry-after"
+                )
+            );
+
+        const exponentialDelay =
+            Math.min(
+                12000,
+                900 *
+                Math.pow(
+                    2,
+                    attempt - 1
+                )
+            );
+
+        const jitter =
+            Math.floor(
+                Math.random() *
+                350
+            );
+
+        const waitMs =
+            Number.isFinite(
+                retryAfterHeader
+            ) &&
+            retryAfterHeader > 0
+                ? Math.min(
+                    15000,
+                    retryAfterHeader * 1000
+                )
+                : exponentialDelay +
+                    jitter;
+
+        console.warn(
+            `Embedding geçici hatası; yeniden denenecek (${attempt}/${maxAttempts}, HTTP ${response.status}, ${waitMs}ms).`,
+        );
+
+        await sleepMs(
+            waitMs
         );
     }
 
-
-    return {
-        values,
-
-        promptTokenCount:
-            numberOrZero(
-                data
-                    ?.usageMetadata
-                    ?.promptTokenCount
-            ),
-    };
+    throw new Error(
+        lastError
+    );
 }
 
 
@@ -1901,144 +2000,179 @@ async function retrieveLegalContext(
     ];
 
 
-    const results =
-        await Promise.all(
+    const results:
+        Array<{
+            rows: any[];
+            verifiedCount: number;
+            legacyCount: number;
+            promptTokenCount: number;
+        }> =
+        [];
 
-            queries.map(
-                async (query) => {
 
-                    const embedding =
-                        await createEmbedding(
-                            apiKey,
-                            query,
+    // Embedding sorgularını seri çalıştırıyoruz.
+    // Böylece aynı anda 7-8 embedContent isteği atıp 429 kota/kapasite
+    // hatasını tetikleme ihtimali ciddi biçimde azalır. Bir sorgu tüm retry
+    // denemelerine rağmen başarısız olursa diğer hukuk sorguları devam eder.
+    for (
+        const query of
+        queries
+    ) {
+
+        try {
+
+
+                const embedding =
+                    await createEmbedding(
+                        apiKey,
+                        query,
+                    );
+
+
+                let verifiedRows:
+                    any[] =
+                    [];
+
+
+                try {
+
+                    const {
+                        data,
+                        error,
+                    } =
+                        await supabase.rpc(
+                            "match_legal_source_chunks",
+                            {
+                                query_embedding:
+                                    embedding.values,
+
+                                match_threshold:
+                                    Number(
+                                        Deno.env.get(
+                                            "LEGAL_SOURCE_MATCH_THRESHOLD"
+                                        ) ??
+                                        "0.34"
+                                    ),
+
+                                match_count:
+                                    VERIFIED_SOURCE_MATCH_COUNT,
+
+                                source_types:
+                                    null,
+
+                                verified_only:
+                                    true,
+                            },
                         );
 
 
-                    let verifiedRows:
-                        any[] =
-                        [];
-
-
-                    try {
-
-                        const {
-                            data,
-                            error,
-                        } =
-                            await supabase.rpc(
-                                "match_legal_source_chunks",
-                                {
-                                    query_embedding:
-                                        embedding.values,
-
-                                    match_threshold:
-                                        Number(
-                                            Deno.env.get(
-                                                "LEGAL_SOURCE_MATCH_THRESHOLD"
-                                            ) ??
-                                            "0.34"
-                                        ),
-
-                                    match_count:
-                                        VERIFIED_SOURCE_MATCH_COUNT,
-
-                                    source_types:
-                                        null,
-
-                                    verified_only:
-                                        true,
-                                },
-                            );
-
-
-                        if (!error) {
-
-                            verifiedRows =
-                                (
-                                    data ??
-                                    []
-                                )
-                                    .map(
-                                        normalizeVerifiedSource
-                                    );
-                        }
-
-                    } catch {
+                    if (!error) {
 
                         verifiedRows =
-                            [];
+                            (
+                                data ??
+                                []
+                            )
+                                .map(
+                                    normalizeVerifiedSource
+                                );
                     }
 
+                } catch {
 
-                    let legacyRows:
-                        any[] =
+                    verifiedRows =
                         [];
+                }
 
 
-                    try {
-
-                        const {
-                            data,
-                            error,
-                        } =
-                            await supabase.rpc(
-                                "match_knowledge",
-                                {
-                                    query_embedding:
-                                        embedding.values,
-
-                                    match_threshold:
-                                        Number(
-                                            Deno.env.get(
-                                                "RAG_MATCH_THRESHOLD"
-                                            ) ??
-                                            "0.38"
-                                        ),
-
-                                    match_count:
-                                        3,
-                                },
-                            );
+                let legacyRows:
+                    any[] =
+                    [];
 
 
-                        if (!error) {
+                try {
 
-                            legacyRows =
-                                (
-                                    data ??
-                                    []
-                                )
-                                    .map(
-                                        normalizeLegacySource
-                                    );
-                        }
+                    const {
+                        data,
+                        error,
+                    } =
+                        await supabase.rpc(
+                            "match_knowledge",
+                            {
+                                query_embedding:
+                                    embedding.values,
 
-                    } catch {
+                                match_threshold:
+                                    Number(
+                                        Deno.env.get(
+                                            "RAG_MATCH_THRESHOLD"
+                                        ) ??
+                                        "0.38"
+                                    ),
+
+                                match_count:
+                                    3,
+                            },
+                        );
+
+
+                    if (!error) {
 
                         legacyRows =
-                            [];
+                            (
+                                data ??
+                                []
+                            )
+                                .map(
+                                    normalizeLegacySource
+                                );
                     }
 
+                } catch {
 
-                    return {
+                    legacyRows =
+                        [];
+                }
 
-                        rows: [
-                            ...verifiedRows,
-                            ...legacyRows,
-                        ],
 
-                        verifiedCount:
-                            verifiedRows.length,
+                results.push({
 
-                        legacyCount:
-                            legacyRows.length,
+                    rows: [
+                        ...verifiedRows,
+                        ...legacyRows,
+                    ],
 
-                        promptTokenCount:
-                            embedding.promptTokenCount,
-                    };
-                },
-            ),
-        );
+                    verifiedCount:
+                        verifiedRows.length,
+
+                    legacyCount:
+                        legacyRows.length,
+
+                    promptTokenCount:
+                        embedding.promptTokenCount,
+                });
+
+        } catch (error) {
+
+            console.warn(
+                "Hukuk kaynağı embedding sorgusu atlandı:",
+                error instanceof Error
+                    ? error.message
+                    : String(error),
+            );
+
+            results.push({
+                rows:
+                    [],
+                verifiedCount:
+                    0,
+                legacyCount:
+                    0,
+                promptTokenCount:
+                    0,
+            });
+        }
+    }
 
 
     const uniqueChunks =

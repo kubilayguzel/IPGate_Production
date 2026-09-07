@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.5.1";
+const PACKAGE_VERSION = "6.1.6";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -861,6 +861,16 @@ async function getAuthorityPack({
               body?.minCaseAuthorities ??
               3,
             ),
+          minYargitayAuthorities:
+            Number(
+              body?.minYargitayAuthorities ??
+              1,
+            ),
+          minEuAuthorities:
+            Number(
+              body?.minEuAuthorities ??
+              1,
+            ),
           allowWebSearch:
             body?.allowWebSearch !==
             false,
@@ -1392,6 +1402,12 @@ AUTHORITY RULES
 - Respect doNotUseFor strictly.
 - Do not write case numbers/ECLI/Yargıtay E.-K. references in free prose. Authority identity will be deterministically attached after your output.
 - Distinguish DIRECT authority, ANALOGICAL use, and LIMITING authority.
+- For core issues, use a LAYERED authority method when the supplied pack permits it:
+  (a) TÜRKPATENT Marka İnceleme Kılavuzu for local examination doctrine,
+  (b) verified Yargıtay/Turkish authority for Turkish judicial support,
+  (c) verified CJEU/General Court authority for EU doctrinal support.
+- Do NOT force all three into every issue. But when all three layers are materially relevant and available, the memorandum should not silently omit the Turkish judicial layer.
+- A Turkish authority that is only analogically relevant must be labelled analogical; do not upgrade it to a direct holding.
 
 LAWYER CONTROL RULE
 The lawyer's decision-tree findings are not suggestions. They are the factual/legal position to be developed.
@@ -1439,6 +1455,7 @@ FINAL INSTRUCTIONS
 - If an issue cannot responsibly be resolved, state the limitation instead of inventing a conclusion.
 - Strong arguments and vulnerabilities must both be visible.
 - Every authority use must point to a propositionId from the supplied pack.
+- Inspect authorityPack.authorityCoverage. If verified Yargıtay + EU + guideline layers are available, use them across the memorandum where legally material; avoid citation dumping.
 - The memorandum should be sufficiently developed to support a later high-quality petition, but must remain an internal reasoning memorandum.
 `.trim();
 }
@@ -1493,7 +1510,7 @@ async function startOpenAiSolBackground({
       maxOutputTokens,
     truncation: "disabled",
     prompt_cache_key:
-      "evreka-legal-reasoning-6.1.5.1",
+      "evreka-legal-reasoning-6.1.6",
     safety_identifier:
       safetyIdentifier,
     metadata: {
@@ -2097,6 +2114,121 @@ function validateMemo({
   ) {
     warnings.push(
       "Memorandum hiçbir verified proposition kullanmadı.",
+    );
+  }
+
+  const usedProps =
+    uniqueUsed
+      .map(
+        (id) =>
+          propositionMap.get(id),
+      )
+      .filter(Boolean);
+
+  const allProps =
+    [
+      ...propositionMap.values(),
+    ];
+
+  const layerOf =
+    (prop) => {
+      const explicit =
+        String(
+          prop?.authorityLayer ??
+          "",
+        );
+
+      if (explicit) {
+        return explicit;
+      }
+
+      if (
+        String(
+          prop?.authorityType ??
+          "",
+        ) === "guideline"
+      ) {
+        return "guideline";
+      }
+
+      const haystack =
+        normalizeComparable(
+          [
+            prop?.jurisdiction,
+            prop?.authorityName,
+            prop?.court,
+            prop?.citationLabel,
+            prop?.decisionNo,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+
+      if (
+        /yargıtay|yargitay/.test(
+          haystack,
+        )
+      ) {
+        return "tr_yargitay";
+      }
+
+      if (
+        /european union|court of justice|general court|adalet divanı|adalet divani|ecli:eu:|euipo/.test(
+          haystack,
+        )
+      ) {
+        return "eu";
+      }
+
+      return "other";
+    };
+
+  const availableLayers =
+    new Set(
+      allProps.map(layerOf),
+    );
+
+  const usedLayers =
+    new Set(
+      usedProps.map(layerOf),
+    );
+
+  if (
+    availableLayers.has(
+      "tr_yargitay",
+    ) &&
+    !usedLayers.has(
+      "tr_yargitay",
+    )
+  ) {
+    warnings.push(
+      "Verified Yargıtay proposition mevcut olduğu halde memorandumda kullanılmadı.",
+    );
+  }
+
+  if (
+    availableLayers.has(
+      "eu",
+    ) &&
+    !usedLayers.has(
+      "eu",
+    )
+  ) {
+    warnings.push(
+      "Verified AB proposition mevcut olduğu halde memorandumda kullanılmadı.",
+    );
+  }
+
+  if (
+    availableLayers.has(
+      "guideline",
+    ) &&
+    !usedLayers.has(
+      "guideline",
+    )
+  ) {
+    warnings.push(
+      "Verified TÜRKPATENT Kılavuzu proposition mevcut olduğu halde memorandumda kullanılmadı.",
     );
   }
 

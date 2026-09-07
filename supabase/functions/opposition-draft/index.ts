@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.5.2";
+const PACKAGE_VERSION = "6.1.6";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1682,7 +1682,7 @@ function buildQaReport({
       PACKAGE_VERSION,
 
     legalResearchPackageVersion:
-      "6.1.2.5",
+      "6.1.6",
 
     deterministic: {
       pass:
@@ -2087,7 +2087,7 @@ async function persistFinalDraft(
               .aiTelemetry,
 
           legalResearchPackageVersion:
-            "6.1.2.5",
+            "6.1.6",
 
           finalDraftPackageVersion:
             PACKAGE_VERSION,
@@ -2248,6 +2248,10 @@ async function findReusableReasoningRun(
         userId,
       )
       .eq(
+        "package_version",
+        "6.1.6",
+      )
+      .eq(
         "source_fingerprint",
         sourceFingerprint,
       )
@@ -2304,10 +2308,11 @@ async function findRecentActiveReasoningRun(
         "legal_reasoning_runs",
       )
       .select(
-        "id, status, openai_status, created_at",
+        "id, package_version, status, openai_status, created_at",
       )
       .eq("task_id", taskId)
       .eq("created_by", userId)
+      .eq("package_version", "6.1.6")
       .eq("status", "started")
       .gte("created_at", cutoff)
       .order(
@@ -2443,6 +2448,12 @@ async function generateStart(
 
         minCaseAuthorities:
           3,
+
+        minYargitayAuthorities:
+          1,
+
+        minEuAuthorities:
+          1,
 
         reasoningEffort:
           "high",

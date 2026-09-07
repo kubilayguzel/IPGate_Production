@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.2.5";
+const PACKAGE_VERSION = "6.1.6";
 const RESEARCH_MODEL = Deno.env.get("LEGAL_RESEARCH_MODEL") ?? "gemini-3.8-flash";
 const EMBEDDING_MODEL = Deno.env.get("GEMINI_EMBEDDING_MODEL") ?? "gemini-embedding-2";
 const GUIDELINE_SOURCE_KEY =
@@ -28,6 +28,26 @@ const DEFAULT_MIN_CASE_AUTHORITIES = Math.max(
   Math.min(
     6,
     Number(Deno.env.get("LEGAL_MIN_CASE_AUTHORITIES") ?? "3") || 3,
+  ),
+);
+
+const DEFAULT_MIN_YARGITAY_AUTHORITIES = Math.max(
+  0,
+  Math.min(
+    3,
+    Number(
+      Deno.env.get("LEGAL_MIN_YARGITAY_AUTHORITIES") ?? "1",
+    ) || 1,
+  ),
+);
+
+const DEFAULT_MIN_EU_AUTHORITIES = Math.max(
+  0,
+  Math.min(
+    3,
+    Number(
+      Deno.env.get("LEGAL_MIN_EU_AUTHORITIES") ?? "1",
+    ) || 1,
   ),
 );
 
@@ -73,6 +93,7 @@ const EXTRACTION_SCHEMA = {
     sourceChunkId: { type: "string" },
     propositionText: { type: "string" },
     supportSummary: { type: "string" },
+    quoteText: { type: "string" },
     issueTags: { type: "array", items: { type: "string" } },
     confidence: { type: "number" },
   },
@@ -81,6 +102,7 @@ const EXTRACTION_SCHEMA = {
     "sourceChunkId",
     "propositionText",
     "supportSummary",
+    "quoteText",
     "issueTags",
     "confidence",
   ],
@@ -141,6 +163,8 @@ const OFFICIAL_GROUNDING_RECOVERY_SCHEMA = {
     decisionDate: { type: "string" },
     propositionText: { type: "string" },
     holdingSummary: { type: "string" },
+    quoteText: { type: "string" },
+    quoteLocator: { type: "string" },
     rationale: { type: "string" },
   },
   required: [
@@ -153,6 +177,8 @@ const OFFICIAL_GROUNDING_RECOVERY_SCHEMA = {
     "decisionDate",
     "propositionText",
     "holdingSummary",
+    "quoteText",
+    "quoteLocator",
     "rationale",
   ],
 };
@@ -175,6 +201,8 @@ const WEB_VERIFY_SCHEMA = {
     title: { type: "string" },
     propositionText: { type: "string" },
     holdingSummary: { type: "string" },
+    quoteText: { type: "string" },
+    quoteLocator: { type: "string" },
     rationale: { type: "string" },
   },
   required: [
@@ -193,6 +221,8 @@ const WEB_VERIFY_SCHEMA = {
     "title",
     "propositionText",
     "holdingSummary",
+    "quoteText",
+    "quoteLocator",
     "rationale",
   ],
 };
@@ -331,6 +361,298 @@ function inferVerifiedAuthorityType(value) {
   }
 
   return "other";
+}
+
+
+function authorityLayer(value) {
+  const type = authorityType(value?.authorityType);
+  const haystack = normalizeText([
+    value?.jurisdiction,
+    value?.authorityName,
+    value?.court,
+    value?.chamber,
+    value?.title,
+    value?.citationLabel,
+    value?.decisionNo,
+  ].filter(Boolean).join(" "));
+
+  if (type === "guideline") return "guideline";
+
+  if (
+    haystack.includes("yargıtay") ||
+    haystack.includes("yargitay")
+  ) {
+    return "tr_yargitay";
+  }
+
+  const turkishSignals = [
+    "türkiye",
+    "turkiye",
+    "turkey",
+    "türkpatent",
+    "turkpatent",
+    "yidk",
+    "yi̇dk",
+    "bölge adliye",
+    "bolge adliye",
+    "istinaf",
+  ];
+
+  if (
+    turkishSignals.some((token) =>
+      haystack.includes(normalizeText(token))
+    )
+  ) {
+    return "tr_other";
+  }
+
+  const euSignals = [
+    "european union",
+    "court of justice",
+    "general court",
+    "adalet divanı",
+    "adalet divani",
+    "euipo",
+    "ecli:eu:",
+    "cjeu",
+    "ecj",
+  ];
+
+  if (
+    euSignals.some((token) =>
+      haystack.includes(normalizeText(token))
+    )
+  ) {
+    return "eu";
+  }
+
+  return "other";
+}
+
+function countAuthorityLayer(pack, layer) {
+  const ids = new Set();
+
+  for (const proposition of safeArray(pack?.propositions)) {
+    const propositionLayer =
+      String(
+        proposition?.authorityLayer ??
+        authorityLayer(proposition),
+      );
+
+    if (propositionLayer !== layer) continue;
+
+    const identity = String(
+      proposition?.authorityId ??
+      proposition?.authorityKey ??
+      proposition?.citationLabel ??
+      "",
+    ).trim();
+
+    if (identity) ids.add(identity);
+  }
+
+  return ids.size;
+}
+
+function layerGapTags(pack, requestedTags, layer) {
+  const propositions = safeArray(pack?.propositions);
+
+  return requestedTags.filter((tag) =>
+    !propositions.some((proposition) => {
+      const propositionLayer =
+        String(
+          proposition?.authorityLayer ??
+          authorityLayer(proposition),
+        );
+
+      if (propositionLayer !== layer) return false;
+
+      return uniqueStrings(
+        proposition?.issueTags,
+      ).includes(tag);
+    })
+  );
+}
+
+function laneMatchesAuthority(value, researchLane) {
+  const layer = authorityLayer(value);
+
+  if (researchLane === "tr_yargitay") {
+    return layer === "tr_yargitay";
+  }
+
+  if (researchLane === "eu") {
+    return layer === "eu";
+  }
+
+  return true;
+}
+
+function strictIdentityForLane(value, researchLane) {
+  const caseNo = String(value?.caseNo ?? "").trim();
+  const decisionNo = String(value?.decisionNo ?? "").trim();
+  const decisionDate = dateOrNull(value?.decisionDate);
+  const chamber = String(value?.chamber ?? "").trim();
+  const court = normalizeText(
+    value?.court ??
+    value?.authorityName,
+  );
+
+  if (
+    researchLane === "tr_yargitay" ||
+    authorityLayer(value) === "tr_yargitay"
+  ) {
+    return Boolean(
+      court.includes("yarg") &&
+      chamber &&
+      caseNo &&
+      decisionNo &&
+      decisionDate
+    );
+  }
+
+  if (
+    researchLane === "eu" ||
+    authorityLayer(value) === "eu"
+  ) {
+    const authorityName =
+      normalizeText(value?.authorityName);
+
+    return Boolean(
+      caseNo &&
+      decisionNo &&
+      decisionDate &&
+      (
+        isEuEcli(decisionNo) ||
+        authorityName.includes("euipo")
+      )
+    );
+  }
+
+  return hasSpecificIdentity(value);
+}
+
+function stripHtmlToText(value) {
+  return String(value ?? "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function verifyExactQuoteOnOfficialSource(
+  sources,
+  quoteText,
+) {
+  const quote =
+    String(quoteText ?? "").trim();
+
+  if (
+    quote.length < 20 ||
+    quote.length > 700
+  ) {
+    return null;
+  }
+
+  for (
+    const source
+    of safeArray(sources).slice(0, 4)
+  ) {
+    if (!hasOfficialGrounding([source])) {
+      continue;
+    }
+
+    const uri =
+      String(source?.uri ?? "").trim();
+
+    if (!/^https?:\/\//i.test(uri)) {
+      continue;
+    }
+
+    try {
+      const response = await fetch(
+        uri,
+        {
+          method: "GET",
+          redirect: "follow",
+          headers: {
+            "Accept":
+              "text/html,text/plain,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.2",
+            "User-Agent":
+              "EVREKA-Legal-Intelligence/6.1.6",
+          },
+          signal:
+            AbortSignal.timeout(
+              10000,
+            ),
+        },
+      );
+
+      if (!response.ok) continue;
+
+      const contentType =
+        normalizeText(
+          response.headers.get(
+            "content-type",
+          ) ?? "",
+        );
+
+      if (
+        contentType.includes(
+          "application/pdf",
+        ) ||
+        contentType.includes(
+          "octet-stream",
+        )
+      ) {
+        continue;
+      }
+
+      const raw =
+        await response.text();
+
+      const sourceText =
+        normalizeText(
+          stripHtmlToText(raw),
+        );
+
+      const normalizedQuote =
+        normalizeText(quote);
+
+      if (
+        normalizedQuote &&
+        sourceText.includes(
+          normalizedQuote,
+        )
+      ) {
+        return {
+          uri,
+          title:
+            String(
+              source?.title ??
+              "",
+            ).trim() ||
+            null,
+          verificationMethod:
+            "deterministic_exact_quote_match_on_official_text_source",
+        };
+      }
+    } catch (error) {
+      console.warn(
+        "[legal-research] exact quote deterministic verification skipped",
+        error,
+      );
+    }
+  }
+
+  return null;
 }
 
 function semanticIssueTagSupported(tag, verification) {
@@ -498,7 +820,7 @@ async function resolveOfficialEurLexSource(verified) {
       redirect: "follow",
       headers: {
         "Accept": "text/html,application/xhtml+xml",
-        "User-Agent": "EVREKA-Legal-Intelligence/6.1.2.4",
+        "User-Agent": "EVREKA-Legal-Intelligence/6.1.6",
       },
       signal: AbortSignal.timeout(12000),
     });
@@ -868,7 +1190,8 @@ Görev:
    desteklenmediğini resmî kaynağa göre açıkla.
 3. Özellikle hangi requested issue tag'lerin desteklendiğini metinde açıkça söyle.
 4. Desteklenmeyen etiketi genişletme.
-5. İkincil blog/özetleri authority kanıtı olarak kullanma.
+5. Uygun ve tam doğrulanabilir ise 8-45 kelimelik kısa bir DOĞRUDAN pasajı ve locator'ını belirt; değilse quote üretme.
+6. İkincil blog/özetleri authority kanıtı olarak kullanma.
 `.trim(),
     prompt: `
 AUTHORITY CANDIDATE
@@ -917,6 +1240,8 @@ KESİN KURALLAR:
 - supportedIssueTags yalnız resmî kanıtın gerçekten desteklediği etiketleri içersin.
 - goods_retail_relation ancak retail/perakende hizmetleri açıkça tartışılıyorsa verilebilir.
 - Kimlik bilgisi resmî kanıtta doğrulanmıyorsa verified=false döndür.
+- quoteText yalnız OFFICIAL GROUNDED EVIDENCE içinde açıkça doğrudan alıntı olarak doğrulanabiliyorsa dolu olsun; aksi halde boş string.
+- quoteLocator yalnız kanıtta kesin locator varsa dolu olsun.
 `.trim(),
     prompt: `
 ORIGINAL CANDIDATE
@@ -1166,6 +1491,7 @@ KESİN KURALLAR:
 - Somut dosyadaki marka hakkında baskın/asli/yüksek ayırt edici gibi nitelendirme üretme.
 - Çıktı dilekçe paragrafı değil, dar ve genel bir hukukî proposition'dır.
 - sourceChunkId verilen chunkId değerlerinden tam olarak biri olmalıdır.
+- quoteText alanına yalnız seçilen SOURCE içinde AYNEN geçen, proposition'ı doğrudan destekleyen 8-45 kelimelik kısa bir pasaj koy. Uygun birebir pasaj yoksa boş string döndür.
 - Doğrudan ve yeterli destek yoksa supported=false döndür.
 `.trim(),
     prompt: `
@@ -1205,6 +1531,35 @@ ${sourceText}
   const fullSource = String(chunk.content ?? "").trim();
   const hash = await sha256Hex(fullSource);
 
+  const quoteText =
+    String(
+      extracted?.quoteText ??
+      "",
+    ).trim();
+
+  const quoteSafe =
+    quoteText.length >= 20 &&
+    quoteText.length <= 700 &&
+    normalizeText(
+      fullSource,
+    ).includes(
+      normalizeText(
+        quoteText,
+      ),
+    );
+
+  const quoteLocator = [
+    chunk.citation_label ??
+      chunk.source_title,
+    chunk.page_from
+      ? `s. ${chunk.page_from}`
+      : null,
+    chunk.section_title ??
+      null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   const propositionKey = [
     authority.authority_key,
     module.module_key,
@@ -1232,7 +1587,23 @@ ${sourceText}
       confidence,
       verified: true,
       citable: true,
-      quote_safe: false,
+      quote_safe:
+        quoteSafe,
+      verified_quote:
+        quoteSafe
+          ? quoteText
+          : null,
+      quote_locator:
+        quoteSafe
+          ? quoteLocator
+          : null,
+      quote_source_url:
+        quoteSafe
+          ? (
+              chunk.source_url ??
+              null
+            )
+          : null,
       embedding: propositionEmbedding,
       source_chunk_id: isUuid(chunk.chunk_id) ? chunk.chunk_id : null,
       source_chunk_index: chunk.chunk_index ?? null,
@@ -1307,21 +1678,64 @@ async function enrichMissingFromCorpus(supabase, apiKey, missingTags) {
   return promoted;
 }
 
-async function discoverWeb(apiKey, missingTags, caseContext) {
-  return await callGeminiJson(apiKey, {
-    schema: WEB_DISCOVERY_SCHEMA,
-    googleSearch: true,
-    thinkingLevel: "medium",
-    maxOutputTokens: 7000,
-    systemInstruction: `
+async function discoverWeb(
+  apiKey,
+  missingTags,
+  caseContext,
+  researchLane = "balanced",
+) {
+  const laneInstruction =
+    researchLane ===
+      "tr_yargitay"
+      ? `
+BU ÇAĞRININ ÖZEL HEDEFİ YARGITAY'DIR.
+- Öncelikle Yargıtay'ın marka karıştırılma ihtimali, işaret benzerliği ve mal-hizmet benzerliği içtihadını ara.
+- Yargıtay dışı Türk kararını veya AB kararını sırf sonuç doldurmak için verme.
+- Yargıtay kararı için DAİRE + ESAS NO + KARAR NO + KARAR TARİHİ olmadan aday üretme.
+- Mümkünse Yargıtay'ın resmî karar kaynağı veya resmî yargı/adalet kaynağını grounding olarak kullan.
+`
+      : researchLane ===
+          "eu"
+      ? `
+BU ÇAĞRININ ÖZEL HEDEFİ AB İÇTİHADIDIR.
+- CJEU / General Court kararlarına öncelik ver.
+- Case No + ECLI + karar tarihi birlikte doğrulanabilir olmalı.
+- CURIA / InfoCuria / EUR-Lex primary grounding tercih et.
+- Türk kararını bu lane içinde aday olarak verme.
+`
+      : `
+DENGELİ ARAŞTIRMA:
+- Kılavuz mevcut corpus'tan gelir; web'de eksik kalan karar derinliğini tamamla.
+- Türk ve AB authority arasında dosyaya gerçekten değer katan adayları seç.
+`;
+
+  return await callGeminiJson(
+    apiKey,
+    {
+      schema:
+        WEB_DISCOVERY_SCHEMA,
+      googleSearch:
+        true,
+      thinkingLevel:
+        "medium",
+      maxOutputTokens:
+        8000,
+      systemInstruction: `
 Sen EVREKA Trademark Opposition Engine'in dış hukuk araştırması katmanısın.
 
+HEDEF AUTHORITY KOMPOZİSYONU
+- TÜRKPATENT Marka İnceleme Kılavuzu = yerel idari doktrin
+- Yargıtay / uygun Türk kararları = Türk yargısal içtihat
+- CJEU / General Court = AB doktrinel içtihat
+
 Kaynak önceliği:
-1. TÜRKPATENT / YİDK resmî kaynakları
-2. Yargıtay ve diğer yüksek mahkemelerin resmî kaynakları
+1. Yargıtay / resmî Türk yargı kaynakları
+2. TÜRKPATENT / YİDK resmî kaynakları
 3. CJEU / General Court / CURIA / EUR-Lex
 4. EUIPO
 5. WIPO
+
+${laneInstruction}
 
 KESİN KURALLAR:
 - Karar numarası, dosya numarası, tarih veya mahkeme bilgisi uydurma.
@@ -1331,19 +1745,27 @@ KESİN KURALLAR:
 - Somut markaya ilişkin avukatın vermediği baskın/asli/yüksek ayırt edicilik gibi olgusal nitelendirme üretme.
 - En fazla ${WEB_MAX_CANDIDATES} güçlü aday üret.
 `.trim(),
-    prompt: `
-Eksik issue tags:
-${JSON.stringify(missingTags)}
+      prompt: `
+Research lane:
+${researchLane}
+
+Eksik / derinleştirilecek issue tags:
+${JSON.stringify(
+  missingTags,
+)}
 
 Dosya bağlamı:
-${JSON.stringify(caseContext)}
+${JSON.stringify(
+  caseContext,
+)}
 
 Google Search kullan ve doğrulanabilir authority adaylarını schema'ya göre döndür.
 `.trim(),
-  });
+    },
+  );
 }
 
-async function verifyWeb(apiKey, candidate, issueTags) {
+async function verifyWeb(apiKey, candidate, issueTags, researchLane = "balanced") {
   return await callGeminiJson(apiKey, {
     schema: WEB_VERIFY_SCHEMA,
     googleSearch: true,
@@ -1366,6 +1788,10 @@ Adayı bağımsız Google Search ile yeniden doğrula.
 - goods_retail_relation ancak authority açıkça perakendecilik/retail hizmetleri ilişkisini tartışıyorsa desteklenebilir.
 - complementarity veya interdependence hakkında genel bir karar, sırf benzer konu olduğu için goods_retail_relation etiketi alamaz.
 - Mümkünse resmî/primary kaynağa dayan.
+- quoteText alanına yalnız primary/resmî kaynakta AYNEN doğrulanabilen 8-45 kelimelik kısa pasaj koy; tam metin doğrulanamıyorsa boş string döndür.
+- quoteLocator alanına paragraf/bölüm/sayfa gibi kesin locator varsa yaz; yoksa boş string.
+- tr_yargitay lane için Yargıtay + Daire + Esas No + Karar No + Tarih eksiksiz değilse verified=false.
+- eu lane için CJEU/General Court authority'de Case No + ECLI + Tarih eksiksiz değilse verified=false.
 - Authority'nin kendisini veya döndürdüğün dar proposition'ı doğrulayamıyorsan false döndür; tahmin etme.
 `.trim(),
     prompt: `
@@ -1375,12 +1801,15 @@ ${JSON.stringify(candidate)}
 Issue tags:
 ${JSON.stringify(issueTags)}
 
+Research lane:
+${researchLane}
+
 Bu authority'yi bağımsız olarak doğrula.
 `.trim(),
   });
 }
 
-async function stageCandidate(supabase, runId, candidate, issueTags, discovery) {
+async function stageCandidate(supabase, runId, candidate, issueTags, discovery, researchLane = "balanced") {
   const first = discovery.sources[0] ?? null;
 
   const { data, error } = await supabase
@@ -1408,6 +1837,7 @@ async function stageCandidate(supabase, runId, candidate, issueTags, discovery) 
         packageVersion: PACKAGE_VERSION,
         discoveryModel: discovery.model,
         candidate,
+        researchLane,
       },
     })
     .select("id")
@@ -1527,6 +1957,11 @@ async function promoteWebAuthority(
         package_version: PACKAGE_VERSION,
         discovered_candidate_id: stagedId,
         google_search_verified: true,
+        authority_layer:
+          authorityLayer({
+            ...candidate,
+            ...v,
+          }),
       },
     }, { onConflict: "authority_key" })
     .select("id,authority_key")
@@ -1543,6 +1978,37 @@ async function promoteWebAuthority(
   const holding = String(v.holdingSummary ?? candidate.holdingSummary ?? "").trim();
   const propKey = `${authority.authority_key}-P1`;
 
+  const quoteCandidate =
+    String(
+      v?.quoteText ??
+      "",
+    ).trim();
+
+  const quoteVerification =
+    quoteCandidate
+      ? await verifyExactQuoteOnOfficialSource(
+          verification.sources,
+          quoteCandidate,
+        )
+      : null;
+
+  const quoteSafe =
+    Boolean(
+      quoteVerification,
+    );
+
+  const quoteLocator =
+    quoteSafe
+      ? (
+          String(
+            v?.quoteLocator ??
+            "",
+          ).trim() ||
+          citationLabel ||
+          null
+        )
+      : null;
+
   const { data: proposition, error: propError } = await supabase
     .from("legal_authority_propositions")
     .upsert({
@@ -1557,7 +2023,23 @@ async function promoteWebAuthority(
       confidence: 0.92,
       verified: true,
       citable: true,
-      quote_safe: false,
+      quote_safe:
+        quoteSafe,
+      verified_quote:
+        quoteSafe
+          ? quoteCandidate
+          : null,
+      quote_locator:
+        quoteSafe
+          ? quoteLocator
+          : null,
+      quote_source_url:
+        quoteSafe
+          ? (
+              quoteVerification?.uri ??
+              null
+            )
+          : null,
       embedding,
       verification_excerpt: holding.slice(0, 1800),
       verification_sha256: await sha256Hex(JSON.stringify({
@@ -1623,8 +2105,15 @@ async function researchWeb(
   missingTags,
   caseContext,
   autoVerify,
+  researchLane = "balanced",
 ) {
-  const discovery = await discoverWeb(apiKey, missingTags, caseContext);
+  const discovery =
+    await discoverWeb(
+      apiKey,
+      missingTags,
+      caseContext,
+      researchLane,
+    );
   const rawCandidates = safeArray(discovery.parsed?.candidates)
     .slice(0, WEB_MAX_CANDIDATES);
 
@@ -1643,13 +2132,14 @@ async function researchWeb(
       candidate,
       tags,
       discovery,
+      researchLane,
     );
     candidateCount += 1;
 
     if (!autoVerify || !hasSpecificIdentity(candidate)) continue;
 
     try {
-      const verification = await verifyWeb(apiKey, candidate, tags);
+      const verification = await verifyWeb(apiKey, candidate, tags, researchLane);
       const v = verification.parsed;
 
       observedSearchQueries.push(...verification.queries);
@@ -1715,6 +2205,12 @@ async function researchWeb(
               holdingSummary:
                 String(r.holdingSummary ?? "").trim() ||
                 v.holdingSummary,
+              quoteText:
+                String(r.quoteText ?? "").trim() ||
+                v.quoteText,
+              quoteLocator:
+                String(r.quoteLocator ?? "").trim() ||
+                v.quoteLocator,
               rationale:
                 String(r.rationale ?? "").trim() ||
                 v.rationale,
@@ -1736,12 +2232,26 @@ async function researchWeb(
 
       groundingSourceCount += verification.sources.length;
 
+      const laneEligible =
+        laneMatchesAuthority(
+          v,
+          researchLane,
+        );
+
+      const strictIdentity =
+        strictIdentityForLane(
+          v,
+          researchLane,
+        );
+
       const eligible =
         v?.verified === true &&
         resolvedIdentity &&
         v?.propositionSupported === true &&
         safeVerifiedTags.length > 0 &&
         hasSpecificIdentity(v) &&
+        strictIdentity &&
+        laneEligible &&
         officialGrounding;
 
       if (!eligible) {
@@ -1763,6 +2273,9 @@ async function researchWeb(
             packageVersion: PACKAGE_VERSION,
             verification: v,
             resolvedIdentity,
+            strictIdentity,
+            laneEligible,
+            researchLane,
             directOfficialSourceVerified:
               verification.directOfficialSourceVerified,
             searchQueries: verification.queries,
@@ -1804,6 +2317,7 @@ async function researchWeb(
   const uniqueObservedQueries = uniqueStrings(observedSearchQueries);
 
   return {
+    researchLane,
     candidateCount,
     promotedAuthorityIds: uniqueStrings(promoted),
     searchQueries: uniqueObservedQueries,
@@ -1867,6 +2381,12 @@ async function createRun(supabase, body, issueTags, userId) {
         requireCompleteCoverage: body?.requireCompleteCoverage !== false,
         minCaseAuthorities:
           body?.minCaseAuthorities ?? DEFAULT_MIN_CASE_AUTHORITIES,
+        minYargitayAuthorities:
+          body?.minYargitayAuthorities ??
+          DEFAULT_MIN_YARGITAY_AUTHORITIES,
+        minEuAuthorities:
+          body?.minEuAuthorities ??
+          DEFAULT_MIN_EU_AUTHORITIES,
       },
     })
     .select("id")
@@ -1978,17 +2498,77 @@ serve(async (req) => {
       ) || 0,
     ),
   );
-  const caseContext = safeCaseContext(body?.caseContext);
+
+  const minYargitayAuthorities = Math.max(
+    0,
+    Math.min(
+      3,
+      Number(
+        body?.minYargitayAuthorities ??
+        DEFAULT_MIN_YARGITAY_AUTHORITIES
+      ) || 0,
+    ),
+  );
+
+  const minEuAuthorities = Math.max(
+    0,
+    Math.min(
+      3,
+      Number(
+        body?.minEuAuthorities ??
+        DEFAULT_MIN_EU_AUTHORITIES
+      ) || 0,
+    ),
+  );
+
+  const caseContext =
+    safeCaseContext(
+      body?.caseContext,
+    );
 
   let runId = null;
 
   try {
-    runId = await createRun(supabase, body, issueTags, auth.userId);
+    runId = await createRun(
+      supabase,
+      body,
+      issueTags,
+      auth.userId,
+    );
 
-    let pack = await authorityPack(supabase, issueTags);
-    const initialCoverage = Number(pack?.coverageScore ?? 0);
-    const initialMissing = uniqueStrings(pack?.missingIssueTags);
-    const initialCaseAuthorityCount = countCaseAuthorities(pack);
+    let pack =
+      await authorityPack(
+        supabase,
+        issueTags,
+      );
+
+    const initialCoverage =
+      Number(
+        pack?.coverageScore ??
+        0,
+      );
+
+    const initialMissing =
+      uniqueStrings(
+        pack?.missingIssueTags,
+      );
+
+    const initialCaseAuthorityCount =
+      countCaseAuthorities(
+        pack,
+      );
+
+    const initialYargitayAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "tr_yargitay",
+      );
+
+    const initialEuAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "eu",
+      );
 
     let corpusPromoted = [];
 
@@ -1996,78 +2576,354 @@ serve(async (req) => {
       initialMissing.length > 0 &&
       (
         requireCompleteCoverage ||
-        initialCoverage < threshold
+        initialCoverage <
+          threshold
       );
 
     if (shouldResearchCorpus) {
-      corpusPromoted = await enrichMissingFromCorpus(
-        supabase,
-        geminiApiKey,
-        initialMissing,
-      );
-      pack = await authorityPack(supabase, issueTags);
+      corpusPromoted =
+        await enrichMissingFromCorpus(
+          supabase,
+          geminiApiKey,
+          initialMissing,
+        );
+
+      pack =
+        await authorityPack(
+          supabase,
+          issueTags,
+        );
     }
 
-    const afterCorpusCoverage = Number(pack?.coverageScore ?? 0);
-    const afterCorpusMissing = uniqueStrings(pack?.missingIssueTags);
-    const afterCorpusCaseAuthorityCount = countCaseAuthorities(pack);
-    const afterCorpusCaseLawGapTags = caseLawGapTags(pack, issueTags);
-
-    const webResearchTags = orderedResearchTags(
-      afterCorpusMissing,
-      afterCorpusCaseLawGapTags,
-    );
-
-    const needsCoverageResearch =
-      afterCorpusMissing.length > 0 &&
-      (
-        requireCompleteCoverage ||
-        afterCorpusCoverage < threshold
+    const afterCorpusCoverage =
+      Number(
+        pack?.coverageScore ??
+        0,
       );
 
-    const needsAuthorityDepthResearch =
-      minCaseAuthorities > 0 &&
-      afterCorpusCaseAuthorityCount < minCaseAuthorities &&
-      webResearchTags.length > 0;
-
-    const shouldResearchWeb =
-      allowWebSearch &&
-      (
-        needsCoverageResearch ||
-        needsAuthorityDepthResearch
+    const afterCorpusMissing =
+      uniqueStrings(
+        pack?.missingIssueTags,
       );
 
-    let webResult = {
+    const afterCorpusCaseAuthorityCount =
+      countCaseAuthorities(
+        pack,
+      );
+
+    const afterCorpusCaseLawGapTags =
+      caseLawGapTags(
+        pack,
+        issueTags,
+      );
+
+    const afterCorpusYargitayAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "tr_yargitay",
+      );
+
+    const afterCorpusEuAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "eu",
+      );
+
+    const afterCorpusYargitayGapTags =
+      layerGapTags(
+        pack,
+        issueTags,
+        "tr_yargitay",
+      );
+
+    const afterCorpusEuGapTags =
+      layerGapTags(
+        pack,
+        issueTags,
+        "eu",
+      );
+
+    const aggregateWeb = {
       candidateCount: 0,
       promotedAuthorityIds: [],
       searchQueries: [],
       groundingSourceCount: 0,
       searchUsed: false,
+      lanes: [],
     };
 
-    if (shouldResearchWeb) {
-      await updateRun(supabase, runId, {
-        status: "searching",
-        google_search_used: true,
-      });
+    const mergeWebResult =
+      (result) => {
+        if (!result) return;
 
-      webResult = await researchWeb(
-        supabase,
-        geminiApiKey,
-        runId,
-        webResearchTags,
-        caseContext,
-        autoVerify,
+        aggregateWeb
+          .candidateCount +=
+          Number(
+            result
+              .candidateCount ??
+            0,
+          );
+
+        aggregateWeb
+          .promotedAuthorityIds =
+          uniqueStrings([
+            ...aggregateWeb
+              .promotedAuthorityIds,
+            ...safeArray(
+              result
+                .promotedAuthorityIds,
+            ),
+          ]);
+
+        aggregateWeb
+          .searchQueries =
+          uniqueStrings([
+            ...aggregateWeb
+              .searchQueries,
+            ...safeArray(
+              result
+                .searchQueries,
+            ),
+          ]);
+
+        aggregateWeb
+          .groundingSourceCount +=
+          Number(
+            result
+              .groundingSourceCount ??
+            0,
+          );
+
+        aggregateWeb
+          .searchUsed =
+          aggregateWeb
+            .searchUsed ||
+          result
+            .searchUsed ===
+            true;
+
+        aggregateWeb
+          .lanes
+          .push({
+            researchLane:
+              result
+                .researchLane ??
+              "balanced",
+            candidateCount:
+              Number(
+                result
+                  .candidateCount ??
+                0,
+              ),
+            promotedAuthorityIds:
+              safeArray(
+                result
+                  .promotedAuthorityIds,
+              ),
+            searchUsed:
+              result
+                .searchUsed ===
+                true,
+          });
+      };
+
+    const runResearchLane =
+      async (
+        researchLane,
+        tags,
+      ) => {
+        const laneTags =
+          uniqueStrings(tags);
+
+        if (
+          !allowWebSearch ||
+          laneTags.length ===
+            0
+        ) {
+          return null;
+        }
+
+        await updateRun(
+          supabase,
+          runId,
+          {
+            status:
+              "searching",
+            google_search_used:
+              true,
+          },
+        );
+
+        const result =
+          await researchWeb(
+            supabase,
+            geminiApiKey,
+            runId,
+            laneTags,
+            caseContext,
+            autoVerify,
+            researchLane,
+          );
+
+        mergeWebResult(
+          result,
+        );
+
+        pack =
+          await authorityPack(
+            supabase,
+            issueTags,
+          );
+
+        return result;
+      };
+
+    // 1) Türkiye dosyasında Yargıtay katmanını ayrı araştır.
+    if (
+      minYargitayAuthorities >
+        0 &&
+      afterCorpusYargitayAuthorityCount <
+        minYargitayAuthorities
+    ) {
+      const tags =
+        orderedResearchTags(
+          [],
+          afterCorpusYargitayGapTags
+            .length
+            ? afterCorpusYargitayGapTags
+            : afterCorpusCaseLawGapTags,
+        );
+
+      await runResearchLane(
+        "tr_yargitay",
+        tags.slice(
+          0,
+          Math.max(
+            1,
+            WEB_MAX_CANDIDATES,
+          ),
+        ),
+      );
+    }
+
+    // 2) AB içtihadı katmanını ayrı araştır.
+    const currentEuCount =
+      countAuthorityLayer(
+        pack,
+        "eu",
       );
 
-      pack = await authorityPack(supabase, issueTags);
+    if (
+      minEuAuthorities > 0 &&
+      currentEuCount <
+        minEuAuthorities
+    ) {
+      const euGapTags =
+        layerGapTags(
+          pack,
+          issueTags,
+          "eu",
+        );
+
+      const tags =
+        orderedResearchTags(
+          [],
+          euGapTags.length
+            ? euGapTags
+            : afterCorpusEuGapTags,
+        );
+
+      await runResearchLane(
+        "eu",
+        tags.slice(
+          0,
+          Math.max(
+            1,
+            WEB_MAX_CANDIDATES,
+          ),
+        ),
+      );
     }
+
+    // 3) Kalan coverage veya toplam case-depth boşluğunu tamamla.
+    const preBalancedCoverage =
+      Number(
+        pack?.coverageScore ??
+        0,
+      );
+
+    const preBalancedMissing =
+      uniqueStrings(
+        pack?.missingIssueTags,
+      );
+
+    const preBalancedCaseCount =
+      countCaseAuthorities(
+        pack,
+      );
+
+    const preBalancedCaseGapTags =
+      caseLawGapTags(
+        pack,
+        issueTags,
+      );
+
+    const needsCoverageResearch =
+      preBalancedMissing.length >
+        0 &&
+      (
+        requireCompleteCoverage ||
+        preBalancedCoverage <
+          threshold
+      );
+
+    const needsAuthorityDepthResearch =
+      minCaseAuthorities > 0 &&
+      preBalancedCaseCount <
+        minCaseAuthorities;
+
+    if (
+      allowWebSearch &&
+      (
+        needsCoverageResearch ||
+        needsAuthorityDepthResearch
+      )
+    ) {
+      const balancedTags =
+        orderedResearchTags(
+          preBalancedMissing,
+          preBalancedCaseGapTags,
+        );
+
+      await runResearchLane(
+        "balanced",
+        balancedTags,
+      );
+    }
+
+    const webResult =
+      aggregateWeb;
 
     const finalCoverage = Number(pack?.coverageScore ?? 0);
     const finalCovered = uniqueStrings(pack?.coveredIssueTags);
     const finalMissing = uniqueStrings(pack?.missingIssueTags);
     const finalCaseAuthorityCount = countCaseAuthorities(pack);
     const finalCaseLawGapTags = caseLawGapTags(pack, issueTags);
+    const finalYargitayAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "tr_yargitay",
+      );
+    const finalEuAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "eu",
+      );
+    const finalGuidelineAuthorityCount =
+      countAuthorityLayer(
+        pack,
+        "guideline",
+      );
 
     await updateRun(supabase, runId, {
       status:
@@ -2089,10 +2945,20 @@ serve(async (req) => {
         googleSearchUsed: webResult.searchUsed,
         requireCompleteCoverage,
         minCaseAuthorities,
+        minYargitayAuthorities,
+        minEuAuthorities,
         initialCaseAuthorityCount,
+        initialYargitayAuthorityCount,
+        initialEuAuthorityCount,
         afterCorpusCaseAuthorityCount,
+        afterCorpusYargitayAuthorityCount,
+        afterCorpusEuAuthorityCount,
         finalCaseAuthorityCount,
-        webResearchTags,
+        finalYargitayAuthorityCount,
+        finalEuAuthorityCount,
+        finalGuidelineAuthorityCount,
+        webResearchLanes:
+          webResult.lanes,
         finalCaseLawGapTags,
       },
       web_candidates_count: webResult.candidateCount,
@@ -2116,15 +2982,33 @@ serve(async (req) => {
         afterCorpusMissing,
         afterCorpusCaseAuthorityCount,
         afterCorpusCaseLawGapTags,
-        webResearchTags,
-        webResearchAttempted: shouldResearchWeb,
+        afterCorpusYargitayGapTags,
+        afterCorpusEuGapTags,
+        webResearchLanes:
+          webResult.lanes,
+        webResearchAttempted:
+          webResult.searchUsed,
         finalCoverage,
         finalMissing,
         finalCaseAuthorityCount,
+        finalYargitayAuthorityCount,
+        finalEuAuthorityCount,
+        finalGuidelineAuthorityCount,
         finalCaseLawGapTags,
         authorityDepthSatisfied:
-          finalCaseAuthorityCount >= minCaseAuthorities,
-        webSearchUsed: webResult.searchUsed,
+          finalCaseAuthorityCount >=
+          minCaseAuthorities,
+        yargitayDepthSatisfied:
+          finalYargitayAuthorityCount >=
+          minYargitayAuthorities,
+        euDepthSatisfied:
+          finalEuAuthorityCount >=
+          minEuAuthorities,
+        layeredAuthorityCoverage:
+          pack?.authorityCoverage ??
+          {},
+        webSearchUsed:
+          webResult.searchUsed,
         autoVerify,
       },
       corpus: {

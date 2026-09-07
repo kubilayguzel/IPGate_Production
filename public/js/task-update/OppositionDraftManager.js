@@ -861,7 +861,7 @@ export class OppositionDraftManager {
                         ?.enginePackageVersion ||
                     ''
                 ) ===
-                '6.1.5.2'
+                '6.1.6'
             );
 
         const buttonLabel =
@@ -977,7 +977,7 @@ export class OppositionDraftManager {
                             title="${
                                 wordEligible
                                     ? 'Strict QA PASS — Word oluşturulabilir'
-                                    : 'Word yalnız 6.1.5.2 strict QA PASS kaydedilmiş versiyondan oluşturulur'
+                                    : 'Word yalnız 6.1.6 strict QA PASS kaydedilmiş versiyondan oluşturulur'
                             }"
                         >
                             <i class="fas fa-file-word mr-2"></i>
@@ -1020,7 +1020,7 @@ export class OppositionDraftManager {
                                 <small class="text-muted d-block mt-2">
                                     Manuel değişiklikler DB’ye kaydedilmez.
                                     Word çıktısı yalnız strict QA PASS kaydedilmiş
-                                    6.1.5.2 versiyonunda aktiftir.
+                                    6.1.6 versiyonunda aktiftir.
                                 </small>
 
                             </div>
@@ -1238,7 +1238,7 @@ export class OppositionDraftManager {
                         null;
 
                     showNotification(
-                        '6.1.5.2 taslak üretildi ancak strict QA geçmedi. DB’ye kaydedilmedi; Word export kapalı.',
+                        '6.1.6 taslak üretildi ancak strict QA geçmedi. DB’ye kaydedilmedi; Word export kapalı.',
                         'error'
                     );
 
@@ -1278,7 +1278,7 @@ export class OppositionDraftManager {
                         ).length;
 
                     showNotification(
-                        `EVREKA 6.1.5.2 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
+                        `EVREKA 6.1.6 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
                             advisoryCount
                                 ? ` (${advisoryCount} reasoning advisory)`
                                 : ''
@@ -1306,7 +1306,7 @@ export class OppositionDraftManager {
         } catch (error) {
 
             console.error(
-                '6.1.5.2 dilekçe üretim hatası:',
+                '6.1.6 dilekçe üretim hatası:',
                 error
             );
 
@@ -1368,11 +1368,11 @@ export class OppositionDraftManager {
                     ?.enginePackageVersion ||
                 ''
             ) !==
-            '6.1.5.2'
+            '6.1.6'
         ) {
 
             return showNotification(
-                'Profesyonel Word yalnız EVREKA 6.1.5.2 strict QA PASS kaydedilmiş versiyondan oluşturulabilir.',
+                'Profesyonel Word yalnız EVREKA 6.1.6 strict QA PASS kaydedilmiş versiyondan oluşturulabilir.',
                 'warning'
             );
         }

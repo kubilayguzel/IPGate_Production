@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.5.2";
+const PACKAGE_VERSION = "6.1.6";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_PETITION_MODEL") ??
@@ -758,6 +758,9 @@ KESİN AUTHORITY KURALI
 - Kaynak kullanımını yalnız propositionIds alanında göster.
 - propositionIds yalnız reasoning memorandumda kullanılmış ve sana izin verilen doğrulanmış proposition ID'lerden seçilebilir.
 - Dilekçe içindeki görünür citation metni sistem tarafından deterministik olarak eklenecek.
+- Authority Pack içinde aynı temel mesele için Kılavuz + verified Yargıtay/Türk içtihadı + verified CJEU/General Court katmanları varsa, reasoning memorandumun kullanımını izleyerek bu katmanları dilekçeye dengeli biçimde taşı.
+- Her paragrafı üç kaynakla doldurma. Ama Yargıtay proposition mevcut ve memo tarafından kullanılmışsa, yalnız Kılavuz + AB citation'larıyla Türk yargısal katmanı sessizce düşürme.
+- verifiedQuote/quoteSafe alanı ileride deterministik alıntı yüzeyi için saklanır; model kendi başına doğrudan alıntı üretmesin.
 
 BAĞLAYICI AVUKAT KURALLARI
 - Avukatın işaret, mal/hizmet, tüketici, global sonuç ve ret kapsamı bulgularını tersine çevirme.
@@ -893,7 +896,7 @@ async function startOpenAiDraftBackground({
       "disabled",
 
     prompt_cache_key:
-      "evreka-final-petition-6.1.5.2",
+      "evreka-final-petition-6.1.6",
 
     safety_identifier:
       safetyIdentifier,
@@ -1752,7 +1755,7 @@ function validateStructuredDraft({
       )
     ) {
       errors.push(
-        `6.1.5.2 kapsamı dışı assertive argüman bulundu: ${item.label}.`,
+        `6.1.6 kapsamı dışı assertive argüman bulundu: ${item.label}.`,
       );
     }
   }
@@ -1812,6 +1815,123 @@ function validateStructuredDraft({
   ) {
     warnings.push(
       "Final draft yalnız çok az verified proposition kullandı.",
+    );
+  }
+
+  const usedUniqueIds =
+    [
+      ...new Set(
+        usedIds.filter(Boolean),
+      ),
+    ];
+
+  const layerOf =
+    (prop) => {
+      const explicit =
+        String(
+          prop?.authorityLayer ??
+          "",
+        );
+
+      if (explicit) {
+        return explicit;
+      }
+
+      if (
+        String(
+          prop?.authorityType ??
+          "",
+        ) === "guideline"
+      ) {
+        return "guideline";
+      }
+
+      const haystack =
+        normalizeComparable(
+          [
+            prop?.jurisdiction,
+            prop?.authorityName,
+            prop?.court,
+            prop?.citationLabel,
+            prop?.decisionNo,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+
+      if (
+        /yargıtay|yargitay/.test(
+          haystack,
+        )
+      ) {
+        return "tr_yargitay";
+      }
+
+      if (
+        /european union|court of justice|general court|adalet divanı|adalet divani|ecli:eu:|euipo/.test(
+          haystack,
+        )
+      ) {
+        return "eu";
+      }
+
+      return "other";
+    };
+
+  const availableLayers =
+    new Set(
+      [
+        ...pMap.values(),
+      ].map(layerOf),
+    );
+
+  const usedLayers =
+    new Set(
+      usedUniqueIds
+        .map(
+          (id) =>
+            pMap.get(id),
+        )
+        .filter(Boolean)
+        .map(layerOf),
+    );
+
+  if (
+    availableLayers.has(
+      "tr_yargitay",
+    ) &&
+    !usedLayers.has(
+      "tr_yargitay",
+    )
+  ) {
+    warnings.push(
+      "Verified Yargıtay authority mevcut olduğu halde final dilekçede kullanılmadı.",
+    );
+  }
+
+  if (
+    availableLayers.has(
+      "eu",
+    ) &&
+    !usedLayers.has(
+      "eu",
+    )
+  ) {
+    warnings.push(
+      "Verified AB authority mevcut olduğu halde final dilekçede kullanılmadı.",
+    );
+  }
+
+  if (
+    availableLayers.has(
+      "guideline",
+    ) &&
+    !usedLayers.has(
+      "guideline",
+    )
+  ) {
+    warnings.push(
+      "Verified TÜRKPATENT Kılavuzu authority mevcut olduğu halde final dilekçede kullanılmadı.",
     );
   }
 

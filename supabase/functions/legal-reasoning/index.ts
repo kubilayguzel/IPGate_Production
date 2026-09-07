@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.3.2";
+const PACKAGE_VERSION = "6.1.5.1";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -12,15 +12,28 @@ const DEFAULT_REASONING_EFFORT =
   "high";
 
 const MAX_OUTPUT_TOKENS = Math.max(
-  8000,
+  16000,
   Math.min(
-    30000,
+    96000,
     Number(
       Deno.env.get("LEGAL_REASONING_MAX_OUTPUT_TOKENS") ??
-      "18000",
-    ) || 18000,
+      "48000",
+    ) || 48000,
   ),
 );
+
+const RETRY_MAX_OUTPUT_TOKENS = Math.max(
+  MAX_OUTPUT_TOKENS,
+  Math.min(
+    120000,
+    Number(
+      Deno.env.get("LEGAL_REASONING_RETRY_MAX_OUTPUT_TOKENS") ??
+      "96000",
+    ) || 96000,
+  ),
+);
+
+const MAX_OUTPUT_RETRIES = 1;
 
 const VALID_REASONING_EFFORTS = new Set([
   "none",
@@ -1439,6 +1452,7 @@ async function startOpenAiSolBackground({
   canonical,
   authorityPack,
   issueTags,
+  maxOutputTokens = MAX_OUTPUT_TOKENS,
 }) {
   const body = {
     model,
@@ -1476,10 +1490,10 @@ async function startOpenAiSolBackground({
       },
     },
     max_output_tokens:
-      MAX_OUTPUT_TOKENS,
+      maxOutputTokens,
     truncation: "disabled",
     prompt_cache_key:
-      "evreka-legal-reasoning-6.1.3.2",
+      "evreka-legal-reasoning-6.1.5.1",
     safety_identifier:
       safetyIdentifier,
     metadata: {
@@ -1683,15 +1697,64 @@ async function finalizeCompletedResponse({
       authorityPack,
     );
 
-  const usage =
+  const finalAttemptUsage =
     safeObject(
       openAiResponse?.usage,
     );
 
-  const estimatedCostUsd =
+  const finalAttemptCostUsd =
     estimateOpenAiCost(
-      usage,
+      finalAttemptUsage,
     );
+
+  const retryCostUsd =
+    asNumber(
+      run
+        ?.retry_estimated_cost_usd,
+    );
+
+  const estimatedCostUsd =
+    Number(
+      (
+        finalAttemptCostUsd +
+        retryCostUsd
+      ).toFixed(6),
+    );
+
+  const usage = {
+    ...finalAttemptUsage,
+
+    output_attempt_count:
+      Math.max(
+        1,
+        asNumber(
+          run
+            ?.output_attempt_count,
+        ) || 1,
+      ),
+
+    max_output_tokens:
+      asNumber(
+        run
+          ?.max_output_tokens,
+      ) ||
+      MAX_OUTPUT_TOKENS,
+
+    retry_attempts:
+      safeArray(
+        run
+          ?.retry_usage,
+      ),
+
+    retry_estimated_cost_usd:
+      retryCostUsd,
+
+    final_attempt_estimated_cost_usd:
+      finalAttemptCostUsd,
+
+    total_estimated_cost_usd:
+      estimatedCostUsd,
+  };
 
   const finalStatus =
     validation?.finalPass
@@ -2305,6 +2368,10 @@ async function loadReasoningRunForUser({
       validation,
       openai_response_id,
       openai_status,
+      output_attempt_count,
+      max_output_tokens,
+      retry_usage,
+      retry_estimated_cost_usd,
       usage,
       estimated_cost_usd,
       created_by,
@@ -2776,6 +2843,279 @@ serve(async (req) => {
         );
       }
 
+      const incompleteReason =
+        String(
+          openAiResponse
+            ?.incomplete_details
+            ?.reason ??
+          "",
+        );
+
+      const outputAttemptCount =
+        Math.max(
+          1,
+          asNumber(
+            run
+              ?.output_attempt_count,
+          ) || 1,
+        );
+
+      const canRecoverOutputBudget =
+        currentStatus ===
+          "incomplete" &&
+        incompleteReason ===
+          "max_output_tokens" &&
+        outputAttemptCount <=
+          MAX_OUTPUT_RETRIES;
+
+      if (
+        canRecoverOutputBudget
+      ) {
+        const currentMaxOutputTokens =
+          asNumber(
+            run
+              ?.max_output_tokens,
+          ) ||
+          MAX_OUTPUT_TOKENS;
+
+        const retryMaxOutputTokens =
+          Math.max(
+            currentMaxOutputTokens + 1,
+            RETRY_MAX_OUTPUT_TOKENS,
+          );
+
+        const incompleteUsage =
+          safeObject(
+            openAiResponse?.usage,
+          );
+
+        const incompleteAttemptCostUsd =
+          estimateOpenAiCost(
+            incompleteUsage,
+          );
+
+        const authorityPack =
+          safeObject(
+            run
+              ?.authority_pack_snapshot,
+          );
+
+        const canonical =
+          safeObject(
+            run
+              ?.canonical_snapshot,
+          );
+
+        const issueTags =
+          uniqueStrings(
+            run
+              ?.issue_tags,
+          );
+
+        const propositionIds =
+          safeArray(
+            authorityPack
+              ?.propositions,
+          )
+            .map(
+              (p) =>
+                String(
+                  p
+                    ?.propositionId ??
+                  "",
+                ),
+            )
+            .filter(
+              (id) =>
+                isUuid(id),
+            );
+
+        if (
+          propositionIds.length ===
+          0
+        ) {
+          throw new Error(
+            "Output-budget recovery için Authority Pack proposition bulunamadı.",
+          );
+        }
+
+        const memoSchema =
+          buildMemoSchema(
+            issueTags,
+            propositionIds,
+          );
+
+        const safetyHash =
+          await sha256Hex(
+            auth.userId,
+          );
+
+        const retryResponse =
+          await startOpenAiSolBackground({
+            apiKey:
+              openAiApiKey,
+
+            model:
+              String(
+                run?.model ??
+                OPENAI_MODEL,
+              ),
+
+            reasoningEffort:
+              String(
+                run
+                  ?.reasoning_effort ??
+                DEFAULT_REASONING_EFFORT,
+              ),
+
+            safetyIdentifier:
+              `evreka_${safetyHash.slice(0, 32)}`,
+
+            schema:
+              memoSchema,
+
+            canonical,
+
+            authorityPack,
+
+            issueTags,
+
+            maxOutputTokens:
+              retryMaxOutputTokens,
+          });
+
+        const previousRetryUsage =
+          safeArray(
+            run
+              ?.retry_usage,
+          );
+
+        const previousRetryCostUsd =
+          asNumber(
+            run
+              ?.retry_estimated_cost_usd,
+          );
+
+        const retryUsage = [
+          ...previousRetryUsage,
+
+          {
+            attempt:
+              outputAttemptCount,
+
+            responseId:
+              openAiResponse?.id ??
+              run
+                ?.openai_response_id ??
+              null,
+
+            status:
+              currentStatus,
+
+            incompleteReason,
+
+            maxOutputTokens:
+              currentMaxOutputTokens,
+
+            usage:
+              incompleteUsage,
+
+            estimatedCostUsd:
+              incompleteAttemptCostUsd,
+
+            recordedAt:
+              new Date()
+                .toISOString(),
+          },
+        ];
+
+        await updateRun(
+          supabase,
+          reasoningRunId,
+          {
+            status:
+              "started",
+
+            openai_response_id:
+              retryResponse?.id ??
+              null,
+
+            openai_status:
+              retryResponse?.status ??
+              "queued",
+
+            output_attempt_count:
+              outputAttemptCount + 1,
+
+            max_output_tokens:
+              retryMaxOutputTokens,
+
+            retry_usage:
+              retryUsage,
+
+            retry_estimated_cost_usd:
+              Number(
+                (
+                  previousRetryCostUsd +
+                  incompleteAttemptCostUsd
+                ).toFixed(6),
+              ),
+
+            completed_at:
+              null,
+
+            error_message:
+              null,
+          },
+        );
+
+        return jsonResponse(
+          {
+            ok:
+              true,
+
+            packageVersion:
+              PACKAGE_VERSION,
+
+            pending:
+              true,
+
+            reasoningRunId,
+
+            researchRunId:
+              run
+                ?.research_run_id ??
+              null,
+
+            runStatus:
+              "started",
+
+            openAiStatus:
+              retryResponse?.status ??
+              "queued",
+
+            autoRetried:
+              true,
+
+            retryReason:
+              "max_output_tokens",
+
+            outputAttemptCount:
+              outputAttemptCount + 1,
+
+            previousMaxOutputTokens:
+              currentMaxOutputTokens,
+
+            maxOutputTokens:
+              retryMaxOutputTokens,
+
+            message:
+              "İlk reasoning yanıtı output token sınırına ulaştı; aynı canonical snapshot ve verified Authority Pack ile daha yüksek output bütçesinde otomatik recovery başlatıldı.",
+          },
+          202,
+        );
+      }
+
       if (
         currentStatus !==
         "completed"
@@ -3148,6 +3488,19 @@ serve(async (req) => {
             canonicalCompact,
           authority_pack_snapshot:
             authorityPack,
+
+          output_attempt_count:
+            1,
+
+          max_output_tokens:
+            MAX_OUTPUT_TOKENS,
+
+          retry_usage:
+            [],
+
+          retry_estimated_cost_usd:
+            0,
+
           created_by:
             auth.userId,
         },
@@ -3173,6 +3526,8 @@ serve(async (req) => {
           canonicalCompact,
         authorityPack,
         issueTags,
+        maxOutputTokens:
+          MAX_OUTPUT_TOKENS,
       });
 
     await updateRun(

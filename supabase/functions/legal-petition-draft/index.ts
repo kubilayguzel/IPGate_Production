@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "6.1.4";
+const PACKAGE_VERSION = "6.1.5.2";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_PETITION_MODEL") ??
@@ -774,6 +774,7 @@ Z-ŞARJ DOSYASI GİBİ DOSYALARDA ÖZEL ANTI-OVERREACH
 - Interdependence'i otomatik telafi kuralına dönüştürme.
 - Salt çağrışımı association için yeterli sayma.
 - Seri marka/marka ailesi/tanınmışlık/kötü niyet argümanı kurma.
+- "seri marka" veya "marka ailesi" terimlerini, bunları reddetmek amacıyla dahi görünür dilekçe metnine yazma. Gerekirse "bu yönde bağımsız bir iddia ileri sürülmemektedir" gibi nötr bir ifade kullan.
 - SMK 6/5 veya SMK 6/9'a geçme.
 
 YAZIM STANDARDI
@@ -892,7 +893,7 @@ async function startOpenAiDraftBackground({
       "disabled",
 
     prompt_cache_key:
-      "evreka-final-petition-6.1.4",
+      "evreka-final-petition-6.1.5.2",
 
     safety_identifier:
       safetyIdentifier,
@@ -1088,6 +1089,86 @@ function propositionMap(pack) {
   return map;
 }
 
+function cleanGuidelineLocator(
+  citationLabel,
+  sourceLocator,
+) {
+  const base =
+    normalizeText(
+      citationLabel ||
+      "TÜRKPATENT, Marka İnceleme Kılavuzu (2021)",
+    );
+
+  const locator =
+    normalizeText(
+      sourceLocator,
+    );
+
+  if (!locator) {
+    return base;
+  }
+
+  const pageMatch =
+    locator.match(
+      /\bs\.\s*(\d{1,4}(?:\s*[-–]\s*\d{1,4})?)/i,
+    );
+
+  const page =
+    pageMatch
+      ? `s. ${pageMatch[1].replace(/\s+/g, "")}`
+      : "";
+
+  let section = "";
+
+  if (pageMatch) {
+    const afterPage =
+      locator
+        .slice(
+          (pageMatch.index ?? 0) +
+          pageMatch[0].length,
+        )
+        .replace(
+          /^[,;:\s–-]+/,
+          "",
+        )
+        .trim();
+
+    const looksLikeDate =
+      /^\d{1,2}\.\d{1,2}\.\d{4}\b/u.test(
+        afterPage,
+      );
+
+    const looksLikeSourceProse =
+      /\b(?:tarih|sayılı|kararında|kararı)\b/i.test(
+        afterPage,
+      );
+
+    if (
+      /^\d+(?:\.\d+){0,5}\s+\S+/u.test(
+        afterPage,
+      ) &&
+      !looksLikeDate &&
+      !looksLikeSourceProse
+    ) {
+      section =
+        afterPage
+          .split(
+            /\s*[|;]\s*/,
+          )[0]
+          .slice(0, 180)
+          .trim();
+    }
+  }
+
+  return [
+    base,
+    page,
+    section,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 function citationLabelFor(
   proposition,
 ) {
@@ -1101,13 +1182,16 @@ function citationLabelFor(
       proposition?.sourceLocator,
     );
 
-  if (
-    sourceLocator &&
-    /türkpatent/i.test(
+  const guidelineLike =
+    /türkpatent|marka inceleme kılavuzu/i.test(
+      `${citationLabel} ${sourceLocator}`,
+    );
+
+  if (guidelineLike) {
+    return cleanGuidelineLocator(
+      citationLabel,
       sourceLocator,
-    )
-  ) {
-    return sourceLocator;
+    );
   }
 
   return (
@@ -1148,13 +1232,15 @@ function renderPetition({
       );
     }
 
+    let previousCitationKey = "";
+
     for (
       const paragraph
       of safeArray(
         section?.paragraphs,
       )
     ) {
-      let text =
+      let paragraphText =
         normalizeText(
           paragraph?.text,
         );
@@ -1167,15 +1253,17 @@ function renderPetition({
           paragraph?.propositionIds,
         )
       ) {
-        const p =
+        const proposition =
           pMap.get(id);
 
-        if (!p) {
+        if (!proposition) {
           continue;
         }
 
         const label =
-          citationLabelFor(p);
+          citationLabelFor(
+            proposition,
+          );
 
         if (
           label &&
@@ -1185,20 +1273,36 @@ function renderPetition({
         }
       }
 
+      const citationKey =
+        labels
+          .slice()
+          .sort()
+          .join("||");
+
+      const shouldRenderCitation =
+        Boolean(
+          paragraphText &&
+          labels.length > 0 &&
+          citationKey !==
+            previousCitationKey,
+        );
+
       if (
-        text &&
-        labels.length > 0
+        shouldRenderCitation
       ) {
-        text =
-          `${text} (${labels.join("; ")})`;
+        paragraphText =
+          `${paragraphText} (${labels.join("; ")})`;
       }
 
-      if (text) {
+      if (paragraphText) {
         lines.push(
-          text,
+          paragraphText,
           "",
         );
       }
+
+      previousCitationKey =
+        citationKey;
     }
   }
 
@@ -1222,7 +1326,6 @@ function renderPetition({
     )
     .trim();
 }
-
 function findRawAuthorityIdentifiers(
   structuredDraft,
 ) {
@@ -1262,6 +1365,123 @@ function findRawAuthorityIdentifiers(
       refs.filter(Boolean),
     ),
   ];
+}
+
+
+function filingSentences(
+  value,
+) {
+  return String(
+    value ?? "",
+  )
+    .split(
+      /(?<=[.!?])\s+|\n+/u,
+    )
+    .map(
+      (item) =>
+        normalizeText(item),
+    )
+    .filter(Boolean);
+}
+
+function sentenceContainsNegation(
+  sentence,
+) {
+  const text =
+    normalizeComparable(
+      sentence,
+    );
+
+  return (
+    /(?:^|\s)(?:değil\w*|yok\w*|bulunma(?:maktadır|mıştır|mış|dığ\w*)|dayandırılma(?:malı|malıdır|malıydı)\w*|ileri\s+sürülme(?:meli|miştir|miş|mektedir)\w*|kabul\s+edilme(?:meli|miştir|miş)\w*|varsayılma(?:malı|mıştır|mış)\w*|söylenme(?:meli|miştir|miş)\w*|oluşturma(?:z|maktadır)\w*|yetme(?:z|mektedir)\w*|yeterli\s+(?:değil\w*|olma(?:z|maktadır)\w*)|gösterilme(?:miş|miştir|mektedir)\w*|dayanma(?:z|maktadır)\w*|iddia\s+edilme(?:mektedir|miştir|miş)\w*)(?:$|\s|[.,;:])/iu.test(
+      text,
+    )
+  );
+}
+
+function hasAssertiveForbiddenConcept(
+  text,
+  conceptPattern,
+) {
+  for (
+    const sentence
+    of filingSentences(text)
+  ) {
+    if (
+      !conceptPattern.test(
+        sentence,
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      sentenceContainsNegation(
+        sentence,
+      )
+    ) {
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+function hasPositiveGoodsRetailNatureClaim(
+  text,
+) {
+  for (
+    const sentence
+    of filingSentences(text)
+  ) {
+    if (
+      !/perakend/i.test(
+        sentence,
+      )
+    ) {
+      continue;
+    }
+
+    const natureBridge =
+      /(?:aynı|benzer)\s+(?:bir\s+)?(?:doğa|nitelik|mahiyet)|(?:doğa|nitelik|mahiyet)(?:leri|ları)?\s+(?:aynı|benzer)/i.test(
+        sentence,
+      );
+
+    if (
+      natureBridge &&
+      !sentenceContainsNegation(
+        sentence,
+      )
+    ) {
+      return sentence;
+    }
+  }
+
+  return "";
+}
+
+function hasUnsupportedStrongComplementarity(
+  text,
+) {
+  for (
+    const sentence
+    of filingSentences(text)
+  ) {
+    if (
+      /\b(?:güçlü|yüksek|çok\s+güçlü)\s+tamamlayıc/i.test(
+        sentence,
+      ) &&
+      !sentenceContainsNegation(
+        sentence,
+      )
+    ) {
+      return sentence;
+    }
+  }
+
+  return "";
 }
 
 function validateStructuredDraft({
@@ -1429,8 +1649,11 @@ function validateStructuredDraft({
               memoTags.has(tag),
           )
         ) {
-          errors.push(
-            `${id} proposition reasoning memorandumdaki issue kullanımı dışında taşındı.`,
+          // Proposition remains globally authorized by the reasoning memorandum
+          // and verified Authority Pack. Section movement is structural only.
+          // doNotUseFor remains a hard blocker above.
+          warnings.push(
+            `${id} proposition reasoning memorandumdaki issue kullanımından farklı bir dilekçe bölümünde kullanıldı; verified/doNotUseFor kontrolü geçti.`,
           );
         }
       }
@@ -1491,13 +1714,68 @@ function validateStructuredDraft({
     );
   }
 
-  if (
-    /\b(?:marka\s+ailesi|seri\s+marka|tanınmış\s+marka|kötü\s+niyet)\b/i.test(
-      visibleModelText,
-    )
+  const forbiddenConcepts = [
+    {
+      label:
+        "marka ailesi",
+      pattern:
+        /\bmarka\s+ailesi\b/i,
+    },
+    {
+      label:
+        "seri marka",
+      pattern:
+        /\bseri\s+marka\b/i,
+    },
+    {
+      label:
+        "tanınmış marka",
+      pattern:
+        /\btanınmış\s+marka\b/i,
+    },
+    {
+      label:
+        "kötü niyet",
+      pattern:
+        /\bkötü\s+niyet\b/i,
+    },
+  ];
+
+  for (
+    const item
+    of forbiddenConcepts
   ) {
+    if (
+      hasAssertiveForbiddenConcept(
+        visibleModelText,
+        item.pattern,
+      )
+    ) {
+      errors.push(
+        `6.1.5.2 kapsamı dışı assertive argüman bulundu: ${item.label}.`,
+      );
+    }
+  }
+
+  const goodsRetailNatureClaim =
+    hasPositiveGoodsRetailNatureClaim(
+      visibleModelText,
+    );
+
+  if (goodsRetailNatureClaim) {
     errors.push(
-      "6.1.4 kapsamı dışı marka ailesi/tanınmışlık/kötü niyet argümanı bulundu.",
+      `Goods↔retail ilişkisinde pozitif nitelik/doğa aynılığı-benzerliği kuruldu: ${goodsRetailNatureClaim}`,
+    );
+  }
+
+  const strongComplementarity =
+    hasUnsupportedStrongComplementarity(
+      visibleModelText,
+    );
+
+  if (strongComplementarity) {
+    errors.push(
+      `Dosya bulgusunu aşan güçlü tamamlayıcılık iddiası bulundu: ${strongComplementarity}`,
     );
   }
 

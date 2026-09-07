@@ -28,6 +28,12 @@ export class OppositionDraftManager {
         this.transientQa =
             null;
 
+        this.isGenerating =
+            false;
+
+        this.generationMessage =
+            '';
+
         this.documentGenerator =
             new ProfessionalOppositionDocument();
 
@@ -42,7 +48,6 @@ export class OppositionDraftManager {
             return;
         }
 
-
         if (
             window.__oppositionDraftManager &&
             window.__oppositionDraftManager !== this
@@ -52,22 +57,18 @@ export class OppositionDraftManager {
                 .destroy?.();
         }
 
-
         window.__oppositionDraftManager =
             this;
-
 
         window.addEventListener(
             'opposition-analysis-saved',
             this.boundRefresh
         );
 
-
         window.addEventListener(
             'opposition-workspace-saved',
             this.boundRefresh
         );
-
 
         await this.loadStatus();
     }
@@ -79,7 +80,6 @@ export class OppositionDraftManager {
             'opposition-analysis-saved',
             this.boundRefresh
         );
-
 
         window.removeEventListener(
             'opposition-workspace-saved',
@@ -94,7 +94,7 @@ export class OppositionDraftManager {
             value ?? ''
         ).replace(
             /[&<>"']/g,
-            (char) => ({
+            char => ({
                 '&': '&amp;',
                 '<': '&lt;',
                 '>': '&gt;',
@@ -105,7 +105,7 @@ export class OppositionDraftManager {
     }
 
 
-    async invoke(action) {
+    async invoke(action, extra = {}) {
 
         const {
             data,
@@ -118,27 +118,44 @@ export class OppositionDraftManager {
                     body: {
                         action,
                         taskId:
-                            this.taskId
+                            this.taskId,
+                        ...extra
                     }
                 }
             );
 
-
         if (error) {
+
+            let body =
+                null;
+
+            if (error.context) {
+
+                try {
+
+                    body =
+                        await error
+                            .context
+                            .clone()
+                            .json();
+
+                } catch (_) {}
+            }
+
             throw new Error(
+                body?.error ||
                 error.message ||
                 'Dilekçe servisine ulaşılamadı.'
             );
         }
 
-
         if (!data?.success) {
+
             throw new Error(
                 data?.error ||
                 'Dilekçe işlemi başarısız oldu.'
             );
         }
-
 
         return data;
     }
@@ -146,8 +163,11 @@ export class OppositionDraftManager {
 
     async loadStatus() {
 
-        this.renderLoading();
+        if (!this.mount) {
+            return;
+        }
 
+        this.renderLoading();
 
         try {
 
@@ -156,18 +176,14 @@ export class OppositionDraftManager {
                     'status'
                 );
 
-
             this.status =
                 result.status;
-
 
             this.transientDraft =
                 null;
 
-
             this.transientQa =
                 null;
-
 
             this.selectedVersion =
                 this.status
@@ -175,7 +191,6 @@ export class OppositionDraftManager {
                     ?.[0]
                     ?.version_no ??
                 null;
-
 
             this.render();
 
@@ -185,7 +200,6 @@ export class OppositionDraftManager {
                 'Opposition draft status hatası:',
                 error
             );
-
 
             this.renderError(
                 error.message
@@ -236,11 +250,8 @@ export class OppositionDraftManager {
                             id="oppDraftRetryBtn"
                             class="btn btn-sm btn-outline-danger"
                         >
-
                             <i class="fas fa-redo mr-1"></i>
-
                             Tekrar Dene
-
                         </button>
 
                     </div>
@@ -249,7 +260,6 @@ export class OppositionDraftManager {
 
             </div>
         `;
-
 
         document
             .getElementById(
@@ -268,26 +278,42 @@ export class OppositionDraftManager {
             this.status?.drafts ||
             [];
 
-
         if (
             this.selectedVersion !== null
         ) {
 
             const selected =
                 drafts.find(
-                    d =>
-                        Number(d.version_no) ===
-                        Number(this.selectedVersion)
+                    item =>
+                        Number(
+                            item.version_no
+                        ) ===
+                        Number(
+                            this.selectedVersion
+                        )
                 );
-
 
             if (selected) {
                 return selected;
             }
         }
 
-
         return drafts[0] ||
+            null;
+    }
+
+
+    currentQa() {
+
+        if (
+            this.transientDraft
+        ) {
+            return this.transientQa;
+        }
+
+        return this
+            .currentDraftObject()
+            ?.qa_report ||
             null;
     }
 
@@ -302,38 +328,30 @@ export class OppositionDraftManager {
                 <div class="oppdraft-ready is-ready">
 
                     <div>
-
                         <i class="fas fa-check-circle mr-2"></i>
-
                         <strong>
-                            AI dilekçe üretimine hazır
+                            EVREKA 6.1 üretimine hazır
                         </strong>
-
                     </div>
 
                     <span>
-                        Server-side doğrulandı
+                        Decision Tree + verified legal intelligence
                     </span>
 
                 </div>
             `;
         }
 
-
         const blockers =
             this.status?.blockers ||
             [];
-
 
         return `
             <div class="oppdraft-ready is-blocked">
 
                 <div class="font-weight-bold mb-2">
-
                     <i class="fas fa-ban mr-2"></i>
-
                     Dilekçe üretimi henüz açılamaz
-
                 </div>
 
                 <ul class="mb-0">
@@ -360,7 +378,6 @@ export class OppositionDraftManager {
             this.status?.drafts ||
             [];
 
-
         if (!drafts.length) {
 
             return `
@@ -370,7 +387,6 @@ export class OppositionDraftManager {
             `;
         }
 
-
         return `
             <label class="mb-0 mr-2 small font-weight-bold">
                 Versiyon:
@@ -378,42 +394,441 @@ export class OppositionDraftManager {
 
             <select
                 id="oppDraftVersionSelect"
-                class="
-                    form-control
-                    form-control-sm
-                    oppdraft-version-select
-                "
+                class="form-control form-control-sm oppdraft-version-select"
             >
 
                 ${
-                    drafts.map(
-                        draft => `
-                            <option
-                                value="${draft.version_no}"
-                                ${
-                                    Number(draft.version_no) ===
-                                    Number(this.selectedVersion)
-                                        ? 'selected'
-                                        : ''
-                                }
-                            >
-                                V${draft.version_no}
-                                ·
-                                ${this.escape(draft.stage || 'generated')}
-                                ·
-                                ${
-                                    new Date(
-                                        draft.created_at
-                                    ).toLocaleString(
-                                        'tr-TR'
-                                    )
-                                }
-                            </option>
-                        `
-                    ).join('')
+                    drafts
+                        .map(
+                            draft => `
+                                <option
+                                    value="${draft.version_no}"
+                                    ${
+                                        Number(draft.version_no) ===
+                                        Number(this.selectedVersion)
+                                            ? 'selected'
+                                            : ''
+                                    }
+                                >
+                                    V${draft.version_no}
+                                    ·
+                                    ${
+                                        this.escape(
+                                            draft
+                                                ?.generation_context
+                                                ?.enginePackageVersion ||
+                                            draft.stage ||
+                                            'generated'
+                                        )
+                                    }
+                                    ·
+                                    ${
+                                        new Date(
+                                            draft.created_at
+                                        ).toLocaleString(
+                                            'tr-TR'
+                                        )
+                                    }
+                                </option>
+                            `
+                        )
+                        .join('')
                 }
 
             </select>
+        `;
+    }
+
+
+    qaHtml(current) {
+
+        const qa =
+            this.transientQa ||
+            current?.qa_report;
+
+        if (!qa) {
+            return '';
+        }
+
+        const blockers =
+            qa
+                ?.deterministic
+                ?.blockers ||
+            [];
+
+        const citationBlockers =
+            qa
+                ?.citationAudit
+                ?.blockers ||
+            [];
+
+        const warnings =
+            qa
+                ?.deterministic
+                ?.warnings ||
+            [];
+
+        const allBlockers = [
+            ...new Set([
+                ...blockers,
+                ...citationBlockers
+            ])
+        ];
+
+        return `
+            <details
+                class="oppdraft-qa mt-3"
+                ${
+                    qa.finalPass
+                        ? ''
+                        : 'open'
+                }
+            >
+
+                <summary>
+
+                    <strong>
+                        QA Raporu
+                    </strong>
+
+                    ·
+                    ${
+                        qa.finalPass
+                            ? 'PASS'
+                            : 'FAIL'
+                    }
+
+                    ·
+                    ${allBlockers.length}
+                    blocker
+
+                    ·
+                    ${warnings.length}
+                    uyarı
+
+                    ${
+                        qa
+                            ?.enginePackageVersion
+                            ? `· ${this.escape(qa.enginePackageVersion)}`
+                            : ''
+                    }
+
+                </summary>
+
+                <div class="oppdraft-qa-body">
+
+                    ${
+                        allBlockers.length
+                            ? `
+                                <div>
+
+                                    <strong>
+                                        Blocker:
+                                    </strong>
+
+                                    <ul>
+
+                                        ${
+                                            allBlockers
+                                                .map(
+                                                    item =>
+                                                        `<li>${this.escape(item)}</li>`
+                                                )
+                                                .join('')
+                                        }
+
+                                    </ul>
+
+                                </div>
+                            `
+                            : ''
+                    }
+
+                    ${
+                        warnings.length
+                            ? `
+                                <div>
+
+                                    <strong>
+                                        Uyarı:
+                                    </strong>
+
+                                    <ul>
+
+                                        ${
+                                            warnings
+                                                .map(
+                                                    item =>
+                                                        `<li>${this.escape(item)}</li>`
+                                                )
+                                                .join('')
+                                        }
+
+                                    </ul>
+
+                                </div>
+                            `
+                            : ''
+                    }
+
+                </div>
+
+            </details>
+        `;
+    }
+
+
+    sourcesHtml(current) {
+
+        const context =
+            current
+                ?.generation_context ||
+            {};
+
+        const sources =
+            Array.isArray(
+                context.legalSources
+            )
+                ? context.legalSources
+                : [];
+
+        if (!sources.length) {
+            return '';
+        }
+
+        const citationAudit =
+            context
+                ?.citationAudit ||
+            current
+                ?.qa_report
+                ?.citationAudit ||
+            null;
+
+        const cited =
+            new Set(
+                citationAudit
+                    ?.citedSourceIds ||
+                []
+            );
+
+        const unique = [];
+        const seen = new Set();
+
+        for (
+            const source of
+            sources
+        ) {
+
+            const label =
+                String(
+                    source
+                        ?.citation_label ||
+                    source
+                        ?.document_title ||
+                    ''
+                ).trim();
+
+            if (!label) {
+                continue;
+            }
+
+            const key =
+                label.toLocaleLowerCase(
+                    'tr-TR'
+                );
+
+            if (seen.has(key)) {
+                continue;
+            }
+
+            seen.add(key);
+            unique.push(source);
+        }
+
+        return `
+            <details class="oppdraft-qa mt-3">
+
+                <summary>
+
+                    <strong>
+                        Doğrulanmış Hukukî Kaynaklar
+                    </strong>
+
+                    ·
+                    ${unique.length}
+                    authority
+
+                    ${
+                        citationAudit?.pass === true
+                            ? '· CITATION QA PASS'
+                            : ''
+                    }
+
+                </summary>
+
+                <div class="oppdraft-qa-body">
+
+                    ${
+                        unique
+                            .map(
+                                source => {
+
+                                    const id =
+                                        String(
+                                            source
+                                                ?.sourceId ||
+                                            ''
+                                        );
+
+                                    const used =
+                                        cited.has(id) ||
+                                        source?.used === true;
+
+                                    return `
+                                        <div
+                                            style="
+                                                padding:8px 10px;
+                                                border-bottom:1px solid #e5e7eb;
+                                            "
+                                        >
+
+                                            <strong>
+                                                ${
+                                                    this.escape(
+                                                        source
+                                                            ?.citation_label ||
+                                                        source
+                                                            ?.document_title ||
+                                                        'Hukukî kaynak'
+                                                    )
+                                                }
+                                            </strong>
+
+                                            ${
+                                                used
+                                                    ? `
+                                                        <span class="badge badge-success ml-2">
+                                                            KULLANILDI
+                                                        </span>
+                                                    `
+                                                    : ''
+                                            }
+
+                                        </div>
+                                    `;
+                                }
+                            )
+                            .join('')
+                    }
+
+                </div>
+
+            </details>
+        `;
+    }
+
+
+    costHtml(current) {
+
+        const telemetry =
+            (
+                this.transientQa ||
+                current?.qa_report
+            )
+                ?.aiTelemetry;
+
+        if (!telemetry) {
+            return '';
+        }
+
+        const reasoningUsd =
+            Number(
+                telemetry
+                    ?.reasoning
+                    ?.estimatedUsd ??
+                0
+            );
+
+        const draftUsd =
+            Number(
+                telemetry
+                    ?.draft
+                    ?.estimatedUsd ??
+                0
+            );
+
+        const totalUsd =
+            Number(
+                telemetry
+                    ?.total
+                    ?.estimatedUsd ??
+                (
+                    reasoningUsd +
+                    draftUsd
+                )
+            );
+
+        const usd =
+            value =>
+                Number.isFinite(
+                    Number(value)
+                )
+                    ? new Intl
+                        .NumberFormat(
+                            'en-US',
+                            {
+                                style:
+                                    'currency',
+                                currency:
+                                    'USD',
+                                minimumFractionDigits:
+                                    3,
+                                maximumFractionDigits:
+                                    3
+                            }
+                        )
+                        .format(
+                            Number(value)
+                        )
+                    : '—';
+
+        return `
+            <details class="oppdraft-qa mt-3">
+
+                <summary>
+                    <strong>
+                        AI Kullanım / Maliyet
+                    </strong>
+                    ·
+                    ${usd(totalUsd)}
+                </summary>
+
+                <div class="oppdraft-qa-body">
+
+                    <div>
+                        Sol Legal Reasoning:
+                        <strong>
+                            ${usd(reasoningUsd)}
+                        </strong>
+                    </div>
+
+                    <div class="mt-1">
+                        Sol Final Petition:
+                        <strong>
+                            ${usd(draftUsd)}
+                        </strong>
+                    </div>
+
+                    <div class="mt-2">
+                        Toplam:
+                        <strong>
+                            ${usd(totalUsd)}
+                        </strong>
+                    </div>
+
+                </div>
+
+            </details>
         `;
     }
 
@@ -423,23 +838,36 @@ export class OppositionDraftManager {
         const current =
             this.currentDraftObject();
 
-
         const text =
             this.transientDraft ||
             current?.content ||
             this.status?.currentDraft ||
             '';
 
-
         const hasDraft =
             Boolean(text);
 
+        const qa =
+            this.currentQa();
+
+        const wordEligible =
+            Boolean(
+                hasDraft &&
+                current &&
+                !this.transientDraft &&
+                qa?.finalPass === true &&
+                String(
+                    qa
+                        ?.enginePackageVersion ||
+                    ''
+                ) ===
+                '6.1.5.2'
+            );
 
         const buttonLabel =
             hasDraft
-                ? 'Yeni Versiyon Üret'
-                : 'Dilekçe Taslağı Oluştur';
-
+                ? 'Yeni 6.1 Versiyon Üret'
+                : '6.1 Dilekçe Taslağı Oluştur';
 
         this.mount.innerHTML = `
             <div class="oppdraft-card">
@@ -449,7 +877,7 @@ export class OppositionDraftManager {
                     <div>
 
                         <div class="oppdraft-eyebrow">
-                            EVREKA DRAFT ENGINE
+                            EVREKA LEGAL INTELLIGENCE
                         </div>
 
                         <h4 class="oppdraft-title mb-1">
@@ -457,31 +885,23 @@ export class OppositionDraftManager {
                         </h4>
 
                         <div class="oppdraft-subtitle">
-                            Vaka verileri tarayıcıdan üretilmez;
-                            server-side Opposition Case +
-                            lawyer findings kullanılır.
+                            Deep Legal Research → Sol Legal Reasoning →
+                            Sol Final Petition → Strict QA
                         </div>
 
                     </div>
 
-
                     <div class="oppdraft-version-badge">
-
                         V${
                             this.status
                                 ?.currentVersion ||
                             0
                         }
-
                     </div>
 
                 </div>
 
-
-                ${
-                    this.readinessHtml()
-                }
-
+                ${this.readinessHtml()}
 
                 <div class="oppdraft-actions mt-3">
 
@@ -492,13 +912,8 @@ export class OppositionDraftManager {
                             flex-wrap
                         "
                     >
-
-                        ${
-                            this.versionsHtml()
-                        }
-
+                        ${this.versionsHtml()}
                     </div>
-
 
                     <div
                         class="
@@ -512,59 +927,80 @@ export class OppositionDraftManager {
                         <button
                             type="button"
                             id="oppDraftRefreshBtn"
-                            class="
-                                btn
-                                btn-sm
-                                btn-outline-secondary
-                            "
+                            class="btn btn-sm btn-outline-secondary"
+                            ${
+                                this.isGenerating
+                                    ? 'disabled'
+                                    : ''
+                            }
                         >
-
                             <i class="fas fa-sync-alt mr-1"></i>
-
                             Durumu Yenile
-
                         </button>
-
 
                         <button
                             type="button"
                             id="oppDraftGenerateBtn"
                             class="btn btn-primary"
                             ${
-                                this.status?.canGenerate
+                                (
+                                    this.status
+                                        ?.canGenerate &&
+                                    !this.isGenerating
+                                )
                                     ? ''
                                     : 'disabled'
                             }
                         >
-
-                            <i class="fas fa-magic mr-2"></i>
-
-                            ${buttonLabel}
-
+                            ${
+                                this.isGenerating
+                                    ? `
+                                        <i class="fas fa-spinner fa-spin mr-2"></i>
+                                        İşlem devam ediyor...
+                                    `
+                                    : `
+                                        <i class="fas fa-magic mr-2"></i>
+                                        ${buttonLabel}
+                                    `
+                            }
                         </button>
-
 
                         <button
                             type="button"
                             id="oppDraftWordBtn"
                             class="btn btn-success"
                             ${
-                                hasDraft
+                                wordEligible
                                     ? ''
                                     : 'disabled'
                             }
+                            title="${
+                                wordEligible
+                                    ? 'Strict QA PASS — Word oluşturulabilir'
+                                    : 'Word yalnız 6.1.5.2 strict QA PASS kaydedilmiş versiyondan oluşturulur'
+                            }"
                         >
-
                             <i class="fas fa-file-word mr-2"></i>
-
                             Profesyonel Word Oluştur
-
                         </button>
 
                     </div>
 
                 </div>
 
+                ${
+                    this.isGenerating
+                        ? `
+                            <div
+                                id="oppDraftGenerationStatus"
+                                class="alert alert-info mt-3 mb-0"
+                            >
+                                <i class="fas fa-spinner fa-spin mr-2"></i>
+                                ${this.escape(this.generationMessage)}
+                            </div>
+                        `
+                        : ''
+                }
 
                 ${
                     hasDraft
@@ -577,25 +1013,14 @@ export class OppositionDraftManager {
 
                                 <textarea
                                     id="oppDraftEditor"
-                                    class="
-                                        form-control
-                                        oppdraft-editor
-                                    "
-                                    rows="22"
+                                    class="form-control oppdraft-editor"
+                                    rows="24"
                                 >${this.escape(text)}</textarea>
 
-                                <small
-                                    class="
-                                        text-muted
-                                        d-block
-                                        mt-2
-                                    "
-                                >
-                                    Bu alan inceleme içindir.
-                                    Burada yaptığınız manuel
-                                    değişiklikler henüz DB'ye
-                                    kaydedilmez; Word çıktısı
-                                    ekrandaki güncel metni kullanır.
+                                <small class="text-muted d-block mt-2">
+                                    Manuel değişiklikler DB’ye kaydedilmez.
+                                    Word çıktısı yalnız strict QA PASS kaydedilmiş
+                                    6.1.5.2 versiyonunda aktiftir.
                                 </small>
 
                             </div>
@@ -613,1133 +1038,14 @@ export class OppositionDraftManager {
                         `
                 }
 
-
-                ${
-                    this.qaHtml(current)
-                }
-
-                ${
-                    this.sourcesHtml(current)
-                }
-
-                ${
-                    this.costHtml(current)
-                }
+                ${this.qaHtml(current)}
+                ${this.sourcesHtml(current)}
+                ${this.costHtml(current)}
 
             </div>
         `;
 
-
         this.bindEvents();
-    }
-
-
-    qaHtml(current) {
-
-        const qa =
-            this.transientQa ||
-            current?.qa_report;
-
-
-        if (!qa) {
-            return '';
-        }
-
-
-        const blockers =
-            qa?.deterministic
-                ?.blockers ||
-            [];
-
-
-        const warnings =
-            qa?.deterministic
-                ?.warnings ||
-            [];
-
-
-        const aiIssues =
-            qa?.aiAuditIssues ||
-            [];
-
-
-        return `
-            <details class="oppdraft-qa mt-3">
-
-                <summary>
-
-                    <strong>
-                        QA Raporu
-                    </strong>
-
-                    ·
-                    ${
-                        qa.finalPass
-                            ? 'PASS'
-                            : 'FAIL'
-                    }
-
-                    ·
-                    ${blockers.length}
-                    blocker
-
-                    ·
-                    ${
-                        warnings.length +
-                        aiIssues.length
-                    }
-                    uyarı/AI düzeltmesi
-
-                </summary>
-
-
-                <div class="oppdraft-qa-body">
-
-                    ${
-                        blockers.length
-                            ? `
-                                <div>
-
-                                    <strong>
-                                        Blocker:
-                                    </strong>
-
-                                    <ul>
-
-                                        ${
-                                            blockers
-                                                .map(
-                                                    x =>
-                                                        `<li>${this.escape(x)}</li>`
-                                                )
-                                                .join('')
-                                        }
-
-                                    </ul>
-
-                                </div>
-                            `
-                            : ''
-                    }
-
-
-                    ${
-                        warnings.length
-                            ? `
-                                <div>
-
-                                    <strong>
-                                        Uyarı:
-                                    </strong>
-
-                                    <ul>
-
-                                        ${
-                                            warnings
-                                                .map(
-                                                    x =>
-                                                        `<li>${this.escape(x)}</li>`
-                                                )
-                                                .join('')
-                                        }
-
-                                    </ul>
-
-                                </div>
-                            `
-                            : ''
-                    }
-
-
-                    ${
-                        aiIssues.length
-                            ? `
-                                <div>
-
-                                    <strong>
-                                        AI Audit:
-                                    </strong>
-
-                                    <ul>
-
-                                        ${
-                                            aiIssues
-                                                .map(
-                                                    x =>
-                                                        `<li>${this.escape(x.problem || x)}</li>`
-                                                )
-                                                .join('')
-                                        }
-
-                                    </ul>
-
-                                </div>
-                            `
-                            : ''
-                    }
-
-                </div>
-
-            </details>
-        `;
-    }
-
-
-    formatTokenCount(value) {
-
-        const number =
-            Number(
-                value ??
-                0
-            );
-
-
-        return Number.isFinite(number)
-            ? number.toLocaleString(
-                'tr-TR'
-            )
-            : '0';
-    }
-
-
-    formatUsd(value) {
-
-        const number =
-            Number(
-                value
-            );
-
-
-        if (
-            !Number.isFinite(number)
-        ) {
-
-            return '—';
-        }
-
-
-        const digits =
-            number < 0.01
-                ? 5
-                : 3;
-
-
-        return new Intl
-            .NumberFormat(
-                'en-US',
-                {
-                    style:
-                        'currency',
-
-                    currency:
-                        'USD',
-
-                    minimumFractionDigits:
-                        digits,
-
-                    maximumFractionDigits:
-                        digits
-                }
-            )
-            .format(number);
-    }
-
-
-    formatTry(value) {
-
-        const number =
-            Number(
-                value
-            );
-
-
-        if (
-            !Number.isFinite(number)
-        ) {
-
-            return '';
-        }
-
-
-        return new Intl
-            .NumberFormat(
-                'tr-TR',
-                {
-                    style:
-                        'currency',
-
-                    currency:
-                        'TRY',
-
-                    minimumFractionDigits:
-                        2,
-
-                    maximumFractionDigits:
-                        2
-                }
-            )
-            .format(number);
-    }
-
-
-    costStageRow(
-        label,
-        stage
-    ) {
-
-        if (!stage) {
-            return '';
-        }
-
-
-        const skipped =
-            stage.skipped ===
-            true;
-
-
-        const model =
-            stage.model ||
-            '—';
-
-
-        const promptTokens =
-            this.formatTokenCount(
-                stage.promptTokenCount
-            );
-
-
-        const outputTokens =
-            this.formatTokenCount(
-                (
-                    Number(
-                        stage.candidatesTokenCount ??
-                        0
-                    ) +
-                    Number(
-                        stage.thoughtsTokenCount ??
-                        0
-                    )
-                )
-            );
-
-
-        const cost =
-            skipped
-                ? 'CACHE / ÇAĞRI YOK'
-                : this.formatUsd(
-                    stage.estimatedUsd
-                );
-
-
-        return `
-            <tr>
-
-                <td>
-                    <strong>
-                        ${this.escape(label)}
-                    </strong>
-                </td>
-
-                <td>
-                    ${this.escape(model)}
-                </td>
-
-                <td class="text-right">
-                    ${
-                        skipped
-                            ? '—'
-                            : promptTokens
-                    }
-                </td>
-
-                <td class="text-right">
-                    ${
-                        skipped
-                            ? '—'
-                            : outputTokens
-                    }
-                </td>
-
-                <td class="text-right">
-                    ${
-                        skipped
-                            ? `
-                                <span
-                                    class="
-                                        badge
-                                        badge-success
-                                    "
-                                >
-                                    ${cost}
-                                </span>
-                            `
-                            : this.escape(cost)
-                    }
-                </td>
-
-            </tr>
-        `;
-    }
-
-
-    sourceTypeLabel(
-        value
-    ) {
-
-        const labels = {
-
-            official_guideline:
-                'Resmî İnceleme Kılavuzu',
-
-            statute:
-                'Kanun',
-
-            regulation:
-                'Yönetmelik / Düzenleme',
-
-            court_decision:
-                'Mahkeme / Yargıtay Kararı',
-
-            yidk_decision:
-                'YİDK Kararı',
-
-            eu_case:
-                'AB / EUIPO İçtihadı',
-
-            academic:
-                'Akademik Kaynak',
-
-            internal_paragraph_bank:
-                'EVREKA İç Paragraf Bankası',
-
-            legacy_knowledge:
-                'Legacy İç Bilgi',
-
-            other:
-                'Hukukî Kaynak',
-        };
-
-
-        return labels[
-            String(
-                value ||
-                'other'
-            )
-        ] ||
-        'Hukukî Kaynak';
-    }
-
-
-    sourcesHtml(current) {
-
-        const context =
-            current
-                ?.generation_context ||
-            {};
-
-
-        const sources =
-            Array.isArray(
-                context.legalSources
-            )
-
-                ? context.legalSources
-
-                : [];
-
-
-        const citationAudit =
-            context
-                ?.citationAudit ||
-            current
-                ?.qa_report
-                ?.citationAudit ||
-            null;
-
-
-        if (
-            !sources.length &&
-            !citationAudit
-        ) {
-
-            return '';
-        }
-
-
-        const citedIds =
-            new Set(
-                citationAudit
-                    ?.citedSourceIds ||
-                []
-            );
-
-
-        const citableCount =
-            sources.filter(
-                source =>
-                    source?.citable ===
-                    true &&
-                    source?.verified ===
-                    true
-            ).length;
-
-
-        const citedCount =
-            sources.filter(
-                source =>
-                    citedIds.has(
-                        String(
-                            source?.sourceId ||
-                            ''
-                        )
-                    )
-            ).length;
-
-
-        const blockers =
-            citationAudit
-                ?.blockers ||
-            [];
-
-
-        const warnings =
-            citationAudit
-                ?.warnings ||
-            [];
-
-
-        const rows =
-            sources
-                .map(
-                    source => {
-
-                        const id =
-                            String(
-                                source
-                                    ?.sourceId ||
-                                ''
-                            );
-
-
-                        const isCited =
-                            citedIds.has(id);
-
-
-                        const pageFrom =
-                            Number(
-                                source
-                                    ?.page_from ||
-                                source
-                                    ?.page_number ||
-                                0
-                            );
-
-
-                        const pageTo =
-                            Number(
-                                source
-                                    ?.page_to ||
-                                source
-                                    ?.page_number ||
-                                0
-                            );
-
-
-                        const pageText =
-                            pageFrom > 0
-
-                                ? (
-                                    pageTo > 0 &&
-                                    pageTo !==
-                                    pageFrom
-
-                                        ? `s. ${pageFrom}-${pageTo}`
-
-                                        : `s. ${pageFrom}`
-                                )
-
-                                : '';
-
-
-                        const location =
-                            [
-                                source
-                                    ?.section_title,
-                                pageText,
-                            ]
-                                .filter(Boolean)
-                                .join(' · ');
-
-
-                        const similarity =
-                            Number(
-                                source
-                                    ?.similarity ||
-                                0
-                            );
-
-
-                        const similarityText =
-                            similarity > 0
-
-                                ? `%${Math.round(
-                                    similarity *
-                                    100
-                                )}`
-
-                                : '';
-
-
-                        return `
-                            <div
-                                style="
-                                    padding: 10px 12px;
-                                    border: 1px solid #e5e7eb;
-                                    border-radius: 8px;
-                                    margin-top: 8px;
-                                    background: ${
-                                        isCited
-                                            ? '#f0fdf4'
-                                            : '#ffffff'
-                                    };
-                                "
-                            >
-                                <div
-                                    class="
-                                        d-flex
-                                        justify-content-between
-                                        align-items-start
-                                        flex-wrap
-                                    "
-                                >
-                                    <div style="min-width: 0; flex: 1;">
-
-                                        <div
-                                            style="
-                                                font-weight: 600;
-                                                color: #1f2937;
-                                            "
-                                        >
-                                            ${
-                                                this.escape(
-                                                    source
-                                                        ?.citation_label ||
-                                                    source
-                                                        ?.document_title ||
-                                                    source
-                                                        ?.title ||
-                                                    'Hukukî kaynak'
-                                                )
-                                            }
-                                        </div>
-
-                                        <div
-                                            class="text-muted"
-                                            style="
-                                                font-size: 12px;
-                                                margin-top: 3px;
-                                            "
-                                        >
-                                            ${
-                                                this.escape(
-                                                    this.sourceTypeLabel(
-                                                        source
-                                                            ?.source_type ||
-                                                        source
-                                                            ?.document_type
-                                                    )
-                                                )
-                                            }
-                                            ${
-                                                location
-                                                    ? ` · ${this.escape(location)}`
-                                                    : ''
-                                            }
-                                            ${
-                                                similarityText
-                                                    ? ` · eşleşme ${this.escape(similarityText)}`
-                                                    : ''
-                                            }
-                                        </div>
-
-                                    </div>
-
-                                    <div
-                                        style="
-                                            margin-left: 10px;
-                                            white-space: nowrap;
-                                        "
-                                    >
-                                        ${
-                                            source?.verified === true
-                                                ? `
-                                                    <span class="badge badge-success">
-                                                        DOĞRULANDI
-                                                    </span>
-                                                `
-                                                : `
-                                                    <span class="badge badge-secondary">
-                                                        İÇ BAĞLAM
-                                                    </span>
-                                                `
-                                        }
-
-                                        ${
-                                            isCited
-                                                ? `
-                                                    <span class="badge badge-primary">
-                                                        DİLEKÇEDE KULLANILDI
-                                                    </span>
-                                                `
-                                                : (
-                                                    source?.citable === true
-                                                        ? `
-                                                            <span class="badge badge-light">
-                                                                ATIF YAPILABİLİR
-                                                            </span>
-                                                        `
-                                                        : ''
-                                                )
-                                        }
-                                    </div>
-
-                                </div>
-                            </div>
-                        `;
-                    }
-                )
-                .join('');
-
-
-        const issueHtml =
-            [
-                ...blockers.map(
-                    item => `
-                        <li style="color:#b91c1c;">
-                            ${this.escape(item)}
-                        </li>
-                    `
-                ),
-                ...warnings.map(
-                    item => `
-                        <li style="color:#92400e;">
-                            ${this.escape(item)}
-                        </li>
-                    `
-                ),
-            ]
-                .join('');
-
-
-        return `
-            <details
-                class="oppdraft-qa mt-3"
-                ${
-                    citationAudit &&
-                    citationAudit.pass === false
-                        ? 'open'
-                        : ''
-                }
-            >
-
-                <summary>
-                    <strong>
-                        Kullanılan Hukukî Kaynaklar
-                    </strong>
-
-                    <span class="ml-2 text-muted">
-                        ${citedCount} atıf · ${citableCount} doğrulanmış kaynak
-                    </span>
-
-                    ${
-                        citationAudit
-                            ? (
-                                citationAudit.pass
-                                    ? `
-                                        <span class="badge badge-success ml-2">
-                                            CITATION QA PASS
-                                        </span>
-                                    `
-                                    : `
-                                        <span class="badge badge-danger ml-2">
-                                            CITATION QA BLOCK
-                                        </span>
-                                    `
-                            )
-                            : ''
-                    }
-                </summary>
-
-                <div class="mt-3">
-
-                    ${
-                        rows ||
-                        `
-                            <div class="text-muted">
-                                Bu versiyonda kaynak snapshot'ı bulunmuyor.
-                            </div>
-                        `
-                    }
-
-                    ${
-                        issueHtml
-                            ? `
-                                <div
-                                    class="mt-3"
-                                    style="
-                                        padding: 10px 12px;
-                                        background: #fffbeb;
-                                        border-radius: 8px;
-                                    "
-                                >
-                                    <strong>
-                                        Kaynak denetimi notları
-                                    </strong>
-
-                                    <ul class="mb-0 mt-2">
-                                        ${issueHtml}
-                                    </ul>
-                                </div>
-                            `
-                            : ''
-                    }
-
-                </div>
-
-            </details>
-        `;
-    }
-
-
-    costHtml(current) {
-
-        const qa =
-            this.transientQa ||
-            current?.qa_report;
-
-
-        const telemetry =
-            qa?.aiTelemetry;
-
-
-        if (!telemetry) {
-            return '';
-        }
-
-
-        const cacheHit =
-            telemetry
-                ?.cache
-                ?.hit ===
-            true;
-
-
-        const totalUsd =
-            telemetry
-                ?.total
-                ?.estimatedUsd;
-
-
-        const totalTry =
-            telemetry
-                ?.total
-                ?.estimatedTry;
-
-
-        const tryRate =
-            telemetry
-                ?.total
-                ?.usdTryRate;
-
-
-        const rag =
-            telemetry.rag ||
-            {};
-
-
-        const stages =
-            telemetry.stages ||
-            {};
-
-
-        const totalTryHtml =
-            Number.isFinite(
-                Number(totalTry)
-            )
-                ? `
-                    <span class="ml-2">
-                        ≈
-                        ${this.escape(
-                            this.formatTry(
-                                totalTry
-                            )
-                        )}
-                    </span>
-                `
-                : '';
-
-
-        const rateNote =
-            Number.isFinite(
-                Number(tryRate)
-            )
-                ? `
-                    <div
-                        class="
-                            text-muted
-                            small
-                            mt-2
-                        "
-                    >
-                        TRY tahmini için
-                        1 USD =
-                        ${this.escape(tryRate)}
-                        TRY oranı kullanıldı.
-                        Google faturası ve vergi/kur
-                        farkları nedeniyle gerçek tutar
-                        değişebilir.
-                    </div>
-                `
-                : `
-                    <div
-                        class="
-                            text-muted
-                            small
-                            mt-2
-                        "
-                    >
-                        USD tutarı API usage metadata ve
-                        model fiyat tarifesine göre
-                        tahminidir. TRY karşılığı Google'ın
-                        faturalama kuru/vergi uygulamasına
-                        göre değişebilir.
-                    </div>
-                `;
-
-
-        return `
-            <details
-                class="
-                    oppdraft-qa
-                    mt-3
-                "
-            >
-
-                <summary>
-
-                    <strong>
-                        AI Kullanım / Maliyet
-                    </strong>
-
-                    ·
-
-                    ${
-                        cacheHit
-                            ? 'CACHE HIT'
-                            : 'CACHE MISS'
-                    }
-
-                    ·
-
-                    ${
-                        this.escape(
-                            this.formatUsd(
-                                totalUsd
-                            )
-                        )
-                    }
-
-                    ${totalTryHtml}
-
-                </summary>
-
-
-                <div class="oppdraft-qa-body">
-
-                    <div
-                        class="
-                            alert
-                            ${
-                                cacheHit
-                                    ? 'alert-success'
-                                    : 'alert-light'
-                            }
-                            py-2
-                        "
-                    >
-
-                        ${
-                            cacheHit
-                                ? `
-                                    <strong>
-                                        Analiz cache kullanıldı.
-                                    </strong>
-
-                                    RAG embedding ve hukuki analiz
-                                    API çağrıları tekrar edilmedi.
-                                `
-                                : `
-                                    <strong>
-                                        Yeni hukuki analiz yapıldı.
-                                    </strong>
-
-                                    Bu versiyon sonraki aynı
-                                    Decision Tree girdileri için
-                                    cache oluşturur.
-                                `
-                        }
-
-                    </div>
-
-
-                    <div
-                        class="
-                            table-responsive
-                            mt-2
-                        "
-                    >
-
-                        <table
-                            class="
-                                table
-                                table-sm
-                                mb-0
-                            "
-                        >
-
-                            <thead>
-
-                                <tr>
-
-                                    <th>
-                                        Aşama
-                                    </th>
-
-                                    <th>
-                                        Model
-                                    </th>
-
-                                    <th
-                                        class="text-right"
-                                    >
-                                        Input
-                                    </th>
-
-                                    <th
-                                        class="text-right"
-                                    >
-                                        Output + Thinking
-                                    </th>
-
-                                    <th
-                                        class="text-right"
-                                    >
-                                        Tahmini
-                                    </th>
-
-                                </tr>
-
-                            </thead>
-
-
-                            <tbody>
-
-                                ${
-                                    this.costStageRow(
-                                        'Embedding / RAG',
-                                        stages.embedding
-                                    )
-                                }
-
-                                ${
-                                    this.costStageRow(
-                                        'Hukuki Analiz',
-                                        stages.analysis
-                                    )
-                                }
-
-                                ${
-                                    this.costStageRow(
-                                        'Dilekçe Yazımı',
-                                        stages.draft
-                                    )
-                                }
-
-                                ${
-                                    this.costStageRow(
-                                        'AI Audit',
-                                        stages.audit
-                                    )
-                                }
-
-                            </tbody>
-
-                        </table>
-
-                    </div>
-
-
-                    <div
-                        class="
-                            d-flex
-                            flex-wrap
-                            justify-content-between
-                            mt-3
-                        "
-                    >
-
-                        <div class="small">
-
-                            <strong>
-                                RAG:
-                            </strong>
-
-                            ${
-                                this.escape(
-                                    rag.sourcesRetrieved ??
-                                    0
-                                )
-                            }
-                            kaynak bulundu /
-
-                            ${
-                                this.escape(
-                                    rag.sourcesUsed ??
-                                    0
-                                )
-                            }
-                            kaynak dilekçe aşamasına taşındı
-
-                        </div>
-
-
-                        <div>
-
-                            <strong>
-                                Tahmini API toplamı:
-                            </strong>
-
-                            ${
-                                this.escape(
-                                    this.formatUsd(
-                                        totalUsd
-                                    )
-                                )
-                            }
-
-                            ${totalTryHtml}
-
-                        </div>
-
-                    </div>
-
-
-                    ${rateNote}
-
-                </div>
-
-            </details>
-        `;
     }
 
 
@@ -1754,7 +1060,6 @@ export class OppositionDraftManager {
                 () => this.loadStatus()
             );
 
-
         document
             .getElementById(
                 'oppDraftGenerateBtn'
@@ -1764,7 +1069,6 @@ export class OppositionDraftManager {
                 () => this.generate()
             );
 
-
         document
             .getElementById(
                 'oppDraftWordBtn'
@@ -1773,7 +1077,6 @@ export class OppositionDraftManager {
                 'click',
                 () => this.generateWord()
             );
-
 
         document
             .getElementById(
@@ -1788,14 +1091,11 @@ export class OppositionDraftManager {
                             event.target.value
                         );
 
-
                     this.transientDraft =
                         null;
 
-
                     this.transientQa =
                         null;
-
 
                     this.render();
                 }
@@ -1803,134 +1103,212 @@ export class OppositionDraftManager {
     }
 
 
-    async generate() {
+    setGenerationMessage(message) {
 
-        const button =
+        this.generationMessage =
+            String(message || '');
+
+        const mount =
             document.getElementById(
-                'oppDraftGenerateBtn'
+                'oppDraftGenerationStatus'
             );
 
+        if (mount) {
 
-        if (button) {
-
-            button.disabled =
-                true;
-
-
-            button.innerHTML = `
+            mount.innerHTML = `
                 <i class="fas fa-spinner fa-spin mr-2"></i>
-                Dilekçe hazırlanıyor...
+                ${this.escape(this.generationMessage)}
             `;
         }
+    }
 
+
+    async generate() {
+
+        if (this.isGenerating) {
+            return;
+        }
+
+        this.isGenerating =
+            true;
+
+        this.generationMessage =
+            'Legal Reasoning başlatılıyor...';
+
+        this.render();
 
         try {
 
-            const result =
+            const start =
                 await this.invoke(
-                    'generate'
+                    'generate_start'
                 );
 
-
-            const generation =
-                result.generation ||
+            let generation =
+                start.generation ||
                 {};
 
+            const reasoningRunId =
+                generation
+                    ?.reasoningRunId;
 
-            this.status =
-                result.status;
+            if (!reasoningRunId) {
 
+                throw new Error(
+                    'reasoningRunId oluşmadı.'
+                );
+            }
 
-            this.selectedVersion =
-                this.status
-                    ?.drafts
-                    ?.[0]
-                    ?.version_no ??
+            let draftRunId =
+                generation
+                    ?.draftRunId ||
                 null;
 
+            const startedAt =
+                Date.now();
 
-            if (
-                generation
-                    .generationStatus ===
-                'needs_input'
+            const maxWaitMs =
+                15 * 60 * 1000;
+
+            while (
+                Date.now() -
+                startedAt <
+                maxWaitMs
             ) {
 
-                this.transientDraft =
-                    null;
+                const stage =
+                    generation
+                        ?.stage;
 
+                this.setGenerationMessage(
+                    stage ===
+                    'drafting'
+                        ? 'Sol Final Petition hazırlanıyor...'
+                        : 'Sol Legal Reasoning devam ediyor...'
+                );
 
-                this.transientQa =
-                    null;
+                await new Promise(
+                    resolve =>
+                        setTimeout(
+                            resolve,
+                            8000
+                        )
+                );
 
+                const poll =
+                    await this.invoke(
+                        'generate_status',
+                        {
+                            reasoningRunId,
+                            draftRunId
+                        }
+                    );
 
-                showNotification(
-                    'AI hukuki analiz aşaması ek veri istedi: ' +
-                    (
+                generation =
+                    poll.generation ||
+                    {};
+
+                draftRunId =
+                    generation
+                        ?.draftRunId ||
+                    draftRunId;
+
+                if (
+                    generation
+                        ?.generationStatus ===
+                    'pending'
+                ) {
+                    continue;
+                }
+
+                if (
+                    generation
+                        ?.generationStatus ===
+                    'qa_failed'
+                ) {
+
+                    this.transientDraft =
                         generation
-                            .missingCriticalFacts ||
-                        []
-                    ).join(' | '),
-                    'warning'
+                            ?.petition ||
+                        null;
+
+                    this.transientQa =
+                        generation
+                            ?.qaReport ||
+                        null;
+
+                    showNotification(
+                        '6.1.5.2 taslak üretildi ancak strict QA geçmedi. DB’ye kaydedilmedi; Word export kapalı.',
+                        'error'
+                    );
+
+                    return;
+                }
+
+                if (
+                    generation
+                        ?.generationStatus ===
+                    'completed'
+                ) {
+
+                    this.status =
+                        poll.status ||
+                        this.status;
+
+                    this.transientDraft =
+                        null;
+
+                    this.transientQa =
+                        null;
+
+                    this.selectedVersion =
+                        this.status
+                            ?.drafts
+                            ?.[0]
+                            ?.version_no ??
+                        generation
+                            ?.versionNo ??
+                        null;
+
+                    const advisoryCount =
+                        (
+                            generation
+                                ?.reasoningValidationAdvisory ||
+                            []
+                        ).length;
+
+                    showNotification(
+                        `EVREKA 6.1.5.2 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
+                            advisoryCount
+                                ? ` (${advisoryCount} reasoning advisory)`
+                                : ''
+                        }`,
+                        'success'
+                    );
+
+                    return;
+                }
+
+                throw new Error(
+                    'Bilinmeyen generationStatus: ' +
+                    String(
+                        generation
+                            ?.generationStatus ||
+                        ''
+                    )
                 );
-
-
-                this.render();
-
-                return;
             }
 
-
-            if (
-                generation
-                    .generationStatus ===
-                'qa_failed'
-            ) {
-
-                this.transientDraft =
-                    generation.petition ||
-                    null;
-
-
-                this.transientQa =
-                    generation.qaReport ||
-                    null;
-
-
-                showNotification(
-                    'Taslak üretildi ancak deterministik QA geçmedi; DB’ye nihai taslak olarak kaydedilmedi.',
-                    'error'
-                );
-
-
-                this.render();
-
-                return;
-            }
-
-
-            this.transientDraft =
-                null;
-
-
-            this.transientQa =
-                null;
-
-
-            showNotification(
-                `Dilekçe V${generation.versionNo} üretildi, denetlendi ve kaydedildi.`,
-                'success'
+            throw new Error(
+                '15 dakikalık üretim süresi doldu. Background run devam ediyor olabilir.'
             );
-
-
-            this.render();
 
         } catch (error) {
 
             console.error(
-                'Dilekçe üretim hatası:',
+                '6.1.5.2 dilekçe üretim hatası:',
                 error
             );
-
 
             showNotification(
                 'Dilekçe üretim hatası: ' +
@@ -1938,104 +1316,84 @@ export class OppositionDraftManager {
                 'error'
             );
 
+        } finally {
 
-            if (button) {
+            this.isGenerating =
+                false;
 
-                button.disabled =
-                    false;
+            this.generationMessage =
+                '';
 
-
-                button.innerHTML = `
-                    <i class="fas fa-magic mr-2"></i>
-                    Dilekçe Taslağı Oluştur
-                `;
-            }
+            this.render();
         }
     }
 
 
     async generateWord() {
 
-        const button =
-            document.getElementById(
-                'oppDraftWordBtn'
-            );
-
+        const currentDraft =
+            this.currentDraftObject();
 
         const editor =
             document.getElementById(
                 'oppDraftEditor'
             );
 
-
         const petitionText =
             editor
                 ?.value
                 ?.trim();
 
-
-        if (!petitionText) {
-
-            return showNotification(
-                'Word oluşturulacak taslak metin bulunamadı.',
-                'warning'
-            );
-        }
-
-
-        const currentDraft =
-            this.currentDraftObject();
-
-
-        if (!currentDraft) {
-
-            return showNotification(
-                'Profesyonel Word yalnız kaydedilmiş ve QA kontrolünden geçmiş bir dilekçe versiyonundan oluşturulabilir.',
-                'warning'
-            );
-        }
-
-
-        const qaReport =
-            this.transientDraft
-                ? this.transientQa
-                : currentDraft
-                    ?.qa_report;
-
-
-        const qaVersion =
-            Number(
-                qaReport
-                    ?.version ??
-                0
-            );
-
-
-        // Paket 6.0.7 TEST/REVIEW MODE:
-        // QA raporu ve sürüm bilgisi bulunmaya devam etsin, ancak
-        // finalPass=false Word export'u bloke etmesin. QA sonucu Word içinde
-        // ve arayüzde inceleme amacıyla görünmeye devam eder.
         if (
-            !qaReport ||
-            !Number.isFinite(
-                qaVersion
-            ) ||
-            qaVersion <
-            3 ||
-            String(
-                qaReport
-                    ?.packageVersion ??
-                ''
-            ) !==
-            '4.2'
+            !currentDraft ||
+            !petitionText
         ) {
 
             return showNotification(
-                'Seçili dilekçenin QA metadata/sürüm bilgisi Word export için uygun değil.',
+                'Word oluşturulacak kaydedilmiş dilekçe versiyonu bulunamadı.',
                 'warning'
             );
         }
 
+        const qaReport =
+            currentDraft
+                ?.qa_report;
+
+        if (
+            qaReport
+                ?.finalPass !==
+            true ||
+            String(
+                qaReport
+                    ?.enginePackageVersion ||
+                ''
+            ) !==
+            '6.1.5.2'
+        ) {
+
+            return showNotification(
+                'Profesyonel Word yalnız EVREKA 6.1.5.2 strict QA PASS kaydedilmiş versiyondan oluşturulabilir.',
+                'warning'
+            );
+        }
+
+        if (
+            /\[(?:S|K)\d{1,3}\]/i.test(
+                petitionText
+            ) ||
+            /⟦[^⟧]*⟧/.test(
+                petitionText
+            ) ||
+            /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(
+                petitionText
+            )
+        ) {
+
+            return showNotification(
+                'Dilekçe metninde internal marker/UUID bulundu. Word export durduruldu.',
+                'error'
+            );
+        }
 
         const snapshot =
             currentDraft
@@ -2043,12 +1401,10 @@ export class OppositionDraftManager {
                 ?.documentDataSnapshot ||
             null;
 
-
         const currentDocumentData =
             this.status
                 ?.documentData ||
             null;
-
 
         const versionFingerprint =
             currentDraft
@@ -2056,12 +1412,10 @@ export class OppositionDraftManager {
                 ?.sourceFingerprint ||
             null;
 
-
         const currentFingerprint =
             currentDocumentData
                 ?.sourceFingerprint ||
             null;
-
 
         if (
             !snapshot &&
@@ -2072,39 +1426,38 @@ export class OppositionDraftManager {
         ) {
 
             return showNotification(
-                'Seçili dilekçe versiyonunun belge snapshot’ı yok ve güncel analiz verileri değişmiş. Yanlış kapsamla Word oluşturmamak için işlem durduruldu. Önce yeni bir dilekçe versiyonu üretin.',
+                'Seçili dilekçe versiyonunun belge snapshot’ı yok ve güncel analiz verileri değişmiş. Önce yeni 6.1 versiyonu üretin.',
                 'warning'
             );
         }
 
-
         const documentData =
             snapshot ||
-            currentDocumentData ||
-            null;
-
+            currentDocumentData;
 
         if (!documentData) {
 
             return showNotification(
-                'Profesyonel Word için doğrulanmış belge verisi bulunamadı.',
+                'Profesyonel Word için belge verisi bulunamadı.',
                 'warning'
             );
         }
 
+        const button =
+            document.getElementById(
+                'oppDraftWordBtn'
+            );
 
         if (button) {
 
             button.disabled =
                 true;
 
-
             button.innerHTML = `
                 <i class="fas fa-spinner fa-spin mr-2"></i>
                 Profesyonel Word hazırlanıyor...
             `;
         }
-
 
         try {
 
@@ -2117,10 +1470,8 @@ export class OppositionDraftManager {
                     ?.opponentAppNo ||
                 '';
 
-
             const fileName =
                 applicationNo
-
                     ? `${
                         String(
                             applicationNo
@@ -2130,9 +1481,7 @@ export class OppositionDraftManager {
                                 '-'
                             )
                     }_Yayima_Itiraz_Dilekcesi.docx`
-
                     : 'Yayima_Itiraz_Dilekcesi.docx';
-
 
             const result =
                 await this
@@ -2141,9 +1490,8 @@ export class OppositionDraftManager {
                         documentData,
                         petitionText,
                         qaReport,
-                        fileName,
+                        fileName
                     });
-
 
             const imageSummary =
                 `${
@@ -2155,12 +1503,10 @@ export class OppositionDraftManager {
                         : ''
                 );
 
-
             showNotification(
-                `Profesyonel Word belgesi oluşturuldu (${imageSummary}).`,
+                `Profesyonel Word oluşturuldu (${imageSummary}).`,
                 'success'
             );
-
 
         } catch (error) {
 
@@ -2169,25 +1515,18 @@ export class OppositionDraftManager {
                 error
             );
 
-
             showNotification(
                 'Profesyonel Word oluşturma hatası: ' +
                 error.message,
                 'error'
             );
 
-
         } finally {
 
             if (button) {
 
                 button.disabled =
-                    !this.status
-                        ?.canGenerate &&
-                    !Boolean(
-                        petitionText
-                    );
-
+                    false;
 
                 button.innerHTML = `
                     <i class="fas fa-file-word mr-2"></i>
@@ -2195,4 +1534,5 @@ export class OppositionDraftManager {
                 `;
             }
         }
-    }}
+    }
+}

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>IPGATE - Yayıma İtiraz Çalışma Alanı</title>
+
+    <link
+        rel="stylesheet"
+        href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    >
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="./css/shared-styles.css"
+    >
+
+    <!--
+        Mevcut opposition manager'larının kullandığı
+        .opp-* / draft görsel sınıfları burada yaşamaya devam ediyor.
+    -->
+    <link
+        rel="stylesheet"
+        href="./css/task-update.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="./css/opposition-workspace.css"
+    >
+</head>
+
+<body>
+    <div
+        id="notification-container"
+        style="
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        "
+    ></div>
+
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="opp-studio-page">
+
+            <section class="opp-studio-header">
+                <div class="opp-studio-header-main">
+                    <div class="opp-studio-eyebrow">
+                        EVREKA · TRADEMARK OPPOSITION STUDIO
+                    </div>
+
+                    <div class="opp-studio-title-row">
+                        <div>
+                            <h1
+                                id="oppStudioTitle"
+                                class="opp-studio-title"
+                            >
+                                Yayıma İtiraz Çalışma Alanı
+                            </h1>
+
+                            <div
+                                id="oppStudioSubtitle"
+                                class="opp-studio-subtitle"
+                            >
+                                Dosya hazırlanıyor...
+                            </div>
+                        </div>
+
+                        <div class="opp-studio-header-actions">
+                            <a
+                                href="./my-tasks.html"
+                                class="btn btn-light border"
+                            >
+                                <i class="fas fa-arrow-left mr-2"></i>
+                                İşlerime Dön
+                            </a>
+
+                            <a
+                                id="oppStudioTaskDetailLink"
+                                href="#"
+                                target="_blank"
+                                rel="noopener"
+                                class="btn btn-outline-primary"
+                            >
+                                <i class="fas fa-external-link-alt mr-2"></i>
+                                İş Detayı
+                            </a>
+                        </div>
+                    </div>
+
+                    <div
+                        id="oppStudioCaseMeta"
+                        class="opp-studio-case-meta"
+                    >
+                        <span class="opp-studio-meta-chip">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Yükleniyor
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="opp-studio-shell">
+                <nav
+                    class="opp-studio-nav"
+                    aria-label="Yayıma itiraz çalışma aşamaları"
+                >
+                    <button
+                        type="button"
+                        class="opp-studio-nav-item is-active"
+                        data-stage="case"
+                    >
+                        <span class="opp-studio-nav-number">1</span>
+                        <span class="opp-studio-nav-copy">
+                            <strong>Dosya ve Kapsam</strong>
+                            <small>
+                                Rakip başvuru · müstenit haklar · gerekçeler
+                            </small>
+                        </span>
+                        <span
+                            class="opp-studio-nav-status"
+                            data-stage-status="case"
+                        >
+                            —
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        class="opp-studio-nav-item"
+                        data-stage="analysis"
+                    >
+                        <span class="opp-studio-nav-number">2</span>
+                        <span class="opp-studio-nav-copy">
+                            <strong>Hukuki Analiz</strong>
+                            <small>
+                                SMK 6/1 karar ağacı
+                            </small>
+                        </span>
+                        <span
+                            class="opp-studio-nav-status"
+                            data-stage-status="analysis"
+                        >
+                            —
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        class="opp-studio-nav-item"
+                        data-stage="draft"
+                    >
+                        <span class="opp-studio-nav-number">3</span>
+                        <span class="opp-studio-nav-copy">
+                            <strong>Dilekçe</strong>
+                            <small>
+                                6.1 taslak · QA · Word
+                            </small>
+                        </span>
+                        <span
+                            class="opp-studio-nav-status"
+                            data-stage-status="draft"
+                        >
+                            —
+                        </span>
+                    </button>
+                </nav>
+
+                <div class="opp-studio-body">
+
+                    <section
+                        class="opp-studio-stage is-active"
+                        data-stage-panel="case"
+                    >
+                        <div class="opp-studio-stage-heading">
+                            <div>
+                                <div class="opp-studio-stage-kicker">
+                                    ADIM 1 / 3
+                                </div>
+
+                                <h2>
+                                    Yayına İtiraz Çalışma Alanı
+                                </h2>
+
+                                <p>
+                                    Dosyanın canonical kapsamını oluşturun:
+                                    itiraz edilen marka, müstenit haklar,
+                                    hukuki gerekçeler ve dosya seviyesi.
+                                </p>
+                            </div>
+
+                            <span
+                                id="oppositionWorkspaceStatusBadge"
+                                class="opp-status-badge opp-status-loading"
+                            >
+                                Yükleniyor
+                            </span>
+                        </div>
+
+                        <!--
+                            Yeni ayrı sayfa için sade Case Scope manager mount'u.
+                            Mevcut task-update manager'ı değiştirilmez.
+                        -->
+                        <div
+                            id="oppositionCaseScopeMount"
+                            class="opp-studio-manager-mount"
+                        ></div>
+                    </section>
+
+                    <section
+                        class="opp-studio-stage"
+                        data-stage-panel="analysis"
+                    >
+                        <div class="opp-studio-stage-heading">
+                            <div>
+                                <div class="opp-studio-stage-kicker">
+                                    ADIM 2 / 3
+                                </div>
+
+                                <h2>
+                                    Karıştırılma İhtimali Hukuki Analizi
+                                </h2>
+
+                                <p>
+                                    Avukatın hukuki teşhisi burada kilitlenir.
+                                    AI bu ekranda hukuki bulgu önermez.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            id="smk61DecisionTreeMount"
+                            class="opp-studio-manager-mount"
+                        ></div>
+                    </section>
+
+                    <section
+                        class="opp-studio-stage"
+                        data-stage-panel="draft"
+                    >
+                        <div class="opp-studio-stage-heading">
+                            <div>
+                                <div class="opp-studio-stage-kicker">
+                                    ADIM 3 / 3
+                                </div>
+
+                                <h2>
+                                    Yayıma İtiraz Dilekçe Taslağı
+                                </h2>
+
+                                <p>
+                                    Layered Authority Intelligence,
+                                    Sol reasoning, strict QA, versiyonlar
+                                    ve profesyonel Word çıktısı.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            id="oppositionDraftMount"
+                            class="opp-studio-manager-mount"
+                        ></div>
+                    </section>
+
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script
+        src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+    ></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+    ></script>
+    <script
+        src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+    ></script>
+
+    <script
+        type="module"
+        src="./js/opposition-workspace/main.js"
+    ></script>
+</body>
+</html>

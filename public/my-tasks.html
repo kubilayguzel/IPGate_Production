@@ -22,7 +22,7 @@
                 <h1 class="page-title">İşlerim</h1>
                 <p class="page-subtitle">Size atanmış olan tüm görevleri buradan takip edebilirsiniz.</p>
             </section>
-    
+
             <div class="tasks-container">
                 <ul class="nav nav-tabs mb-4" id="taskTabs" role="tablist" style="border-bottom: 2px solid #dee2e6;">
                     <li class="nav-item">
@@ -70,7 +70,7 @@
                             <tr>
                                 <th class="no-sort"><input type="checkbox" id="selectAllTasks"></th>
                                 <th data-sort="id">İş No. <i class="fas fa-sort"></i></th>
-                                <th data-sort="originDisplay" class="text-center">Menşe <i class="fas fa-sort"></i></th> <!-- 🔥 YENİ EKLENDİ -->
+                                <th data-sort="originDisplay" class="text-center">Menşe <i class="fas fa-sort"></i></th>
                                 <th data-sort="relatedRecordDisplay">İlgili Kayıt <i class="fas fa-sort"></i></th>
                                 <th data-sort="taskTypeDisplay">Tip <i class="fas fa-sort"></i></th>
                                 <th data-sort="priority">Öncelik <i class="fas fa-sort"></i></th>
@@ -100,12 +100,12 @@
             <div id="modalBody" class="modal-body-content"></div>
         </div>
     </div>
-    
+
     <div class="modal" id="createMyTaskAccrualModal">
         <div class="modal-content">
             <span class="close-modal-btn" id="closeMyTaskAccrualModal">&times;</span>
             <h3 class="modal-title">Ek Tahakkuk Oluştur</h3>
-            
+
             <div id="createMyTaskAccrualFormContainer"></div>
 
             <div class="modal-footer">
@@ -119,7 +119,7 @@
         <div class="modal-content">
             <span class="close-modal-btn" onclick="document.getElementById('completeAccrualTaskModal').classList.remove('show')">&times;</span>
             <h3 class="modal-title">Tahakkuk Oluştur ve Tamamla</h3>
-            
+
             <input type="hidden" id="targetTaskIdForCompletion">
             <div id="completeAccrualFormContainer"></div>
 
@@ -140,7 +140,7 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                
+
                 <div class="modal-body bg-white p-4">
                     <div id="applicationSummaryContent">
                         <div class="d-flex justify-content-center py-5">
@@ -181,7 +181,22 @@
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 
     <script src="./js/deadline-highlighter.js"></script>
-    <script type="module" src="./js/task-management/my-tasks.js"></script>
+
+    <script
+        type="module"
+        src="./js/task-management/my-tasks.js"
+    ></script>
+
+    <!--
+        Paket 6.1.8:
+        yalnız Task Type 20 satırlarına yeni Opposition Studio ikonu ekler.
+        my-tasks.js dosyasına dokunulmaz.
+    -->
+    <script
+        type="module"
+        src="./js/task-management/opposition-workspace-launcher.js"
+    ></script>
+
     <script src="js/simple-loading.js"></script>
 </body>
 </html>

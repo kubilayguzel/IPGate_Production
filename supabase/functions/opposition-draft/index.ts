@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
 const ORCHESTRATOR_PATCH_VERSION = "6.1.8.3";
+const INPUT_POLICY_VERSION = "6.1.10";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -556,26 +557,57 @@ function buildCanonicalPayload(
   const matchedByPrior =
     new Map<string, Set<number>>();
 
+  let manualGoodsComparisonCount =
+    0;
+
   for (const row of requestedRows) {
     const similarityLevel =
       normalizeText(row?.similarityLevel);
 
-    if (
-      ["", "none", "not_assessed"].includes(
-        similarityLevel,
-      )
-    ) {
-      blockers.push(
-        `Rakip Sınıf ${row?.opponentClassNo} için ret talebi ile benzerlik sonucu uyumsuz.`,
+    const matched =
+      asStringArray(
+        row?.matchedPriorClasses,
       );
+
+    const criteria =
+      asStringArray(
+        row?.criteria,
+      );
+
+    const hasManualFinding =
+      (
+        similarityLevel &&
+        similarityLevel !==
+          "not_assessed"
+      ) ||
+      matched.length > 0 ||
+      criteria.length > 0 ||
+      Boolean(
+        normalizeText(
+          row?.note,
+        ),
+      );
+
+    if (hasManualFinding) {
+      manualGoodsComparisonCount +=
+        1;
     }
 
-    const matched =
-      asStringArray(row?.matchedPriorClasses);
-
-    if (matched.length === 0) {
-      blockers.push(
-        `Rakip Sınıf ${row?.opponentClassNo} için dayanılan müstenit sınıf bulunmuyor.`,
+    /*
+     * 6.1.10:
+     * similarity / matched classes / criteria artık filing preflight
+     * blocker DEĞİLDİR.
+     *
+     * Girilmişse canonical lawyer finding olarak korunur.
+     * Girilmemişse selected prior right'ın gerçek sicil kapsamı
+     * legal reasoning'e tam olarak aktarılır.
+     */
+    if (
+      similarityLevel ===
+      "none"
+    ) {
+      warnings.push(
+        `Rakip Sınıf ${row?.opponentClassNo} için "benzer değil" avukat bulgusu mevcutken ret talebi açıktır.`,
       );
     }
 
@@ -588,21 +620,32 @@ function buildCanonicalPayload(
       }
 
       const priorId =
-        key.slice(0, splitIndex);
+        key.slice(
+          0,
+          splitIndex,
+        );
 
       const classNo =
         Number(
-          key.slice(splitIndex + 1),
+          key.slice(
+            splitIndex + 1,
+          ),
         );
 
       if (
         !priorId ||
-        !Number.isFinite(classNo)
+        !Number.isFinite(
+          classNo,
+        )
       ) {
         continue;
       }
 
-      if (!matchedByPrior.has(priorId)) {
+      if (
+        !matchedByPrior.has(
+          priorId,
+        )
+      ) {
         matchedByPrior.set(
           priorId,
           new Set<number>(),
@@ -615,6 +658,15 @@ function buildCanonicalPayload(
     }
   }
 
+  if (
+    manualGoodsComparisonCount ===
+    0
+  ) {
+    warnings.push(
+      "Mal/hizmet karşılaştırması için manuel avukat seviyesi/sınıf/kriter girdisi bulunmuyor. Legal Reasoning canonical sicil metinleri ve verified authority pack üzerinden karşılaştırma yapacaktır.",
+    );
+  }
+
   const clientMarks =
     priorRights.map(
       (right: any) => {
@@ -624,49 +676,79 @@ function buildCanonicalPayload(
           ) ??
           new Set<number>();
 
+        const hasManualClassScope =
+          matchedClasses.size >
+          0;
+
         const classes =
-          safeArray(right?.classes)
+          safeArray(
+            right?.classes,
+          )
             .filter(
               (cls: any) =>
+                !hasManualClassScope ||
                 matchedClasses.has(
-                  Number(cls?.classNo),
+                  Number(
+                    cls?.classNo,
+                  ),
                 ),
             )
             .map(
               (cls: any) => ({
                 classNo:
-                  Number(cls?.classNo),
+                  Number(
+                    cls?.classNo,
+                  ),
                 items:
-                  safeArray(cls?.items)
-                    .map(String),
+                  safeArray(
+                    cls?.items,
+                  ).map(
+                    String,
+                  ),
               }),
             );
 
         return {
           ipRecordId:
             right?.id,
+
           markText:
             right?.markText,
+
           markType:
             right?.markType,
+
           imageUrl:
-            right?.imageUrl ?? null,
+            right?.imageUrl ??
+            null,
+
           applicationNo:
             right?.applicationNo,
+
           applicationDate:
             right?.applicationDate,
+
           registrationNo:
             right?.registrationNo,
+
           registrationDate:
             right?.registrationDate,
+
           proofOfUseRequired:
             right?.proofOfUseRequired,
+
           proofOfUseStatus:
             right?.proofOfUseStatus,
+
+          manualClassScopeApplied:
+            hasManualClassScope,
+
           classes,
+
           goodsServices:
             classes.flatMap(
-              (cls: any) => cls.items,
+              (cls: any) =>
+                cls.items,
             ),
         };
       },
@@ -675,12 +757,14 @@ function buildCanonicalPayload(
   if (
     !clientMarks.some(
       (mark: any) =>
-        safeArray(mark?.goodsServices)
-          .length > 0,
+        safeArray(
+          mark?.goodsServices,
+        ).length >
+        0,
     )
   ) {
     blockers.push(
-      "Dayanılan müstenit sınıfların gerçek mal/hizmet metni bulunmuyor.",
+      "Seçili müstenit markaların gerçek mal/hizmet metni bulunmuyor.",
     );
   }
 
@@ -825,6 +909,21 @@ function buildCanonicalPayload(
       priorRightsReview:
         formData.priorRightsReview ?? [],
       goodsAssessments,
+
+      goodsInputPolicy: {
+        version:
+          INPUT_POLICY_VERSION,
+
+        manualComparisonOptional:
+          true,
+
+        explicitLawyerFindingsBinding:
+          true,
+
+        fallbackWhenMissing:
+          "canonical_goods_text_plus_verified_authority",
+      },
+
       signAssessment:
         formData.signAssessment ?? {},
       publicAssessment:
@@ -1453,6 +1552,9 @@ async function buildStatus(
 
     orchestratorPatchVersion:
       ORCHESTRATOR_PATCH_VERSION,
+
+    inputPolicyVersion:
+      INPUT_POLICY_VERSION,
   };
 }
 
@@ -2404,6 +2506,9 @@ async function generateStart(
 
       orchestratorPatchVersion:
         ORCHESTRATOR_PATCH_VERSION,
+
+      inputPolicyVersion:
+        INPUT_POLICY_VERSION,
     };
   }
 

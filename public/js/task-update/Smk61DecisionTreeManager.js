@@ -1,7 +1,7 @@
 import { supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
 
-const UX_PACKAGE_VERSION = '6.1.8.2';
+const UX_PACKAGE_VERSION = '6.1.10';
 
 const GOODS_SIMILARITY_OPTIONS = [
   ['', 'Seçiniz...'], ['identical', 'Aynı / özdeş'], ['high', 'Yüksek'],
@@ -313,15 +313,135 @@ export class Smk61DecisionTreeManager {
     return `<div class="o617-choicegrp ${result?'o617-result':''}" data-choice="${id}"><select id="${id}" class="o617-hidden ${className}" tabindex="-1">${this.optionList(options,selected)}</select><div class="o617-choices">${options.filter(([v])=>v!=='').map(([v,l])=>`<button type="button" class="o617-choice ${v===selected?'sel':''}" data-value="${this.escape(v)}">${this.escape(l)}</button>`).join('')}</div></div>`;
   }
 
+  priorGoodsHtml(classes=[]) {
+    if(!Array.isArray(classes)||!classes.length){
+      return '<div class="o617-meta">Mal/hizmet listesi bulunamadı.</div>';
+    }
+
+    return `<details class="o617-details">
+      <summary>
+        <i class="fas fa-list-ul mr-1"></i>
+        Mal / hizmet listesini göster
+        · ${this.escape(classes.map(x=>`Sınıf ${x.classNo}`).join(' · '))}
+      </summary>
+
+      <div class="o617-gtext">
+        ${classes.map(cls=>{
+          const items=Array.isArray(cls.items)?cls.items:[];
+          return `<div style="margin-bottom:10px">
+            <strong>Sınıf ${this.escape(cls.classNo??'-')}</strong>
+            <div style="margin-top:3px">
+              ${this.escape(items.length?items.join('; '):'Bu sınıf için emtia metni bulunamadı.')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </details>`;
+  }
+
   priorRightsHtml() {
-    const rights=this.context?.priorRights||[], rows=this.context?.formData?.priorRightsReview||[];
-    if (!rights.length) return '<div class="o617-box o617-soft">Seçili müstenit hak bulunmuyor.</div>';
+    const rights=this.context?.priorRights||[];
+    const rows=this.context?.formData?.priorRightsReview||[];
+
+    if (!rights.length) {
+      return '<div class="o617-box o617-soft">Seçili müstenit hak bulunmuyor.</div>';
+    }
+
     return rights.map(right=>{
-      const review=rows.find(x=>String(x.ipRecordId)===String(right.id))||{}, blockers=right.autoChecks?.blockers||[], warnings=right.autoChecks?.warnings||[];
-      const cls=(right.classes||[]).map(x=>`Sınıf ${x.classNo}`).join(' · ');
-      return `<div class="o617-box opp61-prior-review" data-prior-id="${this.escape(right.id)}"><div class="o617-boxhead"><div><div class="o617-ctitle">${this.escape(right.markText||'-')}</div><div class="o617-meta">Başvuru: ${this.escape(right.applicationNo||'-')} · Tescil: ${this.escape(right.registrationNo||'-')} · Statü: ${this.escape(right.status||'-')}</div>${cls?`<div class="o617-meta">${this.escape(cls)}</div>`:''}</div><label class="o617-confirm"><input type="checkbox" class="opp61-prior-confirm" ${review.confirmedEligible?'checked':''}><span>Uygunluğu teyit edildi</span></label></div>
-        ${blockers.length?`<div class="o617-auto bad">${blockers.map(x=>`<div><i class="fas fa-times-circle mr-1"></i>${this.escape(x)}</div>`).join('')}</div>`:''}${warnings.length?`<div class="o617-auto warn">${warnings.map(x=>`<div><i class="fas fa-exclamation-triangle mr-1"></i>${this.escape(x)}</div>`).join('')}</div>`:''}
-        <div style="margin-top:12px"><div class="o617-label"><span>Kısa not</span><span class="o617-req">opsiyonel</span></div><textarea class="o617-text opp61-prior-note" rows="2" placeholder="Bu hak bakımından gerekiyorsa kısa not...">${this.escape(review.note||'')}</textarea></div></div>`;
+      const review=
+        rows.find(
+          x=>String(x.ipRecordId)===String(right.id)
+        )||{};
+
+      const blockers=
+        right.autoChecks?.blockers||[];
+
+      const warnings=
+        right.autoChecks?.warnings||[];
+
+      const cls=
+        (right.classes||[])
+          .map(x=>`Sınıf ${x.classNo}`)
+          .join(' · ');
+
+      /*
+       * 6.1.10:
+       * Marka bir önceki Dosya ve Kapsam ekranında zaten mesnet olarak
+       * seçilmiş olduğundan tekrar manuel teyit işi yaratmıyoruz.
+       * Yalnız kullanıcı açıkça kaldırırsa false olur.
+       */
+      const confirmed=
+        review.confirmedEligible !== false;
+
+      return `<div
+        class="o617-box opp61-prior-review"
+        data-prior-id="${this.escape(right.id)}"
+      >
+        <div class="o617-boxhead">
+          <div>
+            <div class="o617-ctitle">
+              ${this.escape(right.markText||'-')}
+            </div>
+
+            <div class="o617-meta">
+              Başvuru:
+              ${this.escape(right.applicationNo||'-')}
+              · Tescil:
+              ${this.escape(right.registrationNo||'-')}
+              · Statü:
+              ${this.escape(right.status||'-')}
+            </div>
+
+            ${cls
+              ?`<div class="o617-meta">${this.escape(cls)}</div>`
+              :''
+            }
+          </div>
+
+          <label class="o617-confirm">
+            <input
+              type="checkbox"
+              class="opp61-prior-confirm"
+              ${confirmed?'checked':''}
+            >
+            <span>Uygunluğu teyit edildi</span>
+          </label>
+        </div>
+
+        <div class="o617-meta" style="margin-top:-3px;margin-bottom:8px">
+          Mesnet olarak seçildiği için teyit başlangıçta aktiftir.
+          Yalnız bu hakkın kullanılmaması gerekiyorsa tiki kaldırın.
+        </div>
+
+        ${this.priorGoodsHtml(
+          right.classes||[]
+        )}
+
+        ${blockers.length
+          ?`<div class="o617-auto bad">${blockers.map(x=>`<div><i class="fas fa-times-circle mr-1"></i>${this.escape(x)}</div>`).join('')}</div>`
+          :''
+        }
+
+        ${warnings.length
+          ?`<div class="o617-auto warn">${warnings.map(x=>`<div><i class="fas fa-exclamation-triangle mr-1"></i>${this.escape(x)}</div>`).join('')}</div>`
+          :''
+        }
+
+        <details class="o617-mini">
+          <summary>
+            Kısa not
+            <span class="o617-req">opsiyonel</span>
+          </summary>
+
+          <div class="o617-mini-body">
+            <textarea
+              class="o617-text opp61-prior-note"
+              rows="2"
+              placeholder="Bu hak bakımından gerekiyorsa kısa not..."
+            >${this.escape(review.note||'')}</textarea>
+          </div>
+        </details>
+      </div>`;
     }).join('');
   }
 
@@ -343,7 +463,8 @@ export class Smk61DecisionTreeManager {
 
     return `<div class="o617-gbulk">
       <div class="o617-gbulkcopy">
-        Tüm rakip sınıflar için ret talebini tek hareketle yönetebilirsiniz.
+        Ret kapsamı filing için gereklidir.
+        Benzerlik derecesi, dayanılan sınıf ve kriterler ise opsiyonel avukat girdileridir.
       </div>
 
       <div class="o617-gbulkactions">
@@ -369,9 +490,17 @@ export class Smk61DecisionTreeManager {
       const no=Number(row.opponentClassNo);
       const sim=row.similarityLevel==='not_assessed'?'':(row.similarityLevel||'');
       const requested=this.requestedRefusalValue(row);
+      const scopeMode=
+        row.refusalScopeMode||
+        (requested?'full_class':'');
+
       const simLabel=requested
-        ? this.label(GOODS_SIMILARITY_OPTIONS,sim,'Girilmedi')
-        : 'Değerlendirme gerekmiyor';
+        ? this.label(
+            GOODS_SIMILARITY_OPTIONS,
+            sim,
+            'Avukat bulgusu yok'
+          )
+        : 'Ret dışı';
 
       return `<details
         class="o617-gacc opp61-goods-card ${requested?'':'is-no-refusal'}"
@@ -397,7 +526,7 @@ export class Smk61DecisionTreeManager {
           <div class="o617-ghead">
             <div class="o617-meta">
               ${requested
-                ? 'Kararınızı girip diğer sınıfa geçebilirsiniz.'
+                ? 'Ret kapsamı hazırdır. Karşılaştırma bulgularını yalnız gerekli görüyorsanız girin.'
                 : 'Bu sınıf ret kapsamı dışında bırakılmıştır.'}
             </div>
 
@@ -414,7 +543,7 @@ export class Smk61DecisionTreeManager {
           <div class="o617-no-refusal-note">
             <i class="fas fa-check-circle mr-1"></i>
             Bu sınıf için ret talep edilmiyor.
-            Benzerlik derecesi, müstenit sınıf, kriter ve ret kapsamı girmeniz gerekmez.
+            Başka veri girmeniz gerekmez.
           </div>
 
           <div class="opp61-goods-evaluation">
@@ -423,10 +552,21 @@ export class Smk61DecisionTreeManager {
               <div class="o617-gtext">${this.escape(row.opponentText||'Metin bulunamadı.')}</div>
             </details>
 
+            <div class="o617-note">
+              <i class="fas fa-bolt"></i>
+              <div>
+                <strong>Hızlı çalışma.</strong>
+                Aşağıdaki 1–3 alanları boş bırakabilirsiniz.
+                Boş bırakılırsa dilekçe motoru canonical mal/hizmet metinlerini ve
+                verified authority pack'i kullanarak hukuki karşılaştırmayı yapar.
+                Bir değer girerseniz avukat bulgusu bağlayıcıdır ve dilekçede kullanılır.
+              </div>
+            </div>
+
             <div class="o617-box o617-soft">
               <div class="o617-label">
                 <span>1. Benzerlik derecesi</span>
-                <span class="o617-req">zorunlu</span>
+                <span class="o617-req">opsiyonel</span>
               </div>
 
               ${this.choice(
@@ -441,7 +581,7 @@ export class Smk61DecisionTreeManager {
               <div>
                 <div class="o617-label">
                   <span>2. Dayanılan müstenit sınıf(lar)</span>
-                  <span class="o617-req">benzerlik varsa zorunlu</span>
+                  <span class="o617-req">opsiyonel</span>
                 </div>
 
                 <div class="o617-box o617-soft">
@@ -452,7 +592,7 @@ export class Smk61DecisionTreeManager {
               <div>
                 <div class="o617-label">
                   <span>3. Benzerlik kriterleri</span>
-                  <span class="o617-req">benzerlik varsa zorunlu</span>
+                  <span class="o617-req">opsiyonel</span>
                 </div>
 
                 <div class="o617-box o617-soft">
@@ -464,7 +604,7 @@ export class Smk61DecisionTreeManager {
             <div class="o617-scope opp61-refusal-scope">
               <div class="o617-label">
                 <span>Ret kapsamı</span>
-                <span class="o617-req">zorunlu</span>
+                <span class="o617-req">filing kapsamı</span>
               </div>
 
               ${this.choice(
@@ -474,12 +614,12 @@ export class Smk61DecisionTreeManager {
                   ['full_class','Sınıfın tamamı'],
                   ['partial','Kısmi kapsam']
                 ],
-                row.refusalScopeMode||'',
+                scopeMode,
                 'opp61-refusal-scope-mode'
               )}
 
               <div
-                class="opp61-partial-scope-box ${row.refusalScopeMode==='partial'?'':'d-none'}"
+                class="opp61-partial-scope-box ${scopeMode==='partial'?'':'d-none'}"
                 style="margin-top:12px"
               >
                 <div class="o617-label">
@@ -495,10 +635,10 @@ export class Smk61DecisionTreeManager {
               </div>
 
               <div
-                class="opp61-full-scope-note ${row.refusalScopeMode==='full_class'?'':'d-none'}"
+                class="opp61-full-scope-note ${scopeMode==='full_class'?'':'d-none'}"
               >
                 <div class="o617-meta" style="margin-top:10px">
-                  Sistem bu sınıf için kayıtlı tam mal/hizmet metnini kullanacaktır.
+                  Default: sınıfın tamamı. Sistem kayıtlı tam mal/hizmet metnini kullanacaktır.
                 </div>
               </div>
             </div>
@@ -959,7 +1099,7 @@ export class Smk61DecisionTreeManager {
       return;
     }
     const rights=(this.context.priorRights||[]).length, classes=(this.context?.opponent?.goodsByClass||[]).length;
-    this.mount.innerHTML=`<div class="o617"><div class="o617-card"><div class="o617-head"><div><div class="o617-eye">SMK 6/1 · GUIDED DECISION TREE</div><div class="o617-title">Karıştırılma İhtimali Hukuki Analizi</div><div class="o617-sub">Avukat hukuki teşhisi verir. Sistem yalnızca eksikleri kontrol eder ve kaydedilmiş teşhisi dilekçe motoruna aktarır. AI bu ekranda hukuki bulgu önermez.</div></div><div class="o617-ver"><i class="fas fa-route mr-1"></i>UX ${UX_PACKAGE_VERSION}</div></div>${this.readinessHtml()}${this.progressHtml()}<div class="o617-layout"><main class="o617-main">${this.panel(1,'Müstenit Hakların Uygunluğu',`${rights} seçili hak. Her seçili hakkın itiraza dayanak olmaya uygunluğunu teyit edin.`,this.priorRightsHtml())}${this.panel(2,'Mal / Hizmet Karşılaştırması ve Ret Kapsamı',`${classes} rakip sınıf. Sınıflar akordeon halinde gelir; yalnız çalışacağınız sınıfı açıp hızlıca kararınızı girin.`,`<div class="o617-note"><i class="fas fa-info-circle"></i><div><strong>Uzman bulgusu esastır.</strong> “Orta”, “yüksek” veya başka bir benzerlik düzeyi AI tarafından belirlenmez.</div></div>${this.goodsHtml()}`)}${this.panel(3,'İşaretlerin Karşılaştırılması','Önce benzerlik sonuçlarını girin. Baskın unsur, ayırt edicilik ve ek unsur rolleri “İleri unsur analizi” altında tutulur.',this.signHtml())}${this.panel(4,'İlgili Tüketici ve Dikkat Düzeyi','İlgili tüketici kesimini ve temel dikkat düzeyini seçin. Gerekirse dosyaya özgü nüansı kısa notta açıklayın.',this.publicHtml())}${this.panel(5,'Bütüncül Değerlendirme ve Sonuç','Aşağıdaki özetten girdiğiniz hukuki bulguları kontrol edin; sonra global sonucu ve avukat değerlendirmesini kaydedin.',this.globalHtml())}</main><aside class="o617-side"><div class="o617-side-title">Canlı Hukuki Özet</div><div id="o617Summary"></div></aside></div></div></div>`;
+    this.mount.innerHTML=`<div class="o617"><div class="o617-card"><div class="o617-head"><div><div class="o617-eye">SMK 6/1 · GUIDED DECISION TREE</div><div class="o617-title">Karıştırılma İhtimali Hukuki Analizi</div><div class="o617-sub">Avukat hukuki teşhisi verir. Sistem yalnızca eksikleri kontrol eder ve kaydedilmiş teşhisi dilekçe motoruna aktarır. AI bu ekranda hukuki bulgu önermez.</div></div><div class="o617-ver"><i class="fas fa-route mr-1"></i>UX ${UX_PACKAGE_VERSION}</div></div>${this.readinessHtml()}${this.progressHtml()}<div class="o617-layout"><main class="o617-main">${this.panel(1,'Müstenit Hakların Uygunluğu',`${rights} seçili hak. Mesnet olarak seçilmiş haklar default teyitli gelir; yalnız kullanılmayacak bir hak varsa tiki kaldırın.`,this.priorRightsHtml())}${this.panel(2,'Mal / Hizmet Karşılaştırması ve Ret Kapsamı',`${classes} rakip sınıf. Ret kapsamı default olarak sınıfın tamamıdır; karşılaştırma bulguları yalnız gerekli olduğunda girilir.`,`<div class="o617-note"><i class="fas fa-info-circle"></i><div><strong>Opsiyonel avukat bulgusu.</strong> Benzerlik seviyesi, dayanılan sınıf ve kriter girerseniz AI bunları değiştirmez. Boş bırakırsanız canonical emtia metinleri üzerinden hukuki analiz yapılır.</div></div>${this.goodsHtml()}`)}${this.panel(3,'İşaretlerin Karşılaştırılması','Önce benzerlik sonuçlarını girin. Baskın unsur, ayırt edicilik ve ek unsur rolleri “İleri unsur analizi” altında tutulur.',this.signHtml())}${this.panel(4,'İlgili Tüketici ve Dikkat Düzeyi','İlgili tüketici kesimini ve temel dikkat düzeyini seçin. Gerekirse dosyaya özgü nüansı kısa notta açıklayın.',this.publicHtml())}${this.panel(5,'Bütüncül Değerlendirme ve Sonuç','Aşağıdaki özetten girdiğiniz hukuki bulguları kontrol edin; sonra global sonucu ve avukat değerlendirmesini kaydedin.',this.globalHtml())}</main><aside class="o617-side"><div class="o617-side-title">Canlı Hukuki Özet</div><div id="o617Summary"></div></aside></div></div></div>`;
     this.bindEvents();
     this.setStep(this.activeStep,false);
     this.updateState();
@@ -1068,8 +1208,34 @@ export class Smk61DecisionTreeManager {
     const requested=
       card.querySelector('.opp61-refusal-check')?.checked===true;
 
+    const modeSelect=
+      card.querySelector('.opp61-refusal-scope-mode');
+
+    if(
+      requested &&
+      modeSelect &&
+      !modeSelect.value
+    ){
+      modeSelect.value='full_class';
+
+      const group=
+        modeSelect.closest(
+          '.o617-choicegrp'
+        );
+
+      group?.querySelectorAll(
+        '.o617-choice'
+      ).forEach(
+        button=>
+          button.classList.toggle(
+            'sel',
+            button.dataset.value==='full_class'
+          )
+      );
+    }
+
     const mode=
-      card.querySelector('.opp61-refusal-scope-mode')?.value||'';
+      modeSelect?.value||'';
 
     card.classList.toggle(
       'is-no-refusal',
@@ -1211,9 +1377,9 @@ export class Smk61DecisionTreeManager {
             ?this.label(
               GOODS_SIMILARITY_OPTIONS,
               similarity,
-              'Girilmedi'
+              'Avukat bulgusu yok'
             )
-            :'Değerlendirme gerekmiyor';
+            :'Ret dışı';
       }
 
       this.syncScope(card);
@@ -1239,28 +1405,12 @@ export class Smk61DecisionTreeManager {
         return;
       }
 
-      const sim=
-        card.querySelector('.opp61-similarity-select')?.value||'';
-
-      if(!sim){
-        m2.push(`Sınıf ${no}: benzerlik derecesi seçilmedi.`);
-        return;
-      }
-
-      if(sim!=='none'){
-        if(!card.querySelectorAll('.opp61-prior-class-check:checked').length){
-          m2.push(`Sınıf ${no}: dayanılan müstenit sınıf seçilmedi.`);
-        }
-
-        if(!card.querySelectorAll('.opp61-criteria-check:checked').length){
-          m2.push(`Sınıf ${no}: benzerlik kriteri seçilmedi.`);
-        }
-      }
-
-      if(sim==='none'){
-        m2.push(`Sınıf ${no}: "benzer değil" sonucu varken ret talebi açık.`);
-      }
-
+      /*
+       * 6.1.10:
+       * Benzerlik seviyesi, matched prior classes ve criteria
+       * filing readiness için zorunlu DEĞİLDİR.
+       * Girilirse lawyer finding olarak downstream kullanılır.
+       */
       const mode=
         card.querySelector('.opp61-refusal-scope-mode')?.value||'';
 

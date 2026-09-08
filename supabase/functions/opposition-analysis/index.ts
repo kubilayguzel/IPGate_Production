@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-const PACKAGE_VERSION = "6.1.8.2";
+const PACKAGE_VERSION = "6.1.10";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1581,10 +1581,19 @@ function buildDefaultForm(
           ipRecordId:
             right.id,
 
+          /*
+           * 6.1.10:
+           * Bu hak önceki Dosya ve Kapsam ekranında zaten mesnet olarak
+           * seçilmiştir. İlk kez Decision Tree'ye geldiğinde default
+           * uygun kabul edilir. Kullanıcının daha önce açıkça kaydettiği
+           * FALSE tercihi ise korunur.
+           */
           confirmedEligible:
             existing
-              ?.confirmedEligible ===
-            true,
+              ? existing
+                  .confirmedEligible !==
+                false
+              : true,
 
           note:
             normalizeText(
@@ -1625,14 +1634,17 @@ function buildDefaultForm(
               : true;
 
           const refusalScopeMode =
-            requestedRefusal &&
-            REFUSAL_SCOPE_MODES
-              .has(
-                existing
-                  ?.refusalScopeMode,
-              )
-              ? existing
-                  .refusalScopeMode
+            requestedRefusal
+              ? (
+                  REFUSAL_SCOPE_MODES
+                    .has(
+                      existing
+                        ?.refusalScopeMode,
+                    )
+                    ? existing
+                        .refusalScopeMode
+                    : "full_class"
+                )
               : "";
 
           const refusalScopeText =
@@ -2204,19 +2216,22 @@ function assessReadiness(
     requestedRefusalCount +=
       1;
 
-    if (
-      !GOODS_SIMILARITY_LEVELS
-        .has(
-          row.similarityLevel,
-        ) ||
-      row.similarityLevel ===
-        "not_assessed"
-    ) {
-      blockers.push(
-        `Rakip Sınıf ${opponentClassNo} için benzerlik derecesi seçilmedi.`,
+    /*
+     * 6.1.10 OPTIONAL GOODS COMPARISON POLICY
+     *
+     * Filing readiness için yalnız RET KAPSAMI zorunludur.
+     * Aşağıdaki avukat girdileri opsiyoneldir:
+     * - similarityLevel
+     * - matchedPriorClasses
+     * - criteria
+     *
+     * Girilen değerler downstream reasoning/drafting için bağlayıcı
+     * lawyer finding olarak saklanır. Boş bırakılması blocker değildir.
+     */
+    const similarityLevel =
+      normalizeText(
+        row.similarityLevel,
       );
-      continue;
-    }
 
     const matched =
       asStringArray(
@@ -2235,29 +2250,6 @@ function assessReadiness(
             ),
       );
 
-    if (
-      row.similarityLevel !==
-      "none"
-    ) {
-      if (
-        matched.length ===
-        0
-      ) {
-        blockers.push(
-          `Rakip Sınıf ${opponentClassNo} için dayanılan müstenit sınıf seçilmedi.`,
-        );
-      }
-
-      if (
-        criteria.length ===
-        0
-      ) {
-        blockers.push(
-          `Rakip Sınıf ${opponentClassNo} için mal/hizmet benzerliği kriteri seçilmedi.`,
-        );
-      }
-    }
-
     for (
       const key
       of matched
@@ -2273,11 +2265,20 @@ function assessReadiness(
     }
 
     if (
-      row.similarityLevel ===
+      similarityLevel ===
       "none"
     ) {
-      blockers.push(
-        `Rakip Sınıf ${opponentClassNo} bakımından "benzer değil" sonucu varken ret talebi işaretlenmiş.`,
+      warnings.push(
+        `Rakip Sınıf ${opponentClassNo} için "benzer değil" avukat bulgusu girildiği halde ret talebi açıktır. Bu tercih dilekçe üretiminde açık çelişki olarak dikkate alınacaktır.`,
+      );
+    }
+
+    if (
+      matched.length === 0 &&
+      criteria.length > 0
+    ) {
+      warnings.push(
+        `Rakip Sınıf ${opponentClassNo} için benzerlik kriteri girildi ancak belirli bir müstenit sınıf seçilmedi. Kriterler genel avukat bulgusu olarak korunacaktır.`,
       );
     }
 
@@ -3132,21 +3133,31 @@ function sanitizePayload(
                 requestedRefusal,
 
                 refusalScopeMode:
-                  requestedRefusal &&
-                  REFUSAL_SCOPE_MODES
-                    .has(
-                      row
-                        .refusalScopeMode,
-                    )
-                    ? row
-                        .refusalScopeMode
+                  requestedRefusal
+                    ? (
+                        REFUSAL_SCOPE_MODES
+                          .has(
+                            row
+                              .refusalScopeMode,
+                          )
+                          ? row
+                              .refusalScopeMode
+                          : "full_class"
+                      )
                     : "",
 
                 refusalScopeText:
                   requestedRefusal &&
-                  row
-                    .refusalScopeMode ===
-                    "full_class"
+                  (
+                    !REFUSAL_SCOPE_MODES
+                      .has(
+                        row
+                          .refusalScopeMode,
+                      ) ||
+                    row
+                      .refusalScopeMode ===
+                      "full_class"
+                  )
                     ? opponentText
                     : requestedRefusal &&
                       row

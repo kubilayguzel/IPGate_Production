@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
+const INPUT_POLICY_VERSION = "6.1.10";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -1390,10 +1391,21 @@ Prepare an INTERNAL LEGAL REASONING MEMORANDUM for a Turkish trademark oppositio
 This is NOT the final petition. It is the controlled reasoning layer that a later drafting model must follow.
 
 ABSOLUTE SOURCE HIERARCHY
-1. CANONICAL CASE SNAPSHOT and LAWYER DECISION TREE are binding facts/findings.
-2. VERIFIED AUTHORITY PACK is the ONLY authority universe you may cite.
-3. Your own general legal knowledge may help organize reasoning, but it CANNOT create, identify, cite, or attribute any authority outside the verified pack.
-4. If a fact or lawyer finding is absent, say it is not established. Never fill factual gaps.
+1. CANONICAL CASE SNAPSHOT is binding for facts, parties, marks, classes and actual goods/services text.
+2. EXPLICIT LAWYER DECISION TREE findings are binding whenever the lawyer supplied them.
+3. VERIFIED AUTHORITY PACK is the ONLY authority universe you may cite.
+4. Your own general legal knowledge may help organize reasoning, but it CANNOT create, identify, cite, or attribute any authority outside the verified pack.
+5. Never invent a factual use, market circumstance, reputation fact, consumer fact, goods/service wording, or other missing evidence.
+
+OPTIONAL GOODS/SERVICES INPUT POLICY — ${INPUT_POLICY_VERSION}
+- In the goodsAssessments rows, similarityLevel, matchedPriorClasses and criteria are OPTIONAL lawyer inputs.
+- Their absence is NOT a factual gap and is NOT a reason to stop the goods/services analysis.
+- If one or more of those fields are supplied, treat the supplied value as an explicit lawyer finding and do not contradict or silently replace it.
+- If they are absent, independently perform the LEGAL comparison from the canonical goods/service texts, Nice classes and verified authority pack.
+- When doing that fallback analysis, do not invent commercial facts not visible in the canonical record. Reason only from the wording, ordinary legal comparison criteria and verified propositions.
+- A missing manual similarity level means "no lawyer override supplied"; it does NOT mean "not similar" or "not established".
+- A missing matchedPriorClasses list means the selected prior mark's full canonical class/goods scope remains available for legal comparison.
+- A missing criteria list means you must identify only the criteria genuinely supported by the canonical wording and verified authority; do not manufacture complementarity, competition, channels or consumer overlap.
 
 AUTHORITY RULES
 - Cite/use authorities ONLY through propositionId fields from the Authority Pack.
@@ -1410,8 +1422,9 @@ AUTHORITY RULES
 - A Turkish authority that is only analogically relevant must be labelled analogical; do not upgrade it to a direct holding.
 
 LAWYER CONTROL RULE
-The lawyer's decision-tree findings are not suggestions. They are the factual/legal position to be developed.
-You may identify tension, vulnerability, missing proof, or counterargument, but you must not silently replace the lawyer's finding.
+The lawyer's EXPLICIT decision-tree findings are not suggestions. They are the factual/legal position to be developed.
+You may identify tension, vulnerability, missing proof, or counterargument, but you must not silently replace an explicit lawyer finding.
+For optional goods/services fields left blank, there is no lawyer finding to replace; apply the Optional Goods/Services Input Policy above.
 
 ANTI-OVERREACH RULES
 - A common letter/element is NOT automatically dominant, principal, core, or highly distinctive.

@@ -1,7 +1,7 @@
 import { supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
 
-const UX_PACKAGE_VERSION = '6.1.8.1';
+const UX_PACKAGE_VERSION = '6.1.8.2';
 
 const GOODS_SIMILARITY_OPTIONS = [
   ['', 'Seçiniz...'], ['identical', 'Aynı / özdeş'], ['high', 'Yüksek'],
@@ -95,7 +95,7 @@ export class Smk61DecisionTreeManager {
       .o617-hidden{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.o617-choices{display:flex;flex-wrap:wrap;gap:7px}.o617-choice{border:1px solid #d4dce8;background:#fff;border-radius:10px;padding:8px 10px;color:#475467;font-size:12px;font-weight:700;cursor:pointer}.o617-choice.sel{border-color:#7f9fe9;background:var(--ps);color:var(--p)}.o617-result .o617-choice{flex:1 1 150px;min-height:46px;text-align:left}
       .o617-chips{display:flex;flex-wrap:wrap;gap:7px}.o617-chip{position:relative;cursor:pointer}.o617-chip input{position:absolute;opacity:0}.o617-chip span{display:inline-flex;border:1px solid #d4dce8;border-radius:999px;padding:7px 10px;background:#fff;color:#475467;font-size:11px;font-weight:700}.o617-chip input:checked+span{border-color:#7f9fe9;background:var(--ps);color:var(--p)}.o617-markgrp{padding-bottom:10px;margin-bottom:10px;border-bottom:1px dashed #d8e0ec}.o617-markgrp:last-child{border:0;margin:0;padding:0}.o617-marktitle{font-size:11px;font-weight:800;margin-bottom:6px;color:#3d4b64}
       .o617-class{display:inline-flex;border-radius:999px;padding:5px 9px;background:#eef2f7;font-size:11px;font-weight:800}
-      .o617-gacc{border:1px solid var(--b);border-radius:14px;background:#fff;margin-bottom:10px;overflow:hidden}.o617-gacc[open]{box-shadow:0 5px 18px rgba(16,24,40,.055)}.o617-gacc>summary{list-style:none;cursor:pointer;padding:13px 15px;background:#fbfcfe}.o617-gacc>summary::-webkit-details-marker{display:none}.o617-gaccsum{display:flex;align-items:center;justify-content:space-between;gap:12px}.o617-gaccmain{display:flex;align-items:center;gap:9px;min-width:0}.o617-gacctitle{font-size:13px;font-weight:800;color:#2d3a50}.o617-gaccstate{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}.o617-gbadge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#eef2f7;color:#596579;font-size:10px;font-weight:800}.o617-gbadge.ret{background:#eaf6ee;color:#0b6b2b}.o617-gbadge.noret{background:#f3f4f6;color:#667085}.o617-gchev{color:#98a2b3;transition:transform .15s}.o617-gacc[open] .o617-gchev{transform:rotate(180deg)}.o617-gbody{padding:15px;border-top:1px solid var(--b)}
+      .o617-gacc{border:1px solid var(--b);border-radius:14px;background:#fff;margin-bottom:10px;overflow:hidden}.o617-gacc[open]{box-shadow:0 5px 18px rgba(16,24,40,.055)}.o617-gacc.is-no-refusal{background:#fafbfc}.o617-gacc.is-no-refusal>summary{opacity:.82}.o617-gbulk{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px solid var(--b);border-radius:12px;background:#f8fafc}.o617-gbulkcopy{font-size:11px;color:#667085}.o617-gbulkactions{display:flex;gap:7px;flex-wrap:wrap}.o617-gbulkbtn{appearance:none;border:1px solid #cfd8e6;border-radius:9px;background:#fff;padding:7px 10px;font-size:11px;font-weight:800;color:#475467;cursor:pointer}.o617-gbulkbtn.is-on{border-color:#9dceb0;color:#0b6b2b;background:#f2faf4}.o617-gbulkbtn.is-off{border-color:#d8dde5;color:#667085}.o617-no-refusal-note{display:none;padding:12px;border:1px solid #e1e6ec;border-radius:10px;background:#f7f8fa;color:#667085;font-size:11px;line-height:1.45}.o617-gacc.is-no-refusal .o617-no-refusal-note{display:block}.o617-gacc.is-no-refusal .opp61-goods-evaluation{display:none}.o617-quickrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}.o617-quickbtn{appearance:none;border:1px solid #d4dce8;border-radius:8px;background:#fff;padding:6px 8px;font-size:10px;font-weight:800;color:#596579;cursor:pointer}.o617-markref{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}.o617-markref span{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#eef2f7;color:#475467;font-size:10px;font-weight:800}.o617-gacc>summary{list-style:none;cursor:pointer;padding:13px 15px;background:#fbfcfe}.o617-gacc>summary::-webkit-details-marker{display:none}.o617-gaccsum{display:flex;align-items:center;justify-content:space-between;gap:12px}.o617-gaccmain{display:flex;align-items:center;gap:9px;min-width:0}.o617-gacctitle{font-size:13px;font-weight:800;color:#2d3a50}.o617-gaccstate{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}.o617-gbadge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#eef2f7;color:#596579;font-size:10px;font-weight:800}.o617-gbadge.ret{background:#eaf6ee;color:#0b6b2b}.o617-gbadge.noret{background:#f3f4f6;color:#667085}.o617-gchev{color:#98a2b3;transition:transform .15s}.o617-gacc[open] .o617-gchev{transform:rotate(180deg)}.o617-gbody{padding:15px;border-top:1px solid var(--b)}
       .o617-mini{margin-top:12px;border:1px solid #e2e8f0;border-radius:10px;background:#fafbfc}.o617-mini summary{padding:8px 10px;cursor:pointer;font-size:11px;font-weight:700;color:#667085}.o617-mini-body{padding:10px;border-top:1px solid #e2e8f0}
       .o617-details{border:1px solid #e2e8f0;border-radius:10px;background:#fafbfc;margin:10px 0 14px}.o617-details summary{padding:9px 11px;cursor:pointer;font-size:11px;font-weight:700;color:#475467}.o617-gtext{border-top:1px solid #e2e8f0;padding:10px 11px;font-size:11px;color:#596579;line-height:1.5;white-space:pre-wrap}
       .o617-scope{margin-top:14px;padding:13px;border:1px solid #cfdcf7;border-radius:12px;background:#f8faff}.o617-scope.d-none{display:none!important}.o617-note{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border-radius:9px;background:#eef4ff;color:#365486;font-size:11px;line-height:1.45;margin-bottom:12px}
@@ -147,29 +147,145 @@ export class Smk61DecisionTreeManager {
   }
 
   isNoValue(value) {
-    return String(value ?? '')
+    const normalized = String(value ?? '')
       .trim()
-      .toLocaleLowerCase('tr-TR') === 'yok';
-  }
+      .toLocaleLowerCase('tr-TR');
 
-  hasGoodsUserDecision(row = {}) {
-    return Boolean(
-      (
-        row.similarityLevel &&
-        row.similarityLevel !== 'not_assessed'
-      ) ||
-      (row.matchedPriorClasses || []).length ||
-      (row.criteria || []).length ||
-      row.refusalScopeMode ||
-      String(row.refusalScopeText || '').trim() ||
-      String(row.note || '').trim() ||
-      row.requestedRefusal === true
-    );
+    return [
+      'yok',
+      'yoktur',
+      'bulunmuyor',
+      'birebir ortak unsur yok'
+    ].includes(normalized);
   }
 
   requestedRefusalValue(row = {}) {
-    if (!this.hasGoodsUserDecision(row)) return true;
     return row.requestedRefusal === true;
+  }
+
+  priorMarkNames() {
+    return [
+      ...new Set(
+        (this.context?.priorRights || [])
+          .map(right => String(right?.markText || '').trim())
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  priorMarkLabel() {
+    return this.priorMarkNames().join(' / ');
+  }
+
+  opponentMarkLabel() {
+    return String(this.context?.opponent?.markText || '').trim();
+  }
+
+  markTokens(value) {
+    return String(value ?? '')
+      .trim()
+      .split(/[^0-9A-Za-zÇĞİIÖŞÜçğıiöşü]+/)
+      .map(token => token.trim())
+      .filter(Boolean);
+  }
+
+  exactCommonTokens() {
+    const opponentTokens = new Set(
+      this.markTokens(this.opponentMarkLabel())
+        .map(token => token.toLocaleLowerCase('tr-TR'))
+    );
+
+    const found = new Map();
+
+    for (const markName of this.priorMarkNames()) {
+      for (const token of this.markTokens(markName)) {
+        const key = token.toLocaleLowerCase('tr-TR');
+
+        if (
+          opponentTokens.has(key) &&
+          !found.has(key)
+        ) {
+          found.set(key, token);
+        }
+      }
+    }
+
+    return [...found.values()];
+  }
+
+  commonElementsDefault() {
+    const common = this.exactCommonTokens();
+    return common.length ? common.join(' ') : 'yok';
+  }
+
+  differenceSide(markName, commonTokensLower) {
+    return this.markTokens(markName)
+      .filter(
+        token =>
+          !commonTokensLower.has(
+            token.toLocaleLowerCase('tr-TR')
+          )
+      )
+      .join(' ')
+      .trim();
+  }
+
+  differencesDefault() {
+    const commonLower = new Set(
+      this.exactCommonTokens()
+        .map(token => token.toLocaleLowerCase('tr-TR'))
+    );
+
+    const priorParts = this.priorMarkNames()
+      .map(name => this.differenceSide(name, commonLower))
+      .filter(Boolean);
+
+    const opponentPart = this.differenceSide(
+      this.opponentMarkLabel(),
+      commonLower
+    );
+
+    const uniquePrior = [...new Set(priorParts)];
+
+    if (!uniquePrior.length && !opponentPart) return 'yok';
+
+    return [
+      uniquePrior.join(' / '),
+      opponentPart
+    ].filter(Boolean).join(' / ') || 'yok';
+  }
+
+  clientAdditionalDefault(commonValue) {
+    if (this.isNoValue(commonValue)) {
+      return this.priorMarkLabel() || 'yok';
+    }
+
+    const commonLower = new Set(
+      this.markTokens(commonValue)
+        .map(token => token.toLocaleLowerCase('tr-TR'))
+    );
+
+    const parts = this.priorMarkNames()
+      .map(name => this.differenceSide(name, commonLower))
+      .filter(Boolean);
+
+    return [...new Set(parts)].join(' / ') || 'yok';
+  }
+
+  opponentAdditionalDefault(commonValue) {
+    if (this.isNoValue(commonValue)) {
+      return this.opponentMarkLabel() || 'yok';
+    }
+
+    const commonLower = new Set(
+      this.markTokens(commonValue)
+        .map(token => token.toLocaleLowerCase('tr-TR'))
+    );
+
+    return this.differenceSide(
+      this.opponentMarkLabel(),
+      commonLower
+    ) || 'yok';
   }
 
   renderLoading() {
@@ -220,21 +336,54 @@ export class Smk61DecisionTreeManager {
 
   goodsHtml() {
     const rows=this.context?.formData?.goodsAssessments||[];
-    if (!rows.length) return '<div class="o617-box o617-soft">Rakip başvurunun tam mal/hizmet kapsamı bulunamadı.</div>';
 
-    return rows.map(row=>{
+    if (!rows.length) {
+      return '<div class="o617-box o617-soft">Rakip başvurunun tam mal/hizmet kapsamı bulunamadı.</div>';
+    }
+
+    return `<div class="o617-gbulk">
+      <div class="o617-gbulkcopy">
+        Tüm rakip sınıflar için ret talebini tek hareketle yönetebilirsiniz.
+      </div>
+
+      <div class="o617-gbulkactions">
+        <button
+          type="button"
+          id="opp617AllRefusalOn"
+          class="o617-gbulkbtn is-on"
+        >
+          <i class="fas fa-check mr-1"></i>
+          Tümünde Ret Talep Et
+        </button>
+
+        <button
+          type="button"
+          id="opp617AllRefusalOff"
+          class="o617-gbulkbtn is-off"
+        >
+          <i class="fas fa-times mr-1"></i>
+          Tümünden Reti Kaldır
+        </button>
+      </div>
+    </div>` + rows.map(row=>{
       const no=Number(row.opponentClassNo);
       const sim=row.similarityLevel==='not_assessed'?'':(row.similarityLevel||'');
       const requested=this.requestedRefusalValue(row);
-      const simLabel=this.label(GOODS_SIMILARITY_OPTIONS,sim,'Girilmedi');
+      const simLabel=requested
+        ? this.label(GOODS_SIMILARITY_OPTIONS,sim,'Girilmedi')
+        : 'Değerlendirme gerekmiyor';
 
-      return `<details class="o617-gacc opp61-goods-card" data-opponent-class="${no}">
+      return `<details
+        class="o617-gacc opp61-goods-card ${requested?'':'is-no-refusal'}"
+        data-opponent-class="${no}"
+      >
         <summary>
           <div class="o617-gaccsum">
             <div class="o617-gaccmain">
               <span class="o617-class">Rakip Sınıf ${no}</span>
               <span class="o617-gacctitle">${this.escape(simLabel)}</span>
             </div>
+
             <div class="o617-gaccstate">
               <span class="o617-gbadge ${requested?'ret':'noret'}">
                 ${requested?'Ret talep edilecek':'Ret talep edilmeyecek'}
@@ -247,170 +396,546 @@ export class Smk61DecisionTreeManager {
         <div class="o617-gbody">
           <div class="o617-ghead">
             <div class="o617-meta">
-              Bu sınıfı açtınız. Kararınızı girip diğer sınıfa geçebilirsiniz.
+              ${requested
+                ? 'Kararınızı girip diğer sınıfa geçebilirsiniz.'
+                : 'Bu sınıf ret kapsamı dışında bırakılmıştır.'}
             </div>
+
             <label class="o617-switch">
-              <input type="checkbox" class="opp61-refusal-check" ${requested?'checked':''}>
+              <input
+                type="checkbox"
+                class="opp61-refusal-check"
+                ${requested?'checked':''}
+              >
               <span>Ret talep et</span>
             </label>
           </div>
 
-          <details class="o617-details">
-            <summary>Rakip sınıfın tam mal/hizmet metnini göster</summary>
-            <div class="o617-gtext">${this.escape(row.opponentText||'Metin bulunamadı.')}</div>
-          </details>
-
-          <div class="o617-box o617-soft">
-            <div class="o617-label">
-              <span>1. Benzerlik derecesi</span>
-              <span class="o617-req">zorunlu</span>
-            </div>
-            ${this.choice(`o617Sim-${no}`,GOODS_SIMILARITY_OPTIONS,sim,'opp61-similarity-select')}
+          <div class="o617-no-refusal-note">
+            <i class="fas fa-check-circle mr-1"></i>
+            Bu sınıf için ret talep edilmiyor.
+            Benzerlik derecesi, müstenit sınıf, kriter ve ret kapsamı girmeniz gerekmez.
           </div>
 
-          <div class="o617-grid">
-            <div>
+          <div class="opp61-goods-evaluation">
+            <details class="o617-details">
+              <summary>Rakip sınıfın tam mal/hizmet metnini göster</summary>
+              <div class="o617-gtext">${this.escape(row.opponentText||'Metin bulunamadı.')}</div>
+            </details>
+
+            <div class="o617-box o617-soft">
               <div class="o617-label">
-                <span>2. Dayanılan müstenit sınıf(lar)</span>
-                <span class="o617-req">benzerlik varsa zorunlu</span>
+                <span>1. Benzerlik derecesi</span>
+                <span class="o617-req">zorunlu</span>
               </div>
-              <div class="o617-box o617-soft">${this.priorClasses(row.matchedPriorClasses||[])}</div>
+
+              ${this.choice(
+                `o617Sim-${no}`,
+                GOODS_SIMILARITY_OPTIONS,
+                sim,
+                'opp61-similarity-select'
+              )}
             </div>
 
-            <div>
-              <div class="o617-label">
-                <span>3. Benzerlik kriterleri</span>
-                <span class="o617-req">benzerlik varsa zorunlu</span>
+            <div class="o617-grid">
+              <div>
+                <div class="o617-label">
+                  <span>2. Dayanılan müstenit sınıf(lar)</span>
+                  <span class="o617-req">benzerlik varsa zorunlu</span>
+                </div>
+
+                <div class="o617-box o617-soft">
+                  ${this.priorClasses(row.matchedPriorClasses||[])}
+                </div>
               </div>
-              <div class="o617-box o617-soft">${this.criteria(row.criteria||[])}</div>
+
+              <div>
+                <div class="o617-label">
+                  <span>3. Benzerlik kriterleri</span>
+                  <span class="o617-req">benzerlik varsa zorunlu</span>
+                </div>
+
+                <div class="o617-box o617-soft">
+                  ${this.criteria(row.criteria||[])}
+                </div>
+              </div>
             </div>
+
+            <div class="o617-scope opp61-refusal-scope">
+              <div class="o617-label">
+                <span>Ret kapsamı</span>
+                <span class="o617-req">zorunlu</span>
+              </div>
+
+              ${this.choice(
+                `o617Scope-${no}`,
+                [
+                  ['','Seçiniz...'],
+                  ['full_class','Sınıfın tamamı'],
+                  ['partial','Kısmi kapsam']
+                ],
+                row.refusalScopeMode||'',
+                'opp61-refusal-scope-mode'
+              )}
+
+              <div
+                class="opp61-partial-scope-box ${row.refusalScopeMode==='partial'?'':'d-none'}"
+                style="margin-top:12px"
+              >
+                <div class="o617-label">
+                  <span>Reddini istediğimiz exact mal/hizmet metni</span>
+                  <span class="o617-req">birebir metin</span>
+                </div>
+
+                <textarea
+                  class="o617-text opp61-refusal-scope-text"
+                  rows="5"
+                  placeholder="Resmî mal/hizmet metninden aynen kopyalayın."
+                >${this.escape(row.refusalScopeText||'')}</textarea>
+              </div>
+
+              <div
+                class="opp61-full-scope-note ${row.refusalScopeMode==='full_class'?'':'d-none'}"
+              >
+                <div class="o617-meta" style="margin-top:10px">
+                  Sistem bu sınıf için kayıtlı tam mal/hizmet metnini kullanacaktır.
+                </div>
+              </div>
+            </div>
+
+            <details class="o617-mini">
+              <summary>
+                Ek not
+                <span class="o617-req">opsiyonel</span>
+              </summary>
+
+              <div class="o617-mini-body">
+                <textarea
+                  class="o617-text opp61-goods-note"
+                  rows="2"
+                >${this.escape(row.note||'')}</textarea>
+              </div>
+            </details>
           </div>
-
-          <div class="o617-scope opp61-refusal-scope ${requested?'':'d-none'}">
-            <div class="o617-label">
-              <span>Ret kapsamı</span>
-              <span class="o617-req">zorunlu</span>
-            </div>
-
-            ${this.choice(
-              `o617Scope-${no}`,
-              [['','Seçiniz...'],['full_class','Sınıfın tamamı'],['partial','Kısmi kapsam']],
-              row.refusalScopeMode||'',
-              'opp61-refusal-scope-mode'
-            )}
-
-            <div class="opp61-partial-scope-box ${row.refusalScopeMode==='partial'?'':'d-none'}" style="margin-top:12px">
-              <div class="o617-label">
-                <span>Reddini istediğimiz exact mal/hizmet metni</span>
-                <span class="o617-req">birebir metin</span>
-              </div>
-              <textarea class="o617-text opp61-refusal-scope-text" rows="5" placeholder="Resmî mal/hizmet metninden aynen kopyalayın.">${this.escape(row.refusalScopeText||'')}</textarea>
-            </div>
-
-            <div class="opp61-full-scope-note ${row.refusalScopeMode==='full_class'?'':'d-none'}">
-              <div class="o617-meta" style="margin-top:10px">
-                Sistem bu sınıf için kayıtlı tam mal/hizmet metnini kullanacaktır.
-              </div>
-            </div>
-          </div>
-
-          <details class="o617-mini">
-            <summary>Ek not <span class="o617-req">opsiyonel</span></summary>
-            <div class="o617-mini-body">
-              <textarea class="o617-text opp61-goods-note" rows="2">${this.escape(row.note||'')}</textarea>
-            </div>
-          </details>
         </div>
       </details>`;
     }).join('');
   }
 
   advancedMissing(sign={}) {
-    const clientText=this.defaultNo(sign.clientAdditionalElements);
-    const opponentText=this.defaultNo(sign.opponentAdditionalElements);
+    const commonValue=
+      String(sign.commonElements||'').trim() ||
+      this.commonElementsDefault();
+
+    const noCommon=
+      this.isNoValue(commonValue);
+
+    const clientText=
+      String(sign.clientAdditionalElements||'').trim() ||
+      this.clientAdditionalDefault(commonValue);
+
+    const opponentText=
+      String(sign.opponentAdditionalElements||'').trim() ||
+      this.opponentAdditionalDefault(commonValue);
+
+    const clientNo=
+      this.isNoValue(clientText);
+
+    const opponentNo=
+      this.isNoValue(opponentText);
 
     const clientDist=
       sign.clientAdditionalDistinctiveness ||
-      (this.isNoValue(clientText)?'not_applicable':'');
+      ((clientNo||noCommon)?'not_applicable':'');
 
     const clientRole=
       sign.clientAdditionalRole ||
-      (this.isNoValue(clientText)?'not_applicable':'');
+      ((clientNo||noCommon)?'not_applicable':'');
 
     const opponentDist=
       sign.opponentAdditionalDistinctiveness ||
-      (this.isNoValue(opponentText)?'not_applicable':'');
+      ((opponentNo||noCommon)?'not_applicable':'');
 
     const opponentRole=
       sign.opponentAdditionalRole ||
-      (this.isNoValue(opponentText)?'not_applicable':'');
+      ((opponentNo||noCommon)?'not_applicable':'');
 
-    return [
-      sign.commonElementDistinctiveness,
-      sign.independentDistinctiveRole,
-      sign.clientDominantElements,
-      sign.opponentDominantElements,
+    const values=[
+      sign.clientDominantElements||this.priorMarkLabel(),
+      sign.opponentDominantElements||this.opponentMarkLabel(),
       clientText,
       clientDist,
       clientRole,
       opponentText,
       opponentDist,
       opponentRole
-    ].filter(v=>!String(v??'').trim()).length;
+    ];
+
+    if(!noCommon){
+      values.push(
+        sign.commonElementDistinctiveness,
+        sign.independentDistinctiveRole
+      );
+    }
+
+    return values.filter(
+      value=>!String(value??'').trim()
+    ).length;
   }
 
   signHtml() {
-    const s=this.context?.formData?.signAssessment||{}, miss=this.advancedMissing(s);
-    const differences=this.defaultNo(s.differences);
+    const s=
+      this.context?.formData?.signAssessment||{};
 
-    return `<div class="o617-box o617-soft"><div class="o617-grid">
-      <div><div class="o617-label"><span>Ortak unsur(lar)</span><span class="o617-req">zorunlu</span></div><input id="opp61CommonElements" class="o617-input" value="${this.escape(s.commonElements||'')}" placeholder="Örn: Z"></div>
-      <div><div class="o617-label"><span>Farklı unsur(lar)</span><span class="o617-req">gerekiyorsa değiştirin</span></div><input id="opp61Differences" class="o617-input" value="${this.escape(differences)}"></div>
-    </div></div>
+    const commonValue=
+      String(s.commonElements||'').trim() ||
+      this.commonElementsDefault();
 
-    <div class="o617-box"><div class="o617-ctitle" style="margin-bottom:12px">Benzerlik sonuçları</div><div class="o617-grid">
-      ${[
-        ['opp61Visual','Görsel',s.visualSimilarity],
-        ['opp61Aural','İşitsel',s.auralSimilarity],
-        ['opp61Conceptual','Kavramsal',s.conceptualSimilarity],
-        ['opp61Overall','Genel izlenim',s.overallSimilarity]
-      ].map(([id,l,v])=>`<div><div class="o617-label"><span>${l}</span><span class="o617-req">zorunlu</span></div>${this.choice(id,SIGN_SIMILARITY_OPTIONS,v||'')}</div>`).join('')}
-    </div></div>
+    const differences=
+      String(s.differences||'').trim() ||
+      this.differencesDefault();
 
-    <details id="o617Adv" class="o617-adv ${miss===0?'done':''}" ${miss>0?'open':''}>
-      <summary><span><i class="fas fa-sliders-h mr-2"></i>İleri unsur analizi</span><span id="o617AdvBadge" class="o617-ab">${miss===0?'tamamlandı':`${miss} zorunlu alan eksik`}</span></summary>
+    const noCommon=
+      this.isNoValue(commonValue);
+
+    const clientDominant=
+      String(s.clientDominantElements||'').trim() ||
+      this.priorMarkLabel();
+
+    const opponentDominant=
+      String(s.opponentDominantElements||'').trim() ||
+      this.opponentMarkLabel();
+
+    const miss=
+      this.advancedMissing({
+        ...s,
+        commonElements:commonValue,
+        clientDominantElements:clientDominant,
+        opponentDominantElements:opponentDominant
+      });
+
+    const priorLabel=
+      this.priorMarkLabel()||'-';
+
+    const opponentLabel=
+      this.opponentMarkLabel()||'-';
+
+    return `<div class="o617-markref">
+      <span>
+        <i class="fas fa-shield-alt mr-1"></i>
+        Müstenit: ${this.escape(priorLabel)}
+      </span>
+
+      <span>
+        <i class="fas fa-bullseye mr-1"></i>
+        Rakip: ${this.escape(opponentLabel)}
+      </span>
+    </div>
+
+    <div class="o617-box o617-soft">
+      <div class="o617-grid">
+        <div>
+          <div class="o617-label">
+            <span>Ortak unsur / birebir ortaklık</span>
+            <span class="o617-req">düzenleyebilirsiniz</span>
+          </div>
+
+          <input
+            id="opp61CommonElements"
+            class="o617-input opp61-auto-select-text"
+            value="${this.escape(commonValue)}"
+          >
+
+          <div class="o617-quickrow">
+            <button
+              type="button"
+              class="o617-quickbtn"
+              data-sign-quick="common-none"
+            >
+              Birebir ortak unsur yok
+            </button>
+          </div>
+
+          <div class="o617-meta" style="margin-top:6px">
+            Birebir ortak unsur bulunmaması görsel veya işitsel benzerlik sonucuna engel değildir.
+          </div>
+        </div>
+
+        <div>
+          <div class="o617-label">
+            <span>Farklı / ayrışan unsur(lar)</span>
+            <span class="o617-req">düzenleyebilirsiniz</span>
+          </div>
+
+          <input
+            id="opp61Differences"
+            class="o617-input opp61-auto-select-text"
+            value="${this.escape(differences)}"
+          >
+
+          <div class="o617-quickrow">
+            <button
+              type="button"
+              class="o617-quickbtn"
+              data-sign-quick="differences-none"
+            >
+              Farklı unsur yok
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="o617-box">
+      <div
+        class="o617-ctitle"
+        style="margin-bottom:12px"
+      >
+        Benzerlik sonuçları
+      </div>
+
+      <div class="o617-grid">
+        ${[
+          ['opp61Visual','Görsel',s.visualSimilarity],
+          ['opp61Aural','İşitsel',s.auralSimilarity],
+          ['opp61Conceptual','Kavramsal',s.conceptualSimilarity],
+          ['opp61Overall','Genel izlenim',s.overallSimilarity]
+        ].map(
+          ([id,label,value])=>`
+            <div>
+              <div class="o617-label">
+                <span>${label}</span>
+                <span class="o617-req">zorunlu</span>
+              </div>
+              ${this.choice(
+                id,
+                SIGN_SIMILARITY_OPTIONS,
+                value||''
+              )}
+            </div>
+          `
+        ).join('')}
+      </div>
+    </div>
+
+    <details
+      id="o617Adv"
+      class="o617-adv ${miss===0?'done':''}"
+      ${miss>0?'open':''}
+    >
+      <summary>
+        <span>
+          <i class="fas fa-sliders-h mr-2"></i>
+          İleri unsur analizi
+        </span>
+
+        <span
+          id="o617AdvBadge"
+          class="o617-ab"
+        >
+          ${miss===0?'tamamlandı':`${miss} zorunlu alan eksik`}
+        </span>
+      </summary>
+
       <div class="o617-advbody">
-        <div class="o617-note"><i class="fas fa-user-check"></i><div><strong>Avukat bulgusu.</strong> Ek unsur yoksa sistem “yok / uygulanamaz” değerlerini hazır getirir; yalnız gerekiyorsa değiştirin.</div></div>
+        <div class="o617-note">
+          <i class="fas fa-user-check"></i>
+
+          <div>
+            <strong>Avukat bulgusu.</strong>
+            Marka adları ve exact ortaklık başlangıç değeri olarak getirilir.
+            Yalnız gerekli olduğunda değiştirin.
+          </div>
+        </div>
 
         <div class="o617-grid">
-          <div><div class="o617-label"><span>Ortak unsurun ayırt ediciliği</span><span class="o617-req">zorunlu</span></div><select id="opp61Distinctiveness" class="o617-select">${this.optionList(DISTINCTIVENESS_OPTIONS,s.commonElementDistinctiveness||'')}</select></div>
-          <div><div class="o617-label"><span>Ortak unsurun bağımsız ayırt edici rolü</span><span class="o617-req">zorunlu</span></div><select id="opp61IndependentRole" class="o617-select">${this.optionList(INDEPENDENT_ROLE_OPTIONS,s.independentDistinctiveRole||'')}</select></div>
-          <div><div class="o617-label"><span>Müstenit markanın baskın / ayırt edici unsuru</span><span class="o617-req">zorunlu</span></div><input id="opp61ClientDominant" class="o617-input" value="${this.escape(s.clientDominantElements||'')}"></div>
-          <div><div class="o617-label"><span>Rakip markanın baskın / ayırt edici unsuru</span><span class="o617-req">zorunlu</span></div><input id="opp61OpponentDominant" class="o617-input" value="${this.escape(s.opponentDominantElements||'')}"></div>
+          <div
+            class="${noCommon?'d-none':''}"
+            data-common-only-field
+          >
+            <div class="o617-label">
+              <span>Ortak unsurun ayırt ediciliği</span>
+              <span class="o617-req">ortak unsur varsa zorunlu</span>
+            </div>
+
+            <select
+              id="opp61Distinctiveness"
+              class="o617-select"
+            >
+              ${this.optionList(
+                DISTINCTIVENESS_OPTIONS,
+                s.commonElementDistinctiveness||''
+              )}
+            </select>
+          </div>
+
+          <div
+            class="${noCommon?'d-none':''}"
+            data-common-only-field
+          >
+            <div class="o617-label">
+              <span>Ortak unsurun bağımsız ayırt edici rolü</span>
+              <span class="o617-req">ortak unsur varsa zorunlu</span>
+            </div>
+
+            <select
+              id="opp61IndependentRole"
+              class="o617-select"
+            >
+              ${this.optionList(
+                INDEPENDENT_ROLE_OPTIONS,
+                noCommon
+                  ?'not_applicable'
+                  :(s.independentDistinctiveRole||'')
+              )}
+            </select>
+          </div>
+
+          <div>
+            <div class="o617-label">
+              <span>Müstenit markanın baskın / ayırt edici unsuru</span>
+              <span class="o617-req">gerekiyorsa değiştirin</span>
+            </div>
+
+            <input
+              id="opp61ClientDominant"
+              class="o617-input opp61-auto-select-text"
+              value="${this.escape(clientDominant)}"
+            >
+          </div>
+
+          <div>
+            <div class="o617-label">
+              <span>Rakip markanın baskın / ayırt edici unsuru</span>
+              <span class="o617-req">gerekiyorsa değiştirin</span>
+            </div>
+
+            <input
+              id="opp61OpponentDominant"
+              class="o617-input opp61-auto-select-text"
+              value="${this.escape(opponentDominant)}"
+            >
+          </div>
         </div>
 
         <div class="o617-elements">
-          <div class="o617-element"><div class="o617-etitle">Müstenit markadaki ek unsur(lar)</div>${this.elementFields('Client',s.clientAdditionalElements,s.clientAdditionalDistinctiveness,s.clientAdditionalRole)}</div>
-          <div class="o617-element"><div class="o617-etitle">Rakip markadaki ek unsur(lar)</div>${this.elementFields('Opponent',s.opponentAdditionalElements,s.opponentAdditionalDistinctiveness,s.opponentAdditionalRole)}</div>
+          <div class="o617-element">
+            <div class="o617-etitle">
+              Müstenit markadaki ek unsur(lar)
+            </div>
+
+            ${this.elementFields(
+              'Client',
+              s.clientAdditionalElements||
+                this.clientAdditionalDefault(commonValue),
+              s.clientAdditionalDistinctiveness,
+              s.clientAdditionalRole,
+              noCommon
+            )}
+          </div>
+
+          <div class="o617-element">
+            <div class="o617-etitle">
+              Rakip markadaki ek unsur(lar)
+            </div>
+
+            ${this.elementFields(
+              'Opponent',
+              s.opponentAdditionalElements||
+                this.opponentAdditionalDefault(commonValue),
+              s.opponentAdditionalDistinctiveness,
+              s.opponentAdditionalRole,
+              noCommon
+            )}
+          </div>
         </div>
       </div>
     </details>
 
     <details class="o617-mini">
-      <summary>İşaret analizi notu <span class="o617-req">opsiyonel</span></summary>
-      <div class="o617-mini-body"><textarea id="opp61SignNote" class="o617-text" rows="3">${this.escape(s.note||'')}</textarea></div>
+      <summary>
+        İşaret analizi notu
+        <span class="o617-req">opsiyonel</span>
+      </summary>
+
+      <div class="o617-mini-body">
+        <textarea
+          id="opp61SignNote"
+          class="o617-text"
+          rows="3"
+        >${this.escape(s.note||'')}</textarea>
+      </div>
     </details>`;
   }
 
-  elementFields(prefix,text,dist,role) {
-    const elementText=this.defaultNo(text);
-    const elementIsNo=this.isNoValue(elementText);
-    const effectiveDist=dist||(elementIsNo?'not_applicable':'');
-    const effectiveRole=role||(elementIsNo?'not_applicable':'');
+  elementFields(prefix,text,dist,role,noCommon=false) {
+    const elementText=
+      this.defaultNo(text);
 
-    return `<div style="margin-bottom:10px"><div class="o617-label"><span>Ek unsur metni</span><span class="o617-req">gerekiyorsa değiştirin</span></div><input id="opp61${prefix}AdditionalElements" class="o617-input opp61-additional-element-input" data-prefix="${prefix}" value="${this.escape(elementText)}"></div>
-      <div style="margin-bottom:10px"><div class="o617-label"><span>Ayırt edicilik</span><span class="o617-req">zorunlu</span></div><select id="opp61${prefix}AdditionalDistinctiveness" class="o617-select">${this.optionList(ELEMENT_DISTINCTIVENESS_OPTIONS,effectiveDist)}</select></div>
-      <div><div class="o617-label"><span>Rol</span><span class="o617-req">zorunlu</span></div><select id="opp61${prefix}AdditionalRole" class="o617-select">${this.optionList(ADDITIONAL_ROLE_OPTIONS,effectiveRole)}</select></div>`;
+    const elementIsNo=
+      this.isNoValue(
+        elementText
+      );
+
+    const effectiveDist=
+      dist||
+      ((elementIsNo||noCommon)
+        ?'not_applicable'
+        :'');
+
+    const effectiveRole=
+      role||
+      ((elementIsNo||noCommon)
+        ?'not_applicable'
+        :'');
+
+    return `<div style="margin-bottom:10px">
+      <div class="o617-label">
+        <span>Ek unsur metni</span>
+        <span class="o617-req">gerekiyorsa değiştirin</span>
+      </div>
+
+      <input
+        id="opp61${prefix}AdditionalElements"
+        class="o617-input opp61-additional-element-input opp61-auto-select-text"
+        data-prefix="${prefix}"
+        value="${this.escape(elementText)}"
+      >
+    </div>
+
+    <div style="margin-bottom:10px">
+      <div class="o617-label">
+        <span>Ayırt edicilik</span>
+        <span class="o617-req">${noCommon?'uygulanamaz':'zorunlu'}</span>
+      </div>
+
+      <select
+        id="opp61${prefix}AdditionalDistinctiveness"
+        class="o617-select"
+      >
+        ${this.optionList(
+          ELEMENT_DISTINCTIVENESS_OPTIONS,
+          effectiveDist
+        )}
+      </select>
+    </div>
+
+    <div>
+      <div class="o617-label">
+        <span>Rol</span>
+        <span class="o617-req">${noCommon?'uygulanamaz':'zorunlu'}</span>
+      </div>
+
+      <select
+        id="opp61${prefix}AdditionalRole"
+        class="o617-select"
+      >
+        ${this.optionList(
+          ADDITIONAL_ROLE_OPTIONS,
+          effectiveRole
+        )}
+      </select>
+    </div>`;
   }
 
   publicHtml() {
@@ -420,7 +945,7 @@ export class Smk61DecisionTreeManager {
 
   globalHtml() {
     const v=this.context?.formData?.globalAssessment||{};
-    return `<div id="o617Review" class="o617-review"></div><div class="o617-box"><div class="o617-label"><span>Karıştırılma ihtimali sonucu</span><span class="o617-req">zorunlu</span></div>${this.choice('opp61GlobalConclusion',GLOBAL_OPTIONS,v.conclusion||'','',true)}</div><div class="o617-box"><div class="o617-label"><span>İlişkilendirilme ihtimali</span><span class="o617-req">zorunlu</span></div>${this.choice('opp61Association',ASSOCIATION_OPTIONS,v.associationLikelihood||'','',true)}</div><div class="o617-box"><div class="o617-label"><span>Avukatın dosyaya özgü kısa değerlendirmesi</span><span class="o617-req">kısa not yeterli</span></div><textarea id="opp61LawyerMerits" class="o617-text" rows="7" placeholder="Yalnız kritik noktayı yazın. Kısa ve net olması yeterli.">${this.escape(v.lawyerMerits||'')}</textarea><div class="o617-meta">Bu alan Sol'un olgusal ve hukuki sınırını belirleyen temel avukat girdilerindendir.</div></div><div class="o617-save"><div class="o617-savehead"><div><div class="o617-ctitle">6/1 hukuki analiz kaydı</div><div class="o617-meta">Kaydetme sonrasında backend tüm alanları deterministik olarak yeniden denetler.</div></div><button id="opp61SaveBtn" type="button" class="o617-savebtn"><i class="fas fa-check-double mr-2"></i>Analizi Kaydet</button></div></div>`;
+    return `<div id="o617Review" class="o617-review"></div><div class="o617-box"><div class="o617-label"><span>Karıştırılma ihtimali sonucu</span><span class="o617-req">zorunlu</span></div>${this.choice('opp61GlobalConclusion',GLOBAL_OPTIONS,v.conclusion||'exists','',true)}</div><div class="o617-box"><div class="o617-label"><span>İlişkilendirilme ihtimali</span><span class="o617-req">zorunlu</span></div>${this.choice('opp61Association',ASSOCIATION_OPTIONS,v.associationLikelihood||'exists','',true)}</div><div class="o617-box"><div class="o617-label"><span>Avukatın dosyaya özgü kısa değerlendirmesi</span><span class="o617-req">kısa not yeterli</span></div><textarea id="opp61LawyerMerits" class="o617-text" rows="7" placeholder="Yalnız kritik noktayı yazın. Kısa ve net olması yeterli.">${this.escape(v.lawyerMerits||'')}</textarea><div class="o617-meta">Bu alan Sol'un olgusal ve hukuki sınırını belirleyen temel avukat girdilerindendir.</div></div><div class="o617-save"><div class="o617-savehead"><div><div class="o617-ctitle">6/1 hukuki analiz kaydı</div><div class="o617-meta">Kaydetme sonrasında backend tüm alanları deterministik olarak yeniden denetler.</div></div><button id="opp61SaveBtn" type="button" class="o617-savebtn"><i class="fas fa-check-double mr-2"></i>Analizi Kaydet</button></div></div>`;
   }
 
   panel(no,title,help,body) {
@@ -449,18 +974,71 @@ export class Smk61DecisionTreeManager {
     });
     this.mount.querySelectorAll('.opp61-refusal-check').forEach(x=>x.addEventListener('change',e=>this.syncScope(e.target.closest('.opp61-goods-card'))));
     this.mount.querySelectorAll('.opp61-refusal-scope-mode').forEach(x=>x.addEventListener('change',e=>this.syncScope(e.target.closest('.opp61-goods-card'))));
+    this.mount.querySelector('#opp617AllRefusalOn')?.addEventListener('click',()=>{
+      this.mount.querySelectorAll('.opp61-refusal-check').forEach(input=>{
+        input.checked=true;
+      });
+      this.dirty=true;
+      this.updateState();
+    });
+
+    this.mount.querySelector('#opp617AllRefusalOff')?.addEventListener('click',()=>{
+      this.mount.querySelectorAll('.opp61-refusal-check').forEach(input=>{
+        input.checked=false;
+      });
+      this.dirty=true;
+      this.updateState();
+    });
+
+    this.mount.querySelectorAll('[data-sign-quick]').forEach(button=>button.addEventListener('click',()=>{
+      const action=button.dataset.signQuick;
+
+      if(action==='common-none'){
+        const input=this.mount.querySelector('#opp61CommonElements');
+        if(input)input.value='yok';
+
+        const distinct=this.mount.querySelector('#opp61Distinctiveness');
+        const independent=this.mount.querySelector('#opp61IndependentRole');
+
+        if(distinct)distinct.value='';
+        if(independent)independent.value='not_applicable';
+      }
+
+      if(action==='differences-none'){
+        const input=this.mount.querySelector('#opp61Differences');
+        if(input)input.value='yok';
+      }
+
+      this.dirty=true;
+      this.syncCommonElementUi();
+      this.updateState();
+    }));
+
+    this.mount.querySelector('#opp61CommonElements')?.addEventListener('input',()=>{
+      this.syncCommonElementUi();
+      this.updateState();
+    });
+
+    this.mount.querySelectorAll('.opp61-auto-select-text').forEach(input=>input.addEventListener('focus',()=>{
+      if(!input.dataset.autoSelected){
+        input.select();
+        input.dataset.autoSelected='1';
+      }
+    }));
+
     this.mount.querySelectorAll('.opp61-additional-element-input').forEach(input=>input.addEventListener('input',()=>{
       const prefix=input.dataset.prefix;
       const dist=this.mount.querySelector(`#opp61${prefix}AdditionalDistinctiveness`);
       const role=this.mount.querySelector(`#opp61${prefix}AdditionalRole`);
       const isNo=this.isNoValue(input.value);
+      const noCommon=this.isNoValue(this.value('opp61CommonElements'));
 
-      if(isNo){
-        if(dist && !dist.value) dist.value='not_applicable';
-        if(role && !role.value) role.value='not_applicable';
+      if(isNo||noCommon){
+        if(dist)dist.value='not_applicable';
+        if(role)role.value='not_applicable';
       } else {
-        if(dist?.value==='not_applicable') dist.value='';
-        if(role?.value==='not_applicable') role.value='';
+        if(dist?.value==='not_applicable')dist.value='';
+        if(role?.value==='not_applicable')role.value='';
       }
 
       this.updateState();
@@ -486,26 +1064,158 @@ export class Smk61DecisionTreeManager {
 
   syncScope(card) {
     if(!card)return;
-    const requested=card.querySelector('.opp61-refusal-check')?.checked===true;
-    const mode=card.querySelector('.opp61-refusal-scope-mode')?.value||'';
 
-    card.querySelector('.opp61-refusal-scope')?.classList.toggle('d-none',!requested);
-    card.querySelector('.opp61-partial-scope-box')?.classList.toggle('d-none',!requested||mode!=='partial');
-    card.querySelector('.opp61-full-scope-note')?.classList.toggle('d-none',!requested||mode!=='full_class');
+    const requested=
+      card.querySelector('.opp61-refusal-check')?.checked===true;
 
-    const badge=card.querySelector('.o617-gbadge');
+    const mode=
+      card.querySelector('.opp61-refusal-scope-mode')?.value||'';
+
+    card.classList.toggle(
+      'is-no-refusal',
+      !requested
+    );
+
+    card.querySelector('.opp61-refusal-scope')
+      ?.classList.toggle(
+        'd-none',
+        !requested
+      );
+
+    card.querySelector('.opp61-partial-scope-box')
+      ?.classList.toggle(
+        'd-none',
+        !requested||mode!=='partial'
+      );
+
+    card.querySelector('.opp61-full-scope-note')
+      ?.classList.toggle(
+        'd-none',
+        !requested||mode!=='full_class'
+      );
+
+    const badge=
+      card.querySelector('.o617-gbadge');
+
     if(badge){
-      badge.textContent=requested?'Ret talep edilecek':'Ret talep edilmeyecek';
-      badge.classList.toggle('ret',requested);
-      badge.classList.toggle('noret',!requested);
+      badge.textContent=
+        requested
+          ?'Ret talep edilecek'
+          :'Ret talep edilmeyecek';
+
+      badge.classList.toggle(
+        'ret',
+        requested
+      );
+
+      badge.classList.toggle(
+        'noret',
+        !requested
+      );
+    }
+  }
+
+  syncCommonElementUi() {
+    const commonValue=
+      this.value('opp61CommonElements');
+
+    const noCommon=
+      this.isNoValue(commonValue);
+
+    this.mount.querySelectorAll(
+      '[data-common-only-field]'
+    ).forEach(
+      element=>
+        element.classList.toggle(
+          'd-none',
+          noCommon
+        )
+    );
+
+    const distinct=
+      this.mount.querySelector(
+        '#opp61Distinctiveness'
+      );
+
+    const independent=
+      this.mount.querySelector(
+        '#opp61IndependentRole'
+      );
+
+    if(noCommon){
+      if(distinct)distinct.value='';
+      if(independent)independent.value='not_applicable';
+
+      for(const prefix of ['Client','Opponent']){
+        const dist=
+          this.mount.querySelector(
+            `#opp61${prefix}AdditionalDistinctiveness`
+          );
+
+        const role=
+          this.mount.querySelector(
+            `#opp61${prefix}AdditionalRole`
+          );
+
+        if(dist)dist.value='not_applicable';
+        if(role)role.value='not_applicable';
+      }
+    } else {
+      if(independent?.value==='not_applicable'){
+        independent.value='';
+      }
+
+      for(const prefix of ['Client','Opponent']){
+        const element=
+          this.mount.querySelector(
+            `#opp61${prefix}AdditionalElements`
+          );
+
+        const dist=
+          this.mount.querySelector(
+            `#opp61${prefix}AdditionalDistinctiveness`
+          );
+
+        const role=
+          this.mount.querySelector(
+            `#opp61${prefix}AdditionalRole`
+          );
+
+        const elementIsNo=
+          this.isNoValue(
+            element?.value||''
+          );
+
+        if(!elementIsNo){
+          if(dist?.value==='not_applicable')dist.value='';
+          if(role?.value==='not_applicable')role.value='';
+        }
+      }
     }
   }
 
   refreshGoodsAccordionSummaries() {
     this.mount.querySelectorAll('.opp61-goods-card').forEach(card=>{
-      const similarity=card.querySelector('.opp61-similarity-select')?.value||'';
-      const title=card.querySelector('.o617-gacctitle');
-      if(title) title.textContent=this.label(GOODS_SIMILARITY_OPTIONS,similarity,'Girilmedi');
+      const requested=
+        card.querySelector('.opp61-refusal-check')?.checked===true;
+
+      const similarity=
+        card.querySelector('.opp61-similarity-select')?.value||'';
+
+      const title=
+        card.querySelector('.o617-gacctitle');
+
+      if(title){
+        title.textContent=
+          requested
+            ?this.label(
+              GOODS_SIMILARITY_OPTIONS,
+              similarity,
+              'Girilmedi'
+            )
+            :'Değerlendirme gerekmiyor';
+      }
+
       this.syncScope(card);
     });
   }
@@ -519,12 +1229,97 @@ export class Smk61DecisionTreeManager {
 
     const cards=[...this.mount.querySelectorAll('.opp61-goods-card')], m2=[];
     if(!cards.length)m2.push('Rakip mal/hizmet kapsamı bulunamadı.');
-    cards.forEach(card=>{const no=card.dataset.opponentClass,sim=card.querySelector('.opp61-similarity-select')?.value||'';if(!sim){m2.push(`Sınıf ${no}: benzerlik derecesi seçilmedi.`);return}if(sim!=='none'){if(!card.querySelectorAll('.opp61-prior-class-check:checked').length)m2.push(`Sınıf ${no}: dayanılan müstenit sınıf seçilmedi.`);if(!card.querySelectorAll('.opp61-criteria-check:checked').length)m2.push(`Sınıf ${no}: benzerlik kriteri seçilmedi.`)}if(card.querySelector('.opp61-refusal-check')?.checked){const mode=card.querySelector('.opp61-refusal-scope-mode')?.value||'';if(!mode)m2.push(`Sınıf ${no}: ret kapsamı seçilmedi.`);if(mode==='partial'&&!String(card.querySelector('.opp61-refusal-scope-text')?.value||'').trim())m2.push(`Sınıf ${no}: kısmi ret metni girilmedi.`)}});
+
+    cards.forEach(card=>{
+      const no=card.dataset.opponentClass;
+      const requested=
+        card.querySelector('.opp61-refusal-check')?.checked===true;
+
+      if(!requested){
+        return;
+      }
+
+      const sim=
+        card.querySelector('.opp61-similarity-select')?.value||'';
+
+      if(!sim){
+        m2.push(`Sınıf ${no}: benzerlik derecesi seçilmedi.`);
+        return;
+      }
+
+      if(sim!=='none'){
+        if(!card.querySelectorAll('.opp61-prior-class-check:checked').length){
+          m2.push(`Sınıf ${no}: dayanılan müstenit sınıf seçilmedi.`);
+        }
+
+        if(!card.querySelectorAll('.opp61-criteria-check:checked').length){
+          m2.push(`Sınıf ${no}: benzerlik kriteri seçilmedi.`);
+        }
+      }
+
+      if(sim==='none'){
+        m2.push(`Sınıf ${no}: "benzer değil" sonucu varken ret talebi açık.`);
+      }
+
+      const mode=
+        card.querySelector('.opp61-refusal-scope-mode')?.value||'';
+
+      if(!mode){
+        m2.push(`Sınıf ${no}: ret kapsamı seçilmedi.`);
+      }
+
+      if(
+        mode==='partial' &&
+        !String(
+          card.querySelector('.opp61-refusal-scope-text')?.value||''
+        ).trim()
+      ){
+        m2.push(`Sınıf ${no}: kısmi ret metni girilmedi.`);
+      }
+    });
+
     st[2]={complete:!m2.length,missing:m2};
 
     const m3=[];
-    [['opp61CommonElements','Ortak unsur(lar)'],['opp61Differences','Farklı unsur(lar)'],['opp61ClientDominant','Müstenit markanın baskın/ayırt edici unsuru'],['opp61OpponentDominant','Rakip markanın baskın/ayırt edici unsuru'],['opp61ClientAdditionalElements','Müstenit markanın ek unsurları'],['opp61OpponentAdditionalElements','Rakip markanın ek unsurları']].forEach(([id,l])=>{if(!this.value(id))m3.push(`${l} girilmedi.`)});
-    [['opp61Distinctiveness','Ortak unsurun ayırt ediciliği'],['opp61IndependentRole','Bağımsız ayırt edici rol'],['opp61ClientAdditionalDistinctiveness','Müstenit ek unsur ayırt ediciliği'],['opp61ClientAdditionalRole','Müstenit ek unsur rolü'],['opp61OpponentAdditionalDistinctiveness','Rakip ek unsur ayırt ediciliği'],['opp61OpponentAdditionalRole','Rakip ek unsur rolü'],['opp61Visual','Görsel benzerlik'],['opp61Aural','İşitsel benzerlik'],['opp61Conceptual','Kavramsal benzerlik'],['opp61Overall','Genel izlenim benzerliği']].forEach(([id,l])=>{if(!this.value(id))m3.push(`${l} seçilmedi.`)});
+
+    [
+      ['opp61CommonElements','Ortak unsur / ortaklık'],
+      ['opp61Differences','Farklı unsur'],
+      ['opp61ClientDominant','Müstenit markanın baskın/ayırt edici unsuru'],
+      ['opp61OpponentDominant','Rakip markanın baskın/ayırt edici unsuru'],
+      ['opp61ClientAdditionalElements','Müstenit markanın ek unsurları'],
+      ['opp61OpponentAdditionalElements','Rakip markanın ek unsurları']
+    ].forEach(([id,label])=>{
+      if(!this.value(id))m3.push(`${label} girilmedi.`);
+    });
+
+    const noCommon=
+      this.isNoValue(
+        this.value('opp61CommonElements')
+      );
+
+    if(!noCommon){
+      [
+        ['opp61Distinctiveness','Ortak unsurun ayırt ediciliği'],
+        ['opp61IndependentRole','Bağımsız ayırt edici rol']
+      ].forEach(([id,label])=>{
+        if(!this.value(id))m3.push(`${label} seçilmedi.`);
+      });
+    }
+
+    [
+      ['opp61ClientAdditionalDistinctiveness','Müstenit ek unsur ayırt ediciliği'],
+      ['opp61ClientAdditionalRole','Müstenit ek unsur rolü'],
+      ['opp61OpponentAdditionalDistinctiveness','Rakip ek unsur ayırt ediciliği'],
+      ['opp61OpponentAdditionalRole','Rakip ek unsur rolü'],
+      ['opp61Visual','Görsel benzerlik'],
+      ['opp61Aural','İşitsel benzerlik'],
+      ['opp61Conceptual','Kavramsal benzerlik'],
+      ['opp61Overall','Genel izlenim benzerliği']
+    ].forEach(([id,label])=>{
+      if(!this.value(id))m3.push(`${label} seçilmedi.`);
+    });
+
     st[3]={complete:!m3.length,missing:m3};
 
     const m4=[];if(!this.value('opp61PublicType'))m4.push('İlgili tüketici kesimi seçilmedi.');if(!this.value('opp61Attention'))m4.push('Dikkat düzeyi seçilmedi.');st[4]={complete:!m4.length,missing:m4};
@@ -536,35 +1331,227 @@ export class Smk61DecisionTreeManager {
   summaryData() {
     const rights=this.context?.priorRights||[];
     const prior=[...this.mount.querySelectorAll('.opp61-prior-review')].map(card=>{const r=rights.find(x=>String(x.id)===String(card.dataset.priorId));return{name:r?.markText||r?.applicationNo||'Müstenit hak',app:r?.applicationNo||'',confirmed:card.querySelector('.opp61-prior-confirm')?.checked===true}});
-    const goods=[...this.mount.querySelectorAll('.opp61-goods-card')].map(card=>({classNo:card.dataset.opponentClass,similarity:card.querySelector('.opp61-similarity-select')?.value||'',refusal:card.querySelector('.opp61-refusal-check')?.checked===true,scope:card.querySelector('.opp61-refusal-scope-mode')?.value||''}));
+    const goods=[...this.mount.querySelectorAll('.opp61-goods-card')].map(card=>{
+      const refusal=card.querySelector('.opp61-refusal-check')?.checked===true;
+      return {
+        classNo:card.dataset.opponentClass,
+        similarity:refusal
+          ?(card.querySelector('.opp61-similarity-select')?.value||'')
+          :'',
+        refusal,
+        scope:refusal
+          ?(card.querySelector('.opp61-refusal-scope-mode')?.value||'')
+          :''
+      };
+    });
     return {prior,goods,sign:{common:this.value('opp61CommonElements'),visual:this.value('opp61Visual'),aural:this.value('opp61Aural'),conceptual:this.value('opp61Conceptual'),overall:this.value('opp61Overall')},pub:{type:this.value('opp61PublicType'),attention:this.value('opp61Attention')},global:{con:this.value('opp61GlobalConclusion'),ass:this.value('opp61Association')}};
   }
 
   updateState() {
     this.refreshGoodsAccordionSummaries();
+    this.syncCommonElementUi();
     const st=this.localStatus(), done=STEPS.filter(([n])=>st[n]?.complete).length,pct=Math.round(done/5*100);
     const bar=this.mount.querySelector('#o617Bar'),pt=this.mount.querySelector('#o617Pct');if(bar)bar.style.width=`${pct}%`;if(pt)pt.textContent=`%${pct} tamamlandı`;
     this.mount.querySelectorAll('.o617-tab').forEach(tab=>{const n=Number(tab.dataset.step),ok=st[n]?.complete===true;tab.classList.toggle('done',ok);const num=tab.querySelector('.o617-num'),small=tab.querySelector('small');if(num)num.innerHTML=ok?'<i class="fas fa-check"></i>':String(n);if(small)small.textContent=ok?'Tamam':`${st[n]?.missing?.length||0} eksik`});
     STEPS.forEach(([n])=>{const el=this.mount.querySelector(`[data-status="${n}"]`),x=st[n];if(!el)return;el.className=`o617-stepstatus ${x.complete?'ok':'bad'}`;el.innerHTML=x.complete?'<i class="fas fa-check-circle mr-1"></i>Bu adımın zorunlu alanları tamamlandı.':`<strong>${x.missing.length} zorunlu nokta eksik.</strong>${x.missing.length?`<ul>${x.missing.slice(0,6).map(a=>`<li>${this.escape(a)}</li>`).join('')}${x.missing.length>6?`<li>+ ${x.missing.length-6} diğer eksik</li>`:''}</ul>`:''}`});
-    const advIds=['opp61Distinctiveness','opp61IndependentRole','opp61ClientDominant','opp61OpponentDominant','opp61ClientAdditionalElements','opp61ClientAdditionalDistinctiveness','opp61ClientAdditionalRole','opp61OpponentAdditionalElements','opp61OpponentAdditionalDistinctiveness','opp61OpponentAdditionalRole'], miss=advIds.filter(id=>!this.value(id)).length,adv=this.mount.querySelector('#o617Adv'),ab=this.mount.querySelector('#o617AdvBadge');adv?.classList.toggle('done',miss===0);if(ab)ab.textContent=miss===0?'tamamlandı':`${miss} zorunlu alan eksik`;
+    const noCommon=this.isNoValue(this.value('opp61CommonElements'));
+    const advIds=[
+      'opp61ClientDominant',
+      'opp61OpponentDominant',
+      'opp61ClientAdditionalElements',
+      'opp61ClientAdditionalDistinctiveness',
+      'opp61ClientAdditionalRole',
+      'opp61OpponentAdditionalElements',
+      'opp61OpponentAdditionalDistinctiveness',
+      'opp61OpponentAdditionalRole',
+      ...(noCommon?[]:['opp61Distinctiveness','opp61IndependentRole'])
+    ];
+    const miss=advIds.filter(id=>!this.value(id)).length,
+      adv=this.mount.querySelector('#o617Adv'),
+      ab=this.mount.querySelector('#o617AdvBadge');
+    adv?.classList.toggle('done',miss===0);
+    if(ab)ab.textContent=miss===0?'tamamlandı':`${miss} zorunlu alan eksik`;
     this.mount.querySelector('#o617Dirty')?.classList.toggle('on',this.dirty);
     this.updateSummary(st);this.updateReview(st);
   }
 
   updateSummary(st) {
     const t=this.mount.querySelector('#o617Summary');if(!t)return;const d=this.summaryData(),conf=d.prior.filter(x=>x.confirmed).length,refs=d.goods.filter(x=>x.refusal),all=STEPS.every(([n])=>st[n]?.complete);
-    t.innerHTML=`<div class="o617-sgroup"><div class="o617-slabel">Müstenit haklar</div><div class="o617-svalue">${conf} / ${d.prior.length} hak teyit edildi</div>${d.prior.slice(0,3).map(x=>`<div class="o617-sline"><span>${this.escape(x.name)}</span><strong>${x.confirmed?'✓':'—'}</strong></div>`).join('')}</div><div class="o617-sgroup"><div class="o617-slabel">Mal / hizmet</div>${d.goods.map(x=>`<div class="o617-sline"><span>Sınıf ${this.escape(x.classNo)}</span><strong>${this.escape(this.label(GOODS_SIMILARITY_OPTIONS,x.similarity,'—'))}</strong></div>`).join('')}<div class="o617-meta">Ret: ${refs.length?refs.map(x=>`Sınıf ${x.classNo}${x.scope==='full_class'?' tamamı':x.scope==='partial'?' kısmi':''}`).join(' · '):'seçilmedi'}</div></div><div class="o617-sgroup"><div class="o617-slabel">İşaretler</div><div class="o617-sline"><span>Ortak unsur</span><strong>${this.escape(d.sign.common||'—')}</strong></div><div class="o617-sline"><span>Görsel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.visual,'—'))}</strong></div><div class="o617-sline"><span>İşitsel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.aural,'—'))}</strong></div><div class="o617-sline"><span>Kavramsal</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.conceptual,'—'))}</strong></div><div class="o617-sline"><span>Genel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.overall,'—'))}</strong></div></div><div class="o617-sgroup"><div class="o617-slabel">Tüketici</div><div class="o617-svalue">${this.escape(this.label(PUBLIC_TYPE_OPTIONS,d.pub.type))}</div><div class="o617-meta">Dikkat: ${this.escape(this.label(ATTENTION_OPTIONS,d.pub.attention,'seçilmedi'))}</div></div><div class="o617-sgroup"><div class="o617-slabel">Sonuç</div><div class="o617-svalue">${this.escape(this.label(GLOBAL_OPTIONS,d.global.con))}</div><div class="o617-meta">İlişkilendirme: ${this.escape(this.label(ASSOCIATION_OPTIONS,d.global.ass,'seçilmedi'))}</div></div><div class="o617-ready ${all?'ok':''}">${all?'<i class="fas fa-check-circle mr-1"></i>Zorunlu alanlar yerel kontrolde tamam. Kaydettiğinizde backend kesin denetimi yapacak.':'<i class="fas fa-info-circle mr-1"></i>Bu özet kaydedilmemiş form girdilerini de gösterir.'}</div>`;
+    t.innerHTML=`<div class="o617-sgroup"><div class="o617-slabel">Müstenit haklar</div><div class="o617-svalue">${conf} / ${d.prior.length} hak teyit edildi</div>${d.prior.slice(0,3).map(x=>`<div class="o617-sline"><span>${this.escape(x.name)}</span><strong>${x.confirmed?'✓':'—'}</strong></div>`).join('')}</div><div class="o617-sgroup"><div class="o617-slabel">Mal / hizmet</div>${d.goods.map(x=>`<div class="o617-sline"><span>Sınıf ${this.escape(x.classNo)}</span><strong>${this.escape(x.refusal?this.label(GOODS_SIMILARITY_OPTIONS,x.similarity,'—'):'Ret dışı')}</strong></div>`).join('')}<div class="o617-meta">Ret: ${refs.length?refs.map(x=>`Sınıf ${x.classNo}${x.scope==='full_class'?' tamamı':x.scope==='partial'?' kısmi':''}`).join(' · '):'seçilmedi'}</div></div><div class="o617-sgroup"><div class="o617-slabel">İşaretler</div><div class="o617-sline"><span>Ortak unsur</span><strong>${this.escape(d.sign.common||'—')}</strong></div><div class="o617-sline"><span>Görsel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.visual,'—'))}</strong></div><div class="o617-sline"><span>İşitsel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.aural,'—'))}</strong></div><div class="o617-sline"><span>Kavramsal</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.conceptual,'—'))}</strong></div><div class="o617-sline"><span>Genel</span><strong>${this.escape(this.label(SIGN_SIMILARITY_OPTIONS,d.sign.overall,'—'))}</strong></div></div><div class="o617-sgroup"><div class="o617-slabel">Tüketici</div><div class="o617-svalue">${this.escape(this.label(PUBLIC_TYPE_OPTIONS,d.pub.type))}</div><div class="o617-meta">Dikkat: ${this.escape(this.label(ATTENTION_OPTIONS,d.pub.attention,'seçilmedi'))}</div></div><div class="o617-sgroup"><div class="o617-slabel">Sonuç</div><div class="o617-svalue">${this.escape(this.label(GLOBAL_OPTIONS,d.global.con))}</div><div class="o617-meta">İlişkilendirme: ${this.escape(this.label(ASSOCIATION_OPTIONS,d.global.ass,'seçilmedi'))}</div></div><div class="o617-ready ${all?'ok':''}">${all?'<i class="fas fa-check-circle mr-1"></i>Zorunlu alanlar yerel kontrolde tamam. Kaydettiğinizde backend kesin denetimi yapacak.':'<i class="fas fa-info-circle mr-1"></i>Bu özet kaydedilmemiş form girdilerini de gösterir.'}</div>`;
   }
 
   updateReview(st) {
-    const t=this.mount.querySelector('#o617Review');if(!t)return;const d=this.summaryData(),rights=d.prior.filter(x=>x.confirmed).map(x=>`${x.name}${x.app?` · ${x.app}`:''}`),goods=d.goods.map(x=>`Sınıf ${x.classNo}: ${this.label(GOODS_SIMILARITY_OPTIONS,x.similarity,'seçilmedi')}`).join(' · '),sign=`Görsel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.visual,'—')} · İşitsel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.aural,'—')} · Kavramsal: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.conceptual,'—')} · Genel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.overall,'—')}`,pub=`${this.label(PUBLIC_TYPE_OPTIONS,d.pub.type)} · Dikkat: ${this.label(ATTENTION_OPTIONS,d.pub.attention,'seçilmedi')}`,ref=d.goods.filter(x=>x.refusal).map(x=>`Sınıf ${x.classNo}${x.scope==='full_class'?' — tamamı':x.scope==='partial'?' — kısmi':''}`),done=STEPS.filter(([n])=>st[n]?.complete).length;
+    const t=this.mount.querySelector('#o617Review');if(!t)return;const d=this.summaryData(),rights=d.prior.filter(x=>x.confirmed).map(x=>`${x.name}${x.app?` · ${x.app}`:''}`),goods=d.goods.map(x=>`Sınıf ${x.classNo}: ${x.refusal?this.label(GOODS_SIMILARITY_OPTIONS,x.similarity,'seçilmedi'):'Ret dışı'}`).join(' · '),sign=`Görsel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.visual,'—')} · İşitsel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.aural,'—')} · Kavramsal: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.conceptual,'—')} · Genel: ${this.label(SIGN_SIMILARITY_OPTIONS,d.sign.overall,'—')}`,pub=`${this.label(PUBLIC_TYPE_OPTIONS,d.pub.type)} · Dikkat: ${this.label(ATTENTION_OPTIONS,d.pub.attention,'seçilmedi')}`,ref=d.goods.filter(x=>x.refusal).map(x=>`Sınıf ${x.classNo}${x.scope==='full_class'?' — tamamı':x.scope==='partial'?' — kısmi':''}`),done=STEPS.filter(([n])=>st[n]?.complete).length;
     t.innerHTML=[[ 'Müstenit haklar',rights.length?rights.join(' · '):'Henüz teyit edilmiş hak yok'],['Mal / hizmet',goods||'Değerlendirme yok'],['İşaretler',sign],['Tüketici',pub],['Ret kapsamı',ref.length?ref.join(' · '):'Ret kapsamı seçilmedi'],['Analiz tamamlama',`${done} / 5 adım tamamlandı`]].map(([l,v])=>`<div class="o617-rc"><div class="o617-rl">${l}</div><div class="o617-rv">${this.escape(v)}</div></div>`).join('');
   }
 
   collectPayload() {
-    const priorRightsReview=[...this.mount.querySelectorAll('.opp61-prior-review')].map(card=>({ipRecordId:card.dataset.priorId,confirmedEligible:card.querySelector('.opp61-prior-confirm')?.checked===true,note:card.querySelector('.opp61-prior-note')?.value||''}));
-    const goodsAssessments=[...this.mount.querySelectorAll('.opp61-goods-card')].map(card=>({opponentClassNo:Number(card.dataset.opponentClass),similarityLevel:card.querySelector('.opp61-similarity-select')?.value||'not_assessed',matchedPriorClasses:[...card.querySelectorAll('.opp61-prior-class-check:checked')].map(el=>el.value),criteria:[...card.querySelectorAll('.opp61-criteria-check:checked')].map(el=>el.value),requestedRefusal:card.querySelector('.opp61-refusal-check')?.checked===true,refusalScopeMode:card.querySelector('.opp61-refusal-scope-mode')?.value||'',refusalScopeText:card.querySelector('.opp61-refusal-scope-text')?.value||'',note:card.querySelector('.opp61-goods-note')?.value||''}));
-    return {priorRightsReview,goodsAssessments,signAssessment:{commonElements:this.value('opp61CommonElements'),differences:this.value('opp61Differences'),commonElementDistinctiveness:this.value('opp61Distinctiveness'),clientDominantElements:this.value('opp61ClientDominant'),opponentDominantElements:this.value('opp61OpponentDominant'),clientAdditionalElements:this.value('opp61ClientAdditionalElements'),clientAdditionalDistinctiveness:this.value('opp61ClientAdditionalDistinctiveness'),clientAdditionalRole:this.value('opp61ClientAdditionalRole'),opponentAdditionalElements:this.value('opp61OpponentAdditionalElements'),opponentAdditionalDistinctiveness:this.value('opp61OpponentAdditionalDistinctiveness'),opponentAdditionalRole:this.value('opp61OpponentAdditionalRole'),independentDistinctiveRole:this.value('opp61IndependentRole'),visualSimilarity:this.value('opp61Visual'),auralSimilarity:this.value('opp61Aural'),conceptualSimilarity:this.value('opp61Conceptual'),overallSimilarity:this.value('opp61Overall'),note:this.value('opp61SignNote')},publicAssessment:{publicType:this.value('opp61PublicType'),attentionLevel:this.value('opp61Attention'),note:this.value('opp61PublicNote')},globalAssessment:{conclusion:this.value('opp61GlobalConclusion'),associationLikelihood:this.value('opp61Association'),lawyerMerits:this.value('opp61LawyerMerits')}};
+    const priorRightsReview=
+      [...this.mount.querySelectorAll('.opp61-prior-review')]
+        .map(card=>({
+          ipRecordId:card.dataset.priorId,
+          confirmedEligible:
+            card.querySelector('.opp61-prior-confirm')?.checked===true,
+          note:
+            card.querySelector('.opp61-prior-note')?.value||''
+        }));
+
+    const goodsAssessments=
+      [...this.mount.querySelectorAll('.opp61-goods-card')]
+        .map(card=>{
+          const requested=
+            card.querySelector('.opp61-refusal-check')?.checked===true;
+
+          return {
+            opponentClassNo:
+              Number(card.dataset.opponentClass),
+
+            similarityLevel:
+              requested
+                ?(
+                    card.querySelector('.opp61-similarity-select')?.value||
+                    'not_assessed'
+                  )
+                :'not_assessed',
+
+            matchedPriorClasses:
+              requested
+                ?[
+                    ...card.querySelectorAll(
+                      '.opp61-prior-class-check:checked'
+                    )
+                  ].map(element=>element.value)
+                :[],
+
+            criteria:
+              requested
+                ?[
+                    ...card.querySelectorAll(
+                      '.opp61-criteria-check:checked'
+                    )
+                  ].map(element=>element.value)
+                :[],
+
+            requestedRefusal:
+              requested,
+
+            refusalScopeMode:
+              requested
+                ?(
+                    card.querySelector('.opp61-refusal-scope-mode')?.value||
+                    ''
+                  )
+                :'',
+
+            refusalScopeText:
+              requested
+                ?(
+                    card.querySelector('.opp61-refusal-scope-text')?.value||
+                    ''
+                  )
+                :'',
+
+            note:
+              card.querySelector('.opp61-goods-note')?.value||''
+          };
+        });
+
+    const noCommon=
+      this.isNoValue(
+        this.value('opp61CommonElements')
+      );
+
+    return {
+      priorRightsReview,
+      goodsAssessments,
+
+      signAssessment:{
+        commonElements:
+          this.value('opp61CommonElements'),
+
+        differences:
+          this.value('opp61Differences'),
+
+        commonElementDistinctiveness:
+          noCommon
+            ?''
+            :this.value('opp61Distinctiveness'),
+
+        clientDominantElements:
+          this.value('opp61ClientDominant'),
+
+        opponentDominantElements:
+          this.value('opp61OpponentDominant'),
+
+        clientAdditionalElements:
+          this.value('opp61ClientAdditionalElements'),
+
+        clientAdditionalDistinctiveness:
+          noCommon
+            ?'not_applicable'
+            :this.value('opp61ClientAdditionalDistinctiveness'),
+
+        clientAdditionalRole:
+          noCommon
+            ?'not_applicable'
+            :this.value('opp61ClientAdditionalRole'),
+
+        opponentAdditionalElements:
+          this.value('opp61OpponentAdditionalElements'),
+
+        opponentAdditionalDistinctiveness:
+          noCommon
+            ?'not_applicable'
+            :this.value('opp61OpponentAdditionalDistinctiveness'),
+
+        opponentAdditionalRole:
+          noCommon
+            ?'not_applicable'
+            :this.value('opp61OpponentAdditionalRole'),
+
+        independentDistinctiveRole:
+          noCommon
+            ?'not_applicable'
+            :this.value('opp61IndependentRole'),
+
+        visualSimilarity:
+          this.value('opp61Visual'),
+
+        auralSimilarity:
+          this.value('opp61Aural'),
+
+        conceptualSimilarity:
+          this.value('opp61Conceptual'),
+
+        overallSimilarity:
+          this.value('opp61Overall'),
+
+        note:
+          this.value('opp61SignNote')
+      },
+
+      publicAssessment:{
+        publicType:
+          this.value('opp61PublicType'),
+
+        attentionLevel:
+          this.value('opp61Attention'),
+
+        note:
+          this.value('opp61PublicNote')
+      },
+
+      globalAssessment:{
+        conclusion:
+          this.value('opp61GlobalConclusion')||'exists',
+
+        associationLikelihood:
+          this.value('opp61Association')||'exists',
+
+        lawyerMerits:
+          this.value('opp61LawyerMerits')
+      }
+    };
   }
 
   stepForBlocker(message) {

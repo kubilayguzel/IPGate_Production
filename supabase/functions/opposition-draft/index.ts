@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
+const ORCHESTRATOR_PATCH_VERSION = "6.1.8.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1449,6 +1450,9 @@ async function buildStatus(
 
     enginePackageVersion:
       PACKAGE_VERSION,
+
+    orchestratorPatchVersion:
+      ORCHESTRATOR_PATCH_VERSION,
   };
 }
 
@@ -2397,6 +2401,9 @@ async function generateStart(
 
       enginePackageVersion:
         PACKAGE_VERSION,
+
+      orchestratorPatchVersion:
+        ORCHESTRATOR_PATCH_VERSION,
     };
   }
 
@@ -2423,6 +2430,9 @@ async function generateStart(
 
       enginePackageVersion:
         PACKAGE_VERSION,
+
+      orchestratorPatchVersion:
+        ORCHESTRATOR_PATCH_VERSION,
     };
   }
 
@@ -2437,8 +2447,24 @@ async function generateStart(
 
         taskId,
 
+        /*
+         * 6.1.8.3 gateway-timeout hotfix:
+         *
+         * generate_start is an interactive Edge request. Paket 6.1.6
+         * legal-research may perform layered Kılavuz + Yargıtay + EU
+         * discovery/verification synchronously and can exceed the
+         * Supabase gateway window.
+         *
+         * Production drafting must therefore start from the already
+         * verified/citable EVREKA authority corpus. legal-reasoning
+         * still receives the current issue tags and the 6.1.6 prompt
+         * still requires layered authority use when available.
+         *
+         * Fresh web research must not run inside this gateway-bound
+         * generate_start request.
+         */
         refreshResearch:
-          true,
+          false,
 
         minimumAuthorityCoverage:
           0.75,

@@ -3,6 +3,8 @@ import { showNotification } from '../../utils.js';
 
 import { ProfessionalOppositionDocument } from './ProfessionalOppositionDocument.js';
 
+const OPPOSITION_DRAFT_UX_PATCH_VERSION = '6.1.8.3';
+
 
 export class OppositionDraftManager {
 
@@ -129,6 +131,14 @@ export class OppositionDraftManager {
             let body =
                 null;
 
+            const httpStatus =
+                Number(
+                    error?.context?.status ??
+                    error?.status ??
+                    0
+                ) ||
+                null;
+
             if (error.context) {
 
                 try {
@@ -142,11 +152,20 @@ export class OppositionDraftManager {
                 } catch (_) {}
             }
 
-            throw new Error(
-                body?.error ||
-                error.message ||
-                'Dilekçe servisine ulaşılamadı.'
-            );
+            const wrappedError =
+                new Error(
+                    body?.error ||
+                    error.message ||
+                    'Dilekçe servisine ulaşılamadı.'
+                );
+
+            wrappedError.httpStatus =
+                httpStatus;
+
+            wrappedError.uxPatchVersion =
+                OPPOSITION_DRAFT_UX_PATCH_VERSION;
+
+            throw wrappedError;
         }
 
         if (!data?.success) {
@@ -158,6 +177,63 @@ export class OppositionDraftManager {
         }
 
         return data;
+    }
+
+
+    isTransientGatewayError(error) {
+
+        return [
+            502,
+            503,
+            504
+        ].includes(
+            Number(
+                error?.httpStatus ??
+                0
+            )
+        );
+    }
+
+
+    async invokeGenerateStartWithRecovery() {
+
+        try {
+
+            return await this.invoke(
+                'generate_start'
+            );
+
+        } catch (error) {
+
+            if (
+                !this.isTransientGatewayError(
+                    error
+                )
+            ) {
+                throw error;
+            }
+
+            this.setGenerationMessage(
+                'Sunucu zaman aşımı sonrası üretim durumu yeniden bağlanıyor...'
+            );
+
+            await new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        3000
+                    )
+            );
+
+            /*
+             * Backend recent-active-run guard aynı task için
+             * başlamış reasoning run varsa onu reuse eder.
+             * Bu nedenle tek kontrollü retry duplicate üretmez.
+             */
+            return await this.invoke(
+                'generate_start'
+            );
+        }
     }
 
 
@@ -1140,9 +1216,8 @@ export class OppositionDraftManager {
         try {
 
             const start =
-                await this.invoke(
-                    'generate_start'
-                );
+                await this
+                    .invokeGenerateStartWithRecovery();
 
             let generation =
                 start.generation ||

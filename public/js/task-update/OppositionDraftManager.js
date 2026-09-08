@@ -3,7 +3,7 @@ import { showNotification } from '../../utils.js';
 
 import { ProfessionalOppositionDocument } from './ProfessionalOppositionDocument.js';
 
-const OPPOSITION_DRAFT_UX_PATCH_VERSION = '6.1.8.3';
+const OPPOSITION_DRAFT_UX_PATCH_VERSION = '6.1.11';
 
 
 export class OppositionDraftManager {
@@ -35,6 +35,9 @@ export class OppositionDraftManager {
 
         this.generationMessage =
             '';
+
+        this.scopeReviewNotice =
+            null;
 
         this.documentGenerator =
             new ProfessionalOppositionDocument();
@@ -1053,7 +1056,7 @@ export class OppositionDraftManager {
                             title="${
                                 wordEligible
                                     ? 'Strict QA PASS — Word oluşturulabilir'
-                                    : 'Word yalnız 6.1.6 strict QA PASS kaydedilmiş versiyondan oluşturulur'
+                                    : 'Word yalnız 6.1.11 filing-quality strict QA PASS kaydedilmiş versiyondan oluşturulur'
                             }"
                         >
                             <i class="fas fa-file-word mr-2"></i>
@@ -1073,6 +1076,25 @@ export class OppositionDraftManager {
                             >
                                 <i class="fas fa-spinner fa-spin mr-2"></i>
                                 ${this.escape(this.generationMessage)}
+                            </div>
+                        `
+                        : ''
+                }
+
+                ${
+                    this.scopeReviewNotice
+                        ? `
+                            <div
+                                class="alert alert-warning mt-3 mb-0"
+                            >
+                                <div class="font-weight-bold mb-1">
+                                    <i class="fas fa-balance-scale mr-1"></i>
+                                    Ret kapsamı avukat incelemesi gerekiyor
+                                </div>
+
+                                <div style="font-size:12px;line-height:1.5;">
+                                    ${this.escape(this.scopeReviewNotice)}
+                                </div>
                             </div>
                         `
                         : ''
@@ -1211,6 +1233,9 @@ export class OppositionDraftManager {
         this.generationMessage =
             'Legal Reasoning başlatılıyor...';
 
+        this.scopeReviewNotice =
+            null;
+
         this.render();
 
         try {
@@ -1299,6 +1324,47 @@ export class OppositionDraftManager {
                 if (
                     generation
                         ?.generationStatus ===
+                    'scope_review_required'
+                ) {
+
+                    const items =
+                        generation
+                            ?.scopeReviewRequired ||
+                        [];
+
+                    const classSummary =
+                        items
+                            .map(
+                                item =>
+                                    `Sınıf ${item?.classNo}: ${
+                                        item?.supportStatus === 'supports_only_partial_scope'
+                                            ? 'tam ret yerine kısmi kapsam destekleniyor'
+                                            : 'istenen ret kapsamı için ek hukuki inceleme gerekiyor'
+                                    }${
+                                        item?.limitingPoint
+                                            ? ` — ${item.limitingPoint}`
+                                            : ''
+                                    }`
+                            )
+                            .join(' | ');
+
+                    this.scopeReviewNotice =
+                        generation
+                            ?.message ||
+                        classSummary ||
+                        'Ret kapsamı ile Legal Reasoning sonucu arasında avukat incelemesi gereken bir fark bulundu.';
+
+                    showNotification(
+                        this.scopeReviewNotice,
+                        'warning'
+                    );
+
+                    return;
+                }
+
+                if (
+                    generation
+                        ?.generationStatus ===
                     'qa_failed'
                 ) {
 
@@ -1313,7 +1379,7 @@ export class OppositionDraftManager {
                         null;
 
                     showNotification(
-                        '6.1.6 taslak üretildi ancak strict QA geçmedi. DB’ye kaydedilmedi; Word export kapalı.',
+                        '6.1.11 taslak üretildi ancak strict QA geçmedi. DB’ye kaydedilmedi; Word export kapalı.',
                         'error'
                     );
 
@@ -1353,7 +1419,7 @@ export class OppositionDraftManager {
                         ).length;
 
                     showNotification(
-                        `EVREKA 6.1.6 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
+                        `EVREKA 6.1.11 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
                             advisoryCount
                                 ? ` (${advisoryCount} reasoning advisory)`
                                 : ''
@@ -1381,7 +1447,7 @@ export class OppositionDraftManager {
         } catch (error) {
 
             console.error(
-                '6.1.6 dilekçe üretim hatası:',
+                '6.1.11 dilekçe üretim hatası:',
                 error
             );
 
@@ -1447,7 +1513,7 @@ export class OppositionDraftManager {
         ) {
 
             return showNotification(
-                'Profesyonel Word yalnız EVREKA 6.1.6 strict QA PASS kaydedilmiş versiyondan oluşturulabilir.',
+                'Profesyonel Word yalnız EVREKA 6.1.11 filing-quality strict QA PASS kaydedilmiş versiyondan oluşturulabilir.',
                 'warning'
             );
         }

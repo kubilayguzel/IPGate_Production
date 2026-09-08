@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 const PACKAGE_VERSION = "6.1.6";
 const ORCHESTRATOR_PATCH_VERSION = "6.1.8.3";
 const INPUT_POLICY_VERSION = "6.1.10";
+const ADVOCACY_POLICY_VERSION = "6.1.11";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1787,6 +1788,9 @@ function buildQaReport({
     enginePackageVersion:
       PACKAGE_VERSION,
 
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
+
     legalResearchPackageVersion:
       "6.1.6",
 
@@ -2197,6 +2201,9 @@ async function persistFinalDraft(
 
           finalDraftPackageVersion:
             PACKAGE_VERSION,
+
+          advocacyPolicyVersion:
+            ADVOCACY_POLICY_VERSION,
         },
 
         qa_report:
@@ -2343,7 +2350,7 @@ async function findReusableReasoningRun(
         "legal_reasoning_runs",
       )
       .select(
-        "id, status, openai_status, source_fingerprint, validation, created_at",
+        "id, status, openai_status, source_fingerprint, validation, authority_pack_snapshot, created_at",
       )
       .eq(
         "task_id",
@@ -2390,7 +2397,31 @@ async function findReusableReasoningRun(
     return null;
   }
 
-  return data ?? null;
+  if (
+    !data
+  ) {
+    return null;
+  }
+
+  const policyVersion =
+    String(
+      data
+        ?.validation
+        ?.advocacyPolicyVersion ??
+      data
+        ?.authority_pack_snapshot
+        ?.advocacyPolicyVersion ??
+      "",
+    );
+
+  if (
+    policyVersion !==
+    ADVOCACY_POLICY_VERSION
+  ) {
+    return null;
+  }
+
+  return data;
 }
 
 
@@ -2414,7 +2445,7 @@ async function findRecentActiveReasoningRun(
         "legal_reasoning_runs",
       )
       .select(
-        "id, package_version, status, openai_status, created_at",
+        "id, package_version, status, openai_status, authority_pack_snapshot, created_at",
       )
       .eq("task_id", taskId)
       .eq("created_by", userId)
@@ -2439,7 +2470,25 @@ async function findRecentActiveReasoningRun(
     return null;
   }
 
-  return data ?? null;
+  if (
+    !data
+  ) {
+    return null;
+  }
+
+  if (
+    String(
+      data
+        ?.authority_pack_snapshot
+        ?.advocacyPolicyVersion ??
+      "",
+    ) !==
+    ADVOCACY_POLICY_VERSION
+  ) {
+    return null;
+  }
+
+  return data;
 }
 
 async function generateStart(
@@ -2560,16 +2609,14 @@ async function generateStart(
          * discovery/verification synchronously and can exceed the
          * Supabase gateway window.
          *
-         * Production drafting must therefore start from the already
-         * verified/citable EVREKA authority corpus. legal-reasoning
-         * still receives the current issue tags and the 6.1.6 prompt
-         * still requires layered authority use when available.
-         *
-         * Fresh web research must not run inside this gateway-bound
-         * generate_start request.
+         * 6.1.11 keeps fresh WEB research outside the gateway-bound
+         * generate_start request, but performs a bounded CORPUS-ONLY
+         * refresh against the already verified TÜRKPATENT Kılavuzu
+         * corpus. This promotes case-relevant quote-safe guideline
+         * propositions without reintroducing the old 504 web-research path.
          */
         refreshResearch:
-          false,
+          "corpus_only",
 
         minimumAuthorityCoverage:
           0.75,
@@ -2623,6 +2670,9 @@ async function generateStart(
 
     enginePackageVersion:
       PACKAGE_VERSION,
+
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
   };
 }
 
@@ -2742,6 +2792,38 @@ async function generateStatus(
         "validation başarısız"
       }`,
     );
+  }
+
+  const scopeReviewRequired =
+    safeArray(
+      reasoningStatus
+        ?.validation
+        ?.scopeReviewRequired,
+    );
+
+  if (
+    scopeReviewRequired.length > 0
+  ) {
+    return {
+      generationStatus:
+        "scope_review_required",
+
+      stage:
+        "scope_review",
+
+      reasoningRunId,
+
+      saved:
+        false,
+
+      advocacyPolicyVersion:
+        ADVOCACY_POLICY_VERSION,
+
+      scopeReviewRequired,
+
+      message:
+        `Legal Reasoning, ret kapsamındaki ${scopeReviewRequired.length} sınıf için avukat kapsam incelemesi gerektiğini tespit etti. Dilekçenin kendi talebiyle çelişmemesi için final draft başlatılmadı.`,
+    };
   }
 
   let draftRunId =

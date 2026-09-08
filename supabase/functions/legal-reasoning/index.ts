@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
 const INPUT_POLICY_VERSION = "6.1.10";
+const ADVOCACY_POLICY_VERSION = "6.1.11";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -46,8 +47,10 @@ const VALID_REASONING_EFFORTS = new Set([
 ]);
 
 const CORE_ISSUE_TAGS = [
+  "goods_services_similarity",
   "sign_similarity",
   "common_element",
+  "dominant_element",
   "interdependence",
   "relevant_consumer",
   "association",
@@ -769,6 +772,50 @@ function canonicalToResearchContext(
       globalAssessment:
         global,
     },
+
+    opponentGoodsByClass:
+      safeArray(
+        opponent?.goodsByClass,
+      )
+        .slice(0, 20)
+        .map(
+          (row) => ({
+            classNo:
+              Number(row?.classNo),
+            text:
+              clampText(
+                row?.text,
+                2500,
+              ),
+          }),
+        ),
+
+    priorGoodsByClass:
+      priorRights
+        .flatMap(
+          (right) =>
+            safeArray(
+              right?.classes,
+            ).map(
+              (cls) => ({
+                markText:
+                  normalizeText(
+                    right?.markText,
+                  ),
+                classNo:
+                  Number(
+                    cls?.classNo,
+                  ),
+                items:
+                  safeArray(
+                    cls?.items,
+                  )
+                    .map(String)
+                    .slice(0, 120),
+              }),
+            ),
+        )
+        .slice(0, 40),
   };
 }
 
@@ -830,8 +877,95 @@ async function getAuthorityPack({
     };
   }
 
+  const refreshMode =
+    body?.refreshResearch;
+
   if (
-    body?.refreshResearch !== false
+    refreshMode ===
+    "corpus_only"
+  ) {
+    const research =
+      await invokeProjectFunction({
+        supabaseUrl,
+        projectApiKey,
+        bearerToken,
+        functionName:
+          "legal-research",
+        body: {
+          action:
+            "research",
+          taskId:
+            canonical?.taskId ??
+            undefined,
+          oppositionCaseId:
+            canonical
+              ?.oppositionCaseId ??
+            undefined,
+          issueTags,
+          coverageThreshold:
+            Number(
+              body?.coverageThreshold ??
+              0.75,
+            ),
+          requireCompleteCoverage:
+            false,
+          minCaseAuthorities:
+            0,
+          minYargitayAuthorities:
+            0,
+          minEuAuthorities:
+            0,
+          allowWebSearch:
+            false,
+          autoVerify:
+            true,
+          forceGuidelineEvidence:
+            true,
+          guidelineEvidenceTags:
+            [
+              "goods_services_similarity",
+              "goods_retail_relation",
+              "sign_similarity",
+              "common_element",
+              "dominant_element",
+              "interdependence",
+            ].filter(
+              (tag) =>
+                issueTags.includes(tag),
+            ).slice(0, 4),
+          caseContext:
+            canonicalToResearchContext(
+              canonical,
+            ),
+        },
+      });
+
+    if (
+      research?.ok === true &&
+      research?.authorityPack
+    ) {
+      return {
+        researchRunId:
+          research?.researchRunId ??
+          null,
+        authorityPack:
+          research.authorityPack,
+        researchMode:
+          "fresh_verified_corpus_only",
+        researchRouting:
+          safeObject(
+            research?.routing,
+          ),
+      };
+    }
+
+    console.warn(
+      "[legal-reasoning] corpus-only advocacy refresh başarısız; mevcut citable pack ile devam ediliyor:",
+      research?.error ??
+      "bilinmeyen hata",
+    );
+  } else if (
+    refreshMode !== false
   ) {
     const research =
       await invokeProjectFunction({
@@ -876,6 +1010,8 @@ async function getAuthorityPack({
             body?.allowWebSearch !==
             false,
           autoVerify: true,
+          forceGuidelineEvidence:
+            true,
           caseContext:
             canonicalToResearchContext(
               canonical,
@@ -1022,8 +1158,32 @@ function compactAuthorityPack(
           authorityType:
             p?.authorityType ??
             null,
+          authorityLayer:
+            p?.authorityLayer ??
+            null,
           jurisdiction:
             p?.jurisdiction ??
+            null,
+          authorityName:
+            p?.authorityName ??
+            null,
+          court:
+            p?.court ??
+            null,
+          chamber:
+            p?.chamber ??
+            null,
+          caseNo:
+            p?.caseNo ??
+            null,
+          decisionNo:
+            p?.decisionNo ??
+            null,
+          decisionDate:
+            p?.decisionDate ??
+            null,
+          authorityTitle:
+            p?.authorityTitle ??
             null,
           citationLabel:
             p?.citationLabel ??
@@ -1056,6 +1216,35 @@ function compactAuthorityPack(
           sourceLocator:
             p?.sourceLocator ??
             null,
+          pageFrom:
+            p?.pageFrom ??
+            null,
+          pageTo:
+            p?.pageTo ??
+            null,
+          quoteSafe:
+            p?.quoteSafe === true,
+          verifiedQuote:
+            p?.quoteSafe === true
+              ? clampText(
+                  p?.verifiedQuote,
+                  1200,
+                )
+              : "",
+          quoteLocator:
+            p?.quoteSafe === true
+              ? (
+                  p?.quoteLocator ??
+                  null
+                )
+              : null,
+          quoteSourceUrl:
+            p?.quoteSafe === true
+              ? (
+                  p?.quoteSourceUrl ??
+                  null
+                )
+              : null,
           issueTags:
             uniqueStrings(
               p?.issueTags,
@@ -1087,6 +1276,8 @@ function compactAuthorityPack(
     packageVersion:
       pack?.packageVersion ??
       null,
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
     requestedIssueTags:
       uniqueStrings(
         pack?.requestedIssueTags,
@@ -1163,12 +1354,70 @@ function buildMemoSchema(
       propositionAsApplied: {
         type: "string",
       },
+      quoteRecommendation: {
+        type: "string",
+        enum: [
+          "use_if_verified",
+          "not_needed",
+        ],
+      },
     },
     required: [
       "propositionId",
       "useMode",
       "relevance",
       "propositionAsApplied",
+      "quoteRecommendation",
+    ],
+  };
+
+  const scopeAssessmentSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      opponentClassNo: {
+        type: "integer",
+      },
+      requestedScopeMode: {
+        type: "string",
+        enum: [
+          "full_class",
+          "partial",
+        ],
+      },
+      manualSimilarityProvided: {
+        type: "boolean",
+      },
+      supportStatus: {
+        type: "string",
+        enum: [
+          "supports_requested_scope",
+          "supports_only_partial_scope",
+          "insufficient_for_requested_scope",
+        ],
+      },
+      analysisSummary: {
+        type: "string",
+      },
+      strongestConnection: {
+        type: "string",
+      },
+      limitingPoint: {
+        type: "string",
+      },
+      draftingInstruction: {
+        type: "string",
+      },
+    },
+    required: [
+      "opponentClassNo",
+      "requestedScopeMode",
+      "manualSimilarityProvided",
+      "supportStatus",
+      "analysisSummary",
+      "strongestConnection",
+      "limitingPoint",
+      "draftingInstruction",
     ],
   };
 
@@ -1301,6 +1550,12 @@ function buildMemoSchema(
         type: "array",
         items: issueSchema,
       },
+      scopeAssessments: {
+        type: "array",
+        items:
+          scopeAssessmentSchema,
+      },
+
       crossIssueSynthesis: {
         type: "object",
         additionalProperties: false,
@@ -1374,6 +1629,7 @@ function buildMemoSchema(
       "legalBasis",
       "executiveAssessment",
       "issues",
+      "scopeAssessments",
       "crossIssueSynthesis",
       "citationLedger",
       "unresolvedQuestions",
@@ -1407,12 +1663,22 @@ OPTIONAL GOODS/SERVICES INPUT POLICY — ${INPUT_POLICY_VERSION}
 - A missing matchedPriorClasses list means the selected prior mark's full canonical class/goods scope remains available for legal comparison.
 - A missing criteria list means you must identify only the criteria genuinely supported by the canonical wording and verified authority; do not manufacture complementarity, competition, channels or consumer overlap.
 
+REQUESTED REFUSAL SCOPE / ADVOCACY CONSISTENCY — ${ADVOCACY_POLICY_VERSION}
+- Her requestedRefusal=true rakip sınıf için scopeAssessments içinde TAM BİR kayıt üret.
+- Avukat "full_class" ret istemişse önce bu talebi hukuken SAVUNABİLMEK için canonical item'ları item/grup bazında gerçekten analiz et; sırf bazı alt kalemler uzak diye otomatik şekilde talebi zayıflatma.
+- Manuel benzerlik seviyesi yoksa bu bir eksiklik değildir; Kılavuzdaki karşılaştırma ölçütleri, mümkünse somut Kılavuz örnekleri ve verified authorities ile kendi hukuki analizini tamamla.
+- Manuel benzerlik seviyesi varsa SEVİYEYİ değiştirme. Bunun nedenini nitelik, amaç, kullanım, tamamlayıcılık, rekabet, kanal, tüketici veya ticari kaynak bağlantısı gibi gerçekten desteklenen ölçütlerle açıkla.
+- İstenen tam/kısmi kapsam dürüstçe savunulamıyorsa supportStatus ile bunu INTERNAL olarak işaretle. Nihai dilekçe kendi talebini çürüten bir paragraf üretmemelidir; bu durumda dosya avukat kapsam incelemesine gitmelidir.
+- "supports_only_partial_scope" veya "insufficient_for_requested_scope" kararı ancak önce mümkün tüm somut bağlantıları ve verified Kılavuz/karar desteğini araştırdıktan sonra verilebilir.
+
 AUTHORITY RULES
 - Cite/use authorities ONLY through propositionId fields from the Authority Pack.
 - Never invent a court, chamber, case number, decision number, date, holding, quotation, or authority.
 - Never cite a proposition beyond its verified propositionText / holdingText / useFor scope.
 - Respect doNotUseFor strictly.
 - Do not write case numbers/ECLI/Yargıtay E.-K. references in free prose. Authority identity will be deterministically attached after your output.
+- Authority Pack'te quoteSafe=true + verifiedQuote bulunan proposition, dilekçe katmanında güvenli doğrudan alıntı yüzeyidir. Kritik bir meselede alıntı gerçekten argümanı güçlendirecekse authorityApplications.quoteRecommendation="use_if_verified" de.
+- Özellikle Kılavuz proposition'ında somut mal/hizmet veya işaret kıyaslama örneği bulunuyorsa ve somut dosyayla anlamlı ölçüde örtüşüyorsa bunu draftingInstructions içinde açıkça öne çıkar.
 - Distinguish DIRECT authority, ANALOGICAL use, and LIMITING authority.
 - For core issues, use a LAYERED authority method when the supplied pack permits it:
   (a) TÜRKPATENT Marka İnceleme Kılavuzu for local examination doctrine,
@@ -1444,6 +1710,9 @@ QUALITY STANDARD
 Write as an experienced Turkish/EU trademark litigator preparing a memorandum for another senior lawyer:
 analytical, precise, balanced, concrete, and useful for drafting.
 Avoid generic textbook filler.
+- Dilekçeye aktarılacak draftingInstructions "dosyada belirlenen", "dosyada kaydedilen", "bağlayıcı avukat bulgusu", "Decision Tree", "canonical" gibi iç sistem dili taşımamalıdır.
+- Nihai dilekçe için önerilen otorite kullanımı şu mantığı izlemelidir:
+  hukuki/somut bulgu → doğrulanmış authority → varsa kısa exact quote → somut olaya uygulama → ara sonuç.
 Use Turkish.
 `.trim();
 }
@@ -1469,6 +1738,8 @@ FINAL INSTRUCTIONS
 - Strong arguments and vulnerabilities must both be visible.
 - Every authority use must point to a propositionId from the supplied pack.
 - Inspect authorityPack.authorityCoverage. If verified Yargıtay + EU + guideline layers are available, use them across the memorandum where legally material; avoid citation dumping.
+- quoteSafe/verifiedQuote bulunan otoriteleri kritik ve somut meselelerde quoteRecommendation ile seç; her paragrafı alıntıyla doldurma.
+- Her requestedRefusal=true sınıfı scopeAssessments içinde değerlendir. Manuel benzerlik yoksa kendi hukuki analizini tamamla; manuel seviye varsa onu koru ve gerekçelendir.
 - The memorandum should be sufficiently developed to support a later high-quality petition, but must remain an internal reasoning memorandum.
 `.trim();
 }
@@ -1523,12 +1794,14 @@ async function startOpenAiSolBackground({
       maxOutputTokens,
     truncation: "disabled",
     prompt_cache_key:
-      "evreka-legal-reasoning-6.1.6",
+      "evreka-legal-reasoning-6.1.11",
     safety_identifier:
       safetyIdentifier,
     metadata: {
       package_version:
         PACKAGE_VERSION,
+      advocacy_policy_version:
+        ADVOCACY_POLICY_VERSION,
       workload:
         "trademark_opposition_reasoning",
     },
@@ -1719,6 +1992,10 @@ async function finalizeCompletedResponse({
       memo,
       authorityPack,
       issueTags,
+      canonical:
+        safeObject(
+          run?.canonical_snapshot,
+        ),
     });
 
   const enrichedMemo =
@@ -1933,10 +2210,66 @@ function findUnknownAuthorityPatterns(
   ];
 }
 
+
+function requestedScopeRows(
+  canonical,
+) {
+  const tree =
+    safeObject(
+      canonical?.lawyerDecisionTree,
+    );
+
+  return safeArray(
+    tree?.goodsAssessments,
+  )
+    .filter(
+      (row) =>
+        row?.requestedRefusal === true,
+    )
+    .map(
+      (row) => ({
+        classNo:
+          Number(
+            row?.opponentClassNo,
+          ),
+        requestedScopeMode:
+          [
+            "full_class",
+            "partial",
+          ].includes(
+            String(
+              row?.refusalScopeMode ??
+              "",
+            ),
+          )
+            ? String(
+                row.refusalScopeMode,
+              )
+            : "full_class",
+        manualSimilarityProvided:
+          Boolean(
+            normalizeText(
+              row?.similarityLevel,
+            ) &&
+            normalizeText(
+              row?.similarityLevel,
+            ) !== "not_assessed",
+          ),
+      }),
+    )
+    .filter(
+      (row) =>
+        Number.isFinite(
+          row.classNo,
+        ),
+    );
+}
+
 function validateMemo({
   memo,
   authorityPack,
   issueTags,
+  canonical,
 }) {
   const errors = [];
   const warnings = [];
@@ -2245,6 +2578,122 @@ function validateMemo({
     );
   }
 
+  const expectedScopes =
+    requestedScopeRows(
+      canonical,
+    );
+
+  const scopeMap =
+    new Map(
+      safeArray(
+        memo?.scopeAssessments,
+      )
+        .map(
+          (item) => [
+            Number(
+              item?.opponentClassNo,
+            ),
+            item,
+          ],
+        ),
+    );
+
+  const scopeReviewRequired = [];
+
+  for (
+    const expected
+    of expectedScopes
+  ) {
+    const item =
+      scopeMap.get(
+        expected.classNo,
+      );
+
+    if (!item) {
+      errors.push(
+        `Sınıf ${expected.classNo} için scopeAssessment bulunmuyor.`,
+      );
+      continue;
+    }
+
+    if (
+      String(
+        item?.requestedScopeMode ??
+        "",
+      ) !==
+      expected.requestedScopeMode
+    ) {
+      errors.push(
+        `Sınıf ${expected.classNo} scopeAssessment ret kapsamıyla uyumsuz.`,
+      );
+    }
+
+    if (
+      item?.manualSimilarityProvided !==
+      expected.manualSimilarityProvided
+    ) {
+      warnings.push(
+        `Sınıf ${expected.classNo} manualSimilarityProvided sinyali canonical veriyle uyumsuz.`,
+      );
+    }
+
+    const supportStatus =
+      String(
+        item?.supportStatus ??
+        "",
+      );
+
+    if (
+      supportStatus !==
+      "supports_requested_scope"
+    ) {
+      scopeReviewRequired.push({
+        classNo:
+          expected.classNo,
+        requestedScopeMode:
+          expected.requestedScopeMode,
+        supportStatus,
+        analysisSummary:
+          normalizeText(
+            item?.analysisSummary,
+          ),
+        limitingPoint:
+          normalizeText(
+            item?.limitingPoint,
+          ),
+      });
+
+      warnings.push(
+        `SCOPE_REVIEW_REQUIRED: Sınıf ${expected.classNo} / ${supportStatus}`,
+      );
+    }
+  }
+
+  for (
+    const item
+    of safeArray(
+      memo?.scopeAssessments,
+    )
+  ) {
+    const classNo =
+      Number(
+        item?.opponentClassNo,
+      );
+
+    if (
+      Number.isFinite(classNo) &&
+      !expectedScopes.some(
+        (row) =>
+          row.classNo ===
+          classNo,
+      )
+    ) {
+      warnings.push(
+        `Ret talep edilmeyen Sınıf ${classNo} için gereksiz scopeAssessment üretildi.`,
+      );
+    }
+  }
+
   return {
     finalPass:
       errors.length === 0,
@@ -2252,6 +2701,9 @@ function validateMemo({
     warnings,
     usedPropositionIds:
       uniqueUsed,
+    scopeReviewRequired,
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
     checkedAt:
       new Date()
         .toISOString(),
@@ -2294,6 +2746,10 @@ function enrichMemo(
           proposition
             ?.authorityType ??
           null,
+        authorityLayer:
+          proposition
+            ?.authorityLayer ??
+          null,
         jurisdiction:
           proposition
             ?.jurisdiction ??
@@ -2310,6 +2766,30 @@ function enrichMemo(
           proposition
             ?.sourceUrl ??
           null,
+        quoteSafe:
+          proposition
+            ?.quoteSafe ===
+            true,
+        verifiedQuote:
+          proposition
+            ?.quoteSafe ===
+            true
+              ? (
+                  proposition
+                    ?.verifiedQuote ??
+                  ""
+                )
+              : "",
+        quoteLocator:
+          proposition
+            ?.quoteSafe ===
+            true
+              ? (
+                  proposition
+                    ?.quoteLocator ??
+                  null
+                )
+              : null,
         useFor:
           uniqueStrings(
             proposition
@@ -2375,6 +2855,30 @@ function enrichMemo(
               proposition
                 ?.sourceUrl ??
               null,
+            quoteSafe:
+              proposition
+                ?.quoteSafe ===
+                true,
+            verifiedQuote:
+              proposition
+                ?.quoteSafe ===
+                true
+                  ? (
+                      proposition
+                        ?.verifiedQuote ??
+                      ""
+                    )
+                  : "",
+            quoteLocator:
+              proposition
+                ?.quoteSafe ===
+                true
+                  ? (
+                      proposition
+                        ?.quoteLocator ??
+                      null
+                    )
+                  : null,
           };
         },
       ),
@@ -3574,6 +4078,8 @@ serve(async (req) => {
             canonicalCompact,
           authorityPack,
           issueTags,
+          advocacyPolicyVersion:
+            ADVOCACY_POLICY_VERSION,
         }),
       );
 

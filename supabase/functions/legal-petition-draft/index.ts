@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
+const ADVOCACY_POLICY_VERSION = "6.1.11";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_PETITION_MODEL") ??
@@ -415,6 +416,8 @@ function compactAuthorityPack(pack) {
     packageVersion:
       pack?.packageVersion ??
       null,
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
 
     coverageScore:
       asNumber(
@@ -445,8 +448,32 @@ function compactAuthorityPack(pack) {
             authorityType:
               p?.authorityType ??
               null,
+            authorityLayer:
+              p?.authorityLayer ??
+              null,
             jurisdiction:
               p?.jurisdiction ??
+              null,
+            authorityName:
+              p?.authorityName ??
+              null,
+            court:
+              p?.court ??
+              null,
+            chamber:
+              p?.chamber ??
+              null,
+            caseNo:
+              p?.caseNo ??
+              null,
+            decisionNo:
+              p?.decisionNo ??
+              null,
+            decisionDate:
+              p?.decisionDate ??
+              null,
+            authorityTitle:
+              p?.authorityTitle ??
               null,
             citationLabel:
               p?.citationLabel ??
@@ -463,6 +490,34 @@ function compactAuthorityPack(pack) {
             sourceLocator:
               p?.sourceLocator ??
               null,
+            pageFrom:
+              p?.pageFrom ??
+              null,
+            pageTo:
+              p?.pageTo ??
+              null,
+            quoteSafe:
+              p?.quoteSafe === true,
+            verifiedQuote:
+              p?.quoteSafe === true
+                ? normalizeText(
+                    p?.verifiedQuote,
+                  )
+                : "",
+            quoteLocator:
+              p?.quoteSafe === true
+                ? (
+                    p?.quoteLocator ??
+                    null
+                  )
+                : null,
+            quoteSourceUrl:
+              p?.quoteSafe === true
+                ? (
+                    p?.quoteSourceUrl ??
+                    null
+                  )
+                : null,
             sourceUrl:
               p?.sourceUrl ??
               null,
@@ -491,6 +546,48 @@ function compactAuthorityPack(pack) {
             ),
         ),
   };
+}
+
+function scopeReviewItems(
+  memo,
+) {
+  return safeArray(
+    memo?.scopeAssessments,
+  )
+    .filter(
+      (item) =>
+        String(
+          item?.supportStatus ??
+          "",
+        ) !==
+        "supports_requested_scope",
+    )
+    .map(
+      (item) => ({
+        classNo:
+          Number(
+            item?.opponentClassNo,
+          ),
+        requestedScopeMode:
+          String(
+            item?.requestedScopeMode ??
+            "",
+          ),
+        supportStatus:
+          String(
+            item?.supportStatus ??
+            "",
+          ),
+        analysisSummary:
+          normalizeText(
+            item?.analysisSummary,
+          ),
+        limitingPoint:
+          normalizeText(
+            item?.limitingPoint,
+          ),
+      }),
+    );
 }
 
 function usedMemoPropositionIds(memo) {
@@ -659,7 +756,7 @@ function buildDraftSchema({
       sections: {
         type: "array",
         minItems: 4,
-        maxItems: 7,
+        maxItems: 6,
         items: {
           type: "object",
           additionalProperties: false,
@@ -681,17 +778,32 @@ function buildDraftSchema({
             paragraphs: {
               type: "array",
               minItems: 2,
-              maxItems: 6,
+              maxItems: 12,
               items: {
                 type: "object",
                 additionalProperties: false,
                 properties: {
+                  subheading: {
+                    type: "string",
+                  },
+
                   text: {
                     type: "string",
                   },
 
                   propositionIds: {
                     type: "array",
+                    maxItems: 3,
+                    items: {
+                      type: "string",
+                      enum:
+                        safePropIds,
+                    },
+                  },
+
+                  quotePropositionIds: {
+                    type: "array",
+                    maxItems: 2,
                     items: {
                       type: "string",
                       enum:
@@ -700,8 +812,10 @@ function buildDraftSchema({
                   },
                 },
                 required: [
+                  "subheading",
                   "text",
                   "propositionIds",
+                  "quotePropositionIds",
                 ],
               },
             },
@@ -742,72 +856,84 @@ Sen EVREKA'nın TÜRKPATENT yayıma itiraz dilekçelerini hazırlayan kıdemli m
 
 GÖREV
 Sana verilen CANONICAL CASE SNAPSHOT, AVUKAT KARAR AĞACI, VERIFIED AUTHORITY PACK ve SOL LEGAL REASONING MEMORANDUM üzerinden nihai dilekçe gövdesi üret.
-
-Bu aşamada YENİ hukuk araştırması veya YENİ hukuki sonuç üretme.
-Reasoning Memorandum, nihai metnin bağlayıcı hukukî yol haritasıdır.
+Bu aşamada YENİ hukuk araştırması veya YENİ authority üretme. Reasoning Memorandum bağlayıcı hukukî yol haritasıdır.
 
 DOSYA GERÇEĞİ HİYERARŞİSİ
 1. Canonical case snapshot = bağlayıcı olgular.
-2. Lawyer Decision Tree = bağlayıcı avukat bulguları.
+2. EXPLICIT Lawyer Decision Tree girdileri = bağlayıcı avukat bulguları.
 3. Legal Reasoning Memorandum = bağlayıcı reasoning çerçevesi.
 4. Verified Authority Pack = kullanılabilecek TEK authority evreni.
 
+OPSİYONEL MAL/HİZMET GİRDİSİ
+- similarityLevel / matchedPriorClasses / criteria alanları boşsa bunu "benzerlik belirlenmedi", "değerlendirme eksik" veya "ret ayrıca tamamlanmalı" şeklinde yazma.
+- Boşluk yalnız "avukat override girmedi" anlamına gelir.
+- Reasoning Memorandum canonical mal/hizmet metinleri + Kılavuz + verified authorities üzerinden hukuki karşılaştırmayı tamamlamış olmalıdır; dilekçede o analizi savunucu biçimde geliştir.
+- Avukat benzerlik seviyesi girdiyse seviyeyi DEĞİŞTİRME. Seviyeyi destekleyen nitelik, amaç, kullanım, tamamlayıcılık, rekabet, kanal, tüketici veya ticari kaynak ölçütlerini somutlaştır.
+- Avukat matched class veya criteria girdiyse bağlayıcı lawyer finding olarak kullan; boşsa reasoning'deki hukuki kıyasa dayan.
+
+REQUESTED SCOPE / FILING CONSISTENCY — ${ADVOCACY_POLICY_VERSION}
+- requestedRefusal ve refusalScopeMode filing talebidir.
+- Memorandum.scopeAssessments içinde supportStatus="supports_requested_scope" olmayan bir sınıf varsa görünür dilekçede kendi talebimizi çürüten cümle kurma.
+- Böyle bir conflict varsa draftingWarnings içine "SCOPE_REVIEW_REQUIRED: Sınıf X" yaz. Sistem dosyayı avukat kapsam incelemesine gönderecektir.
+- supports_requested_scope olan sınıflarda talebi zayıflatmak yerine hukuken destekleyen en somut bağlantıları ve authority'leri kullan.
+- Kanıtlanmayan olgu, piyasa vakıası veya authority uydurma.
+
 KESİN AUTHORITY KURALI
 - Authority Pack dışında mahkeme/kurul/kılavuz/karar üretme.
-- Karar numarası, ECLI, tarih, mahkeme adı veya kaynak adını paragraf text alanına YAZMA.
-- Kaynak kullanımını yalnız propositionIds alanında göster.
-- propositionIds yalnız reasoning memorandumda kullanılmış ve sana izin verilen doğrulanmış proposition ID'lerden seçilebilir.
-- Dilekçe içindeki görünür citation metni sistem tarafından deterministik olarak eklenecek.
-- Authority Pack içinde aynı temel mesele için Kılavuz + verified Yargıtay/Türk içtihadı + verified CJEU/General Court katmanları varsa, reasoning memorandumun kullanımını izleyerek bu katmanları dilekçeye dengeli biçimde taşı.
-- Her paragrafı üç kaynakla doldurma. Ama Yargıtay proposition mevcut ve memo tarafından kullanılmışsa, yalnız Kılavuz + AB citation'larıyla Türk yargısal katmanı sessizce düşürme.
-- verifiedQuote/quoteSafe alanı ileride deterministik alıntı yüzeyi için saklanır; model kendi başına doğrudan alıntı üretmesin.
+- Karar numarası, ECLI, tarih, mahkeme adı veya kaynak adını paragraph.text veya subheading alanına YAZMA.
+- Authority kullanımını yalnız propositionIds ile göster.
+- quotePropositionIds yalnız propositionIds içinde bulunan ve Authority Pack'te quoteSafe=true + verifiedQuote dolu proposition'lardan seçilebilir.
+- Doğrudan alıntıyı KENDİN yazma. Exact quote sistem tarafından deterministik olarak eklenecek.
+- 2-5 adet güçlü exact quote tercih et; her paragrafı alıntıyla doldurma.
+- Quote önceliği: somut dosyaya yakın Kılavuz örneği/kıyaslaması → verified Yargıtay/Türk kararı → kritik CJEU/General Court kararı.
+- Kılavuz + verified Yargıtay/Türk içtihadı + verified AB katmanları aynı meselede mevcutsa reasoning memorandumun kullanımını izleyerek dengeli biçimde taşı.
+
+OTORİTEYİ ARGÜMANA BAĞLAMA STANDARDI
+somut/hukukî bulgu → authority desteği → varsa kısa verified quote → somut olaya uygulama → ara sonuç.
+
+ÇIPLAK ATIF YASAĞI
+- "(Court of Justice..., C-...)" veya "(TÜRKPATENT..., s. ...)" gibi bibliyografik parantez atfı üretme.
+- Sistem propositionIds'leri doğal cümle içinde "X sayılı kararda..." veya "Kılavuzun ... bölümünde..." biçiminde deterministik olarak görünür hale getirecek.
+
+İÇ SİSTEM DİLİ YASAĞI
+Görünür dilekçede "dosyada belirlenen", "dosyada kaydedilen", "bağlayıcı değerlendirmede", "avukat bulgusu", "Decision Tree", "canonical" gibi çalışma notu dili kullanma.
+Doğrudan "Somut olayda...", "Karşılaştırılan işaretlerde...", "Tarafların mal/hizmet kapsamlarında..." gibi hukuk dili kullan.
 
 BAĞLAYICI AVUKAT KURALLARI
-- Avukatın işaret, mal/hizmet, tüketici, global sonuç ve ret kapsamı bulgularını tersine çevirme.
+- Avukatın explicit işaret, mal/hizmet, tüketici, global sonuç ve ret kapsamı bulgularını tersine çevirme.
 - Ortak unsurun ağırlığını avukat bulgusundan daha yüksek kurma.
 - Eksik olguyu tamamlama veya varsayma.
-- Reasoning Memorandum içindeki factualLimitations, unresolvedQuestions ve prohibitedOrUnsupportedClaims sınırlarını aşma.
-
-Z-ŞARJ DOSYASI GİBİ DOSYALARDA ÖZEL ANTI-OVERREACH
-- Ortak tek harf otomatik olarak baskın, asli, çekirdek veya yüksek ayırt edici değildir.
-- Tek harf otomatik olarak güçlü veya zayıf değildir.
-- Fizikî mal ile 35. sınıf perakendecilik hizmetini aynı doğa/nitelik/mahiyet olarak yazma.
-- Goods↔retail ilişkisini yalnız memo ve verified proposition'ın izin verdiği ölçüde; tamamlayıcılık, kanallar, tüketici ve ticari kaynak algısı üzerinden tartış.
-- Tamamlayıcılığı dosya bulgusundan daha güçlü hale getirme.
-- Interdependence'i otomatik telafi kuralına dönüştürme.
-- Salt çağrışımı association için yeterli sayma.
-- Seri marka/marka ailesi/tanınmışlık/kötü niyet argümanı kurma.
-- "seri marka" veya "marka ailesi" terimlerini, bunları reddetmek amacıyla dahi görünür dilekçe metnine yazma. Gerekirse "bu yönde bağımsız bir iddia ileri sürülmemektedir" gibi nötr bir ifade kullan.
-- SMK 6/5 veya SMK 6/9'a geçme.
+- Memorandum factualLimitations, unresolvedQuestions ve prohibitedOrUnsupportedClaims sınırlarını aşma.
 
 YAZIM STANDARDI
-- Türkçe.
-- TÜRKPATENT'e sunulabilecek profesyonel, akıcı, tartışmalı ve ikna edici hukuk dili.
-- Genel ders kitabı anlatımı yapma.
-- Her bölüm mümkün olduğunca:
-  hukuki ölçüt → authority desteği → somut olaya uygulama → ara sonuç
-  zincirini izlesin.
-- Gereksiz tekrar yapma.
-- Avukatın zayıf/sınırda bulduğu noktayı "kesin" veya "çok güçlü" hale getirme.
-- Karşı argüman ancak memo içinde gerçekten kurulmuşsa ele al.
-- Metin dilekçe gövdesidir; antet, taraf tablosu veya ayrı "SONUÇ VE TALEP" bölümü üretme.
-- "AÇIKLAMALARIMIZ VE HUKUKİ GEREKÇELER" başlığını JSON text alanlarında tekrar etme; sistem deterministik ekleyecek.
-- İç sistem kodu, UUID, [S#], ⟦S#⟧, K# veya benzeri marker'ları görünür metne yazma.
+- Türkçe; profesyonel, akıcı, tartışmalı ve ikna edici hukuk dili.
+- Genel ders kitabı anlatımı ve gereksiz tekrar yapma.
+- Normal paragraf içine markdown **bold** veya başka markdown biçimi koyma.
+- Başlık metinlerine numara koyma; numaralandırmayı sistem deterministik yapacak.
+- subheading kısa hukukî ara başlık olabilir; boş olabilir.
+- Antet, taraf tablosu veya ayrı "SONUÇ VE TALEP" bölümü üretme.
+- "AÇIKLAMALARIMIZ VE HUKUKİ GEREKÇELER" başlığını tekrar etme.
+- İç sistem kodu, UUID, [S#], ⟦S#⟧, K# veya marker yazma.
 
 BÖLÜM MANTIĞI
-Dosyaya göre 4-7 bölüm kullan.
-Başlıklar kısa ve hukukî olsun.
-Mümkün olduğunda şu eksenleri uygun biçimde grupla:
-- SMK 6/1 çerçevesi ve önceki hak
-- işaretlerin bütünsel karşılaştırılması
-- ortak unsur / tek harf / ek unsurlar
-- mal ve hizmet ilişkisi
-- ilgili tüketici
-- global karıştırılma ve ilişkilendirilme ihtimali
+4-6 ana bölüm kullan. Tercih edilen sıra:
+- itirazın hukukî dayanağı / önceki hak
+- işaretlerin karşılaştırılması
+- mal ve hizmetlerin karşılaştırılması
+- ilgili tüketici ve dikkat düzeyi
+- bütünsel karıştırılma / ilişkilendirilme ihtimali
+
+İŞARET KARŞILAŞTIRMASI
+Kılavuzda somut işaret yapısına yakın verified örnek/proposition varsa quoteSafe ise quotePropositionIds ile seç ve somut olaya neden benzediğini text içinde açıkla.
+
+MAL/HİZMET KARŞILAŞTIRMASI
+- Sınıf başlığı tek başına sonuç değildir; item'lar ve gerçek ilişki tartışılmalıdır.
+- Kılavuzdaki benzer somut kıyaslama/örnek verified proposition olarak mevcutsa özellikle kullan.
+- "Aynı" veya "yüksek/orta/düşük" lawyer finding'i varsa tekrarlamakla yetinme; düzeyi destekleyen hukukî kriterleri anlat.
+- Manuel seviye yoksa reasoning memorandumun yaptığı bağımsız hukuki kıyası dilekçeye taşı.
 
 SON
-finalBridge alanı ayrı bir "Sonuç ve Talep" değildir.
-Yalnız açıklamalar bölümünü ret kapsamına bağlayan 1 kısa kapanış paragrafıdır.
+finalBridge ayrı bir "Sonuç ve Talep" değildir. Yalnız açıklamalar bölümünü ret kapsamına bağlayan 1 kısa kapanış paragrafıdır.
 `.trim();
 }
 
@@ -832,7 +958,9 @@ ${JSON.stringify(allowedPropositionIds)}
 
 FINAL TALİMAT
 Reasoning Memorandum'un hukukî sonucunu ve ölçülülüğünü koruyarak filing-ready dilekçe gövdesi üret.
-Authority adlarını paragraf text'ine yazma; yalnız propositionIds kullan.
+Authority adlarını paragraph.text/subheading içine yazma; yalnız propositionIds kullan.
+quoteSafe=true olan ve gerçekten argümanı güçlendiren 2-5 proposition'ı quotePropositionIds ile seç.
+Kılavuzdaki somut örnek/kıyaslama proposition'larına özellikle öncelik ver.
 `.trim();
 }
 
@@ -896,7 +1024,7 @@ async function startOpenAiDraftBackground({
       "disabled",
 
     prompt_cache_key:
-      "evreka-final-petition-6.1.6",
+      "evreka-final-petition-6.1.11",
 
     safety_identifier:
       safetyIdentifier,
@@ -904,6 +1032,8 @@ async function startOpenAiDraftBackground({
     metadata: {
       package_version:
         PACKAGE_VERSION,
+      advocacy_policy_version:
+        ADVOCACY_POLICY_VERSION,
       workload:
         "trademark_opposition_final_draft",
     },
@@ -1095,15 +1225,17 @@ function propositionMap(pack) {
 function cleanGuidelineLocator(
   citationLabel,
   sourceLocator,
+  quoteLocator = "",
 ) {
   const base =
     normalizeText(
       citationLabel ||
-      "TÜRKPATENT, Marka İnceleme Kılavuzu (2021)",
+      "TÜRKPATENT Marka İnceleme Kılavuzu (2021)",
     );
 
   const locator =
     normalizeText(
+      quoteLocator ||
       sourceLocator,
     );
 
@@ -1172,35 +1304,214 @@ function cleanGuidelineLocator(
     .join(", ");
 }
 
-function citationLabelFor(
+function isGuidelineProposition(
   proposition,
 ) {
-  const citationLabel =
+  return (
+    String(
+      proposition?.authorityType ??
+      "",
+    ) === "guideline" ||
+    /türkpatent|turkpatent|marka inceleme kılavuzu/i.test(
+      [
+        proposition?.citationLabel,
+        proposition?.authorityTitle,
+        proposition?.sourceLocator,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+  );
+}
+
+function turkishCourtName(
+  value,
+) {
+  const raw =
+    normalizeText(value);
+
+  if (!raw) {
+    return "";
+  }
+
+  if (
+    /court of justice of the european union|court of justice|cjeu|avrupa birliği adalet divanı/i.test(
+      raw,
+    )
+  ) {
+    return "Avrupa Birliği Adalet Divanı";
+  }
+
+  if (
+    /general court|avrupa birliği genel mahkemesi/i.test(
+      raw,
+    )
+  ) {
+    return "Avrupa Birliği Genel Mahkemesi";
+  }
+
+  return raw;
+}
+
+function cleanAuthorityTitle(
+  value,
+) {
+  const title =
+    normalizeText(value);
+
+  if (
+    !title ||
+    /verified authority/i.test(
+      title,
+    )
+  ) {
+    return "";
+  }
+
+  return title
+    .replace(
+      /\s+/g,
+      " ",
+    )
+    .slice(0, 160);
+}
+
+function courtDecisionLabel(
+  proposition,
+) {
+  const court =
+    turkishCourtName(
+      proposition?.court ||
+      proposition?.authorityName ||
+      proposition?.jurisdiction,
+    );
+
+  const chamber =
+    normalizeText(
+      proposition?.chamber,
+    );
+
+  const caseNo =
+    normalizeText(
+      proposition?.caseNo,
+    );
+
+  const decisionNo =
+    normalizeText(
+      proposition?.decisionNo,
+    );
+
+  const title =
+    cleanAuthorityTitle(
+      proposition?.authorityTitle,
+    );
+
+  const rawCitation =
     normalizeText(
       proposition?.citationLabel,
     );
 
-  const sourceLocator =
-    normalizeText(
-      proposition?.sourceLocator,
-    );
+  if (
+    /yargıtay|yargitay/i.test(
+      `${court} ${chamber} ${rawCitation}`,
+    )
+  ) {
+    const identity =
+      [
+        court || "Yargıtay",
+        chamber,
+      ]
+        .filter(Boolean)
+        .join(" ");
 
-  const guidelineLike =
-    /türkpatent|marka inceleme kılavuzu/i.test(
-      `${citationLabel} ${sourceLocator}`,
-    );
+    const numbers =
+      [
+        caseNo
+          ? `E. ${caseNo}`
+          : "",
+        decisionNo
+          ? `K. ${decisionNo}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
 
-  if (guidelineLike) {
-    return cleanGuidelineLocator(
-      citationLabel,
-      sourceLocator,
-    );
+    return [
+      identity,
+      numbers,
+    ]
+      .filter(Boolean)
+      .join(", ");
   }
 
   return (
-    citationLabel ||
-    sourceLocator
+    [
+      court,
+      caseNo,
+      title &&
+      !rawCitation.includes(title)
+        ? title
+        : "",
+    ]
+      .filter(Boolean)
+      .join(", ") ||
+    rawCitation ||
+    normalizeText(
+      proposition?.sourceLocator,
+    )
   );
+}
+
+function authorityNarrativeSentence(
+  proposition,
+  useQuote,
+) {
+  const quote =
+    normalizeText(
+      proposition?.verifiedQuote,
+    );
+
+  if (
+    isGuidelineProposition(
+      proposition,
+    )
+  ) {
+    const locator =
+      cleanGuidelineLocator(
+        proposition?.citationLabel,
+        proposition?.sourceLocator,
+        proposition?.quoteLocator,
+      );
+
+    if (
+      useQuote &&
+      proposition?.quoteSafe === true &&
+      quote
+    ) {
+      return `Nitekim ${locator} bölümünde, “${quote}” açıklamasına yer verilmiştir.`;
+    }
+
+    return `Bu yaklaşım, ${locator} bölümündeki açıklamalarla da desteklenmektedir.`;
+  }
+
+  const label =
+    courtDecisionLabel(
+      proposition,
+    );
+
+  if (!label) {
+    return "";
+  }
+
+  if (
+    useQuote &&
+    proposition?.quoteSafe === true &&
+    quote
+  ) {
+    return `Nitekim ${label} sayılı kararda, “${quote}” denilmektedir.`;
+  }
+
+  return `Aynı hukuki ölçüt, ${label} sayılı kararda benimsenen yaklaşımla da uyumludur.`;
 }
 
 function renderPetition({
@@ -1217,12 +1528,163 @@ function renderPetition({
     "",
   ];
 
+  let sectionNo = 0;
+
+  const authorityRenderCounts =
+    new Map();
+
+  const quoteRenderedIds =
+    new Set();
+
+  const explicitQuoteIds =
+    new Set(
+      safeArray(
+        structuredDraft?.sections,
+      )
+        .flatMap(
+          (section) =>
+            safeArray(
+              section?.paragraphs,
+            ),
+        )
+        .flatMap(
+          (paragraph) =>
+            uniqueStrings(
+              paragraph?.quotePropositionIds,
+            ),
+        ),
+    );
+
+  const usedPropositionOrder =
+    [
+      ...new Set(
+        safeArray(
+          structuredDraft?.sections,
+        )
+          .flatMap(
+            (section) =>
+              safeArray(
+                section?.paragraphs,
+              ),
+          )
+          .flatMap(
+            (paragraph) =>
+              uniqueStrings(
+                paragraph?.propositionIds,
+              ),
+          ),
+      ),
+    ];
+
+  const quoteLayerPriority =
+    (proposition) => {
+      if (
+        isGuidelineProposition(
+          proposition,
+        )
+      ) {
+        return 1;
+      }
+
+      const layer =
+        String(
+          proposition?.authorityLayer ??
+          "",
+        );
+
+      if (
+        layer ===
+        "tr_yargitay" ||
+        layer ===
+        "tr_other"
+      ) {
+        return 2;
+      }
+
+      if (
+        layer ===
+        "eu"
+      ) {
+        return 3;
+      }
+
+      return 4;
+    };
+
+  const autoQuoteIds =
+    new Set(
+      [
+        ...explicitQuoteIds,
+      ],
+    );
+
+  const quoteCandidates =
+    usedPropositionOrder
+      .map(
+        (id, index) => ({
+          id,
+          index,
+          proposition:
+            pMap.get(id),
+        }),
+      )
+      .filter(
+        (item) =>
+          item.proposition?.quoteSafe === true &&
+          Boolean(
+            normalizeText(
+              item.proposition?.verifiedQuote,
+            ),
+          ),
+      )
+      .sort(
+        (a, b) =>
+          quoteLayerPriority(
+            a.proposition,
+          ) -
+            quoteLayerPriority(
+              b.proposition,
+            ) ||
+          a.index -
+            b.index,
+      );
+
+  const targetQuoteCount =
+    Math.min(
+      4,
+      Math.max(
+        2,
+        Math.min(
+          quoteCandidates.length,
+          3,
+        ),
+      ),
+    );
+
+  for (
+    const candidate
+    of quoteCandidates
+  ) {
+    if (
+      autoQuoteIds.size >=
+      targetQuoteCount
+    ) {
+      break;
+    }
+
+    autoQuoteIds.add(
+      candidate.id,
+    );
+  }
+
   for (
     const section
     of safeArray(
       structuredDraft?.sections,
     )
   ) {
+    sectionNo += 1;
+
     const heading =
       normalizeText(
         section?.heading,
@@ -1230,12 +1692,12 @@ function renderPetition({
 
     if (heading) {
       lines.push(
-        heading,
+        `${sectionNo}. ${heading}`,
         "",
       );
     }
 
-    let previousCitationKey = "";
+    let subsectionNo = 0;
 
     for (
       const paragraph
@@ -1243,12 +1705,40 @@ function renderPetition({
         section?.paragraphs,
       )
     ) {
-      let paragraphText =
+      const subheading =
+        normalizeText(
+          paragraph?.subheading,
+        );
+
+      if (subheading) {
+        subsectionNo += 1;
+
+        lines.push(
+          `${sectionNo}.${subsectionNo}. ${subheading}`,
+          "",
+        );
+      }
+
+      const paragraphText =
         normalizeText(
           paragraph?.text,
         );
 
-      const labels = [];
+      if (paragraphText) {
+        lines.push(
+          paragraphText,
+        );
+      }
+
+      const quoteIds =
+        new Set(
+          uniqueStrings(
+            paragraph
+              ?.quotePropositionIds,
+          ),
+        );
+
+      const authoritySentences = [];
 
       for (
         const id
@@ -1263,49 +1753,67 @@ function renderPetition({
           continue;
         }
 
-        const label =
-          citationLabelFor(
+        const priorCount =
+          Number(
+            authorityRenderCounts.get(id) ??
+            0,
+          );
+
+        const wantsQuote =
+          (
+            quoteIds.has(id) ||
+            autoQuoteIds.has(id)
+          ) &&
+          !quoteRenderedIds.has(id);
+
+        if (
+          priorCount >= 2 &&
+          !wantsQuote
+        ) {
+          continue;
+        }
+
+        const sentence =
+          authorityNarrativeSentence(
             proposition,
+            wantsQuote,
           );
 
         if (
-          label &&
-          !labels.includes(label)
+          sentence &&
+          !authoritySentences.includes(
+            sentence,
+          )
         ) {
-          labels.push(label);
+          authoritySentences.push(
+            sentence,
+          );
+
+          authorityRenderCounts.set(
+            id,
+            priorCount + 1,
+          );
+
+          if (wantsQuote) {
+            quoteRenderedIds.add(id);
+          }
         }
       }
 
-      const citationKey =
-        labels
-          .slice()
-          .sort()
-          .join("||");
-
-      const shouldRenderCitation =
-        Boolean(
-          paragraphText &&
-          labels.length > 0 &&
-          citationKey !==
-            previousCitationKey,
+      if (
+        authoritySentences.length > 0
+      ) {
+        lines.push(
+          authoritySentences.join(" "),
         );
+      }
 
       if (
-        shouldRenderCitation
+        paragraphText ||
+        authoritySentences.length > 0
       ) {
-        paragraphText =
-          `${paragraphText} (${labels.join("; ")})`;
+        lines.push("");
       }
-
-      if (paragraphText) {
-        lines.push(
-          paragraphText,
-          "",
-        );
-      }
-
-      previousCitationKey =
-        citationKey;
     }
   }
 
@@ -1329,6 +1837,7 @@ function renderPetition({
     )
     .trim();
 }
+
 function findRawAuthorityIdentifiers(
   structuredDraft,
 ) {
@@ -1503,22 +2012,42 @@ function validateStructuredDraft({
 
   if (
     sections.length < 4 ||
-    sections.length > 7
+    sections.length > 6
   ) {
     errors.push(
-      "Dilekçe 4-7 bölüm arasında olmalı.",
+      "Dilekçe 4-6 bölüm arasında olmalı.",
     );
   }
 
-  const headings =
+  const rawHeadings =
     sections
       .map(
         (section) =>
-          normalizeComparable(
+          normalizeText(
             section?.heading,
           ),
       )
       .filter(Boolean);
+
+  for (
+    const heading
+    of rawHeadings
+  ) {
+    if (
+      /^\d+(?:\.\d+)*\./.test(
+        heading,
+      )
+    ) {
+      errors.push(
+        `Ana başlık numarayı model üretmemeli: ${heading}`,
+      );
+    }
+  }
+
+  const headings =
+    rawHeadings.map(
+      normalizeComparable,
+    );
 
   if (
     new Set(headings).size !==
@@ -1545,6 +2074,7 @@ function validateStructuredDraft({
     );
 
   const usedIds = [];
+  const usedQuoteIds = [];
 
   for (
     const section
@@ -1599,12 +2129,36 @@ function validateStructuredDraft({
         );
       }
 
-      for (
-        const id
-        of uniqueStrings(
+      const subheading =
+        normalizeText(
+          paragraph?.subheading,
+        );
+
+      if (
+        /^\d+(?:\.\d+)*\./.test(
+          subheading,
+        )
+      ) {
+        errors.push(
+          `Alt başlık numarayı model üretmemeli: ${subheading}`,
+        );
+      }
+
+      const paragraphPropIds =
+        uniqueStrings(
           paragraph
             ?.propositionIds,
-        )
+        );
+
+      const quoteIds =
+        uniqueStrings(
+          paragraph
+            ?.quotePropositionIds,
+        );
+
+      for (
+        const id
+        of paragraphPropIds
       ) {
         usedIds.push(id);
 
@@ -1660,6 +2214,43 @@ function validateStructuredDraft({
           );
         }
       }
+
+      for (
+        const quoteId
+        of quoteIds
+      ) {
+        usedQuoteIds.push(
+          quoteId,
+        );
+
+        if (
+          !paragraphPropIds.includes(
+            quoteId,
+          )
+        ) {
+          errors.push(
+            `quotePropositionId propositionIds içinde değil: ${quoteId}`,
+          );
+          continue;
+        }
+
+        const quoteProp =
+          pMap.get(
+            quoteId,
+          );
+
+        if (
+          !quoteProp ||
+          quoteProp?.quoteSafe !== true ||
+          !normalizeText(
+            quoteProp?.verifiedQuote,
+          )
+        ) {
+          errors.push(
+            `Doğrulanmamış/quoteSafe olmayan proposition doğrudan alıntı için seçildi: ${quoteId}`,
+          );
+        }
+      }
     }
   }
 
@@ -1670,11 +2261,15 @@ function validateStructuredDraft({
           safeArray(
             section?.paragraphs,
           )
-            .map(
-              (paragraph) =>
+            .flatMap(
+              (paragraph) => [
+                normalizeText(
+                  paragraph?.subheading,
+                ),
                 normalizeText(
                   paragraph?.text,
                 ),
+              ],
             ),
       ),
       normalizeText(
@@ -1683,6 +2278,36 @@ function validateStructuredDraft({
     ]
       .filter(Boolean)
       .join("\n");
+
+  if (
+    /\*\*[^*]+\*\*/u.test(
+      visibleModelText,
+    )
+  ) {
+    errors.push(
+      "Dilekçe metninde markdown bold bulundu.",
+    );
+  }
+
+  if (
+    /\b(?:dosyada belirlenen|dosyada kaydedilen|bağlayıcı değerlendirmede|avukat bulgusu|decision tree|canonical)\b/i.test(
+      visibleModelText,
+    )
+  ) {
+    errors.push(
+      "İç sistem/çalışma notu dili görünür dilekçeye sızmış.",
+    );
+  }
+
+  if (
+    /\(\s*(?:Court of Justice|General Court|Avrupa Birliği Adalet Divanı|Yargıtay|TÜRKPATENT)[^)]*\)/iu.test(
+      visibleModelText,
+    )
+  ) {
+    errors.push(
+      "Çıplak bibliyografik parantez atfı model metninde bulundu.",
+    );
+  }
 
   if (
     /\[(?:S|K)\d{1,3}\]/i.test(
@@ -1935,6 +2560,98 @@ function validateStructuredDraft({
     );
   }
 
+  const quoteCapableAllowed =
+    [
+      ...allowed,
+    ]
+      .map(
+        (id) =>
+          pMap.get(id),
+      )
+      .filter(
+        (p) =>
+          p?.quoteSafe === true &&
+          Boolean(
+            normalizeText(
+              p?.verifiedQuote,
+            ),
+          ),
+      );
+
+  const uniqueQuoteIds =
+    [
+      ...new Set(
+        usedQuoteIds.filter(Boolean),
+      ),
+    ];
+
+  if (
+    quoteCapableAllowed.length >= 2 &&
+    uniqueQuoteIds.length < 2
+  ) {
+    warnings.push(
+      "Model iki doğrudan alıntı seçmedi; renderer ilgili kullanılan quote-safe proposition'lardan kontrollü auto-quote uygulayacaktır.",
+    );
+  }
+
+  if (
+    uniqueQuoteIds.length > 5
+  ) {
+    errors.push(
+      "Doğrudan alıntı sayısı 5'i aşıyor; citation dumping riski.",
+    );
+  }
+
+  if (
+    quoteCapableAllowed.some(
+      (p) =>
+        isGuidelineProposition(p),
+    ) &&
+    !uniqueQuoteIds.some(
+      (id) =>
+        isGuidelineProposition(
+          pMap.get(id),
+        ),
+    )
+  ) {
+    warnings.push(
+      "Quote-safe TÜRKPATENT Kılavuzu proposition mevcut olduğu halde doğrudan Kılavuz alıntısı kullanılmadı.",
+    );
+  }
+
+  const scopeConflicts =
+    scopeReviewItems(
+      memorandum,
+    );
+
+  if (
+    scopeConflicts.length > 0
+  ) {
+    const warningsText =
+      uniqueStrings(
+        structuredDraft
+          ?.draftingWarnings,
+      ).join(" | ");
+
+    for (
+      const conflict
+      of scopeConflicts
+    ) {
+      if (
+        !new RegExp(
+          `SCOPE_REVIEW_REQUIRED:\\\\s*Sınıf\\\\s*${conflict.classNo}\\\\b`,
+          "i",
+        ).test(
+          warningsText,
+        )
+      ) {
+        errors.push(
+          `Sınıf ${conflict.classNo} scope conflict draftingWarnings içine taşınmadı.`,
+        );
+      }
+    }
+  }
+
   const reasoningPass =
     memorandum &&
     typeof memorandum === "object"
@@ -1952,6 +2669,12 @@ function validateStructuredDraft({
           usedIds.filter(Boolean),
         ),
       ],
+    usedQuotePropositionIds:
+      uniqueQuoteIds,
+    scopeReviewRequired:
+      scopeConflicts,
+    advocacyPolicyVersion:
+      ADVOCACY_POLICY_VERSION,
     checkedAt:
       new Date()
         .toISOString(),
@@ -2000,6 +2723,26 @@ function validateRenderedPetition(
   ) {
     errors.push(
       "Rendered petition internal proposition/UUID içeriyor.",
+    );
+  }
+
+  if (
+    /\(\s*(?:Court of Justice|General Court|Avrupa Birliği Adalet Divanı|Yargıtay|TÜRKPATENT)[^)]*\)/iu.test(
+      text,
+    )
+  ) {
+    errors.push(
+      "Rendered petition çıplak bibliyografik parantez atfı içeriyor.",
+    );
+  }
+
+  if (
+    /\b(?:dosyada belirlenen|dosyada kaydedilen|bağlayıcı değerlendirmede|avukat bulgusu|decision tree|canonical)\b/i.test(
+      text,
+    )
+  ) {
+    errors.push(
+      "Rendered petition iç sistem/çalışma notu dili içeriyor.",
     );
   }
 

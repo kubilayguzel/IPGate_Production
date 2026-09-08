@@ -3,6 +3,9 @@ import { supabase } from '../../supabase-config.js';
 import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
 import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
 
+const DOCUMENT_POLICY_VERSION =
+    '6.1.11';
+
 
 const DEFAULT_TEMPLATE_URL =
     'https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/templates/yayina%20itiraz%20dilekce%20taslagi.docx';
@@ -479,11 +482,10 @@ export class ProfessionalOppositionDocument {
             );
 
 
-        // Paket 6.0.7 TEST/REVIEW MODE:
-        // QA FAIL, profesyonel Word oluşturulmasını engellemez.
-        // Yalnızca QA metadata yapısının güncel olması aranır.
         if (
             !qaReport ||
+            qaReport.finalPass !==
+            true ||
             !Number.isFinite(
                 qaVersion
             ) ||
@@ -492,7 +494,7 @@ export class ProfessionalOppositionDocument {
         ) {
 
             throw new Error(
-                'Seçili dilekçenin QA metadata/sürüm bilgisi Word export için uygun değil.'
+                'Seçili dilekçe güncel filing-safety QA kontrolünü geçmemiştir. Profesyonel Word oluşturmak için Paket 4.2 veya daha yeni güvenli bir dilekçe versiyonu üretin.'
             );
         }
 
@@ -1635,19 +1637,27 @@ export class ProfessionalOppositionDocument {
         );
 
 
-        parts.push(
-            this.sectionHeading(
-                'MAL VE HİZMET KARŞILAŞTIRMASI'
-            )
-        );
+        if (
+            Array.isArray(
+                data.goodsComparisons
+            ) &&
+            data.goodsComparisons.length >
+                0
+        ) {
+
+            parts.push(
+                this.sectionHeading(
+                    'MAL VE HİZMET KARŞILAŞTIRMASI'
+                )
+            );
 
 
-        parts.push(
-            this.goodsComparisonTable(
-                data.goodsComparisons ||
-                []
-            )
-        );
+            parts.push(
+                this.goodsComparisonTable(
+                    data.goodsComparisons
+                )
+            );
+        }
 
 
         parts.push(
@@ -2111,8 +2121,15 @@ export class ProfessionalOppositionDocument {
                             : 'Kısmi kapsam'
                     ),
 
-                    scope.text ||
-                    '-',
+                    scope.mode ===
+                    'full_class'
+
+                        ? 'Sınıftaki mal / hizmetlerin tamamı'
+
+                        : (
+                            scope.text ||
+                            '-'
+                        ),
                 ]
             ),
         ];
@@ -2373,10 +2390,15 @@ export class ProfessionalOppositionDocument {
             }
 
 
-            if (
-                /^\d+\.\s+/.test(
+            const numberedHeading =
+                /^\d+(?:\.\d+)*\.\s+[A-ZÇĞİÖŞÜ]/u.test(
                     line
-                ) ||
+                ) &&
+                line.length <
+                180;
+
+            if (
+                numberedHeading ||
                 (
                     line.length <
                     120 &&
@@ -2390,6 +2412,11 @@ export class ProfessionalOppositionDocument {
                 )
             ) {
 
+                const isSubheading =
+                    /^\d+\.\d+\./.test(
+                        line
+                    );
+
                 paragraphs.push(
                     this.paragraph(
                         line,
@@ -2398,13 +2425,19 @@ export class ProfessionalOppositionDocument {
                                 true,
 
                             before:
-                                140,
+                                isSubheading
+                                    ? 90
+                                    : 140,
 
                             after:
-                                80,
+                                isSubheading
+                                    ? 55
+                                    : 80,
 
                             size:
-                                20,
+                                isSubheading
+                                    ? 19
+                                    : 20,
                         }
                     )
                 );

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
+const ADVOCACY_POLICY_VERSION = "6.1.11";
 const RESEARCH_MODEL = Deno.env.get("LEGAL_RESEARCH_MODEL") ?? "gemini-3.8-flash";
 const EMBEDDING_MODEL = Deno.env.get("GEMINI_EMBEDDING_MODEL") ?? "gemini-embedding-2";
 const GUIDELINE_SOURCE_KEY =
@@ -52,14 +53,25 @@ const DEFAULT_MIN_EU_AUTHORITIES = Math.max(
 );
 
 const CASE_LAW_PRIORITY_TAGS = [
-  "single_letter_mark",
+  "goods_services_similarity",
   "goods_retail_relation",
-  "common_element",
-  "interdependence",
   "sign_similarity",
+  "common_element",
+  "dominant_element",
+  "single_letter_mark",
+  "interdependence",
   "relevant_consumer",
   "association",
   "complementarity",
+];
+
+const GUIDELINE_ADVOCACY_PRIORITY_TAGS = [
+  "goods_services_similarity",
+  "goods_retail_relation",
+  "sign_similarity",
+  "common_element",
+  "dominant_element",
+  "interdependence",
 ];
 
 const corsHeaders = {
@@ -1442,14 +1454,147 @@ async function bindModule(supabase, moduleId, authorityId, propositionId, score)
   }
 }
 
+
+function compactRetrievalText(
+  value,
+  max = 4200,
+) {
+  const text =
+    String(value ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  return text.length > max
+    ? `${text.slice(0, max)}…`
+    : text;
+}
+
+function guidelineCaseRetrievalHint(
+  caseContext,
+) {
+  const ctx =
+    safeCaseContext(
+      caseContext,
+    );
+
+  const opponentGoods =
+    safeArray(
+      ctx?.opponentGoodsByClass,
+    )
+      .slice(0, 14)
+      .map(
+        (row) =>
+          `rakip sınıf ${row?.classNo}: ${
+            compactRetrievalText(
+              row?.text,
+              700,
+            )
+          }`,
+      )
+      .join(" | ");
+
+  const priorGoods =
+    safeArray(
+      ctx?.priorGoodsByClass,
+    )
+      .slice(0, 18)
+      .map(
+        (row) =>
+          `önceki ${compactRetrievalText(row?.markText, 90)} sınıf ${row?.classNo}: ${
+            compactRetrievalText(
+              safeArray(row?.items).join("; "),
+              700,
+            )
+          }`,
+      )
+      .join(" | ");
+
+  const decisionTree =
+    safeObject(
+      ctx?.canonicalDecisionTree,
+    );
+
+  const sign =
+    safeObject(
+      decisionTree?.signAssessment,
+    );
+
+  const manualGoods =
+    safeArray(
+      decisionTree?.goodsAssessments,
+    )
+      .filter(
+        (row) =>
+          row?.requestedRefusal === true,
+      )
+      .slice(0, 14)
+      .map(
+        (row) =>
+          [
+            `sınıf ${row?.opponentClassNo}`,
+            `seviye ${row?.similarityLevel ?? "boş"}`,
+            `kriter ${safeArray(row?.criteria).join(", ") || "boş"}`,
+          ].join(" "),
+      )
+      .join(" | ");
+
+  return compactRetrievalText(
+    [
+      `İtiraza konu marka: ${ctx?.opposedMark ?? ""}`,
+      `Müstenit marka(lar): ${ctx?.earlierMark ?? ""}`,
+      `Rakip sınıflar: ${safeArray(ctx?.opposedClasses).join(", ")}`,
+      `Müstenit sınıflar: ${safeArray(ctx?.earlierClasses).join(", ")}`,
+      sign?.commonElements
+        ? `Ortak unsur: ${sign.commonElements}`
+        : "",
+      sign?.differences
+        ? `Farklı unsurlar: ${sign.differences}`
+        : "",
+      opponentGoods
+        ? `Rakip emtia/hizmet: ${opponentGoods}`
+        : "",
+      priorGoods
+        ? `Müstenit emtia/hizmet: ${priorGoods}`
+        : "",
+      manualGoods
+        ? `Avukat mal/hizmet girdileri: ${manualGoods}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    9000,
+  );
+}
+
 async function enrichOneModuleFromCorpus(
   supabase,
   apiKey,
   module,
   requestedTags,
+  caseContext = {},
 ) {
-  const query = String(module?.retrieval_query ?? module?.title ?? "").trim();
-  if (!query) return null;
+  const baseQuery =
+    String(
+      module?.retrieval_query ??
+      module?.title ??
+      "",
+    ).trim();
+
+  const caseHint =
+    guidelineCaseRetrievalHint(
+      caseContext,
+    );
+
+  const query =
+    [
+      baseQuery,
+      caseHint,
+      "TÜRKPATENT Marka İnceleme Kılavuzu içindeki somut örnek, karşılaştırma ve benzerlik uygulamaları",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+  if (!query.trim()) return null;
 
   const embedding = await createEmbedding(apiKey, query);
 
@@ -1491,7 +1636,9 @@ KESİN KURALLAR:
 - Somut dosyadaki marka hakkında baskın/asli/yüksek ayırt edici gibi nitelendirme üretme.
 - Çıktı dilekçe paragrafı değil, dar ve genel bir hukukî proposition'dır.
 - sourceChunkId verilen chunkId değerlerinden tam olarak biri olmalıdır.
+- Somut dosyadaki işaret veya mal/hizmet yapısına BENZEYEN bir Kılavuz örneği/karşılaştırması SOURCE içinde varsa, genel teori yerine o somut örneği destekleyen dar proposition'ı tercih et.
 - quoteText alanına yalnız seçilen SOURCE içinde AYNEN geçen, proposition'ı doğrudan destekleyen 8-45 kelimelik kısa bir pasaj koy. Uygun birebir pasaj yoksa boş string döndür.
+- quoteText mümkünse Kılavuzdaki somut kıyaslama/örnek sonucunu içersin; örnek yoksa hukuki ölçütü içeren kısa exact pasaj seçilebilir.
 - Doğrudan ve yeterli destek yoksa supported=false döndür.
 `.trim(),
     prompt: `
@@ -1501,6 +1648,9 @@ moduleIssueTags: ${JSON.stringify(module.legal_issue_tags ?? [])}
 requestedIssueTags: ${JSON.stringify(requestedTags)}
 theorySummary: ${module.theory_summary ?? ""}
 applicationGuidance: ${module.application_guidance ?? ""}
+
+SOMUT DOSYA RETRIEVAL HINT
+${guidelineCaseRetrievalHint(caseContext)}
 
 VERIFIED CORPUS
 ${sourceText}
@@ -1638,7 +1788,12 @@ ${sourceText}
   return { propositionId: proposition.id, issueTags };
 }
 
-async function enrichMissingFromCorpus(supabase, apiKey, missingTags) {
+async function enrichMissingFromCorpus(
+  supabase,
+  apiKey,
+  missingTags,
+  caseContext = {},
+) {
   const { data: modules, error } = await supabase
     .from("legal_modules")
     .select(
@@ -1662,6 +1817,7 @@ async function enrichMissingFromCorpus(supabase, apiKey, missingTags) {
         apiKey,
         module,
         remaining,
+        caseContext,
       );
 
       if (result?.propositionId) {
@@ -2343,6 +2499,9 @@ function safeCaseContext(value) {
     "lawyerFindings",
     "legalBasis",
     "notes",
+    "canonicalDecisionTree",
+    "opponentGoodsByClass",
+    "priorGoodsByClass",
   ];
 
   const result = {};
@@ -2387,6 +2546,14 @@ async function createRun(supabase, body, issueTags, userId) {
         minEuAuthorities:
           body?.minEuAuthorities ??
           DEFAULT_MIN_EU_AUTHORITIES,
+        advocacyPolicyVersion:
+          ADVOCACY_POLICY_VERSION,
+        forceGuidelineEvidence:
+          body?.forceGuidelineEvidence === true,
+        guidelineEvidenceTags:
+          uniqueStrings(
+            body?.guidelineEvidenceTags,
+          ),
       },
     })
     .select("id")
@@ -2526,6 +2693,24 @@ serve(async (req) => {
       body?.caseContext,
     );
 
+  const forceGuidelineEvidence =
+    body?.forceGuidelineEvidence ===
+    true;
+
+  const guidelineEvidenceTags =
+    uniqueStrings(
+      body?.guidelineEvidenceTags,
+    ).length
+      ? uniqueStrings(
+          body?.guidelineEvidenceTags,
+        )
+      : GUIDELINE_ADVOCACY_PRIORITY_TAGS
+          .filter(
+            (tag) =>
+              issueTags.includes(tag),
+          )
+          .slice(0, 4);
+
   let runId = null;
 
   try {
@@ -2586,6 +2771,28 @@ serve(async (req) => {
           supabase,
           geminiApiKey,
           initialMissing,
+          caseContext,
+        );
+
+      pack =
+        await authorityPack(
+          supabase,
+          issueTags,
+        );
+    }
+
+    let advocacyGuidelinePromoted = [];
+
+    if (
+      forceGuidelineEvidence &&
+      guidelineEvidenceTags.length > 0
+    ) {
+      advocacyGuidelinePromoted =
+        await enrichMissingFromCorpus(
+          supabase,
+          geminiApiKey,
+          guidelineEvidenceTags,
+          caseContext,
         );
 
       pack =
@@ -2957,6 +3164,11 @@ serve(async (req) => {
         finalYargitayAuthorityCount,
         finalEuAuthorityCount,
         finalGuidelineAuthorityCount,
+        advocacyPolicyVersion:
+          ADVOCACY_POLICY_VERSION,
+        forceGuidelineEvidence,
+        guidelineEvidenceTags,
+        advocacyGuidelinePromoted,
         webResearchLanes:
           webResult.lanes,
         finalCaseLawGapTags,
@@ -3012,7 +3224,12 @@ serve(async (req) => {
         autoVerify,
       },
       corpus: {
-        promotedPropositionIds: corpusPromoted,
+        promotedPropositionIds:
+          corpusPromoted,
+        advocacyGuidelinePromotedPropositionIds:
+          advocacyGuidelinePromoted,
+        guidelineEvidenceTags,
+        forceGuidelineEvidence,
       },
       web: webResult,
       authorityPack: pack,

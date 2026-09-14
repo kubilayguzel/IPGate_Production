@@ -5,6 +5,7 @@ const PACKAGE_VERSION = "6.1.6";
 const ORCHESTRATOR_PATCH_VERSION = "6.1.8.3";
 const INPUT_POLICY_VERSION = "6.1.10";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
+const SCOPE_GATE_POLICY_VERSION = "6.1.11.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2794,37 +2795,25 @@ async function generateStatus(
     );
   }
 
-  const scopeReviewRequired =
+  const scopeReviewAdvisories =
     safeArray(
       reasoningStatus
         ?.validation
         ?.scopeReviewRequired,
     );
 
-  if (
-    scopeReviewRequired.length > 0
-  ) {
-    return {
-      generationStatus:
-        "scope_review_required",
-
-      stage:
-        "scope_review",
-
-      reasoningRunId,
-
-      saved:
-        false,
-
-      advocacyPolicyVersion:
-        ADVOCACY_POLICY_VERSION,
-
-      scopeReviewRequired,
-
-      message:
-        `Legal Reasoning, ret kapsamındaki ${scopeReviewRequired.length} sınıf için avukat kapsam incelemesi gerektiğini tespit etti. Dilekçenin kendi talebiyle çelişmemesi için final draft başlatılmadı.`,
-    };
-  }
+  /*
+   * 6.1.11.1:
+   * Scope assessment artık AI-veto değildir.
+   *
+   * Lawyer requestedRefusal/refusalScopeMode filing talimatıdır.
+   * Legal Reasoning'in supports_only_partial_scope /
+   * insufficient_for_requested_scope sinyali final draft'ı
+   * otomatik durdurmaz.
+   *
+   * Advisory downstream taşınır. Final Petition kendi talebimizi
+   * çürüten cümle kurmama kuralını ve deterministic QA'yı korur.
+   */
 
   let draftRunId =
     normalizeText(
@@ -2907,6 +2896,11 @@ async function generateStatus(
         reasoningValidationAdvisory:
           reasoningPolicy
             .toleratedErrors,
+
+        scopeReviewAdvisories,
+
+        scopeGatePolicyVersion:
+          SCOPE_GATE_POLICY_VERSION,
       };
     }
   }
@@ -2946,6 +2940,11 @@ async function generateStatus(
       reasoningValidationAdvisory:
         reasoningPolicy
           .toleratedErrors,
+
+      scopeReviewAdvisories,
+
+      scopeGatePolicyVersion:
+        SCOPE_GATE_POLICY_VERSION,
     };
   }
 
@@ -2994,6 +2993,11 @@ async function generateStatus(
       reasoningValidationAdvisory:
         reasoningPolicy
           .toleratedErrors,
+
+      scopeReviewAdvisories,
+
+      scopeGatePolicyVersion:
+        SCOPE_GATE_POLICY_VERSION,
     };
   }
 
@@ -3095,6 +3099,11 @@ async function generateStatus(
     reasoningValidationAdvisory:
       reasoningPolicy
         .toleratedErrors,
+
+    scopeReviewAdvisories,
+
+    scopeGatePolicyVersion:
+      SCOPE_GATE_POLICY_VERSION,
 
     alreadyPersisted:
       persisted

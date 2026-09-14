@@ -1119,6 +1119,7 @@ const loadDataFromCache = async (realBulletinId) => {
                         id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                     )
                 `)
+                .order('id', { ascending: true })
                 .range(from, from + limitSize - 1);
 
             if (realBulletinId === MANUAL_COLLECTION_ID) {
@@ -1130,15 +1131,15 @@ const loadDataFromCache = async (realBulletinId) => {
             const { data, error } = await req;
             if (error) throw error;
             
-            if (data && data.length > 0) {
-                allCachedData.push(...data);
-            }
-            
-            // Eğer gelen veri limitSize'dan küçükse (veya sıfırsa) tüm paketler/kayıtlar bitmiş demektir.
-            if (!data || data.length < limitSize) {
+            if (!data || data.length === 0) {
                 break;
             }
-            from += limitSize; // Bir sonraki 20.000'lik pakete geç
+
+            allCachedData.push(...data);
+
+            // API/PostgREST proje limitinden dolayı istenenden daha az satır döndürebilir.
+            // Bu yüzden istenen pencere kadar değil, GERÇEKTEN gelen satır kadar ilerliyoruz.
+            from += data.length;
         }
 
         let cachedResults = [];
@@ -1455,12 +1456,14 @@ const performResearch = async () => {
         const limitSize = 10000;
         
         while (true) {
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('monitoring_trademark_records')
                 .select('id, monitored_trademark_id, trademark_bulletin_records!inner(bulletin_id)')
                 .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
+                .order('id', { ascending: true })
                 .range(from, from + limitSize - 1);
-                
+
+            if (error) throw error;
             if (!data || data.length === 0) break;
             
             const chunkIds = data
@@ -1469,8 +1472,8 @@ const performResearch = async () => {
                 
             allIdsToDelete.push(...chunkIds);
             
-            if (data.length < limitSize) break;
-            from += limitSize;
+            // API'nin fiilen döndürdüğü satır kadar ilerle; proje max-row limiti ne olursa olsun devam et.
+            from += data.length;
         }
         
         // 🔥 TOPLANAN TÜM ID'leri 500'erli paketler halinde GERÇEKTEN sil (Zombilere son!)
@@ -2210,7 +2213,21 @@ const queryTpRecordForManualAdd = async () => {
 const saveManualResultEntry = async () => {
     const monitoredId = document.getElementById('manualTargetId').value;
     if (!monitoredId) return showNotification('Lütfen hangi markanız için ekleme yaptığınızı seçiniz.', 'warning');
-    
+
+    // 🔥 TR ve Yurtdışı izleme kayıtları farklı ana tablolarda tutuluyor.
+    // Seçilen ID'nin hangi izleme tablosuna ait olduğunu RAM'deki birleşik listeden tespit ediyoruz.
+    const targetMonitoring = monitoringTrademarks.find(
+        tm => String(tm.id) === String(monitoredId)
+    );
+
+    if (!targetMonitoring) {
+        return showNotification('Seçilen izleme kaydı bulunamadı. Listeyi yenileyip tekrar deneyin.', 'error');
+    }
+
+    const monitoringType = targetMonitoring.type === 'international'
+        ? 'international'
+        : 'domestic';
+
     const sourceType = document.querySelector('input[name="manualSourceType"]:checked').value;
     let bulletinRecordId = null;
 
@@ -2282,6 +2299,7 @@ const saveManualResultEntry = async () => {
             .upsert([{
                 id: resultId,
                 monitored_trademark_id: monitoredId,
+                monitoring_type: monitoringType,
                 bulletin_record_id: bulletinRecordId,
                 is_similar: true,
                 similarity_score: 1.0,
@@ -2289,7 +2307,7 @@ const saveManualResultEntry = async () => {
                 is_earlier: false
             }])
             .select(`
-                id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
+                id, monitored_trademark_id, monitoring_type, similarity_score, is_similar, success_chance, note, source,
                 trademark_bulletin_records (
                     id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                 )
@@ -2304,6 +2322,7 @@ const saveManualResultEntry = async () => {
             id: insertedData.id,
             objectID: insertedData.id,
             monitoredTrademarkId: insertedData.monitored_trademark_id,
+            monitoringType: insertedData.monitoring_type || monitoringType,
             markName: bRec.brand_name,
             applicationNo: bRec.application_number,
             applicationDate: bRec.application_date,

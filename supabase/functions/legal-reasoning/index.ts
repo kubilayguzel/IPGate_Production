@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 const PACKAGE_VERSION = "6.1.6";
 const INPUT_POLICY_VERSION = "6.1.10";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
+const SCOPE_GATE_POLICY_VERSION = "6.1.11.1";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -1663,13 +1664,17 @@ OPTIONAL GOODS/SERVICES INPUT POLICY — ${INPUT_POLICY_VERSION}
 - A missing matchedPriorClasses list means the selected prior mark's full canonical class/goods scope remains available for legal comparison.
 - A missing criteria list means you must identify only the criteria genuinely supported by the canonical wording and verified authority; do not manufacture complementarity, competition, channels or consumer overlap.
 
-REQUESTED REFUSAL SCOPE / ADVOCACY CONSISTENCY — ${ADVOCACY_POLICY_VERSION}
+REQUESTED REFUSAL SCOPE / ADVOCACY CONSISTENCY — ${ADVOCACY_POLICY_VERSION} / ${SCOPE_GATE_POLICY_VERSION}
 - Her requestedRefusal=true rakip sınıf için scopeAssessments içinde TAM BİR kayıt üret.
-- Avukat "full_class" ret istemişse önce bu talebi hukuken SAVUNABİLMEK için canonical item'ları item/grup bazında gerçekten analiz et; sırf bazı alt kalemler uzak diye otomatik şekilde talebi zayıflatma.
+- Avukatın requestedRefusal/refusalScopeMode seçimi FILING TALİMATIDIR. Scope assessment, bu talimatı otomatik veto eden bir izin mekanizması değildir.
+- Avukat "full_class" ret istemişse önce bu talebi hukuken SAVUNABİLMEK için canonical item'ları item/grup bazında gerçekten analiz et; sırf bazı alt kalemler daha uzak, farklı sınıfta veya doğrudan aynı authority örneği bulunamadı diye otomatik şekilde talebi zayıflatma.
 - Manuel benzerlik seviyesi yoksa bu bir eksiklik değildir; Kılavuzdaki karşılaştırma ölçütleri, mümkünse somut Kılavuz örnekleri ve verified authorities ile kendi hukuki analizini tamamla.
 - Manuel benzerlik seviyesi varsa SEVİYEYİ değiştirme. Bunun nedenini nitelik, amaç, kullanım, tamamlayıcılık, rekabet, kanal, tüketici veya ticari kaynak bağlantısı gibi gerçekten desteklenen ölçütlerle açıkla.
-- İstenen tam/kısmi kapsam dürüstçe savunulamıyorsa supportStatus ile bunu INTERNAL olarak işaretle. Nihai dilekçe kendi talebini çürüten bir paragraf üretmemelidir; bu durumda dosya avukat kapsam incelemesine gitmelidir.
-- "supports_only_partial_scope" veya "insufficient_for_requested_scope" kararı ancak önce mümkün tüm somut bağlantıları ve verified Kılavuz/karar desteğini araştırdıktan sonra verilebilir.
+- "supports_only_partial_scope" veya "insufficient_for_requested_scope" yalnız SOMUT ve POZİTİF bir hukukî sınır bulunduğunda kullanılabilir. Salt delil yoğunluğunun düşük olması, doğrudan emsal karar bulunmaması, bazı item'ların daha uzak görünmesi veya manuel avukat girdisinin bulunmaması bu statüler için yeterli değildir.
+- Özellikle full_class talepte, aynı sınıftaki item'lar arasında ilişki yoğunluğu farklı olsa bile ortak ticari alan, işlevsel bağ, tamamlayıcılık, tüketici/kanal ilişkisi veya marka kaynak bağlantısı üzerinden bütün sınıfın savunulabilirliği varsa supportStatus="supports_requested_scope" kullan.
+- supports_only_partial_scope ancak canonical metindeki belirli alt gruplar açıkça ayrıştırılabiliyor VE geri kalan grup bakımından hukukî benzerlik/ilişki kurulamayacağı pozitif biçimde gösterilebiliyorsa kullanılabilir.
+- insufficient_for_requested_scope ancak canonical goods/services metni ve verified authority çerçevesi birlikte değerlendirildikten sonra talep edilen kapsamı savunacak hukukî bağ gerçekten kurulamıyorsa kullanılabilir.
+- Scope assessment INTERNAL risk notudur. Nihai dilekçe kendi filing talebini çürüten cümle kurmamalıdır.
 
 AUTHORITY RULES
 - Cite/use authorities ONLY through propositionId fields from the Authority Pack.
@@ -1739,7 +1744,7 @@ FINAL INSTRUCTIONS
 - Every authority use must point to a propositionId from the supplied pack.
 - Inspect authorityPack.authorityCoverage. If verified Yargıtay + EU + guideline layers are available, use them across the memorandum where legally material; avoid citation dumping.
 - quoteSafe/verifiedQuote bulunan otoriteleri kritik ve somut meselelerde quoteRecommendation ile seç; her paragrafı alıntıyla doldurma.
-- Her requestedRefusal=true sınıfı scopeAssessments içinde değerlendir. Manuel benzerlik yoksa kendi hukuki analizini tamamla; manuel seviye varsa onu koru ve gerekçelendir.
+- Her requestedRefusal=true sınıfı scopeAssessments içinde değerlendir. Manuel benzerlik yoksa kendi hukuki analizini tamamla; manuel seviye varsa onu koru ve gerekçelendir. Scope status'u filing talebini otomatik durduran bir veto olarak değil, internal risk sınıflaması olarak kullan.
 - The memorandum should be sufficiently developed to support a later high-quality petition, but must remain an internal reasoning memorandum.
 `.trim();
 }

@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
+const SCOPE_QA_POLICY_VERSION = "6.1.11.2";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_PETITION_MODEL") ??
@@ -590,6 +591,52 @@ function scopeReviewItems(
     );
 }
 
+function applyDeterministicScopeAdvisories(
+  structuredDraft,
+  memorandum,
+) {
+  const draft =
+    structuredDraft &&
+    typeof structuredDraft === "object"
+      ? {
+          ...structuredDraft,
+        }
+      : {};
+
+  const existingWarnings =
+    uniqueStrings(
+      draft?.draftingWarnings,
+    );
+
+  const deterministicWarnings =
+    scopeReviewItems(
+      memorandum,
+    )
+      .filter(
+        (item) =>
+          Number.isFinite(
+            Number(
+              item?.classNo,
+            ),
+          ),
+      )
+      .map(
+        (item) =>
+          `SCOPE_ADVISORY: Sınıf ${Number(item.classNo)} — ${normalizeText(item.supportStatus) || "scope_review"}`,
+      );
+
+  return {
+    ...draft,
+
+    draftingWarnings:
+      uniqueStrings([
+        ...existingWarnings,
+        ...deterministicWarnings,
+      ]),
+  };
+}
+
+
 function usedMemoPropositionIds(memo) {
   const ids =
     new Set();
@@ -871,12 +918,14 @@ OPSİYONEL MAL/HİZMET GİRDİSİ
 - Avukat benzerlik seviyesi girdiyse seviyeyi DEĞİŞTİRME. Seviyeyi destekleyen nitelik, amaç, kullanım, tamamlayıcılık, rekabet, kanal, tüketici veya ticari kaynak ölçütlerini somutlaştır.
 - Avukat matched class veya criteria girdiyse bağlayıcı lawyer finding olarak kullan; boşsa reasoning'deki hukuki kıyasa dayan.
 
-REQUESTED SCOPE / FILING CONSISTENCY — ${ADVOCACY_POLICY_VERSION}
+REQUESTED SCOPE / FILING CONSISTENCY — ${ADVOCACY_POLICY_VERSION} / ${SCOPE_QA_POLICY_VERSION}
 - requestedRefusal ve refusalScopeMode filing talebidir.
 - Memorandum.scopeAssessments içinde supportStatus="supports_requested_scope" olmayan bir sınıf varsa görünür dilekçede kendi talebimizi çürüten cümle kurma.
-- Böyle bir conflict varsa draftingWarnings içine "SCOPE_REVIEW_REQUIRED: Sınıf X" yaz. Sistem dosyayı avukat kapsam incelemesine gönderecektir.
+- Scope conflict final drafting'i otomatik durduran bir veto DEĞİLDİR. Bu sınıflar internal advisory olarak sistem tarafından deterministik biçimde draftingWarnings içine eklenecektir.
+- Sen draftingWarnings içine scope uyarısı yazmak zorunda değilsin; görünür dilekçede yalnız talebi destekleyen iyi niyetli ve doğrulanmış hukukî argümanı kur.
 - supports_requested_scope olan sınıflarda talebi zayıflatmak yerine hukuken destekleyen en somut bağlantıları ve authority'leri kullan.
 - Kanıtlanmayan olgu, piyasa vakıası veya authority uydurma.
+
 
 KESİN AUTHORITY KURALI
 - Authority Pack dışında mahkeme/kurul/kılavuz/karar üretme.
@@ -2637,16 +2686,24 @@ function validateStructuredDraft({
       const conflict
       of scopeConflicts
     ) {
-      if (
-        !new RegExp(
-          `SCOPE_REVIEW_REQUIRED:\\\\s*Sınıf\\\\s*${conflict.classNo}\\\\b`,
+      const hasAdvisory =
+        new RegExp(
+          `(?:SCOPE_ADVISORY|SCOPE_REVIEW_REQUIRED):\\s*Sınıf\\s*${conflict.classNo}\\b`,
           "i",
         ).test(
           warningsText,
-        )
+        );
+
+      if (
+        !hasAdvisory
       ) {
-        errors.push(
-          `Sınıf ${conflict.classNo} scope conflict draftingWarnings içine taşınmadı.`,
+        /*
+         * 6.1.11.2:
+         * Scope advisory metadata eksikliği filing text blocker değildir.
+         * finalizeCompletedDraft metadata'yı deterministik olarak ekler.
+         */
+        warnings.push(
+          `Sınıf ${conflict.classNo} scope advisory metadata içinde görünmüyor.`,
         );
       }
     }
@@ -2675,6 +2732,8 @@ function validateStructuredDraft({
       scopeConflicts,
     advocacyPolicyVersion:
       ADVOCACY_POLICY_VERSION,
+    scopeQaPolicyVersion:
+      SCOPE_QA_POLICY_VERSION,
     checkedAt:
       new Date()
         .toISOString(),
@@ -2883,14 +2942,20 @@ async function finalizeCompletedDraft({
   run,
   openAiResponse,
 }) {
-  const structuredDraft =
+  const memorandum =
+    safeObject(
+      run?.memorandum_snapshot,
+    );
+
+  const rawStructuredDraft =
     extractStructuredDraft(
       openAiResponse,
     );
 
-  const memorandum =
-    safeObject(
-      run?.memorandum_snapshot,
+  const structuredDraft =
+    applyDeterministicScopeAdvisories(
+      rawStructuredDraft,
+      memorandum,
     );
 
   const authorityPack =

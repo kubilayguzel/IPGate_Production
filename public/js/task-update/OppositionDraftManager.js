@@ -3,7 +3,7 @@ import { showNotification } from '../../utils.js';
 
 import { ProfessionalOppositionDocument } from './ProfessionalOppositionDocument.js';
 
-const OPPOSITION_DRAFT_UX_PATCH_VERSION = '6.1.11';
+const OPPOSITION_DRAFT_UX_PATCH_VERSION = '6.1.11.1';
 
 
 export class OppositionDraftManager {
@@ -1418,13 +1418,39 @@ export class OppositionDraftManager {
                             []
                         ).length;
 
+                    const scopeAdvisories =
+                        generation
+                            ?.scopeReviewAdvisories ||
+                        [];
+
+                    if (
+                        scopeAdvisories.length
+                    ) {
+                        const classes =
+                            scopeAdvisories
+                                .map(
+                                    item =>
+                                        `Sınıf ${item?.classNo}`
+                                )
+                                .join(', ');
+
+                        this.scopeReviewNotice =
+                            `Dilekçe üretildi. Legal Reasoning ${classes} bakımından ret kapsamını ayrıca incelemeye değer gördü. Bu artık üretimi durduran bir veto değildir; Word öncesinde advisory olarak gösterilir.`;
+                    }
+
                     showNotification(
-                        `EVREKA 6.1.11 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
+                        `EVREKA 6.1.11.1 V${generation.versionNo} üretildi, strict QA geçti ve kaydedildi.${
                             advisoryCount
                                 ? ` (${advisoryCount} reasoning advisory)`
                                 : ''
+                        }${
+                            scopeAdvisories.length
+                                ? ` (${scopeAdvisories.length} kapsam advisory)`
+                                : ''
                         }`,
-                        'success'
+                        scopeAdvisories.length
+                            ? 'warning'
+                            : 'success'
                     );
 
                     return;

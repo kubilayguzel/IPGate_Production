@@ -1,6 +1,7 @@
 import { PersonDataManager } from '../persons/PersonDataManager.js';
 import { personService, supabase } from '../../supabase-config.js';
 import { showNotification } from '../../utils.js';
+import { portfolioManagerService } from '../persons/PortfolioManagerService.js'; // IPGATE_PORTFOLIO_MANAGER_V1
 
 const $ = window.jQuery || window.$;
 
@@ -116,6 +117,18 @@ export class PersonModalManager {
                                                 <input type="checkbox" class="custom-control-input" id="person-requires-sas">
                                                 <label class="custom-control-label font-weight-bold text-dark" for="person-requires-sas">SAS (Sipariş) Kodu Zorunlu mu?</label>
                                             </div>
+                                            <!-- IPGATE_PORTFOLIO_MANAGER_V1: Portföy yöneticisi -->
+                                            <div class="form-group mt-4 pt-3 border-top mb-0">
+                                                <label class="small font-weight-bold text-muted mb-2" for="person-portfolio-manager">
+                                                    <i class="fas fa-user-tie mr-1"></i> PORTFÖY YÖNETİCİSİ
+                                                </label>
+                                                <select id="person-portfolio-manager" class="form-control rounded-lg border-2">
+                                                    <option value="">Atanmadı</option>
+                                                </select>
+                                                <small class="form-text text-muted mt-2">
+                                                    Client rolündeki ve pasif kullanıcılar listelenmez.
+                                                </small>
+                                            </div>
                                         </div>
                                         </div>
                                 </div>
@@ -217,8 +230,7 @@ export class PersonModalManager {
                                         <div class="col-md-3 mb-2">
                                             <label class="small font-weight-bold text-muted">GEÇERLİLİK TARİHİ</label>
                                             <div class="input-group input-group-sm">
-                                                <input type="date" id="docDate" class="form-control border-2">
-                                                <div class="input-group-append">
+                                                <input type="date" id="docDate" class="form-control border-2">                                                <div class="input-group-append">
                                                     <div class="input-group-text bg-white border-2">
                                                         <input type="checkbox" id="docDateIndefinite">
                                                         <label for="docDateIndefinite" class="mb-0 ml-1 small" style="cursor:pointer;">Süresiz</label>
@@ -437,8 +449,7 @@ export class PersonModalManager {
             const personData = {
                 ...(this.isEdit && this.originalPersonData ? this.originalPersonData : {}),
                 id: this.currentPersonId,
-                name: nameVal,
-                type: document.getElementById('personType').value,
+                name: nameVal,                type: document.getElementById('personType').value,
                 tckn: document.getElementById('personTckn').value,
                 birthDate: document.getElementById('personBirthDate').value,
                 taxNo: document.getElementById('personVkn').value,
@@ -464,6 +475,7 @@ export class PersonModalManager {
                                ? parseInt(document.getElementById('person-tevkifat-rate').value) || 2
                                : 2,
                 requires_sas_code: document.getElementById('person-requires-sas')?.checked || false,
+                portfolioManagerUserId: document.getElementById('person-portfolio-manager')?.value || null,
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
             };
@@ -479,6 +491,15 @@ export class PersonModalManager {
                 const res = await personService.addPerson(personData);
                 if(!res.success) throw new Error(res.error);
                 savedId = res.data.id;
+            }
+
+            // IPGATE_PORTFOLIO_MANAGER_V1: Müvekkilin portföy yöneticisini kaydet
+            const portfolioManagerResult = await portfolioManagerService.setPersonPortfolioManager(
+                savedId,
+                personData.portfolioManagerUserId
+            );
+            if (!portfolioManagerResult.success) {
+                throw new Error('Portföy yöneticisi kaydedilemedi: ' + portfolioManagerResult.error);
             }
 
             await this.saveRelatedToDb(savedId);
@@ -657,8 +678,7 @@ export class PersonModalManager {
             const oldId = this.relatedLoaded[idx].id;
             this.relatedLoaded[idx] = { id: oldId, ...updatedData };
         } else {
-            this.relatedDraft[idx] = updatedData;
-        }
+            this.relatedDraft[idx] = updatedData;        }
 
         this.renderRelatedList();
         this.resetRelatedForm();
@@ -823,6 +843,9 @@ export class PersonModalManager {
             await this.loadProvinces(trOption.code);
         }
 
+        // IPGATE_PORTFOLIO_MANAGER_V1: Portföy yöneticisi adaylarını yükle
+        await this.loadPortfolioManagers();
+
         // YENİ EKLENEN: Vergi Dairelerini Çek ve Datalist'e Doldur
         try {
             const { data: taxData, error: taxError } = await supabase.from('common').select('data').eq('id', 'tax_offices').single();
@@ -836,6 +859,74 @@ export class PersonModalManager {
         } catch (e) {
             console.error("Vergi daireleri yüklenirken hata:", e);
         }
+    }
+
+    // IPGATE_PORTFOLIO_MANAGER_V1: Atanabilir portföy yöneticilerini select box'a doldur
+    async loadPortfolioManagers() {
+        const select = document.getElementById('person-portfolio-manager');
+        if (!select) return;
+
+        select.disabled = true;
+        select.innerHTML = '<option value="">Yükleniyor...</option>';
+
+        const result = await portfolioManagerService.getAssignableUsers();
+        if (!result.success) {
+            console.error('Portföy yöneticileri yüklenemedi:', result.error);
+            select.innerHTML = '<option value="">Kullanıcı listesi yüklenemedi</option>';
+            select.disabled = false;
+            return;
+        }
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const options = result.data.map(user => {
+            const label = user.display_name || user.email || user.id;
+            const roleText = user.role ? ' (' + user.role + ')' : '';
+            return '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(label + roleText) + '</option>';
+        }).join('');
+
+        select.innerHTML = '<option value="">Atanmadı</option>' + options;
+        select.disabled = false;
+    }
+
+    // IPGATE_PORTFOLIO_MANAGER_V1: Düzenlenen müvekkilin mevcut portföy yöneticisini seçili getir
+    async loadAssignedPortfolioManager(personId) {
+        const select = document.getElementById('person-portfolio-manager');
+        if (!select || !personId) return;
+
+        const result = await portfolioManagerService.getPersonPortfolioManager(personId);
+        if (!result.success) {
+            console.error('Mevcut portföy yöneticisi yüklenemedi:', result.error);
+            return;
+        }
+
+        const managerUserId = result.data;
+        if (!managerUserId) {
+            select.value = '';
+            return;
+        }
+
+        let optionExists = Array.from(select.options).some(option => option.value === managerUserId);
+
+        // Daha önce atanmış kullanıcı sonradan pasif olmuşsa atamayı görünür tut.
+        if (!optionExists) {
+            const userResult = await portfolioManagerService.getUserById(managerUserId);
+            if (userResult.success && userResult.data) {
+                const user = userResult.data;
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = (user.display_name || user.email || user.id) + ' (mevcut / pasif olabilir)';
+                select.appendChild(option);
+                optionExists = true;
+            }
+        }
+
+        if (optionExists) select.value = managerUserId;
     }
 
     async loadProvinces(code) {
@@ -877,8 +968,7 @@ export class PersonModalManager {
             }
             window.$('#personModal').modal('hide'); // Hata varsa modalı kapat
             return;
-        }
-        
+        }        
         const p = res.data;
         this.originalPersonData = p; // 🔥 GÜVENLİK 2: Tarife (price_list) gibi formda olmayan verileri hafızaya alıyoruz!
 
@@ -910,6 +1000,10 @@ export class PersonModalManager {
             }
         }
         if(document.getElementById('person-requires-sas')) document.getElementById('person-requires-sas').checked = !!p.requires_sas_code;
+
+        // IPGATE_PORTFOLIO_MANAGER_V1: Mevcut portföy yöneticisini seçili getir
+        await this.loadAssignedPortfolioManager(id);
+
         const countrySelect = document.getElementById('countrySelect');
         if (p.countryCode && countrySelect) {
             countrySelect.value = p.countryCode;

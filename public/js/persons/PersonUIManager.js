@@ -7,7 +7,7 @@ export class PersonUIManager {
         this.dataManager = new PersonDataManager();
         this.allPersons = [];      
         this.filteredData = [];    
-        
+
         this.sortColumn = 'name';
         this.sortDirection = 'asc';
 
@@ -23,12 +23,12 @@ export class PersonUIManager {
         if (res.success) {
             this.allPersons = res.data;
             this.filteredData = [...this.allPersons];
-            
+
             if (this.pagination) {
                 this.pagination.totalItems = this.allPersons.length;
                 this.pagination.currentPage = 1;
             }
-            
+
             this.applyFiltersAndSort();
         }
     }
@@ -38,7 +38,6 @@ export class PersonUIManager {
             const tableBody = document.getElementById('personsTableBody');
             if(tableBody) tableBody.style.opacity = '0.5';
 
-            // Firebase personService yerine yazdığımız Supabase fonksiyonunu çağırıyoruz
             const result = await this.dataManager.deletePerson(id);
 
             if (result.success) {
@@ -51,23 +50,23 @@ export class PersonUIManager {
             console.error("Silme hatası:", error);
             alert("Bir hata oluştu: " + error.message);
         } finally {
-            // Hata olsa da olmasa da opaklığı düzelt
             const tableBody = document.getElementById('personsTableBody');
             if(tableBody) tableBody.style.opacity = '1';
         }
     }
 
     filterPersons(query) {
-        const term = query.toLowerCase().trim();
-        
+        const term = query.toLocaleLowerCase('tr-TR').trim();
+
         if (!term) {
             this.filteredData = [...this.allPersons];
         } else {
             this.filteredData = this.allPersons.filter(p => 
-                (p.name || '').toLowerCase().includes(term) ||
-                (p.email || '').toLowerCase().includes(term) ||
+                (p.name || '').toLocaleLowerCase('tr-TR').includes(term) ||
+                (p.email || '').toLocaleLowerCase('tr-TR').includes(term) ||
                 (p.tckn || p.taxNo || '').includes(term) ||
-                (p.tpeNo || '').includes(term)
+                (p.tpeNo || '').includes(term) ||
+                (p.portfolioManagerName || 'Atanmadı').toLocaleLowerCase('tr-TR').includes(term)
             );
         }
         this.pagination.currentPage = 1;
@@ -89,19 +88,17 @@ export class PersonUIManager {
         let sourceData = term ? [...this.filteredData] : [...this.allPersons];
 
         sourceData.sort((a, b) => {
-            let valA = (a[this.sortColumn] || '').toString().toLowerCase();
-            let valB = (b[this.sortColumn] || '').toString().toLowerCase();
-            if (valA < valB) return this.sortDirection === 'asc' ? -1 : 1;
-            if (valA > valB) return this.sortDirection === 'asc' ? 1 : -1;
-            return 0;
+            let valA = (a[this.sortColumn] || '').toString().toLocaleLowerCase('tr-TR');
+            let valB = (b[this.sortColumn] || '').toString().toLocaleLowerCase('tr-TR');
+            return valA.localeCompare(valB, 'tr-TR') * (this.sortDirection === 'asc' ? 1 : -1);
         });
 
         this.filteredData = sourceData;
-        
+
         if (this.pagination) {
             this.pagination.update(this.filteredData.length);
         }
-        
+
         this.renderTable();
     }
 
@@ -113,13 +110,16 @@ export class PersonUIManager {
         const paginatedData = this.pagination.getCurrentPageData(this.filteredData);
 
         if (paginatedData.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>';
             return;
         }
 
         const startIndex = this.pagination.getStartIndex();
 
         paginatedData.forEach((p, index) => {
+            const managerName = p.portfolioManagerName || 'Atanmadı';
+            const managerEmail = p.portfolioManagerEmail || null;
+
             const row = `
                 <tr>
                     <td class="text-muted small">${startIndex + index + 1}</td>
@@ -127,6 +127,10 @@ export class PersonUIManager {
                     <td>${p.tckn || p.taxNo || '<span class="text-light">-</span>'}</td>
                     <td>${p.tpeNo || '<span class="text-light">-</span>'}</td>
                     <td class="small">${p.email || '-'}</td>
+                    <td>
+                        <span class="${p.portfolioManagerUserId ? 'font-weight-bold text-dark' : 'text-muted'}">${managerName}</span>
+                        ${managerEmail ? `<div class="small text-muted">${managerEmail}</div>` : ''}
+                    </td>
                     <td><span class="badge badge-pill ${p.type === 'gercek' ? 'badge-soft-primary' : 'badge-soft-success'}">${p.type === 'gercek' ? 'Gerçek' : 'Tüzel'}</span></td>
                     <td class="text-right">
                         <button class="action-btn edit-btn btn-sm mr-1" data-id="${p.id}" title="Düzenle">

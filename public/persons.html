@@ -5,7 +5,7 @@
     <title>IPGATE - Kişi Yönetimi</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    
+
     <link rel="stylesheet" href="css/shared-styles.css">
     <link rel="stylesheet" href="css/persons.css"> 
 </head>
@@ -14,7 +14,7 @@
 
     <div class="page-wrapper">
         <main class="persons-container-wrapper">
-            
+
             <div class="page-header">
                 <div>
                     <h1 class="page-title">Kişi Yönetimi</h1>
@@ -30,7 +30,7 @@
                     <div class="search-input-group">
                         <i class="fas fa-search text-muted mt-1"></i>
                         <input type="text" id="personSearchInput" class="form-control border-0 bg-transparent" 
-                               placeholder="İsim, e-posta veya TPE no ile ara..." 
+                               placeholder="İsim, e-posta, TPE no veya portföy yöneticisi ile ara..." 
                                oninput="ui.filterPersons(this.value)">
                     </div>
                 </div>
@@ -52,6 +52,9 @@
                                 <th onclick="ui.handleSort('email')" style="cursor:pointer;">
                                     E-posta <i class="fas fa-sort ml-1 text-muted small"></i>
                                 </th>
+                                <th onclick="ui.handleSort('portfolioManagerName')" style="cursor:pointer;">
+                                    Portföy Yöneticisi <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
                                 <th onclick="ui.handleSort('type')" style="cursor:pointer;">
                                     Tip <i class="fas fa-sort ml-1 text-muted small"></i>
                                 </th>
@@ -62,7 +65,7 @@
                             </tbody>
                     </table>
                 </div>
-                
+
                 <div id="paginationContainer" class="mt-4"></div>
             </div>
         </main>
@@ -95,15 +98,15 @@
 
             // 5. Yeni Kişi Ekleme Butonu
             document.getElementById('addNewPersonBtn').onclick = () => modal.open();
-            
+
             // 6. Tablo Olay Dinleyicileri (Edit ve Delete)
             document.getElementById('personsTableBody').addEventListener('click', (e) => {
                 // Tıklanan element veya parent'ında data-id var mı bak
                 const target = e.target.closest('button');
                 if (!target) return;
-                
+
                 const id = target.dataset.id;
-                
+
                 if (target.classList.contains('edit-btn')) {
                     modal.open(id);
                 } else if (target.classList.contains('delete-btn')) {

@@ -5,6 +5,9 @@ import { portfolioManagerService } from '../persons/PortfolioManagerService.js';
 
 const $ = window.jQuery || window.$;
 
+// Portföy yöneticisi seçilmemiş kişiler için varsayılan kullanıcı: Muhammed Özcan
+const DEFAULT_PORTFOLIO_MANAGER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
+
 export class PersonModalManager {
     constructor(options = {}) {
         this.dataManager = new PersonDataManager();
@@ -40,6 +43,22 @@ export class PersonModalManager {
                     </div>
                     <div class="modal-body p-4" style="max-height: 75vh; overflow-y: auto;">
                         <form id="personForm">
+                            <!-- IPGATE_CLIENT_SETTINGS_TABS_V1 -->
+                            <ul class="nav nav-tabs border-bottom mb-4" id="personModalTabs" role="tablist">
+                                <li class="nav-item">
+                                    <a class="nav-link active font-weight-bold" id="person-general-tab" data-toggle="tab" href="#personGeneralTab" role="tab" aria-controls="personGeneralTab" aria-selected="true">
+                                        <i class="fas fa-address-card mr-2"></i>Genel Bilgiler
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link font-weight-bold" id="person-client-settings-tab" data-toggle="tab" href="#personClientSettingsTab" role="tab" aria-controls="personClientSettingsTab" aria-selected="false">
+                                        <i class="fas fa-sliders-h mr-2"></i>Müvekkil Ayarları
+                                    </a>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content" id="personModalTabContent">
+                                <div class="tab-pane fade show active" id="personGeneralTab" role="tabpanel" aria-labelledby="person-general-tab">
                             <div class="card border-0 shadow-sm rounded-lg mb-4 p-4">
                                 <h6 class="text-primary font-weight-bold mb-4 border-bottom pb-2"><i class="fas fa-info-circle mr-2"></i>Genel Bilgiler</h6>
                                 <div class="row">
@@ -97,40 +116,7 @@ export class PersonModalManager {
                                             <input type="email" id="personEmail" class="form-control rounded-lg border-2">
                                         </div>
                                         
-                                        <div class="bg-light p-3 rounded border">
-                                            <div class="custom-control custom-switch">
-                                                <input type="checkbox" class="custom-control-input" id="is_evaluation_required">
-                                                <label class="custom-control-label font-weight-bold text-dark" for="is_evaluation_required">Değerlendirme İşlemi Gerekli (ID 66)</label>
-                                            </div>
-                                            <div class="custom-control custom-switch mt-3">
-                                                <input type="checkbox" class="custom-control-input" id="person-has-tevkifat">
-                                                <label class="custom-control-label font-weight-bold text-dark" for="person-has-tevkifat">Tevkifat Uygulansın mı?</label>
-                                            </div>
-                                            <div class="form-group mt-2 pl-4" id="tevkifat-rate-group" style="display: none;">
-                                                <label class="small font-weight-bold text-muted">TEVKİFAT ORANI (NET KDV) *</label>
-                                                <select id="person-tevkifat-rate" class="form-control form-control-sm border-2">
-                                                    <option value="2" selected>%2 (9/10 Tevkifat - Danışmanlık)</option>
-                                                    <option value="10">%10 (5/10 Tevkifat)</option>
-                                                </select>
-                                            </div>
-                                            <div class="custom-control custom-switch mt-3">
-                                                <input type="checkbox" class="custom-control-input" id="person-requires-sas">
-                                                <label class="custom-control-label font-weight-bold text-dark" for="person-requires-sas">SAS (Sipariş) Kodu Zorunlu mu?</label>
-                                            </div>
-                                            <!-- IPGATE_PORTFOLIO_MANAGER_V1: Portföy yöneticisi -->
-                                            <div class="form-group mt-4 pt-3 border-top mb-0">
-                                                <label class="small font-weight-bold text-muted mb-2" for="person-portfolio-manager">
-                                                    <i class="fas fa-user-tie mr-1"></i> PORTFÖY YÖNETİCİSİ
-                                                </label>
-                                                <select id="person-portfolio-manager" class="form-control rounded-lg border-2">
-                                                    <option value="">Atanmadı</option>
-                                                </select>
-                                                <small class="form-text text-muted mt-2">
-                                                    Client rolündeki ve pasif kullanıcılar listelenmez.
-                                                </small>
-                                            </div>
-                                        </div>
-                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -259,6 +245,72 @@ export class PersonModalManager {
                                 </div>
                                 <div id="docListContainer" class="list-group list-group-flush rounded border bg-white"></div>
                             </div>
+                                </div>
+
+                                <div class="tab-pane fade" id="personClientSettingsTab" role="tabpanel" aria-labelledby="person-client-settings-tab">
+                                    <div class="card border-0 shadow-sm rounded-lg mb-4 overflow-hidden">
+                                        <div class="card-header bg-white p-4 border-bottom">
+                                            <h6 class="text-primary font-weight-bold mb-1">
+                                                <i class="fas fa-sliders-h mr-2"></i>Müvekkil Ayarları
+                                            </h6>
+                                            <small class="text-muted">Bu müvekkile özel işlem, faturalama ve sorumluluk ayarlarını buradan yönetin.</small>
+                                        </div>
+                                        <div class="card-body p-4">
+                                            <div class="row">
+                                                <div class="col-lg-6 mb-4">
+                                                    <div class="h-100 bg-light p-4 rounded border">
+                                                        <label class="small font-weight-bold text-muted mb-2" for="person-portfolio-manager">
+                                                            <i class="fas fa-user-tie mr-1"></i> PORTFÖY YÖNETİCİSİ
+                                                        </label>
+                                                        <select id="person-portfolio-manager" class="form-control rounded-lg border-2">
+                                                            <option value="">Atanmadı</option>
+                                                        </select>
+                                                        <small class="form-text text-muted mt-2">
+                                                            Varsayılan portföy yöneticisi Muhammed Özcan'dır. Client rolündeki ve pasif kullanıcılar listelenmez.
+                                                        </small>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-lg-6 mb-4">
+                                                    <div class="h-100 bg-light p-4 rounded border d-flex align-items-center">
+                                                        <div class="custom-control custom-switch">
+                                                            <input type="checkbox" class="custom-control-input" id="is_evaluation_required">
+                                                            <label class="custom-control-label font-weight-bold text-dark" for="is_evaluation_required">Değerlendirme İşlemi Gerekli (ID 66)</label>
+                                                            <small class="form-text text-muted mt-2">İtiraz/dava değerlendirme iş akışının gerekli olup olmadığını belirler.</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-lg-6 mb-3">
+                                                    <div class="h-100 bg-light p-4 rounded border">
+                                                        <div class="custom-control custom-switch">
+                                                            <input type="checkbox" class="custom-control-input" id="person-has-tevkifat">
+                                                            <label class="custom-control-label font-weight-bold text-dark" for="person-has-tevkifat">Tevkifat Uygulansın mı?</label>
+                                                        </div>
+                                                        <div class="form-group mt-3 mb-0 pl-4" id="tevkifat-rate-group" style="display: none;">
+                                                            <label class="small font-weight-bold text-muted">TEVKİFAT ORANI (NET KDV) *</label>
+                                                            <select id="person-tevkifat-rate" class="form-control form-control-sm border-2">
+                                                                <option value="2" selected>%2 (9/10 Tevkifat - Danışmanlık)</option>
+                                                                <option value="10">%10 (5/10 Tevkifat)</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-lg-6 mb-3">
+                                                    <div class="h-100 bg-light p-4 rounded border d-flex align-items-center">
+                                                        <div class="custom-control custom-switch">
+                                                            <input type="checkbox" class="custom-control-input" id="person-requires-sas">
+                                                            <label class="custom-control-label font-weight-bold text-dark" for="person-requires-sas">SAS (Sipariş) Kodu Zorunlu mu?</label>
+                                                            <small class="form-text text-muted mt-2">Müvekkil işlemlerinde sipariş/SAS kodunun zorunlu olup olmadığını belirler.</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </form>
                     </div>
                     <div class="modal-footer bg-white border-top p-4">
@@ -368,6 +420,12 @@ export class PersonModalManager {
         this.originalPersonData = null; // 🔥 GÜVENLİK 1: Önceki açılıştan kalan verileri temizle
         this.resetForm();
 
+        // IPGATE_CLIENT_SETTINGS_TABS_V1: Modal her açıldığında Genel Bilgiler sekmesinden başla.
+        const generalTabLink = document.querySelector('#personModalTabs a[href="#personGeneralTab"]');
+        if (generalTabLink && window.$ && typeof window.$(generalTabLink).tab === 'function') {
+            window.$(generalTabLink).tab('show');
+        }
+
         await this.loadInitialData();
 
         if (this.isEdit) {
@@ -422,7 +480,13 @@ export class PersonModalManager {
         const saveBtn = document.getElementById('savePersonBtn');
         const nameVal = document.getElementById('personName').value.trim();
 
-        if (!nameVal) return showNotification('Lütfen isim/firma adı giriniz.', 'warning');
+        if (!nameVal) {
+            const generalTabLink = document.querySelector('#personModalTabs a[href="#personGeneralTab"]');
+            if (generalTabLink && window.$ && typeof window.$(generalTabLink).tab === 'function') {
+                window.$(generalTabLink).tab('show');
+            }
+            return showNotification('Lütfen isim/firma adı giriniz.', 'warning');
+        }
 
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Yükleniyor...';
@@ -891,6 +955,15 @@ export class PersonModalManager {
         }).join('');
 
         select.innerHTML = '<option value="">Atanmadı</option>' + options;
+
+        // Yeni kişi oluştururken varsayılan portföy yöneticisi Muhammed Özcan olsun.
+        // Kullanıcı isterse dropdown'dan 'Atanmadı' seçerek bunu bilinçli olarak kaldırabilir.
+        const defaultOptionExists = Array.from(select.options)
+            .some(option => option.value === DEFAULT_PORTFOLIO_MANAGER_USER_ID);
+        if (defaultOptionExists) {
+            select.value = DEFAULT_PORTFOLIO_MANAGER_USER_ID;
+        }
+
         select.disabled = false;
     }
 
@@ -907,6 +980,8 @@ export class PersonModalManager {
 
         const managerUserId = result.data;
         if (!managerUserId) {
+            // Mevcut kişi DB'de gerçekten atanmadıysa bunu olduğu gibi göster.
+            // Muhammed Özcan yalnızca YENİ kişi oluştururken varsayılan seçilidir.
             select.value = '';
             return;
         }

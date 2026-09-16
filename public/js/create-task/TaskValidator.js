@@ -14,6 +14,7 @@ export class TaskValidator {
 
         // state içinden selectedOwners'ı da alıyoruz
         const { selectedTaskType, selectedOwners } = state || {};
+        const isPortfolioManagerAssignment = state?.assignmentRule?.assignmentType === 'portfolio_manager';
         
         // Marka Başvurusu olup olmadığını anla
         const brandInputExists = !!document.getElementById('brandExampleText');
@@ -67,7 +68,7 @@ export class TaskValidator {
                 const assignedTo = document.getElementById('assignedTo')?.value;
 
                 checks = {
-                    'Atanan Kişi': !!assignedTo,
+                    'Atanan Kişi': isPortfolioManagerAssignment || !!assignedTo,
                     'Marka Adı': !!brandText,
                     'Sınıf Seçimi': hasClasses, // ✅ Güncellendi
                     'Başvuru Sahibi': domApplicantCount > 0,
@@ -98,7 +99,7 @@ export class TaskValidator {
                 const hasRelated = domRelatedCount > 0;
 
                 checks = {
-                    'Atanan Kişi': !!assignedTo,
+                    'Atanan Kişi': isPortfolioManagerAssignment || !!assignedTo,
                     'İş Başlığı': !!taskTitle,
                     'Varlık/Sahip Seçimi': isAssetOrOwnerValid, // <-- Burası hata veriyorsa PORTFÖYDEN ARAMA kısmından marka seçilmemiş demektir
                     'İlgili Taraf': !needsRelated || hasRelated

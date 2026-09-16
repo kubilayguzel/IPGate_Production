@@ -1373,16 +1373,19 @@ class ClientPortalController {
                         
                     if (taskError) throw taskError;
 
-                    // 2. Task Assignment kurallarından atanacak kişiyi bulalım
+                    // 2. Task Assignment kuralını oku.
+                    // portfolio_manager modunda kullanıcıyı portal belirlemez; OPEN geçişinde DB trigger atar.
                     let assignedToUser = null;
+                    let isPortfolioManagerAssignment = false;
                     if (taskData && taskData.task_type_id) {
                         const { data: assignmentData } = await supabase
                             .from('task_assignments')
-                            .select('assignee_ids')
+                            .select('assignment_type, assignee_ids')
                             .eq('id', String(taskData.task_type_id))
                             .maybeSingle();
 
-                        if (assignmentData && assignmentData.assignee_ids && assignmentData.assignee_ids.length > 0) {
+                        isPortfolioManagerAssignment = assignmentData?.assignment_type === 'portfolio_manager';
+                        if (!isPortfolioManagerAssignment && assignmentData?.assignee_ids?.length > 0) {
                             assignedToUser = assignmentData.assignee_ids[0]; 
                         }
                     }
@@ -1397,6 +1400,9 @@ class ClientPortalController {
                     
                     if (assignedToUser) {
                         updatePayload.assigned_to = assignedToUser;
+                    }
+                    if (isPortfolioManagerAssignment) {
+                        currentDetails.assignment_mode = 'portfolio_manager';
                     }
                     
                     currentDetails.clientApprovedAt = new Date().toISOString();

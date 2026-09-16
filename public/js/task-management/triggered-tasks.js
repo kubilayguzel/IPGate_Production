@@ -814,19 +814,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
                 updatePayload.history = history;
 
-                // 🔥 PARALEL GELİŞTİRME: İş durumu "Açık" (open) yapılırsa, işi asıl sahibine (departman/kişi) geri ata!
+                // İş OPEN olduğunda atama kuralını uygula.
+                // portfolio_manager modunda assigned_to frontend tarafından yazılmaz;
+                // DB trigger ilgili müvekkilin portföy yöneticisini belirler.
                 if (newStatus === 'open' && this.currentTaskForStatusChange.taskType) {
                     try {
                         const { data: assignData } = await supabase
                             .from('task_assignments')
-                            .select('assignee_ids')
+                            .select('assignment_type, assignee_ids')
                             .eq('id', String(this.currentTaskForStatusChange.taskType))
-                            .single();
-                            
-                        if (assignData && assignData.assignee_ids && assignData.assignee_ids.length > 0) {
+                            .maybeSingle();
+
+                        if (assignData?.assignment_type === 'portfolio_manager') {
+                            history.push({
+                                action: `Görev Onaylandı: Portföy yöneticisine otomatik atama kuralı uygulandı.`,
+                                timestamp: new Date().toISOString(),
+                                userEmail: "Sistem Otomasyonu"
+                            });
+                        } else if (assignData?.assignee_ids?.length > 0) {
                             const correctAssigneeId = assignData.assignee_ids[0];
                             
-                            // Eğer şu anki atanan kişi doğru kişi değilse, payload'a yeni atananı da ekle
                             if (this.currentTaskForStatusChange.assignedTo_uid !== correctAssigneeId) {
                                 updatePayload.assigned_to = correctAssigneeId;
                                 

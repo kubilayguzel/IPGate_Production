@@ -30,7 +30,8 @@ class CreateTaskController {
             selectedIpRecord: null, selectedTaskType: null, selectedRelatedParties: [], selectedRelatedParty: null,
             selectedTpInvoiceParty: null, selectedServiceInvoiceParty: null, selectedApplicants: [], priorities: [],
             selectedCountries: [], uploadedFiles: [], selectedOwners: [],
-            isWithdrawalTask: false, searchSource: 'portfolio', isNiceClassificationInitialized: false, selectedWipoAripoChildren: []
+            isWithdrawalTask: false, searchSource: 'portfolio', isNiceClassificationInitialized: false, selectedWipoAripoChildren: [],
+            assignmentRule: null
         };
         this.personModal = new PersonModalManager();
     }
@@ -293,6 +294,7 @@ class CreateTaskController {
 
         this.uiManager.clearContainer();
         this.resetSelections();
+        this.state.assignmentRule = null;
         specificSelect.innerHTML = '<option value="">Seçiniz...</option>';
 
         if (mainType) {
@@ -392,6 +394,7 @@ class CreateTaskController {
         const typeId = e.target.value;
         const selectedType = this.state.allTransactionTypes.find(t => String(t.id) === String(typeId));
         this.state.selectedTaskType = selectedType;
+        this.state.assignmentRule = null;
         
         if (!selectedType) { this.uiManager.clearContainer(); return; }
 
@@ -1085,6 +1088,20 @@ class CreateTaskController {
     applyAssignmentRule(rule) {
         const select = document.getElementById('assignedTo');
         if (!select) return;
+
+        // Atama kuralını state'te tutuyoruz; validator/submit/özet ekranı aynı kaynağı kullanır.
+        this.state.assignmentRule = rule || null;
+        select.disabled = false;
+        delete select.dataset.assignmentType;
+
+        // Portföy yöneticisi modunda kullanıcı seçimini frontend yapmaz.
+        // Nihai assigned_to değeri DB trigger tarafından task_owner_id üzerinden belirlenir.
+        if (rule?.assignmentType === 'portfolio_manager') {
+            select.innerHTML = '<option value="" selected>Portföy yöneticisine otomatik atanacak</option>';
+            select.disabled = true;
+            select.dataset.assignmentType = 'portfolio_manager';
+            return;
+        }
         
         select.innerHTML = '<option value="">Seçiniz...</option>';
         let usersToShow = this.state.allUsers;

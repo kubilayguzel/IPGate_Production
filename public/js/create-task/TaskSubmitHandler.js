@@ -46,8 +46,9 @@ export class TaskSubmitHandler {
         if (submitBtn) submitBtn.disabled = true;
 
         try {
+            const isPortfolioManagerAssignment = state?.assignmentRule?.assignmentType === 'portfolio_manager';
             const assignedTo = document.getElementById('assignedTo')?.value;
-            const assignedUser = state.allUsers.find(u => u.id === assignedTo);
+            const assignedUser = isPortfolioManagerAssignment ? null : state.allUsers.find(u => u.id === assignedTo);
             
             let taskTitle = document.getElementById('taskTitle')?.value;
             let taskDesc = document.getElementById('taskDescription')?.value;
@@ -154,6 +155,7 @@ export class TaskSubmitHandler {
                 
                 details: {
                     assigned_to_email: assignedUser ? assignedUser.email : null,
+                    ...(isPortfolioManagerAssignment ? { assignment_mode: 'portfolio_manager' } : {}),
                     bulletin_no: bulletinNo ? String(bulletinNo) : null,
                     bulletin_date: bulletinDate ? String(bulletinDate) : null,
                     similarity_score: similarityScore || null,
@@ -226,9 +228,21 @@ export class TaskSubmitHandler {
             if (!taskResult.success) throw new Error(taskResult.error);
             const newTaskId = taskResult.data?.id || taskResult.id;
             
-            // Veritabanına yazıldıktan hemen sonra okuyup kontrol edelim
+            // Veritabanına yazıldıktan hemen sonra okuyup kontrol edelim.
+            // portfolio_manager görevlerinde BEFORE trigger assigned_to_email / assignment_mode
+            // alanlarını burada nihai değerleriyle yazmış olur. Aşağıdaki dosya güncellemesinin
+            // bu değerleri eski local JSON ile ezmemesi için DB'deki trigger çıktısını koruyoruz.
             const { data: checkDb } = await supabase.from('tasks').select('details').eq('id', newTaskId).single();
             console.log("🔥 2. SUPABASE'E YAZILDIKTAN SONRAKİ VERİ:", JSON.stringify(checkDb?.details, null, 2));
+
+            if (isPortfolioManagerAssignment && checkDb?.details) {
+                taskData.details = {
+                    ...checkDb.details,
+                    ...taskData.details,
+                    assigned_to_email: checkDb.details.assigned_to_email ?? taskData.details.assigned_to_email ?? null,
+                    assignment_mode: checkDb.details.assignment_mode || 'portfolio_manager'
+                };
+            }
 
             // 2. DOSYALARI OLUŞAN GÖREVİN ID'Sİ İLE "tasks/TASK_ID/" DİZİNİNE YÜKLE
             if (uploadedFiles && uploadedFiles.length > 0) {

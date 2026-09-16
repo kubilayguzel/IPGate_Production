@@ -1086,6 +1086,20 @@ export class ManuelPdfTransactionManager {
 
                     for (const tType of tasksToCreate) {
                         console.log(`⏳ [SİSTEM] ${tType} numaralı görev oluşturuluyor...`);
+
+                        let isPortfolioManagerAssignment = false;
+                        if (String(tType) === "66") {
+                            try {
+                                const { data: assignmentRule } = await supabase
+                                    .from('task_assignments')
+                                    .select('assignment_type')
+                                    .eq('id', '66')
+                                    .maybeSingle();
+                                isPortfolioManagerAssignment = assignmentRule?.assignment_type === 'portfolio_manager';
+                            } catch (err) {
+                                console.warn('66 nolu görev için atama kuralı okunamadı:', err);
+                            }
+                        }
                         
                         const taskPayload = {
                             title: `${tType === "66" ? "Uzman Değerlendirmesi" : typeObj.name || 'Manuel İşlem'} Görevi`,
@@ -1099,8 +1113,9 @@ export class ManuelPdfTransactionManager {
                             transaction_id: finalParentId ? String(finalParentId) : null,
                             official_due_date: baseDate.toISOString(),
                             details: {
-                                // 🔥 ÇÖZÜM: currentAssignedUser hatasını önlemek için mevcut oturumu aldık
-                                assigned_to_email: this.currentUser?.email || 'sistem@evrekagroup.com',
+                                // portfolio_manager modunda nihai e-posta da DB trigger tarafından senkronize edilir.
+                                assigned_to_email: isPortfolioManagerAssignment ? null : (this.currentUser?.email || 'sistem@evrekagroup.com'),
+                                ...(isPortfolioManagerAssignment ? { assignment_mode: 'portfolio_manager' } : {}),
                                 bulletin_no: bulletinNo ? String(bulletinNo) : null,
                                 bulletin_date: bulletinDate ? String(bulletinDate) : null,
                                 similarity_score: similarityScore,

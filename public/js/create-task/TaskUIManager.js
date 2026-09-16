@@ -701,7 +701,11 @@ export class TaskUIManager {
         const nonLatin = document.getElementById('nonLatinAlphabet')?.value || '-';
         
         const assignedToId = document.getElementById('assignedTo')?.value;
-        const assignedUser = state.allUsers.find(u => u.id === assignedToId);
+        const isPortfolioManagerAssignment = state?.assignmentRule?.assignmentType === 'portfolio_manager';
+        const assignedUser = isPortfolioManagerAssignment ? null : state.allUsers.find(u => u.id === assignedToId);
+        const assignedUserDisplay = isPortfolioManagerAssignment
+            ? 'Portföy yöneticisine otomatik atanacak'
+            : (assignedUser?.displayName || assignedUser?.email || '<span class="text-danger">Seçilmedi</span>');
         const taskType = state.selectedTaskType?.alias || state.selectedTaskType?.name || '-';
         
         let origin = document.getElementById('originSelect')?.value || '-';
@@ -751,7 +755,7 @@ export class TaskUIManager {
                                     <tr><th class="pl-4">Marka Tipi / Türü</th><td>${brandType} / ${brandCategory}</td></tr>
                                     ${nonLatin !== '-' ? `<tr><th class="pl-4">Latin Dışı Karakter</th><td>${nonLatin}</td></tr>` : ''}
                                     <tr><th class="pl-4">Menşe</th><td>${origin}</td></tr>
-                                    <tr><th class="pl-4">Atanan Uzman</th><td>${assignedUser?.displayName || assignedUser?.email || '<span class="text-danger">Seçilmedi</span>'}</td></tr>
+                                    <tr><th class="pl-4">Atanan Uzman</th><td>${assignedUserDisplay}</td></tr>
                                     <tr><th class="pl-4">Başvuru Sahipleri</th><td>${applicants}</td></tr>
                                     <tr><th class="pl-4">Nice Sınıfları (${classes.length})</th><td>${classHtml}</td></tr>
                                     <tr><th class="pl-4">Rüçhan Bilgileri</th><td>${priorityHtml}</td></tr>

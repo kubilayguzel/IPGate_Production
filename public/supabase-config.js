@@ -1715,10 +1715,34 @@ export const taskService = {
             // 🔥 KORUMA 1: created_by (Oluşturan) her zaman UUID olmak zorundadır. Email yazılırsa DB reddeder!
             const createdByUser = session?.user?.id || null;
 
+            const taskTypeId = String(taskData.taskType || taskData.task_type_id || '');
+            const taskStatus = taskData.status || 'open';
+
+            // Portföy yöneticisi tiplerinde frontend/user seçimi nihai atama kaynağı değildir.
+            // SQL migration sonrasında assignment_type='portfolio_manager' ise assigned_to NULL gönderilir;
+            // BEFORE trigger task_owner_id -> persons.portfolio_manager_user_id üzerinden gerçek kişiyi yazar.
+            let isPortfolioManagerAssignment = false;
+            if (taskTypeId && taskStatus === 'open') {
+                const { data: assignmentRule, error: assignmentRuleError } = await supabase
+                    .from('task_assignments')
+                    .select('assignment_type')
+                    .eq('id', taskTypeId)
+                    .maybeSingle();
+
+                if (assignmentRuleError) {
+                    console.warn(`[TASK SERVICE] ⚠️ Atama kuralı okunamadı (${taskTypeId}):`, assignmentRuleError.message);
+                } else {
+                    isPortfolioManagerAssignment = assignmentRule?.assignment_type === 'portfolio_manager';
+                }
+            }
+
             // 🔥 KORUMA 2: assigned_to (Atanan) kişi veritabanında gerçekten var mı?
             let finalAssignedTo = taskData.assignedTo_uid || taskData.assigned_to || null;
-            
-            if (finalAssignedTo) {
+
+            if (isPortfolioManagerAssignment) {
+                // Trigger nihai atamayı INSERT sırasında yapacak.
+                finalAssignedTo = null;
+            } else if (finalAssignedTo) {
                 const { data: checkUser } = await supabase.from('users').select('id').eq('id', finalAssignedTo).maybeSingle();
                 if (!checkUser) {
                     console.warn(`[TASK SERVICE] ⚠️ Atanan kullanıcı (${finalAssignedTo}) 'users' tablosunda yok! Görev size atanıyor.`);
@@ -1741,8 +1765,8 @@ export const taskService = {
                     id: nextId, 
                     title: taskData.title,
                     description: taskData.description || null,
-                    task_type_id: String(taskData.taskType || taskData.task_type_id),
-                    status: taskData.status || 'open',
+                    task_type_id: taskTypeId,
+                    status: taskStatus,
                     priority: taskData.priority || 'normal',
                     official_due_date: taskData.officialDueDate || taskData.official_due_date || null,
                     operational_due_date: taskData.operationalDueDate || taskData.operational_due_date || null,

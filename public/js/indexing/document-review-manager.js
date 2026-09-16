@@ -1376,13 +1376,23 @@ export class DocumentReviewManager {
                         taskDesc = "Müvekkil değerlendirme ayarı açık olduğu için ek olarak tetiklendi.";
                         taskStatus = 'open'; 
                         try {
-                            const { data: assignmentRule } = await supabase.from('task_assignments').select('assignee_ids').eq('id', '66').single();
-                            if (assignmentRule && assignmentRule.assignee_ids && assignmentRule.assignee_ids.length > 0) {
+                            const { data: assignmentRule } = await supabase
+                                .from('task_assignments')
+                                .select('assignment_type, assignee_ids')
+                                .eq('id', '66')
+                                .maybeSingle();
+
+                            if (assignmentRule?.assignment_type === 'portfolio_manager') {
+                                // Nihai kişi task_owner_id üzerinden DB trigger tarafından belirlenecek.
+                                currentAssignedUser = { uid: null, email: null };
+                            } else if (assignmentRule?.assignee_ids?.length > 0) {
                                 const targetUid = assignmentRule.assignee_ids[0]; 
-                                const { data: userData } = await supabase.from('users').select('email').eq('id', targetUid).single();
+                                const { data: userData } = await supabase.from('users').select('email').eq('id', targetUid).maybeSingle();
                                 currentAssignedUser = { uid: targetUid, email: userData ? userData.email : 'bilinmiyor@evreka.com' };
                             }
-                        } catch (err) {}
+                        } catch (err) {
+                            console.warn('66 nolu görev için atama kuralı okunamadı:', err);
+                        }
                     }
 
                     const taskData = {
@@ -1397,6 +1407,7 @@ export class DocumentReviewManager {
                         priority: 'medium',
                         details: {
                             assigned_to_email: currentAssignedUser.email,
+                            ...(String(tType) === "66" && currentAssignedUser.uid === null ? { assignment_mode: 'portfolio_manager' } : {}),
                             bulletin_no: bulletinNo ? String(bulletinNo) : null,
                             bulletin_date: bulletinDate ? String(bulletinDate) : null,
                             similarity_score: similarityScore,

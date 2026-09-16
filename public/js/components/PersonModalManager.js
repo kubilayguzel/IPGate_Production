@@ -7,6 +7,7 @@ const $ = window.jQuery || window.$;
 
 // Portföy yöneticisi seçilmemiş kişiler için varsayılan kullanıcı: Muhammed Özcan
 const DEFAULT_PORTFOLIO_MANAGER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
+const DEFAULT_PETITION_CONTROLLER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
 
 export class PersonModalManager {
     constructor(options = {}) {
@@ -272,6 +273,20 @@ export class PersonModalManager {
                                                 </div>
 
                                                 <div class="col-lg-6 mb-4">
+                                                    <div class="h-100 bg-light p-4 rounded border">
+                                                        <label class="small font-weight-bold text-muted mb-2" for="person-petition-controller">
+                                                            <i class="fas fa-user-check mr-1"></i> KONTROL GÖREVLİSİ
+                                                        </label>
+                                                        <select id="person-petition-controller" class="form-control rounded-lg border-2">
+                                                            <option value="">Atanmadı</option>
+                                                        </select>
+                                                        <small class="form-text text-muted mt-2">
+                                                            Dilekçe kontrol işlerinin atanacağı kullanıcıdır. Yeni müvekkillerde varsayılan Muhammed Özcan'dır.
+                                                        </small>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-lg-6 mb-4">
                                                     <div class="h-100 bg-light p-4 rounded border d-flex align-items-center">
                                                         <div class="custom-control custom-switch">
                                                             <input type="checkbox" class="custom-control-input" id="is_evaluation_required">
@@ -509,6 +524,15 @@ export class PersonModalManager {
             const countrySel = document.getElementById('countrySelect');
             const provinceSel = document.getElementById('provinceSelect');
             const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
+
+            const petitionControllerUserId = document.getElementById('person-petition-controller')?.value || null;
+            if (petitionControllerUserId) {
+                const controllerResult = await portfolioManagerService.getUserById(petitionControllerUserId);
+                const controller = controllerResult.data;
+                if (!controllerResult.success || !controller) throw new Error('Seçilen kontrol görevlisi bulunamadı.');
+                if (controller.role === 'client') throw new Error('Client rolündeki kullanıcı kontrol görevlisi olarak atanamaz.');
+                if (controller.disabled === true) throw new Error('Pasif kullanıcı kontrol görevlisi olarak atanamaz.');
+            }
             
             const personData = {
                 ...(this.isEdit && this.originalPersonData ? this.originalPersonData : {}),
@@ -540,6 +564,7 @@ export class PersonModalManager {
                                : 2,
                 requires_sas_code: document.getElementById('person-requires-sas')?.checked || false,
                 portfolioManagerUserId: document.getElementById('person-portfolio-manager')?.value || null,
+                petitionControllerUserId: petitionControllerUserId,
                 documents: processedDocs,
                 updatedAt: new Date().toISOString()
             };
@@ -909,6 +934,7 @@ export class PersonModalManager {
 
         // IPGATE_PORTFOLIO_MANAGER_V1: Portföy yöneticisi adaylarını yükle
         await this.loadPortfolioManagers();
+        await this.loadPetitionControllers();
 
         // YENİ EKLENEN: Vergi Dairelerini Çek ve Datalist'e Doldur
         try {
@@ -965,6 +991,61 @@ export class PersonModalManager {
         }
 
         select.disabled = false;
+    }
+
+    async loadPetitionControllers() {
+        const select = document.getElementById('person-petition-controller');
+        if (!select) return;
+
+        select.disabled = true;
+        select.innerHTML = '<option value="">Yükleniyor...</option>';
+
+        const result = await portfolioManagerService.getAssignableUsers();
+        if (!result.success) {
+            console.error('Kontrol görevlileri yüklenemedi:', result.error);
+            select.innerHTML = '<option value="">Kullanıcı listesi yüklenemedi</option>';
+            select.disabled = false;
+            return;
+        }
+
+        select.innerHTML = '<option value="">Atanmadı</option>';
+
+        result.data.forEach(user => {
+            const option = document.createElement('option');
+            option.value = user.id;
+            option.textContent = (user.display_name || user.email || user.id) + (user.role ? ` (${user.role})` : '');
+            select.appendChild(option);
+        });
+
+        const defaultOptionExists = Array.from(select.options)
+            .some(option => option.value === DEFAULT_PETITION_CONTROLLER_USER_ID);
+        select.value = defaultOptionExists ? DEFAULT_PETITION_CONTROLLER_USER_ID : '';
+        select.disabled = false;
+    }
+
+    async loadAssignedPetitionController(controllerUserId) {
+        const select = document.getElementById('person-petition-controller');
+        if (!select) return;
+
+        if (!controllerUserId) {
+            select.value = '';
+            return;
+        }
+
+        let optionExists = Array.from(select.options).some(option => option.value === controllerUserId);
+        if (!optionExists) {
+            const userResult = await portfolioManagerService.getUserById(controllerUserId);
+            if (userResult.success && userResult.data) {
+                const user = userResult.data;
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = (user.display_name || user.email || user.id) + ' (mevcut / pasif olabilir)';
+                select.appendChild(option);
+                optionExists = true;
+            }
+        }
+
+        select.value = optionExists ? controllerUserId : '';
     }
 
     // IPGATE_PORTFOLIO_MANAGER_V1: Düzenlenen müvekkilin mevcut portföy yöneticisini seçili getir
@@ -1078,6 +1159,7 @@ export class PersonModalManager {
 
         // IPGATE_PORTFOLIO_MANAGER_V1: Mevcut portföy yöneticisini seçili getir
         await this.loadAssignedPortfolioManager(id);
+        await this.loadAssignedPetitionController(p.petitionControllerUserId);
 
         const countrySelect = document.getElementById('countrySelect');
         if (p.countryCode && countrySelect) {

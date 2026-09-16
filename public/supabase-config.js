@@ -201,7 +201,8 @@ export const personService = {
             is_evaluation_required: p.is_evaluation_required,
             has_tevkifat: p.has_tevkifat,
             requires_sas_code: p.requires_sas_code,
-            priceListId: p.price_list_id
+            priceListId: p.price_list_id,
+            petitionControllerUserId: p.petition_controller_user_id || null
         }));
         return { success: true, data: mappedData };
     },
@@ -250,6 +251,7 @@ export const personService = {
             tevkifat_rate: data.tevkifat_rate, // YENİ EKLENEN SATIR
             requires_sas_code: data.requires_sas_code,
             priceListId: data.price_list_id,
+            petitionControllerUserId: data.petition_controller_user_id || null,
             documents: mappedDocuments // 🔥 Belgeleri arayüze iletiyoruz
         };
         return { success: true, data: mappedData };
@@ -278,7 +280,8 @@ export const personService = {
             has_tevkifat: personData.has_tevkifat || false,
             tevkifat_rate: personData.tevkifat_rate || 20, // YENİ EKLENEN SATIR
             requires_sas_code: personData.requires_sas_code || false,
-            price_list_id: personData.priceListId || null
+            price_list_id: personData.priceListId || null,
+            petition_controller_user_id: personData.petitionControllerUserId || null
 
         };
 
@@ -324,6 +327,7 @@ export const personService = {
             tevkifat_rate: personData.tevkifat_rate || 20, // YENİ EKLENEN SATIR
             requires_sas_code: personData.requires_sas_code || false,
             price_list_id: personData.priceListId || null,
+            petition_controller_user_id: personData.petitionControllerUserId || null,
             updated_at: new Date().toISOString()
         };
         
@@ -535,16 +539,35 @@ export const personService = {
 export const transactionTypeService = {
     async getTransactionTypes() {
         const CACHE_KEY = 'transaction_types_cache';
+        let cached = null;
+
+        // İşlem tipleri iş akışının temel referans verisidir.
+        // Yeni bir transaction type eklendiğinde 24 saatlik eski cache'in listelerde
+        // "83" / "Bilinmiyor" gibi değerler göstermemesi için DB her sayfa
+        // yüklemesinde canlı okunur. Cache yalnız bağlantı hatalarında yedektir.
         if (window.localCache) {
-            const cached = await window.localCache.get(CACHE_KEY);
-            // 24 saat boyunca bu listeyi tekrar DB'den çekme
-            if (cached && cached.data && (Date.now() - cached.timestamp < 86400000)) return { success: true, data: cached.data };
+            try {
+                cached = await window.localCache.get(CACHE_KEY);
+            } catch (cacheError) {
+                console.warn('[TRANSACTION TYPES] Cache okunamadı:', cacheError);
+            }
         }
 
-        const { data, error } = await supabase.from('transaction_types').select('*');
-        if (error) return { success: false, data: [] };
+        const { data, error } = await supabase
+            .from('transaction_types')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (error) {
+            console.error('[TRANSACTION TYPES] Canlı liste alınamadı:', error);
+            if (cached?.data && Array.isArray(cached.data)) {
+                console.warn('[TRANSACTION TYPES] Son başarılı cache yedek olarak kullanılıyor.');
+                return { success: true, data: cached.data, fromCache: true };
+            }
+            return { success: false, data: [], error: error.message };
+        }
         
-        const mappedData = data.map(t => ({
+        const mappedData = (data || []).map(t => ({
             id: String(t.id),
             name: t.name,
             alias: t.alias,
@@ -557,8 +580,15 @@ export const transactionTypeService = {
             ...t.details 
         }));
 
-        if (window.localCache) await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: mappedData });
-        return { success: true, data: mappedData };
+        if (window.localCache) {
+            try {
+                await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: mappedData });
+            } catch (cacheError) {
+                console.warn('[TRANSACTION TYPES] Cache güncellenemedi:', cacheError);
+            }
+        }
+
+        return { success: true, data: mappedData, fromCache: false };
     }
 };
 

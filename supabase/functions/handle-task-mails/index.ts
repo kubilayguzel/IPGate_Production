@@ -354,7 +354,7 @@ serve(async (req: Request) => {
         const clientApproved = wasAwaiting && record.status === 'open';
         const clientClosed = wasAwaiting && ['client_approval_closed', 'client_no_response_closed'].includes(record.status);
 
-        if (becameCompleted && !['53', '66'].includes(taskTypeId)) {
+        if (becameCompleted && !['53', '66', '83'].includes(taskTypeId)) {
             console.log(`[MAIL-DEBUG] Görev Tamamlandı Algılandı! İşlemler Başlıyor...`);
             
             const { data: taskDocs, error: docsErr } = await supabaseAdmin

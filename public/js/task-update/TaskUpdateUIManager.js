@@ -2,6 +2,7 @@ import { formatFileSize, TASK_STATUSES, COURTS_LIST } from '../../utils.js';
 
 export class TaskUpdateUIManager {
     constructor() {
+        this.petitionReviewEnabled = false;
         this.elements = {
             title: document.getElementById('taskTitle'),
             desc: document.getElementById('taskDescription'),
@@ -220,6 +221,10 @@ export class TaskUpdateUIManager {
         });
     }
 
+    setPetitionReviewEnabled(enabled) {
+        this.petitionReviewEnabled = !!enabled;
+    }
+
     renderDocuments(docs) {
         const epatsDoc = docs.find(d => d.type === 'epats_document');
         const standardDocs = docs.filter(d => d.type !== 'epats_document');
@@ -264,7 +269,24 @@ export class TaskUpdateUIManager {
         const removeBtnId = isEpats ? 'id="removeEpatsFileBtn"' : `data-id="${d.id}"`;
         const removeClass = isEpats ? 'btn-danger' : 'btn-outline-danger btn-remove-file';
         const iconColor = isEpats ? '#d63384' : '#e74c3c';
-        const subText = isEpats ? '<span class="badge badge-info ml-2">EPATS</span>' : '';
+        const isPetition = !isEpats && d.type === 'petition';
+        const isPreviousPetition = !isEpats && d.type === 'petition_previous';
+        const isParentDocument = String(d.name || '').startsWith('(Ana Görev)');
+        const subText = isEpats
+            ? '<span class="badge badge-info ml-2">EPATS</span>'
+            : (isPetition
+                ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
+                : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : ''));
+        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument)
+            ? `<button type="button" class="btn btn-sm ${isPetition ? 'btn-outline-secondary' : 'btn-outline-primary'} btn-toggle-petition ml-1" data-id="${d.id}" title="${isPetition ? 'Dilekçe işaretini kaldır' : 'Dilekçe olarak işaretle'}">
+                    <i class="fas ${isPetition ? 'fa-undo' : 'fa-file-signature'}"></i>
+               </button>`
+            : '';
+        const removeButton = isParentDocument
+            ? ''
+            : `<button type="button" class="btn btn-sm ${removeClass}" ${removeBtnId}>
+                    <i class="fas fa-trash"></i>
+               </button>`;
 
         return `
             <div class="file-item">
@@ -282,9 +304,8 @@ export class TaskUpdateUIManager {
                     <a href="${d.downloadURL || d.url}" target="_blank" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-download"></i>
                     </a>
-                    <button type="button" class="btn btn-sm ${removeClass}" ${removeBtnId}>
-                        <i class="fas fa-trash"></i>
-                    </button>
+                    ${petitionToggle}
+                    ${removeButton}
                 </div>
             </div>
         `;

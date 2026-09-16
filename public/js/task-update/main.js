@@ -17,6 +17,9 @@ import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
 import Docxtemplater from 'https://cdn.jsdelivr.net/npm/docxtemplater@3.55.8/+esm';
 import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
 
+const PETITION_REVIEW_SOURCE_TYPES = new Set(['1', '7', '19', '20', '37', '38', '39']);
+const PETITION_REVIEW_TASK_TYPE = '83';
+
 class TaskUpdateController {
     constructor() {
         this.dataManager = new TaskUpdateDataManager();
@@ -197,13 +200,16 @@ class TaskUpdateController {
         }
         this.selectedPersonId = ownerId || null;
 
+        const typeStr = String(this.taskData.taskType || this.taskData.task_type_id);
+        this.uiManager.setPetitionReviewEnabled(PETITION_REVIEW_SOURCE_TYPES.has(typeStr) && this.getPetitionReviewStatus() !== 'in_review');
+
         // Standart UI Doldurma İşlemleri
         this.uiManager.fillForm(this.taskData, this.masterData.users);
         this.uiManager.renderDocuments(this.currentDocuments);
         this.renderAccruals();
+        this.renderPetitionReviewUi();
         
         // --- PORTFÖY (MARKA) VARLIĞI VE DAVA KARTI (TİP 49) ÇİZİMİ ---
-        const typeStr = String(this.taskData.taskType || this.taskData.task_type_id);
 
         const existingYidkSuit = typeStr === '49'
             ? await this.dataManager.getSuitByTaskId(this.taskId)
@@ -262,7 +268,8 @@ class TaskUpdateController {
 
     lockFieldsIfApplicationTask() {
         const lockedTypes = ['2'];
-        if (lockedTypes.includes(String(this.taskData.taskType))) {
+        const currentType = String(this.taskData.taskType || this.taskData.task_type_id || '');
+        if (lockedTypes.includes(currentType)) {
             const ipSearchInput = document.getElementById('relatedIpRecordSearch');
             const ipRemoveBtn = document.querySelector('#selectedIpRecordDisplay #removeIpRecordBtn');
             if (ipSearchInput) { ipSearchInput.disabled = true; ipSearchInput.style.backgroundColor = "#e9ecef"; }
@@ -272,6 +279,19 @@ class TaskUpdateController {
             const partyRemoveBtn = document.querySelector('#selectedRelatedPartyDisplay #removeRelatedPartyBtn');
             if (partySearchInput) { partySearchInput.disabled = true; partySearchInput.style.backgroundColor = "#e9ecef"; }
             if (partyRemoveBtn) partyRemoveBtn.style.display = 'none';
+        }
+
+        if (currentType === PETITION_REVIEW_TASK_TYPE) {
+            const statusSelect = document.getElementById('taskStatus');
+            if (statusSelect) {
+                statusSelect.disabled = true;
+                statusSelect.title = 'Dilekçe kontrol işi, İşlerim ekranındaki Onayla / Düzeltme İste aksiyonlarıyla sonuçlandırılır.';
+            }
+            const saveBtn = document.getElementById('saveTaskChangesBtn');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.title = 'Dilekçe Kontrol işi salt okunurdur. Sonucu İşlerim ekranından kaydedin.';
+            }
         }
     }
     
@@ -303,6 +323,11 @@ class TaskUpdateController {
         const fileList = document.getElementById('fileListContainer');
         if (fileList) {
             fileList.addEventListener('click', (e) => {
+                const petitionBtn = e.target.closest('.btn-toggle-petition');
+                if (petitionBtn) {
+                    this.togglePetitionDocument(petitionBtn.dataset.id);
+                    return;
+                }
                 const btn = e.target.closest('.btn-remove-file');
                 if (btn) this.removeDocument(btn.dataset.id);
             });
@@ -559,11 +584,198 @@ class TaskUpdateController {
         `).join('');
     }
 
+    getTaskDetails() {
+        const raw = this.taskData?.details;
+        if (!raw) return {};
+        if (typeof raw === 'object') return raw;
+        try {
+            const parsed = JSON.parse(raw);
+            return typeof parsed === 'object' && parsed ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    isPetitionReviewSourceTask() {
+        return PETITION_REVIEW_SOURCE_TYPES.has(String(this.taskData?.taskType || this.taskData?.task_type_id || ''));
+    }
+
+    getPetitionReviewStatus() {
+        return this.getTaskDetails().petition_review_status || null;
+    }
+
+    renderPetitionReviewUi() {
+        const panel = document.getElementById('petitionReviewStatusPanel');
+        const options = document.getElementById('petitionUploadOptions');
+        const markCheckbox = document.getElementById('markUploadAsPetition');
+        if (!panel || !options) return;
+
+        const taskType = String(this.taskData?.taskType || this.taskData?.task_type_id || '');
+        if (taskType === PETITION_REVIEW_TASK_TYPE) {
+            const details = this.getTaskDetails();
+            const sourceId = details.source_task_id || details.parent_task_id || details.relatedTaskId || '';
+            const fileUploadArea = document.getElementById('fileUploadArea');
+            const epatsUploadArea = document.getElementById('epatsFileUploadArea');
+            const addAccrualBtn = document.getElementById('addAccrualBtn');
+            if (fileUploadArea) fileUploadArea.style.display = 'none';
+            if (epatsUploadArea) epatsUploadArea.style.display = 'none';
+            if (addAccrualBtn) addAccrualBtn.style.display = 'none';
+            panel.className = 'alert alert-info mb-3';
+            panel.style.display = 'block';
+            panel.innerHTML = `<i class="fas fa-user-check mr-2"></i><strong>Dilekçe Kontrol İşi</strong><br>
+                <small>Kaynak iş: ${sourceId ? `<a href="task-update.html?id=${encodeURIComponent(sourceId)}" target="_blank">#${sourceId}</a>` : '-'} · Sonucu İşlerim ekranındaki <strong>Onayla</strong> veya <strong>Düzeltme İste</strong> aksiyonlarıyla kaydedin.</small>`;
+            options.style.display = 'none';
+            return;
+        }
+
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const epatsUploadArea = document.getElementById('epatsFileUploadArea');
+        const addAccrualBtn = document.getElementById('addAccrualBtn');
+        if (fileUploadArea) fileUploadArea.style.display = '';
+        if (epatsUploadArea) epatsUploadArea.style.display = '';
+        if (addAccrualBtn) addAccrualBtn.style.display = '';
+
+        if (!this.isPetitionReviewSourceTask()) {
+            panel.style.display = 'none';
+            options.style.display = 'none';
+            return;
+        }
+
+        const details = this.getTaskDetails();
+        const status = details.petition_review_status || null;
+        const note = details.petition_review_last_note || '';
+        const reviewer = details.petition_review_last_reviewer_name || '';
+        const reviewedAt = details.petition_review_last_reviewed_at
+            ? new Date(details.petition_review_last_reviewed_at).toLocaleString('tr-TR')
+            : '';
+
+        const stateMap = {
+            ready: ['alert-primary', 'Kontrole Gönderilebilir', 'fa-paper-plane'],
+            in_review: ['alert-warning', 'Dilekçe Kontrolde', 'fa-hourglass-half'],
+            approved: ['alert-success', 'Dilekçe Onaylandı', 'fa-check-circle'],
+            revision_requested: ['alert-danger', 'Dilekçede Düzeltme İstendi', 'fa-edit']
+        };
+
+        if (status && stateMap[status]) {
+            const [klass, label, icon] = stateMap[status];
+            panel.className = `alert ${klass} mb-3`;
+            panel.style.display = 'block';
+            panel.innerHTML = `<i class="fas ${icon} mr-2"></i><strong>${label}</strong>` +
+                (reviewer || reviewedAt ? `<div class="small mt-1">${reviewer ? `Kontrol eden: ${reviewer}` : ''}${reviewer && reviewedAt ? ' · ' : ''}${reviewedAt}</div>` : '') +
+                (note ? `<div class="mt-2"><strong>Düzeltme Notu:</strong> ${this.escapeHtml(note)}</div>` : '');
+        } else {
+            panel.className = 'alert alert-light border mb-3';
+            panel.style.display = 'block';
+            panel.innerHTML = '<i class="fas fa-info-circle mr-2 text-primary"></i>Dilekçe yüklerken aşağıdaki <strong>Yüklenecek dosya dilekçedir</strong> seçeneğini işaretleyin. Belge daha sonra İşlerim ekranından kontrole gönderilebilir.';
+        }
+
+        options.style.display = 'block';
+        const locked = status === 'in_review';
+        if (markCheckbox) {
+            markCheckbox.checked = false;
+            markCheckbox.disabled = locked;
+        }
+        options.classList.toggle('text-muted', locked);
+        if (locked) {
+            options.title = 'Mevcut dilekçe kontrol turu sonuçlanmadan yeni bir dilekçe kontrole hazırlanamaz.';
+        } else {
+            options.removeAttribute('title');
+        }
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    async syncPetitionReviewReadiness() {
+        if (!this.isPetitionReviewSourceTask()) return;
+        const { data, error } = await supabase.rpc('sync_petition_review_readiness', {
+            p_source_task_id: String(this.taskId)
+        });
+        if (error) throw new Error(error.message || 'Dilekçe kontrol durumu güncellenemedi.');
+        return data;
+    }
+
+    async togglePetitionDocument(documentId) {
+        if (!this.isPetitionReviewSourceTask()) return;
+        if (this.getPetitionReviewStatus() === 'in_review') {
+            return showNotification('Dilekçe şu anda kontrolde. Kontrol sonucu gelmeden dilekçe işareti değiştirilemez.', 'warning');
+        }
+
+        const doc = this.currentDocuments.find(d => String(d.id) === String(documentId));
+        if (!doc || !doc.url || String(doc.name || '').startsWith('(Ana Görev)')) return;
+
+        const newType = doc.type === 'petition' ? 'task_document' : 'petition';
+
+        if (newType === 'petition' && ['revision_requested', 'approved'].includes(this.getPetitionReviewStatus())) {
+            const currentPetitionUrls = this.currentDocuments
+                .filter(d => d.type === 'petition' && d.url && String(d.id) !== String(documentId))
+                .map(d => d.url);
+            await supabase
+                .from('task_documents')
+                .update({ document_type: 'petition_previous' })
+                .eq('task_id', String(this.taskId))
+                .eq('document_type', 'petition');
+            if (currentPetitionUrls.length > 0) {
+                await supabase
+                    .from('transaction_documents')
+                    .update({ document_type: 'petition_previous' })
+                    .in('document_url', currentPetitionUrls);
+            }
+        }
+
+        const { error } = await supabase
+            .from('task_documents')
+            .update({ document_type: newType })
+            .eq('task_id', String(this.taskId))
+            .eq('document_url', doc.url);
+        if (error) return showNotification('Belge türü güncellenemedi: ' + error.message, 'error');
+
+        await supabase
+            .from('transaction_documents')
+            .update({ document_type: newType })
+            .eq('document_url', doc.url);
+
+        try {
+            await this.syncPetitionReviewReadiness();
+            await this.refreshTaskData();
+            showNotification(newType === 'petition' ? 'Belge dilekçe olarak işaretlendi. Kontrole gönderilebilir.' : 'Dilekçe işareti kaldırıldı.', 'success');
+        } catch (err) {
+            showNotification(err.message, 'error');
+        }
+    }
+
     async uploadDocuments(files) {
         if (!files || !files.length) return;
         
         // YENİ EKLENEN: Bu göreve bağlı bir "İşlem (Transaction)" var mı bul
         const txId = this.taskData.transaction_id || this.taskData.transactionId || this.taskData.details?.transactionId || this.taskData.details?.associated_transaction_id;
+        const markAsPetition = this.isPetitionReviewSourceTask() && !!document.getElementById('markUploadAsPetition')?.checked;
+        if (markAsPetition && this.getPetitionReviewStatus() === 'in_review') {
+            return showNotification('Dilekçe şu anda kontrolde. Kontrol sonucu gelmeden yeni dilekçe yüklenemez.', 'warning');
+        }
+        const documentType = markAsPetition ? 'petition' : 'task_document';
+
+        if (markAsPetition && ['revision_requested', 'approved'].includes(this.getPetitionReviewStatus())) {
+            const previousUrls = this.currentDocuments.filter(d => d.type === 'petition' && d.url).map(d => d.url);
+            await supabase
+                .from('task_documents')
+                .update({ document_type: 'petition_previous' })
+                .eq('task_id', String(this.taskId))
+                .eq('document_type', 'petition');
+            if (previousUrls.length > 0) {
+                await supabase
+                    .from('transaction_documents')
+                    .update({ document_type: 'petition_previous' })
+                    .in('document_url', previousUrls);
+            }
+            this.currentDocuments.forEach(d => { if (d.type === 'petition') d.type = 'petition_previous'; });
+        }
 
         for (const file of files) {
             const id = this.generateUUID();
@@ -581,7 +793,7 @@ class TaskUpdateController {
                     task_id: String(this.taskId),
                     document_name: file.name,
                     document_url: uploadRes.url,
-                    document_type: 'task_document'
+                    document_type: documentType
                 });
 
                 // YENİ EKLENEN: 3. İşlem (Transaction) varsa, AYNI URL'yi kullanarak bağla
@@ -591,7 +803,7 @@ class TaskUpdateController {
                         transaction_id: String(txId),
                         document_name: file.name,
                         document_url: uploadRes.url,
-                        document_type: 'task_document'
+                        document_type: documentType
                     });
                 }
 
@@ -600,7 +812,8 @@ class TaskUpdateController {
                     name: file.name, 
                     url: uploadRes.url, 
                     storagePath: path, 
-                    size: file.size, 
+                    size: file.size,
+                    type: documentType,
                     uploadedAt: new Date().toISOString()
                 });
             } catch (e) { 
@@ -610,11 +823,21 @@ class TaskUpdateController {
         }
         this.uiManager.renderDocuments(this.currentDocuments);
         await this.dataManager.updateTask(this.taskId, { documents: this.currentDocuments });
+        if (markAsPetition) {
+            try { await this.syncPetitionReviewReadiness(); } catch (err) { showNotification(err.message, 'error'); }
+        }
+        const markCheckbox = document.getElementById('markUploadAsPetition');
+        if (markCheckbox) markCheckbox.checked = false;
+        await this.refreshTaskData();
     }
 
     async removeDocument(id) {
         if (!confirm('Silmek istediğinize emin misiniz?')) return;
-        const doc = this.currentDocuments.find(d => d.id === id);
+        const doc = this.currentDocuments.find(d => String(d.id) === String(id));
+        if (doc?.type === 'petition' && this.getPetitionReviewStatus() === 'in_review') {
+            return showNotification('Dilekçe şu anda kontrolde. Kontrol sonucu gelmeden bu dilekçe silinemez.', 'warning');
+        }
+        const wasPetition = doc?.type === 'petition';
         
         if (doc && doc.storagePath) {
             try { 
@@ -631,6 +854,10 @@ class TaskUpdateController {
         this.currentDocuments = this.currentDocuments.filter(d => d.id !== id);
         this.uiManager.renderDocuments(this.currentDocuments);
         await this.dataManager.updateTask(this.taskId, { documents: this.currentDocuments });
+        if (wasPetition) {
+            try { await this.syncPetitionReviewReadiness(); } catch (err) { showNotification(err.message, 'error'); }
+        }
+        await this.refreshTaskData();
     }
 
     async uploadEpatsDocument(file) {
@@ -1141,8 +1368,10 @@ class TaskUpdateController {
             description: document.getElementById('taskDescription')?.value,
             priority: document.getElementById('taskPriority')?.value,
             relatedIpRecordId: this.selectedIpRecordId, 
-            relatedPartyId: this.selectedPersonId,      
-            documents: this.currentDocuments,
+            relatedPartyId: this.selectedPersonId,
+            // 83 numaralı kontrol işi kaynak görevin belgelerini salt-okunur gösterir.
+            // Bu belgeleri kontrol işinin kendi task_documents kayıtlarına kopyalama.
+            documents: taskTypeStr === PETITION_REVIEW_TASK_TYPE ? undefined : this.currentDocuments,
             history: history,
             officialDueDate: officialDateVal ? new Date(officialDateVal).toISOString() : null,
             dueDate: operationalDateVal ? new Date(operationalDateVal).toISOString() : null,

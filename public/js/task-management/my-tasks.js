@@ -8,6 +8,9 @@ import Pagination from '../pagination.js';
 import { TaskDetailManager } from '../components/TaskDetailManager.js';
 import { AccrualFormManager } from '../components/AccrualFormManager.js';
 
+const PETITION_REVIEW_SOURCE_TYPES = new Set(['1', '7', '19', '20', '37', '38', '39']);
+const PETITION_REVIEW_TASK_TYPE = '83';
+
 document.addEventListener('DOMContentLoaded', async () => {
     await loadSharedLayout({ activeMenuLink: 'my-tasks.html' });
 
@@ -38,9 +41,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.statusDisplayMap = TASK_STATUS_MAP;
             this.selectedTaskIds = new Set();
             this.tasksToAssign = [];
+            this.pendingRevisionReviewTaskId = null;
         }
 
         async init() {
+            this.ensurePetitionRevisionModal();
             this.taskDetailManager = new TaskDetailManager('modalBody');
             
             // 🔥 YENİ: Tahakkuk Oluştur Modalı için buton tetikleyici eklendi
@@ -540,8 +545,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!btn) return;
                 e.preventDefault();
                 const taskId = btn.dataset.id;
-                
-                if (btn.classList.contains('view-btn') || btn.dataset.action === 'view') {
+
+                if (btn.classList.contains('petition-send-review-btn')) {
+                    this.handleSendPetitionForReview(taskId, btn);
+                }
+                else if (btn.classList.contains('petition-approve-btn')) {
+                    this.handleCompletePetitionReview(taskId, 'approved', null, btn);
+                }
+                else if (btn.classList.contains('petition-revision-btn')) {
+                    this.openPetitionRevisionModal(taskId);
+                }
+                else if (btn.classList.contains('view-btn') || btn.dataset.action === 'view') {
                     this.showTaskDetailModal(taskId);
                 }
                 // 🔥 YENİ: Kopyala butonuna tıklandığında çalışacak kod
@@ -637,6 +651,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 // Eylem menüsü
+                const isPetitionReviewTask = String(task.taskType || task.task_type_id || '') === PETITION_REVIEW_TASK_TYPE;
+                const copyActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-secondary copy-btn action-btn" data-id="${task.id}" data-action="copy" title="İşi Kopyala (Taslak Oluştur)"><i class="fas fa-copy" style="pointer-events: none;"></i></button>`;
+                const assignActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata"><i class="fas fa-user-plus" style="pointer-events: none;"></i></button>`;
+                const accrualActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle"><i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i></button>`;
                 const actionMenuHtml = `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
@@ -646,11 +664,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <div class="d-flex justify-content-center align-items-center" style="gap: 5px;">
                                 <button class="btn btn-sm btn-light text-primary view-btn action-btn" data-id="${task.id}" data-action="view" title="Görüntüle"><i class="fas fa-eye" style="pointer-events: none;"></i></button>
                                 
-                                <button class="btn btn-sm btn-light text-secondary copy-btn action-btn" data-id="${task.id}" data-action="copy" title="İşi Kopyala (Taslak Oluştur)"><i class="fas fa-copy" style="pointer-events: none;"></i></button>
+                                ${copyActionHtml}
                                 
                                 <button class="btn btn-sm btn-light text-warning edit-btn action-btn" data-id="${task.id}" data-action="edit" title="Düzenle"><i class="fas fa-edit" style="pointer-events: none;"></i></button>
-                                <button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata"><i class="fas fa-user-plus" style="pointer-events: none;"></i></button>
-                                <button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle"><i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i></button>
+                                ${assignActionHtml}
+                                ${accrualActionHtml}
+                                ${this.getPetitionActionButtonsHtml(task)}
                             </div>
                         </div>
                     </div>
@@ -674,7 +693,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div class="small text-dark">${task.recordTitleDisplay}</div>
                         <div class="small text-muted" style="font-size: 0.8em;">${task.applicantName}</div>
                     </td>
-                    <td>${task.taskTypeDisplay}</td>
+                    <td>${task.taskTypeDisplay}${this.getPetitionReviewStatusHtml(task)}</td>
                     <td><span class="priority-badge ${priorityClass}">${task.priority}</span></td>
                     <td data-field="operationalDue" data-date="${dueDateISO}">${opDate}</td>
                     <td data-field="officialDue" data-date="${officialDueISO}">${offDate}</td>
@@ -691,6 +710,166 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.$) $('.dropdown-toggle').dropdown();
 
             if (window.DeadlineHighlighter) setTimeout(() => window.DeadlineHighlighter.refresh('islerim'), 50);
+        }
+
+        getTaskDetails(task) {
+            const raw = task?.details;
+            if (!raw) return {};
+            if (typeof raw === 'object') return raw;
+            try {
+                const parsed = JSON.parse(raw);
+                return typeof parsed === 'object' && parsed ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        getPetitionReviewStatusHtml(task) {
+            const taskType = String(task.taskType || task.task_type_id || '');
+            const details = this.getTaskDetails(task);
+
+            if (taskType === PETITION_REVIEW_TASK_TYPE) {
+                const sourceId = details.source_task_id || details.parent_task_id || '';
+                return sourceId ? `<div class="small text-muted mt-1">Kaynak İş #${this.escapeHtml(sourceId)}</div>` : '';
+            }
+
+            if (!PETITION_REVIEW_SOURCE_TYPES.has(taskType)) return '';
+
+            const status = details.petition_review_status;
+            if (!status) return '';
+            const map = {
+                ready: ['primary', 'Kontrole Gönderilebilir'],
+                in_review: ['warning', 'Dilekçe Kontrolde'],
+                approved: ['success', 'Dilekçe Onaylandı'],
+                revision_requested: ['danger', 'Düzeltme İstendi']
+            };
+            const item = map[status];
+            if (!item) return '';
+
+            const note = details.petition_review_last_note || '';
+            const reviewer = details.petition_review_last_reviewer_name || '';
+            let html = `<div class="mt-1"><span class="badge badge-${item[0]}">${item[1]}</span></div>`;
+            if (note) {
+                const shortNote = note.length > 90 ? note.slice(0, 87) + '...' : note;
+                html += `<div class="small text-danger mt-1" title="${this.escapeHtml(note)}"><strong>Not:</strong> ${this.escapeHtml(shortNote)}</div>`;
+            }
+            if (reviewer) html += `<div class="small text-muted">Kontrol eden: ${this.escapeHtml(reviewer)}</div>`;
+            return html;
+        }
+
+        getPetitionActionButtonsHtml(task) {
+            const taskType = String(task.taskType || task.task_type_id || '');
+            const details = this.getTaskDetails(task);
+
+            if (PETITION_REVIEW_SOURCE_TYPES.has(taskType) && details.petition_review_status === 'ready' && !['completed','cancelled'].includes(task.status)) {
+                const hasPreviousReview = Array.isArray(details.petition_review_history) && details.petition_review_history.length > 0;
+                const title = hasPreviousReview ? 'Dilekçeyi Tekrar Kontrole Gönder' : 'Dilekçeyi Kontrole Gönder';
+                return `<button class="btn btn-sm btn-light text-primary petition-send-review-btn action-btn" data-id="${task.id}" title="${title}"><i class="fas fa-paper-plane" style="pointer-events:none;"></i></button>`;
+            }
+
+            if (taskType === PETITION_REVIEW_TASK_TYPE && !['completed','cancelled'].includes(task.status) && (details.review_result || 'pending') === 'pending') {
+                return `
+                    <button class="btn btn-sm btn-light text-success petition-approve-btn action-btn" data-id="${task.id}" title="Dilekçeyi Onayla"><i class="fas fa-check" style="pointer-events:none;"></i></button>
+                    <button class="btn btn-sm btn-light text-danger petition-revision-btn action-btn" data-id="${task.id}" title="Düzeltme İste"><i class="fas fa-edit" style="pointer-events:none;"></i></button>`;
+            }
+            return '';
+        }
+
+        ensurePetitionRevisionModal() {
+            if (document.getElementById('petitionRevisionModal')) return;
+            const modal = document.createElement('div');
+            modal.id = 'petitionRevisionModal';
+            modal.className = 'modal fade';
+            modal.tabIndex = -1;
+            modal.setAttribute('role', 'dialog');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content shadow-lg">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="fas fa-edit text-danger mr-2"></i>Dilekçede Düzeltme İste</h5>
+                            <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <label class="font-weight-bold" for="petitionRevisionNote">Düzeltme Notu *</label>
+                            <textarea id="petitionRevisionNote" class="form-control" rows="6" placeholder="Düzeltilmesi gereken hususları yazınız..."></textarea>
+                            <small class="text-muted">Bu not kaynak işi yapan kullanıcının İşlerim ekranında gösterilecektir.</small>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">İptal</button>
+                            <button type="button" class="btn btn-danger" id="savePetitionRevisionBtn"><i class="fas fa-paper-plane mr-1"></i>Düzeltme İste</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            document.getElementById('savePetitionRevisionBtn')?.addEventListener('click', async (e) => {
+                const note = document.getElementById('petitionRevisionNote')?.value?.trim();
+                if (!note) return showNotification('Düzeltme notu zorunludur.', 'warning');
+                const taskId = this.pendingRevisionReviewTaskId;
+                if (!taskId) return;
+                await this.handleCompletePetitionReview(taskId, 'revision_requested', note, e.currentTarget);
+            });
+        }
+
+        openPetitionRevisionModal(taskId) {
+            this.pendingRevisionReviewTaskId = taskId;
+            const textarea = document.getElementById('petitionRevisionNote');
+            if (textarea) textarea.value = '';
+            if (window.$) $('#petitionRevisionModal').modal('show');
+        }
+
+        async handleSendPetitionForReview(taskId, button) {
+            if (button) button.disabled = true;
+            const loader = window.showSimpleLoading ? window.showSimpleLoading('Dilekçe Kontrole Gönderiliyor', 'Kontrol görevi oluşturuluyor...') : null;
+            try {
+                const { data, error } = await supabase.rpc('send_petition_for_review', {
+                    p_source_task_id: String(taskId)
+                });
+                if (error) throw error;
+                const assignee = data?.assigned_to_name || data?.assigned_to_email || 'kontrol görevlisi';
+                showNotification(`Dilekçe ${assignee} kullanıcısına kontrole gönderildi.`, 'success');
+                await this.loadAllData();
+            } catch (err) {
+                console.error('Dilekçe kontrole gönderme hatası:', err);
+                showNotification(err.message || 'Dilekçe kontrole gönderilemedi.', 'error');
+            } finally {
+                if (loader) loader.hide();
+                if (button) button.disabled = false;
+            }
+        }
+
+        async handleCompletePetitionReview(reviewTaskId, result, note = null, button = null) {
+            if (result === 'approved' && !confirm('Dilekçeyi onaylamak istediğinize emin misiniz?')) return;
+            if (button) button.disabled = true;
+            const loader = window.showSimpleLoading ? window.showSimpleLoading('Dilekçe Kontrolü Sonuçlandırılıyor', 'Lütfen bekleyiniz...') : null;
+            try {
+                const { data, error } = await supabase.rpc('complete_petition_review', {
+                    p_review_task_id: String(reviewTaskId),
+                    p_result: result,
+                    p_note: note
+                });
+                if (error) throw error;
+
+                if (window.$) $('#petitionRevisionModal').modal('hide');
+                this.pendingRevisionReviewTaskId = null;
+                showNotification(result === 'approved' ? 'Dilekçe onaylandı.' : 'Düzeltme talebi kaynak işi yapan kullanıcıya iletildi.', 'success');
+                await this.loadAllData();
+            } catch (err) {
+                console.error('Dilekçe kontrol sonucu kaydedilemedi:', err);
+                showNotification(err.message || 'Dilekçe kontrol sonucu kaydedilemedi.', 'error');
+            } finally {
+                if (loader) loader.hide();
+                if (button) button.disabled = false;
+            }
         }
 
         populateStatusFilterDropdown() {

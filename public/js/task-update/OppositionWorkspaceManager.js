@@ -7,7 +7,7 @@
  * Type 38 -> new Opposition Response Studio
  */
 
-const LAUNCHER_PACKAGE_VERSION = 'response-studio-1.0.0';
+const LAUNCHER_PACKAGE_VERSION = 'response-studio-1.0.2';
 
 export class OppositionWorkspaceManager {
     constructor(taskId, taskData) {

@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-const PACKAGE_VERSION = "response-studio-1.0.1";
+const PACKAGE_VERSION = "response-studio-1.0.2";
 const RESPONSE_TASK_TYPE = "38";
 
 const corsHeaders = {
@@ -109,6 +109,9 @@ async function loadMarkSnapshot(supabase: ReturnType<typeof createClient>, ipRec
   if (recordRes.error || !recordRes.data) {
     throw new HttpError(422, `Portföy marka kaydı okunamadı: ${recordRes.error?.message ?? ipRecordId}`);
   }
+  if (detailsRes.error) throw new Error(`Marka detayları okunamadı: ${detailsRes.error.message}`);
+  if (classesRes.error) throw new Error(`Marka sınıfları okunamadı: ${classesRes.error.message}`);
+  if (applicantsRes.error) throw new Error(`Başvuru sahipleri okunamadı: ${applicantsRes.error.message}`);
 
   const personIds = (applicantsRes.data ?? []).map((x: any) => x.person_id).filter(Boolean);
   let persons: any[] = [];
@@ -162,6 +165,26 @@ async function loadTask(supabase: ReturnType<typeof createClient>, taskId: strin
   return data;
 }
 
+async function resolveTaskTransactionId(
+  supabase: ReturnType<typeof createClient>,
+  task: any,
+) {
+  const explicit = text(task?.transaction_id);
+  if (explicit) return explicit;
+
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("id, transaction_date, created_at")
+    .eq("task_id", text(task?.id))
+    .order("transaction_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`Göreve bağlı işlem bulunamadı: ${error.message}`);
+  return data?.id ? text(data.id) : null;
+}
+
 async function loadTransactionLineage(supabase: ReturnType<typeof createClient>, transactionId: string | null) {
   const result: any[] = [];
   const seen = new Set<string>();
@@ -173,7 +196,7 @@ async function loadTransactionLineage(supabase: ReturnType<typeof createClient>,
 
     const { data, error } = await supabase.from("transactions").select(`
       id, ip_record_id, transaction_type_id, transaction_hierarchy, parent_id,
-      description, opposition_owner, transaction_date, details, created_at, updated_at
+      description, opposition_owner, transaction_date, created_at, task_id
     `).eq("id", currentId).maybeSingle();
 
     if (error) throw new Error(`İşlem soy ağacı okunamadı: ${error.message}`);
@@ -185,8 +208,16 @@ async function loadTransactionLineage(supabase: ReturnType<typeof createClient>,
   return result;
 }
 
+function isPublicationOppositionTransaction(tx: any) {
+  return ["20", "trademark_publication_objection"].includes(
+    text(tx?.transaction_type_id || tx?.type),
+  );
+}
+
 function isYidkTransaction(tx: any) {
   const yidkSignals = new Set([
+    // Production uses semantic transaction type ids. "19" is retained only as a
+    // harmless backwards-compatibility signal for older imported records.
     "19",
     "trademark_reconsideration_of_publication_objection",
     "trademark_decision_objection",
@@ -231,12 +262,16 @@ function classifyDocumentName(name: unknown, designation: unknown, txDescription
   return "other";
 }
 
-function relatedPdfRole(tx: any) {
+function transactionRoleHint(tx: any) {
   const txType = text(tx?.transaction_type_id || tx?.type);
-  if (["31", "32", "33", "34", "35", "36"].includes(txType)) return "office_decision";
-  if (txType === "itiraza_karsi_gorus_child") return "previous_response";
+  if ([
+    "31", "32", "33", "34", "35", "36",
+    "itiraz_kabul", "itiraz_kismen_kabul", "itiraz_ret",
+  ].includes(txType)) return "office_decision";
+  if (["38", "itiraza_karsi_gorus_child"].includes(txType)) return "previous_response";
+  if (["27", "itiraz_bildirimi"].includes(txType)) return "official_notice";
   const inferred = classifyDocumentName("", "", tx?.description);
-  return inferred === "other" ? "official_notice" : inferred;
+  return inferred === "other" ? null : inferred;
 }
 
 async function collectDocuments(
@@ -245,53 +280,97 @@ async function collectDocuments(
   ipRecordId: string,
   lineage: any[],
   stage: string,
+  taskDetails: Record<string, any> = {},
+  taskTransactionId: string | null = null,
 ) {
   const candidates: any[] = [];
-  const lineageIds = lineage.map((x) => text(x.id)).filter(Boolean);
-  const lineageDepthById = new Map(lineage.map((x, index) => [String(x.id), index]));
-  const yidkAnchorIndex = stage === "yidk_appeal"
-    ? lineage.findIndex((tx) => isYidkTransaction(tx))
-    : lineage.length - 1;
-  const currentStageBoundary = stage === "yidk_appeal"
-    ? (yidkAnchorIndex >= 0 ? yidkAnchorIndex : Math.min(2, Math.max(0, lineage.length - 1)))
-    : lineage.length - 1;
-  const belongsToCurrentStage = (transactionId: unknown) => {
-    if (stage !== "yidk_appeal") return true;
-    const depth = lineageDepthById.get(String(transactionId));
-    return Number.isInteger(depth) && Number(depth) <= currentStageBoundary;
+
+  // Production data has both legacy numeric and semantic transaction type ids.
+  // We therefore resolve the complete transaction graph for this portfolio record
+  // and identify the current opposition/YİDK root by ancestry rather than by guessing
+  // where a document was attached. This also captures documents stored on child
+  // transactions such as İtiraz Bildirimi (27 / itiraz_bildirimi).
+  const { data: allTx, error: txError } = await supabase
+    .from("transactions")
+    .select(`
+      id, ip_record_id, transaction_type_id, transaction_hierarchy, parent_id,
+      description, opposition_owner, transaction_date, created_at, task_id
+    `)
+    .eq("ip_record_id", ipRecordId)
+    .order("transaction_date", { ascending: false, nullsFirst: false });
+  if (txError) throw new Error(`İşlem grafiği okunamadı: ${txError.message}`);
+
+  const txRows: any[] = Array.isArray(allTx) ? allTx : [];
+  const txById = new Map<string, any>(
+    txRows.map((tx: any) => [String(tx.id), tx] as [string, any]),
+  );
+
+  const stageRootFromLineage = stage === "yidk_appeal"
+    ? lineage.find((tx) => isYidkTransaction(tx))
+    : lineage.find((tx) => isPublicationOppositionTransaction(tx));
+  const stageRootId = text(stageRootFromLineage?.id || lineage[0]?.id || taskTransactionId);
+
+  const isDescendantOrSelf = (transactionId: unknown, rootId: string) => {
+    let currentId = text(transactionId);
+    const seen = new Set<string>();
+    while (currentId && !seen.has(currentId)) {
+      if (currentId === rootId) return true;
+      seen.add(currentId);
+      const tx = txById.get(currentId);
+      currentId = text(tx?.parent_id);
+    }
+    return false;
   };
 
-  // 1) Explicit URLs embedded in transaction details are highest-confidence role hints.
-  for (const tx of lineage) {
-    const d = object(tx.details);
-    const add = (role: string, url: unknown, label: string) => {
-      if (!isUrl(url)) return;
-      candidates.push(normalizeDocumentCandidate({
-        role,
-        sourceUrl: url,
-        documentName: label,
-        transactionId: tx.id,
-        sourceDate: tx.transaction_date,
-        isCurrentStage: belongsToCurrentStage(tx.id),
-      }));
-    };
+  const belongsToCurrentStage = (transactionId: unknown) => {
+    if (!stageRootId) return lineage.some((tx) => String(tx.id) === String(transactionId));
+    return isDescendantOrSelf(transactionId, stageRootId);
+  };
 
-    add(relatedPdfRole(tx), d.relatedPdfUrl || d.related_pdf_url, "İlişkili Resmî Belge");
-    add("opposition_petition", d.oppositionPetitionFileUrl || d.opposition_petition_file_url, "Karşı Taraf İtiraz Dilekçesi");
-    add("epats_opposition", d.oppositionEpatsPetitionFileUrl || d.opposition_epats_petition_file_url, "EPATS İtiraz Belgesi");
-  }
+  // Legacy/static URLs can legitimately live in TASK details. `transactions` has no
+  // details JSONB column in the production schema.
+  const anchorTx = txById.get(text(taskTransactionId)) ?? lineage[0] ?? null;
+  const addTaskDetailUrl = (role: string, url: unknown, label: string) => {
+    if (!isUrl(url)) return;
+    candidates.push(normalizeDocumentCandidate({
+      role,
+      sourceUrl: url,
+      documentName: label,
+      transactionId: anchorTx?.id ?? taskTransactionId ?? null,
+      sourceDate: anchorTx?.transaction_date ?? null,
+      isCurrentStage: true,
+    }));
+  };
+  addTaskDetailUrl("official_notice", taskDetails.relatedPdfUrl || taskDetails.related_pdf_url, "İlişkili Resmî Belge");
+  addTaskDetailUrl("opposition_petition", taskDetails.oppositionPetitionFileUrl || taskDetails.opposition_petition_file_url, "Karşı Taraf İtiraz Dilekçesi");
+  addTaskDetailUrl("epats_opposition", taskDetails.oppositionEpatsPetitionFileUrl || taskDetails.opposition_epats_petition_file_url, "EPATS İtiraz Belgesi");
 
-  // 2) Documents attached to current lineage.
-  if (lineageIds.length) {
-    const { data, error } = await supabase.from("transaction_documents").select(`
-      id, transaction_id, document_name, document_url, document_type, document_designation, uploaded_at
-    `).in("transaction_id", lineageIds);
-    if (error) throw new Error(`İşlem belgeleri okunamadı: ${error.message}`);
+  const allTxIds = txRows.map((tx: any) => text(tx.id)).filter(Boolean);
+  if (allTxIds.length) {
+    const { data: docs, error: docsError } = await supabase
+      .from("transaction_documents")
+      .select(`
+        id, transaction_id, document_name, document_url, document_type, document_designation, uploaded_at
+      `)
+      .in("transaction_id", allTxIds);
+    if (docsError) throw new Error(`İşlem belgeleri okunamadı: ${docsError.message}`);
 
-    for (const doc of data ?? []) {
+    for (const doc of docs ?? []) {
       if (!isUrl(doc.document_url)) continue;
-      const tx = lineage.find((x) => String(x.id) === String(doc.transaction_id));
-      const role = classifyDocumentName(doc.document_name, doc.document_designation, tx?.description);
+      const tx = txById.get(String(doc.transaction_id));
+      let role = classifyDocumentName(doc.document_name, doc.document_designation, tx?.description);
+      if (role === "other") role = transactionRoleHint(tx) ?? "other";
+
+      const isCurrentStage = belongsToCurrentStage(doc.transaction_id);
+      const isHistoricalYidkSupport = stage === "yidk_appeal" &&
+        ["previous_response", "office_decision", "proof_of_use_evidence"].includes(role);
+
+      // Do not flood the workspace with unrelated portfolio documents. Current-stage
+      // legally relevant documents are kept; YİDK also retains the previous defense,
+      // challenged Office decision and any historical proof-of-use material.
+      if (role === "other") continue;
+      if (!isCurrentStage && !isHistoricalYidkSupport) continue;
+
       candidates.push(normalizeDocumentCandidate({
         role,
         sourceUrl: doc.document_url,
@@ -300,66 +379,9 @@ async function collectDocuments(
         transactionDocumentId: doc.id,
         sourceDesignation: doc.document_designation,
         sourceType: doc.document_type,
-        sourceDate: tx?.transaction_date ?? null,
-        isCurrentStage: belongsToCurrentStage(doc.transaction_id),
+        sourceDate: tx?.transaction_date ?? doc.uploaded_at ?? null,
+        isCurrentStage,
       }));
-    }
-  }
-
-  // 3) YİDK continuity: retrieve earlier response and challenged Office decision from the same portfolio record.
-  if (stage === "yidk_appeal") {
-    const { data: allTx, error: txError } = await supabase.from("transactions").select(`
-      id, transaction_type_id, description, transaction_date, details, created_at
-    `).eq("ip_record_id", ipRecordId).order("transaction_date", { ascending: false });
-    if (txError) throw new Error(`Geçmiş işlem zinciri okunamadı: ${txError.message}`);
-
-    for (const tx of allTx ?? []) {
-      const d = object(tx.details);
-      const relatedUrl = d.relatedPdfUrl || d.related_pdf_url;
-      if (!isUrl(relatedUrl)) continue;
-      const role = relatedPdfRole(tx);
-      if (!["previous_response", "office_decision", "proof_of_use_evidence"].includes(role)) continue;
-      candidates.push(normalizeDocumentCandidate({
-        role,
-        sourceUrl: relatedUrl,
-        documentName: text(tx.description) || "Geçmiş İlişkili Belge",
-        transactionId: tx.id,
-        sourceDate: tx.transaction_date,
-        isCurrentStage: false,
-      }));
-    }
-
-    const historyIds = (allTx ?? []).map((x: any) => text(x.id)).filter(Boolean);
-    if (historyIds.length) {
-      const { data: historyDocs, error: historyDocError } = await supabase.from("transaction_documents").select(`
-        id, transaction_id, document_name, document_url, document_type, document_designation, uploaded_at
-      `).in("transaction_id", historyIds);
-      if (historyDocError) throw new Error(`Geçmiş işlem belgeleri okunamadı: ${historyDocError.message}`);
-
-      for (const doc of historyDocs ?? []) {
-        if (!isUrl(doc.document_url)) continue;
-        const tx = (allTx ?? []).find((x: any) => String(x.id) === String(doc.transaction_id));
-        let role = classifyDocumentName(doc.document_name, doc.document_designation, tx?.description);
-        const txType = text(tx?.transaction_type_id);
-
-        if (role === "other" && ["31", "32", "33", "34", "35", "36"].includes(txType)) {
-          role = "office_decision";
-        }
-
-        if (!["previous_response", "office_decision", "proof_of_use_evidence"].includes(role)) continue;
-
-        candidates.push(normalizeDocumentCandidate({
-          role,
-          sourceUrl: doc.document_url,
-          documentName: doc.document_name,
-          transactionId: doc.transaction_id,
-          transactionDocumentId: doc.id,
-          sourceDesignation: doc.document_designation,
-          sourceType: doc.document_type,
-          sourceDate: tx?.transaction_date ?? null,
-          isCurrentStage: false,
-        }));
-      }
     }
   }
 
@@ -462,8 +484,13 @@ async function ensureCase(
 ) {
   const task = await loadTask(supabase, taskId);
   const details = object(task.details);
-  const lineage = await loadTransactionLineage(supabase, task.transaction_id ?? null);
+  const resolvedTransactionId = await resolveTaskTransactionId(supabase, task);
+  const lineage = await loadTransactionLineage(supabase, resolvedTransactionId);
   const stage = detectProcedureStage(lineage, details);
+  const automaticStage = detectProcedureStage(lineage, {});
+  const hasStageOverride = ["publication_opposition", "yidk_appeal"].includes(
+    text(details.procedure_stage || details.procedureStage),
+  );
 
   const ipRecordId = text(
     task.ip_record_id ||
@@ -484,7 +511,7 @@ async function ensureCase(
   if (!responseCase) {
     const { data: created, error } = await supabase.from("opposition_response_cases").insert({
       task_id: taskId,
-      transaction_id: task.transaction_id ?? null,
+      transaction_id: resolvedTransactionId,
       ip_record_id: ipRecordId,
       client_id: task.task_owner_id ?? null,
       procedure_stage: stage,
@@ -500,7 +527,7 @@ async function ensureCase(
     responseCase = created;
   } else {
     const patch: any = {
-      transaction_id: task.transaction_id ?? responseCase.transaction_id,
+      transaction_id: resolvedTransactionId ?? responseCase.transaction_id,
       ip_record_id: ipRecordId,
       client_id: task.task_owner_id ?? responseCase.client_id,
       procedure_stage: stage,
@@ -514,8 +541,12 @@ async function ensureCase(
     responseCase = updated;
   }
 
+  if (!task.transaction_id && resolvedTransactionId) task.transaction_id = resolvedTransactionId;
+
   const applicant = await loadMarkSnapshot(supabase, ipRecordId);
-  const documents = await collectDocuments(supabase, responseCase.id, ipRecordId, lineage, stage);
+  const documents = await collectDocuments(
+    supabase, responseCase.id, ipRecordId, lineage, stage, details, resolvedTransactionId,
+  );
   const bundle = assessBundle(stage, documents);
 
   const sourceFingerprint = await sha256({
@@ -601,7 +632,10 @@ async function ensureCase(
     .single();
   if (casePatchError) throw new Error(`Source Bundle durumu kaydedilemedi: ${casePatchError.message}`);
 
-  return { task, details, lineage, stage, applicant, documents, bundle, responseCase: finalCase };
+  return {
+    task, details, lineage, stage, automaticStage, hasStageOverride,
+    applicant, documents, bundle, responseCase: finalCase,
+  };
 }
 
 async function buildWorkspace(supabase: ReturnType<typeof createClient>, taskId: string, currentUserId: string) {
@@ -629,6 +663,8 @@ async function buildWorkspace(supabase: ReturnType<typeof createClient>, taskId:
       operationalDueDate: ctx.task.operational_due_date,
     },
     procedureStage: ctx.stage,
+    automaticProcedureStage: ctx.automaticStage,
+    procedureStageOverridden: ctx.hasStageOverride,
     applicant: ctx.applicant,
     documents: ctx.documents,
     sourceBundle: ctx.bundle,
@@ -642,6 +678,57 @@ async function buildWorkspace(supabase: ReturnType<typeof createClient>, taskId:
       canDraft: ctx.bundle.complete && (claims ?? []).length > 0,
     },
   };
+}
+
+async function setProcedureStage(
+  supabase: ReturnType<typeof createClient>,
+  taskId: string,
+  currentUserId: string,
+  payload: any,
+) {
+  const task = await loadTask(supabase, taskId);
+  const details = object(task.details);
+  const requested = text(payload?.procedureStageOverride);
+
+  delete details.procedure_stage;
+  delete details.procedureStage;
+  if (requested && requested !== "auto") {
+    if (!["publication_opposition", "yidk_appeal"].includes(requested)) {
+      throw new HttpError(422, "Geçersiz usul aşaması seçimi.");
+    }
+    details.procedure_stage = requested;
+  }
+
+  const { error: taskError } = await supabase
+    .from("tasks")
+    .update({ details })
+    .eq("id", taskId);
+  if (taskError) throw new Error(`Usul aşaması göreve kaydedilemedi: ${taskError.message}`);
+
+  const { data: existing } = await supabase
+    .from("opposition_response_cases")
+    .select("id")
+    .eq("task_id", taskId)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error: invalidateError } = await supabase
+      .from("opposition_response_cases")
+      .update({
+        analysis_fingerprint: null,
+        current_reasoning: null,
+        current_research_run_id: null,
+        current_draft: null,
+        current_draft_structured: null,
+        qa_report: null,
+        status: "source_review",
+        updated_by: currentUserId,
+      })
+      .eq("id", existing.id);
+    if (invalidateError) throw new Error(`Usul aşaması sonrası analiz sıfırlanamadı: ${invalidateError.message}`);
+  }
+
+  return await buildWorkspace(supabase, taskId, currentUserId);
 }
 
 async function saveLawyerSettings(
@@ -667,7 +754,7 @@ async function saveLawyerSettings(
     current_draft: null,
     current_draft_structured: null,
     qa_report: null,
-    status: "extracted",
+    status: ctx.bundle.complete ? "extracted" : "blocked",
     updated_by: currentUserId,
   }).eq("id", ctx.responseCase.id);
   if (error) throw new Error(`Avukat bulguları kaydedilemedi: ${error.message}`);
@@ -714,7 +801,7 @@ async function addLawyerPriorMark(
     current_draft: null,
     current_draft_structured: null,
     qa_report: null,
-    status: "extracted",
+    status: ctx.bundle.complete ? "extracted" : "blocked",
     updated_by: currentUserId,
   }).eq("id", ctx.responseCase.id);
   if (invalidateError) throw new Error(`Mesnet marka değişikliği sonrası analiz sıfırlanamadı: ${invalidateError.message}`);
@@ -745,7 +832,7 @@ async function deactivatePriorMark(
     current_draft: null,
     current_draft_structured: null,
     qa_report: null,
-    status: "extracted",
+    status: ctx.bundle.complete ? "extracted" : "blocked",
     updated_by: currentUserId,
   }).eq("id", ctx.responseCase.id);
   if (invalidateError) throw new Error(`Mesnet marka değişikliği sonrası analiz sıfırlanamadı: ${invalidateError.message}`);
@@ -772,6 +859,8 @@ serve(async (req) => {
     let workspace: any;
     if (action === "get") {
       workspace = await buildWorkspace(supabase, taskId, currentUser.id);
+    } else if (action === "set-procedure-stage") {
+      workspace = await setProcedureStage(supabase, taskId, currentUser.id, body.payload ?? {});
     } else if (action === "save-lawyer-settings") {
       workspace = await saveLawyerSettings(supabase, taskId, currentUser.id, body.payload ?? {});
     } else if (action === "add-prior-mark") {

@@ -155,6 +155,11 @@ class OppositionResponseStudioController {
             return (order[a.role] || 99) - (order[b.role] || 99);
         });
 
+        const stageSelectValue = ws.procedureStageOverridden ? ws.procedureStage : 'auto';
+        const automaticStageLabel = ws.automaticProcedureStage === 'yidk_appeal'
+            ? 'YİDK / Yeniden İnceleme'
+            : 'Yayına İtiraz';
+
         if (badge) {
             badge.textContent = bundle.complete ? 'Kaynak Paket Hazır' : 'Kaynak Belge Eksik';
             badge.className = `response-badge ${bundle.complete ? 'ready' : 'blocked'}`;
@@ -181,7 +186,18 @@ class OppositionResponseStudioController {
                 <div class="response-card">
                     <h3>Usul ve Dosya</h3>
                     <div class="response-muted"><strong>Aşama:</strong> ${this.escape(ws.procedureStage === 'yidk_appeal' ? 'YİDK / Karara İtiraza Karşı Görüş' : 'Markalar Dairesi / Yayına İtiraza Karşı Görüş')}</div>
-                    <div class="response-muted mt-2"><strong>Başvuru:</strong> ${this.escape(ws.applicant?.applicationNo || '-')} · ${this.escape(ws.applicant?.markText || '-')}</div>
+                    <div class="response-field mt-3 mb-2">
+                        <label for="responseProcedureStage">Usul aşaması</label>
+                        <select id="responseProcedureStage">
+                            <option value="auto" ${stageSelectValue === 'auto' ? 'selected' : ''}>Otomatik (${this.escape(automaticStageLabel)})</option>
+                            <option value="publication_opposition" ${stageSelectValue === 'publication_opposition' ? 'selected' : ''}>Yayına İtiraza Karşı Görüş</option>
+                            <option value="yidk_appeal" ${stageSelectValue === 'yidk_appeal' ? 'selected' : ''}>YİDK / Yeniden İnceleme Karşı Görüşü</option>
+                        </select>
+                    </div>
+                    <button id="saveResponseProcedureStage" class="btn btn-sm btn-outline-primary mb-2">
+                        <i class="fas fa-check mr-1"></i>Aşamayı Uygula
+                    </button>
+                    <div class="response-muted"><strong>Başvuru:</strong> ${this.escape(ws.applicant?.applicationNo || '-')} · ${this.escape(ws.applicant?.markText || '-')}</div>
                     <div class="response-muted mt-2"><strong>Başvuru Sahibi:</strong> ${this.escape((ws.applicant?.applicants || []).map(x => x.name).join(', ') || '-')}</div>
                     ${missing ? `<div class="mt-3"><div class="response-muted mb-1"><strong>Eksik zorunlu belgeler:</strong></div>${missing}</div>` : ''}
                     ${warnings}
@@ -202,6 +218,7 @@ class OppositionResponseStudioController {
 
         document.getElementById('runResponseExtraction')?.addEventListener('click', () => this.runExtraction());
         document.getElementById('refreshResponseSources')?.addEventListener('click', () => this.reload());
+        document.getElementById('saveResponseProcedureStage')?.addEventListener('click', () => this.saveProcedureStage());
     }
 
     renderClaims() {
@@ -433,6 +450,23 @@ class OppositionResponseStudioController {
         document.getElementById('runResponseReasoning')?.addEventListener('click', () => this.runReasoning());
         document.getElementById('generateResponseDraft')?.addEventListener('click', () => this.generateDraft());
         document.getElementById('exportResponseWord')?.addEventListener('click', () => this.exportWord());
+    }
+
+    async saveProcedureStage() {
+        const select = document.getElementById('responseProcedureStage');
+        const btn = document.getElementById('saveResponseProcedureStage');
+        const procedureStageOverride = String(select?.value || 'auto');
+        await this.busy(btn, 'Uygulanıyor...', async () => {
+            const data = await this.invoke('opposition-response-workspace', {
+                action: 'set-procedure-stage',
+                taskId: this.taskId,
+                payload: { procedureStageOverride }
+            });
+            this.workspace = data.workspace;
+            this.renderAll();
+            this.setStage('sources');
+            showNotification('Usul aşaması güncellendi; kaynak paketi yeniden değerlendirildi.', 'success');
+        });
     }
 
     async runExtraction() {

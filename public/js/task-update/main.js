@@ -650,6 +650,7 @@ class TaskUpdateController {
         const status = details.petition_review_status || null;
         const note = details.petition_review_last_note || '';
         const reviewer = details.petition_review_last_reviewer_name || '';
+        const revisedDoc = details.petition_review_revised_document || null;
         const reviewedAt = details.petition_review_last_reviewed_at
             ? new Date(details.petition_review_last_reviewed_at).toLocaleString('tr-TR')
             : '';
@@ -666,8 +667,13 @@ class TaskUpdateController {
             panel.className = `alert ${klass} mb-3`;
             panel.style.display = 'block';
             panel.innerHTML = `<i class="fas ${icon} mr-2"></i><strong>${label}</strong>` +
-                (reviewer || reviewedAt ? `<div class="small mt-1">${reviewer ? `Kontrol eden: ${reviewer}` : ''}${reviewer && reviewedAt ? ' · ' : ''}${reviewedAt}</div>` : '') +
-                (note ? `<div class="mt-2"><strong>Düzeltme Notu:</strong> ${this.escapeHtml(note)}</div>` : '');
+                (reviewer || reviewedAt ? `<div class="small mt-1">${reviewer ? `Kontrol eden: ${this.escapeHtml(reviewer)}` : ''}${reviewer && reviewedAt ? ' · ' : ''}${reviewedAt}</div>` : '') +
+                (note ? `<div class="mt-2" style="white-space: pre-wrap;"><strong>Düzeltme Notu:</strong> ${this.escapeHtml(note)}</div>` : '') +
+                (status === 'revision_requested' && revisedDoc?.url
+                    ? `<div class="mt-2"><a href="${this.escapeHtml(revisedDoc.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                           <i class="fas fa-file-download mr-1"></i>${this.escapeHtml(revisedDoc.name || 'Revize Dilekçeyi Aç')}
+                       </a></div>`
+                    : '');
         } else {
             panel.className = 'alert alert-light border mb-3';
             panel.style.display = 'block';

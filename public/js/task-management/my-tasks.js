@@ -1,7 +1,7 @@
 // public/js/task-management/my-tasks.js
 
 // 🔥 Firebase importları tamamen kaldırıldı, Supabase ve servislerimiz eklendi
-import { authService, taskService, ipRecordsService, accrualService, personService, transactionTypeService, feeCalculationService, supabase } from '../../supabase-config.js';
+import { authService, taskService, ipRecordsService, accrualService, personService, transactionTypeService, feeCalculationService, supabase, storageService } from '../../supabase-config.js';
 import { showNotification, TASK_STATUS_MAP, formatToTRDate } from '../../utils.js';
 import { loadSharedLayout } from '../layout-loader.js';
 import Pagination from '../pagination.js'; 
@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         async init() {
             this.ensurePetitionRevisionModal();
+            this.ensurePetitionFeedbackModal();
             this.taskDetailManager = new TaskDetailManager('modalBody');
             
             // 🔥 YENİ: Tahakkuk Oluştur Modalı için buton tetikleyici eklendi
@@ -549,6 +550,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (btn.classList.contains('petition-send-review-btn')) {
                     this.handleSendPetitionForReview(taskId, btn);
                 }
+                else if (btn.classList.contains('petition-feedback-btn')) {
+                    this.openPetitionFeedbackModal(taskId);
+                }
                 else if (btn.classList.contains('petition-approve-btn')) {
                     this.handleCompletePetitionReview(taskId, 'approved', null, btn);
                 }
@@ -757,12 +761,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const note = details.petition_review_last_note || '';
             const reviewer = details.petition_review_last_reviewer_name || '';
+            const revisedDoc = details.petition_review_revised_document || null;
             let html = `<div class="mt-1"><span class="badge badge-${item[0]}">${item[1]}</span></div>`;
             if (note) {
                 const shortNote = note.length > 90 ? note.slice(0, 87) + '...' : note;
                 html += `<div class="small text-danger mt-1" title="${this.escapeHtml(note)}"><strong>Not:</strong> ${this.escapeHtml(shortNote)}</div>`;
             }
             if (reviewer) html += `<div class="small text-muted">Kontrol eden: ${this.escapeHtml(reviewer)}</div>`;
+            if (status === 'revision_requested') {
+                html += `<button type="button" class="btn btn-link btn-sm p-0 mt-1 petition-feedback-btn action-btn" data-id="${task.id}" title="Düzeltme detayını görüntüle">
+                    <i class="fas fa-comment-dots mr-1" style="pointer-events:none;"></i>Düzeltme detayını gör
+                </button>`;
+                if (revisedDoc?.url) {
+                    html += `<div><a href="${this.escapeHtml(revisedDoc.url)}" target="_blank" rel="noopener" class="small font-weight-bold">
+                        <i class="fas fa-file-download mr-1"></i>Revize dilekçeyi aç
+                    </a></div>`;
+                }
+            }
             return html;
         }
 
@@ -770,7 +785,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const taskType = String(task.taskType || task.task_type_id || '');
             const details = this.getTaskDetails(task);
 
-            if (PETITION_REVIEW_SOURCE_TYPES.has(taskType) && details.petition_review_status === 'ready' && !['completed','cancelled'].includes(task.status)) {
+            const reviewerRevisionReady =
+                details.petition_review_status === 'revision_requested' &&
+                !!details.petition_review_revised_document?.url;
+
+            if (PETITION_REVIEW_SOURCE_TYPES.has(taskType) &&
+                (details.petition_review_status === 'ready' || reviewerRevisionReady) &&
+                !['completed','cancelled'].includes(task.status)) {
                 const hasPreviousReview = Array.isArray(details.petition_review_history) && details.petition_review_history.length > 0;
                 const title = hasPreviousReview ? 'Dilekçeyi Tekrar Kontrole Gönder' : 'Dilekçeyi Kontrole Gönder';
                 return `<button class="btn btn-sm btn-light text-primary petition-send-review-btn action-btn" data-id="${task.id}" title="${title}"><i class="fas fa-paper-plane" style="pointer-events:none;"></i></button>`;
@@ -792,45 +813,168 @@ document.addEventListener('DOMContentLoaded', async () => {
             modal.tabIndex = -1;
             modal.setAttribute('role', 'dialog');
             modal.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered" role="document">
-                    <div class="modal-content shadow-lg">
+                <div class="modal-dialog modal-xl modal-dialog-centered" role="document" style="max-width: 94vw; width: 94vw;">
+                    <div class="modal-content shadow-lg" style="min-height: 82vh;">
                         <div class="modal-header">
                             <h5 class="modal-title"><i class="fas fa-edit text-danger mr-2"></i>Dilekçede Düzeltme İste</h5>
                             <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
                         </div>
-                        <div class="modal-body">
-                            <label class="font-weight-bold" for="petitionRevisionNote">Düzeltme Notu *</label>
-                            <textarea id="petitionRevisionNote" class="form-control" rows="6" placeholder="Düzeltilmesi gereken hususları yazınız..."></textarea>
-                            <small class="text-muted">Bu not kaynak işi yapan kullanıcının İşlerim ekranında gösterilecektir.</small>
+                        <div class="modal-body d-flex flex-column" style="min-height: 68vh;">
+                            <div class="form-group flex-grow-1 d-flex flex-column">
+                                <label class="font-weight-bold" for="petitionRevisionNote">Düzeltme Notu *</label>
+                                <textarea id="petitionRevisionNote" class="form-control flex-grow-1" style="min-height: 46vh; resize: vertical;" placeholder="Düzeltilmesi gereken hususları ayrıntılı olarak yazınız..."></textarea>
+                                <small class="text-muted mt-1">Bu not kaynak işi yapan kullanıcının İşlerim ekranında ve iş detayında gösterilecektir.</small>
+                            </div>
+
+                            <div class="form-group mb-0 border rounded p-3 bg-light">
+                                <label class="font-weight-bold mb-2" for="petitionRevisionFile">
+                                    <i class="fas fa-file-upload mr-1 text-primary"></i>Revize Edilmiş Dilekçe <span class="text-muted font-weight-normal">(opsiyonel)</span>
+                                </label>
+                                <input type="file" id="petitionRevisionFile" class="form-control-file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                                <div id="petitionRevisionFileName" class="small text-muted mt-2">Dosya seçilmedi.</div>
+                                <small class="text-muted d-block mt-1">Yalnız Microsoft Word belgeleri (.doc, .docx) kabul edilir.</small>
+                                <small class="text-danger d-block mt-2">
+                                    Revize dilekçe yüklerseniz kaynak işteki mevcut aktif dilekçe silinerek bununla değiştirilecektir.
+                                </small>
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal">İptal</button>
-                            <button type="button" class="btn btn-danger" id="savePetitionRevisionBtn"><i class="fas fa-paper-plane mr-1"></i>Düzeltme İste</button>
+                            <button type="button" class="btn btn-danger px-4" id="savePetitionRevisionBtn"><i class="fas fa-paper-plane mr-1"></i>Düzeltme İste</button>
                         </div>
                     </div>
                 </div>`;
             document.body.appendChild(modal);
+
+            document.getElementById('petitionRevisionFile')?.addEventListener('change', (e) => {
+                const file = e.target.files?.[0] || null;
+                const nameEl = document.getElementById('petitionRevisionFileName');
+
+                if (file && !this.isWordDocument(file)) {
+                    e.target.value = '';
+                    if (nameEl) nameEl.textContent = 'Dosya seçilmedi.';
+                    return showNotification('Revize dilekçe yalnızca Word belgesi (.doc veya .docx) olabilir.', 'warning');
+                }
+
+                if (nameEl) nameEl.textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)` : 'Dosya seçilmedi.';
+            });
 
             document.getElementById('savePetitionRevisionBtn')?.addEventListener('click', async (e) => {
                 const note = document.getElementById('petitionRevisionNote')?.value?.trim();
                 if (!note) return showNotification('Düzeltme notu zorunludur.', 'warning');
                 const taskId = this.pendingRevisionReviewTaskId;
                 if (!taskId) return;
-                await this.handleCompletePetitionReview(taskId, 'revision_requested', note, e.currentTarget);
+                const revisedFile = document.getElementById('petitionRevisionFile')?.files?.[0] || null;
+                if (revisedFile && !this.isWordDocument(revisedFile)) {
+                    return showNotification('Revize dilekçe yalnızca Word belgesi (.doc veya .docx) olabilir.', 'warning');
+                }
+                await this.handleCompletePetitionReview(taskId, 'revision_requested', note, e.currentTarget, revisedFile);
             });
+        }
+
+        ensurePetitionFeedbackModal() {
+            if (document.getElementById('petitionFeedbackModal')) return;
+            const modal = document.createElement('div');
+            modal.id = 'petitionFeedbackModal';
+            modal.className = 'modal fade';
+            modal.tabIndex = -1;
+            modal.setAttribute('role', 'dialog');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+                    <div class="modal-content shadow-lg">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="fas fa-comment-dots text-danger mr-2"></i>Dilekçe Düzeltme Detayı</h5>
+                            <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="petitionFeedbackMeta" class="small text-muted mb-3"></div>
+                            <div class="border rounded p-3 bg-light" style="white-space: pre-wrap;" id="petitionFeedbackNote"></div>
+                            <div id="petitionFeedbackDocument" class="mt-3"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Kapat</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+        }
+
+        openPetitionFeedbackModal(taskId) {
+            const task = this.allTasks.find(t => String(t.id) === String(taskId));
+            if (!task) return;
+            const details = this.getTaskDetails(task);
+            const meta = document.getElementById('petitionFeedbackMeta');
+            const note = document.getElementById('petitionFeedbackNote');
+            const doc = document.getElementById('petitionFeedbackDocument');
+
+            const reviewer = details.petition_review_last_reviewer_name || 'Kontrol görevlisi';
+            const reviewedAt = details.petition_review_last_reviewed_at
+                ? new Date(details.petition_review_last_reviewed_at).toLocaleString('tr-TR')
+                : '';
+            if (meta) meta.textContent = `${reviewer}${reviewedAt ? ' · ' + reviewedAt : ''}`;
+            if (note) note.textContent = details.petition_review_last_note || 'Düzeltme notu bulunmuyor.';
+
+            const revisedDoc = details.petition_review_revised_document || null;
+            if (doc) {
+                doc.innerHTML = revisedDoc?.url
+                    ? `<a href="${this.escapeHtml(revisedDoc.url)}" target="_blank" rel="noopener" class="btn btn-outline-primary">
+                           <i class="fas fa-file-download mr-1"></i>${this.escapeHtml(revisedDoc.name || 'Revize Dilekçeyi Aç')}
+                       </a>`
+                    : '<span class="small text-muted">Kontrol görevlisi tarafından revize dilekçe yüklenmemiştir.</span>';
+            }
+
+            if (window.$) $('#petitionFeedbackModal').modal('show');
         }
 
         openPetitionRevisionModal(taskId) {
             this.pendingRevisionReviewTaskId = taskId;
             const textarea = document.getElementById('petitionRevisionNote');
+            const fileInput = document.getElementById('petitionRevisionFile');
+            const nameEl = document.getElementById('petitionRevisionFileName');
             if (textarea) textarea.value = '';
+            if (fileInput) fileInput.value = '';
+            if (nameEl) nameEl.textContent = 'Dosya seçilmedi.';
             if (window.$) $('#petitionRevisionModal').modal('show');
+        }
+
+
+        isWordDocument(file) {
+            if (!file) return false;
+            const fileName = String(file.name || '').toLowerCase();
+            const validExtension = fileName.endsWith('.doc') || fileName.endsWith('.docx');
+            const validMimeTypes = new Set([
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                ''
+            ]);
+            return validExtension && validMimeTypes.has(String(file.type || '').toLowerCase());
+        }
+
+        getStoragePathFromPublicUrl(url) {
+            if (!url) return null;
+            const marker = '/storage/v1/object/public/documents/';
+            const idx = String(url).indexOf(marker);
+            if (idx === -1) return null;
+            try {
+                return decodeURIComponent(String(url).slice(idx + marker.length));
+            } catch (_) {
+                return String(url).slice(idx + marker.length);
+            }
         }
 
         async handleSendPetitionForReview(taskId, button) {
             if (button) button.disabled = true;
             const loader = window.showSimpleLoading ? window.showSimpleLoading('Dilekçe Kontrole Gönderiliyor', 'Kontrol görevi oluşturuluyor...') : null;
             try {
+                const sourceTask = this.allTasks.find(t => String(t.id) === String(taskId));
+                const sourceDetails = this.getTaskDetails(sourceTask);
+                if (sourceDetails.petition_review_status === 'revision_requested' && sourceDetails.petition_review_revised_document?.url) {
+                    const { error: syncError } = await supabase.rpc('sync_petition_review_readiness', {
+                        p_source_task_id: String(taskId)
+                    });
+                    if (syncError) throw syncError;
+                }
+
                 const { data, error } = await supabase.rpc('send_petition_for_review', {
                     p_source_task_id: String(taskId)
                 });
@@ -847,23 +991,81 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        async handleCompletePetitionReview(reviewTaskId, result, note = null, button = null) {
+        async handleCompletePetitionReview(reviewTaskId, result, note = null, button = null, revisedFile = null) {
             if (result === 'approved' && !confirm('Dilekçeyi onaylamak istediğinize emin misiniz?')) return;
             if (button) button.disabled = true;
             const loader = window.showSimpleLoading ? window.showSimpleLoading('Dilekçe Kontrolü Sonuçlandırılıyor', 'Lütfen bekleyiniz...') : null;
+
+            let uploadedPath = null;
+            let revisedDocument = null;
+
             try {
+                if (revisedFile && result !== 'revision_requested') {
+                    throw new Error('Revize dilekçe yalnız Düzeltme İste işlemi sırasında yüklenebilir.');
+                }
+
+                if (revisedFile) {
+                    const reviewTask = this.allTasks.find(t => String(t.id) === String(reviewTaskId));
+                    const reviewDetails = this.getTaskDetails(reviewTask);
+                    const sourceTaskId = reviewDetails.source_task_id || reviewDetails.parent_task_id;
+                    if (!sourceTaskId) throw new Error('Kaynak iş bağlantısı bulunamadı.');
+
+                    const documentId = crypto.randomUUID ? crypto.randomUUID() : `revision-${Date.now()}`;
+                    const cleanFileName = revisedFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                    uploadedPath = `tasks/${sourceTaskId}/petition-revisions/${documentId}_${cleanFileName}`;
+
+                    const uploadResult = await storageService.uploadFile('documents', uploadedPath, revisedFile);
+                    if (!uploadResult?.success) throw new Error(uploadResult?.error || 'Revize dilekçe yüklenemedi.');
+
+                    revisedDocument = {
+                        id: documentId,
+                        name: revisedFile.name,
+                        url: uploadResult.url,
+                        storagePath: uploadedPath
+                    };
+                }
+
                 const { data, error } = await supabase.rpc('complete_petition_review', {
                     p_review_task_id: String(reviewTaskId),
                     p_result: result,
-                    p_note: note
+                    p_note: note,
+                    p_revised_document_id: revisedDocument?.id || null,
+                    p_revised_document_name: revisedDocument?.name || null,
+                    p_revised_document_url: revisedDocument?.url || null,
+                    p_revised_document_storage_path: revisedDocument?.storagePath || null
                 });
                 if (error) throw error;
 
+                const replacedDocs = Array.isArray(data?.replaced_documents) ? data.replaced_documents : [];
+                const oldPaths = replacedDocs
+                    .map(d => this.getStoragePathFromPublicUrl(d?.url))
+                    .filter(Boolean);
+
+                if (oldPaths.length > 0) {
+                    try {
+                        const { error: removeError } = await supabase.storage.from('documents').remove(oldPaths);
+                        if (removeError) console.warn('Eski dilekçe storage temizliği tamamlanamadı:', removeError);
+                    } catch (cleanupErr) {
+                        console.warn('Eski dilekçe storage temizliği tamamlanamadı:', cleanupErr);
+                    }
+                }
+
                 if (window.$) $('#petitionRevisionModal').modal('hide');
                 this.pendingRevisionReviewTaskId = null;
-                showNotification(result === 'approved' ? 'Dilekçe onaylandı.' : 'Düzeltme talebi kaynak işi yapan kullanıcıya iletildi.', 'success');
+
+                if (result === 'approved') {
+                    showNotification('Dilekçe onaylandı.', 'success');
+                } else if (revisedDocument) {
+                    showNotification('Düzeltme notu kaydedildi ve kaynak işteki dilekçe revize belge ile değiştirildi.', 'success');
+                } else {
+                    showNotification('Düzeltme talebi kaynak işi yapan kullanıcıya iletildi.', 'success');
+                }
+
                 await this.loadAllData();
             } catch (err) {
+                if (uploadedPath) {
+                    try { await supabase.storage.from('documents').remove([uploadedPath]); } catch (_) {}
+                }
                 console.error('Dilekçe kontrol sonucu kaydedilemedi:', err);
                 showNotification(err.message || 'Dilekçe kontrol sonucu kaydedilemedi.', 'error');
             } finally {

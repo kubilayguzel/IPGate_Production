@@ -277,10 +277,11 @@ export class TaskUpdateUIManager {
             : (isPetition
                 ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
                 : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : ''));
-        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument)
-            ? `<button type="button" class="btn btn-sm ${isPetition ? 'btn-outline-secondary' : 'btn-outline-primary'} btn-toggle-petition ml-1" data-id="${d.id}" title="${isPetition ? 'Dilekçe işaretini kaldır' : 'Dilekçe olarak işaretle'}">
-                    <i class="fas ${isPetition ? 'fa-undo' : 'fa-file-signature'}"></i>
-               </button>`
+        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition)
+            ? `<div class="custom-control custom-checkbox d-inline-flex align-items-center ml-2" title="Bu belgenin dilekçe olarak kaydedilip kaydedilmediğini gösterir.">
+                    <input type="checkbox" class="custom-control-input petition-document-checkbox" id="petitionDoc_${d.id}" data-id="${d.id}" ${isPetition ? 'checked' : ''}>
+                    <label class="custom-control-label small font-weight-bold text-primary mb-0" for="petitionDoc_${d.id}">Dilekçe</label>
+               </div>`
             : '';
         const removeButton = isParentDocument
             ? ''

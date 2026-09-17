@@ -322,12 +322,17 @@ class TaskUpdateController {
 
         const fileList = document.getElementById('fileListContainer');
         if (fileList) {
-            fileList.addEventListener('click', (e) => {
-                const petitionBtn = e.target.closest('.btn-toggle-petition');
-                if (petitionBtn) {
-                    this.togglePetitionDocument(petitionBtn.dataset.id);
-                    return;
+            fileList.addEventListener('change', (e) => {
+                const petitionCheckbox = e.target.closest('.petition-document-checkbox');
+                if (petitionCheckbox) {
+                    this.togglePetitionDocument(
+                        petitionCheckbox.dataset.id,
+                        petitionCheckbox.checked,
+                        petitionCheckbox
+                    );
                 }
+            });
+            fileList.addEventListener('click', (e) => {
                 const btn = e.target.closest('.btn-remove-file');
                 if (btn) this.removeDocument(btn.dataset.id);
             });
@@ -701,52 +706,74 @@ class TaskUpdateController {
         return data;
     }
 
-    async togglePetitionDocument(documentId) {
+    async togglePetitionDocument(documentId, shouldBePetition = null, checkboxEl = null) {
         if (!this.isPetitionReviewSourceTask()) return;
         if (this.getPetitionReviewStatus() === 'in_review') {
+            if (checkboxEl) checkboxEl.checked = !checkboxEl.checked;
             return showNotification('Dilekçe şu anda kontrolde. Kontrol sonucu gelmeden dilekçe işareti değiştirilemez.', 'warning');
         }
 
         const doc = this.currentDocuments.find(d => String(d.id) === String(documentId));
-        if (!doc || !doc.url || String(doc.name || '').startsWith('(Ana Görev)')) return;
-
-        const newType = doc.type === 'petition' ? 'task_document' : 'petition';
-
-        if (newType === 'petition' && ['revision_requested', 'approved'].includes(this.getPetitionReviewStatus())) {
-            const currentPetitionUrls = this.currentDocuments
-                .filter(d => d.type === 'petition' && d.url && String(d.id) !== String(documentId))
-                .map(d => d.url);
-            await supabase
-                .from('task_documents')
-                .update({ document_type: 'petition_previous' })
-                .eq('task_id', String(this.taskId))
-                .eq('document_type', 'petition');
-            if (currentPetitionUrls.length > 0) {
-                await supabase
-                    .from('transaction_documents')
-                    .update({ document_type: 'petition_previous' })
-                    .in('document_url', currentPetitionUrls);
-            }
+        if (!doc || !doc.url || String(doc.name || '').startsWith('(Ana Görev)')) {
+            if (checkboxEl) checkboxEl.checked = !checkboxEl.checked;
+            return;
         }
 
-        const { error } = await supabase
-            .from('task_documents')
-            .update({ document_type: newType })
-            .eq('task_id', String(this.taskId))
-            .eq('document_url', doc.url);
-        if (error) return showNotification('Belge türü güncellenemedi: ' + error.message, 'error');
+        const newType = shouldBePetition === null
+            ? (doc.type === 'petition' ? 'task_document' : 'petition')
+            : (shouldBePetition ? 'petition' : 'task_document');
 
-        await supabase
-            .from('transaction_documents')
-            .update({ document_type: newType })
-            .eq('document_url', doc.url);
+        if (newType === doc.type) return;
+        if (checkboxEl) checkboxEl.disabled = true;
 
         try {
+            if (newType === 'petition' && ['revision_requested', 'approved'].includes(this.getPetitionReviewStatus())) {
+                const currentPetitionUrls = this.currentDocuments
+                    .filter(d => d.type === 'petition' && d.url && String(d.id) !== String(documentId))
+                    .map(d => d.url);
+                const { error: previousTaskDocError } = await supabase
+                    .from('task_documents')
+                    .update({ document_type: 'petition_previous' })
+                    .eq('task_id', String(this.taskId))
+                    .eq('document_type', 'petition');
+                if (previousTaskDocError) throw previousTaskDocError;
+
+                if (currentPetitionUrls.length > 0) {
+                    const { error: previousTxDocError } = await supabase
+                        .from('transaction_documents')
+                        .update({ document_type: 'petition_previous' })
+                        .in('document_url', currentPetitionUrls);
+                    if (previousTxDocError) console.warn('Önceki transaction dilekçe türü güncellenemedi:', previousTxDocError);
+                }
+            }
+
+            const { error } = await supabase
+                .from('task_documents')
+                .update({ document_type: newType })
+                .eq('task_id', String(this.taskId))
+                .eq('document_url', doc.url);
+            if (error) throw error;
+
+            const { error: txError } = await supabase
+                .from('transaction_documents')
+                .update({ document_type: newType })
+                .eq('document_url', doc.url);
+            if (txError) console.warn('Transaction belge türü güncellenemedi:', txError);
+
             await this.syncPetitionReviewReadiness();
             await this.refreshTaskData();
-            showNotification(newType === 'petition' ? 'Belge dilekçe olarak işaretlendi. Kontrole gönderilebilir.' : 'Dilekçe işareti kaldırıldı.', 'success');
+            showNotification(
+                newType === 'petition'
+                    ? 'Belge dilekçe olarak kaydedildi. İşlerim ekranından kontrole gönderilebilir.'
+                    : 'Belgenin dilekçe işareti kaldırıldı.',
+                'success'
+            );
         } catch (err) {
-            showNotification(err.message, 'error');
+            console.error('Dilekçe belge türü güncelleme hatası:', err);
+            try { await this.refreshTaskData(); } catch (_) {}
+            showNotification('Belge türü güncellenemedi: ' + (err.message || err), 'error');
+        } finally {
+            if (checkboxEl && document.body.contains(checkboxEl)) checkboxEl.disabled = false;
         }
     }
 

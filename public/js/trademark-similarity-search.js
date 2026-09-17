@@ -945,7 +945,7 @@ const loadInitialData = async () => {
     const { data: monitoringData, error } = await supabase
         .from('monitoring_trademarks')
         .select(`
-            id, ip_record_id, search_mark_name, brand_text_search, nice_class_search,
+            id, ip_record_id, search_mark_name, brand_text_search, nice_class_search, criteria_version,
             ip_records (
                 application_number, application_date,
                 ip_record_trademark_details (brand_name, brand_image_url),
@@ -997,7 +997,7 @@ const loadInitialData = async () => {
                 applicationNo: ip.application_number || "-", applicationNumber: ip.application_number || "-",
                 applicationDate: ip.application_date, ipRecordId: d.ip_record_id, ownerName: ownerName,
                 brandTextSearch: ensureArray(d.brand_text_search), niceClassSearch: ensureArray(d.nice_class_search),
-                niceClasses: niceClassesArray, imagePath: details.brand_image_url || '', 
+                niceClasses: niceClassesArray, criteriaVersion: Number(d.criteria_version || 1), imagePath: details.brand_image_url || '', 
                 applicants: [{ name: ownerName }],
                 type: 'domestic' // Tür belirteci
             };
@@ -1037,7 +1037,8 @@ const loadInitialData = async () => {
                 ownerName: ownerName,
                 brandTextSearch: [], 
                 niceClassSearch: [],
-                niceClasses: niceClassesArray, 
+                niceClasses: niceClassesArray,
+                criteriaVersion: 1,
                 imagePath: d.image_path || '', 
                 applicants: [{ name: ownerName }],
                 type: 'international' // Tür belirteci
@@ -1114,7 +1115,7 @@ const loadDataFromCache = async (realBulletinId) => {
             let req = supabase
                 .from('monitoring_trademark_records')
                 .select(`
-                    id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source,
+                    id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source, criteria_version,
                     trademark_bulletin_records!inner (
                         id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                     )
@@ -1145,7 +1146,23 @@ const loadDataFromCache = async (realBulletinId) => {
         let cachedResults = [];
 
         if (allCachedData && allCachedData.length > 0) {
-            cachedResults = allCachedData.map(item => {
+            const criteriaVersionByMarkId = new Map(
+                monitoringTrademarks.map(tm => [String(tm.id), Number(tm.criteriaVersion || 1)])
+            );
+
+            const validCachedData = realBulletinId === MANUAL_COLLECTION_ID
+                ? allCachedData
+                : allCachedData.filter(item => {
+                    // Manuel eklenen sonuçlar kriter değişikliğinden etkilenmez.
+                    if ((item.source || '').toLowerCase() === 'manual') return true;
+
+                    const currentVersion = criteriaVersionByMarkId.get(String(item.monitored_trademark_id));
+                    if (currentVersion == null) return true;
+
+                    return Number(item.criteria_version || 1) === currentVersion;
+                });
+
+            cachedResults = validCachedData.map(item => {
                 let bRec = item.trademark_bulletin_records || {};
                 if (Array.isArray(bRec)) bRec = bRec[0] || {};
 
@@ -1320,7 +1337,10 @@ const performSearch = async () => {
             searchMarkName: tm.searchMarkName || '', 
             brandTextSearch: tm.brandTextSearch || [], 
             niceClassSearch: tm.niceClassSearch || [],
+            // Orijinal Nice sınıfları Edge Function'a açıkça gönderilir. Böylece 32 -> 43 gibi ilişkili sınıf havuzu kaybolmaz.
+            niceClasses: tm.niceClasses || [],
             goodsAndServicesByClass: tm.goodsAndServicesByClass || [],
+            criteriaVersion: Number(tm.criteriaVersion || 1),
             applicationDate: formattedDate 
         };
     });
@@ -1458,17 +1478,31 @@ const performResearch = async () => {
         while (true) {
             const { data, error } = await supabase
                 .from('monitoring_trademark_records')
-                .select('id, monitored_trademark_id, trademark_bulletin_records!inner(bulletin_id)')
+                .select('id, monitored_trademark_id, is_similar, success_chance, note, trademark_bulletin_records!inner(bulletin_id)')
                 .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
                 .order('id', { ascending: true })
                 .range(from, from + limitSize - 1);
 
             if (error) throw error;
             if (!data || data.length === 0) break;
-            
-            const chunkIds = data
-                .filter(d => filteredIds.includes(d.monitored_trademark_id))
-                .map(d => d.id);
+
+            const filteredRows = data.filter(d => filteredIds.includes(d.monitored_trademark_id));
+
+            // Kriter değişikliği nedeniyle ekranda gizlenmiş eski cache satırlarında da kullanıcı değerlendirmesi olabilir.
+            // Silmeden önce DB'den de yedekleyerek Benzer / Başarı Şansı / Not alanlarını koru.
+            filteredRows.forEach(d => {
+                if (d.is_similar || (d.success_chance && d.success_chance !== '') || (d.note && d.note !== '')) {
+                    if (!window._tempSearchBackup.has(d.id)) {
+                        window._tempSearchBackup.set(d.id, {
+                            isSimilar: d.is_similar === true,
+                            bs: d.success_chance || '',
+                            note: d.note || ''
+                        });
+                    }
+                }
+            });
+
+            const chunkIds = filteredRows.map(d => d.id);
                 
             allIdsToDelete.push(...chunkIds);
             
@@ -2519,9 +2553,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                         monitoringTrademarks[tmIndex].searchMarkName = updatedData.searchMarkName;
                         monitoringTrademarks[tmIndex].brandTextSearch = updatedData.brandTextSearch;
                         monitoringTrademarks[tmIndex].niceClassSearch = updatedData.niceClassSearch;
+                        monitoringTrademarks[tmIndex].criteriaVersion = Number(updatedData.criteriaVersion || monitoringTrademarks[tmIndex].criteriaVersion || 1);
                         monitoringTrademarks[tmIndex]._searchNice = _uniqNice(monitoringTrademarks[tmIndex]).toLowerCase();
+
+                        // Yeni kriter kaydedildiği anda bu markanın eski otomatik sonuçlarını RAM'den çıkar.
+                        // Manuel eklenmiş sonuçlar kriter değişikliğinden bağımsızdır ve korunur.
+                        allSimilarResults = allSimilarResults.filter(r =>
+                            String(r.monitoredTrademarkId) !== String(updatedData.id) ||
+                            String(r.source || '').toLowerCase() === 'manual'
+                        );
+                        if (pagination) pagination.update(allSimilarResults.length);
+                        renderCurrentPageOfResults();
                     }
-                    applyMonitoringListFilters(); // Ekranı anında güncelle
+                    applyMonitoringListFilters(); // Ekranı ve arama butonlarını anında güncelle
                 });
             } 
         } 

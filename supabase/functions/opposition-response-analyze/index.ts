@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-const PACKAGE_VERSION = "response-studio-1.0.0";
+const PACKAGE_VERSION = "response-studio-1.0.3";
 const OPENAI_MODEL = Deno.env.get("OPPOSITION_RESPONSE_EXTRACTION_MODEL") ?? "gpt-5.6-sol";
 const RESPONSE_TASK_TYPE = "38";
 
@@ -288,7 +288,6 @@ KURALLAR:
     content.push({
       type: "input_file",
       file_url: doc.source_url,
-      filename: doc.document_name || `${doc.role}.pdf`,
     });
   }
 

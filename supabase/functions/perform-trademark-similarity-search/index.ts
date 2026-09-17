@@ -617,7 +617,12 @@ serve(async (req) => {
                         return [String(val)];
                     };
 
-                    const originalClassesRaw = mark.goodsAndServicesByClass ? makeArray(mark.goodsAndServicesByClass.map((c:any)=>c.classNo||c)) : makeArray(mark.niceClasses || mark.nice_classes);
+                    const goodsAndServicesByClass = Array.isArray(mark.goodsAndServicesByClass)
+                        ? mark.goodsAndServicesByClass
+                        : [];
+                    const originalClassesRaw = goodsAndServicesByClass.length > 0
+                        ? makeArray(goodsAndServicesByClass.map((c:any) => c.classNo || c))
+                        : makeArray(mark.niceClasses || mark.nice_classes);
                     const watchedClassesRaw = makeArray(mark.niceClassSearch || mark.nice_class_search);
 
                     const cleanClass = (c: any) => {
@@ -740,7 +745,7 @@ serve(async (req) => {
                                     is_earlier: false, 
                                     matched_term: searchItem.term, 
                                     source: 'auto',
-                                    is_similar: false
+                                    criteria_version: Number(mark.criteriaVersion || mark.criteria_version || 1)
                                 });
                                 break;
                             }

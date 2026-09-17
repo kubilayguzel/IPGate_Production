@@ -194,11 +194,14 @@ export class EditCriteriaModalManager {
                 const searchMarkNameValue = document.getElementById('searchMarkNameInput')?.value.trim() || '';
 
                 try {
-                    const { error } = await supabase.from('monitoring_trademarks').update({ 
+                    const { data: updatedRow, error } = await supabase.from('monitoring_trademarks').update({ 
                         search_mark_name: searchMarkNameValue,
                         brand_text_search: terms, 
                         nice_class_search: classes.map(String) 
-                    }).eq('id', this.currentMarkId);
+                    })
+                    .eq('id', this.currentMarkId)
+                    .select('criteria_version')
+                    .single();
 
                     if (error) throw error;
 
@@ -211,7 +214,8 @@ export class EditCriteriaModalManager {
                             id: this.currentMarkId,
                             searchMarkName: searchMarkNameValue,
                             brandTextSearch: terms,
-                            niceClassSearch: classes.map(String)
+                            niceClassSearch: classes.map(String),
+                            criteriaVersion: Number(updatedRow?.criteria_version || 1)
                         });
                     }
                 } catch (err) {

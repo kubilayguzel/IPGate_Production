@@ -521,13 +521,71 @@ class OppositionResponseStudioController {
         });
     }
 
+    reasoningProgressLabel(phase, progressMessage = '') {
+        if (progressMessage) return progressMessage;
+        if (phase === 'research_corpus') return "Doğrulanmış hukuk corpus'u taranıyor...";
+        if (phase === 'research_guideline') return 'TÜRKPATENT Kılavuzu taranıyor...';
+        if (phase === 'research_yargitay') return 'Yargıtay katmanı araştırılıyor...';
+        if (phase === 'research_eu') return 'CJEU / General Court katmanı araştırılıyor...';
+        if (phase === 'collect_authorities') return 'Doğrulanmış authority paketi birleştiriliyor...';
+        if (phase === 'starting_reasoning') return 'GPT-5.6 Sol başlatılıyor...';
+        if (phase === 'reasoning') return 'GPT-5.6 Sol reasoning çalışıyor...';
+        if (phase === 'completed') return 'Hukuki analiz tamamlandı';
+        return 'Hukuki analiz hazırlanıyor...';
+    }
+
+    async pollReasoning(runId, button) {
+        const deadline = Date.now() + (40 * 60 * 1000);
+        let lastPhase = '';
+
+        while (Date.now() < deadline) {
+            const data = await this.invoke('opposition-response-reasoning', {
+                action: 'status',
+                taskId: this.taskId,
+                runId
+            });
+
+            const phase = data?.phase || 'researching';
+            if (phase !== lastPhase) {
+                lastPhase = phase;
+                console.info(`[Response Studio] reasoning phase: ${phase}`);
+            }
+
+            if (button) {
+                button.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>${this.escape(this.reasoningProgressLabel(phase, data?.progressMessage || ''))}`;
+            }
+
+            if (data?.status === 'completed' || phase === 'completed') {
+                return data;
+            }
+
+            const delay = phase === 'reasoning' ? 3000 : 2500;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        throw new Error(
+            'Hukuki analiz arka planda çalışmaya devam ediyor. Sayfayı açık tutmanız gerekmez; daha sonra aynı butona basarak mevcut run’a yeniden bağlanabilirsiniz.'
+        );
+    }
+
     async runReasoning() {
         const btn = document.getElementById('runResponseReasoning');
-        await this.busy(btn, 'Research + Sol çalışıyor...', async () => {
-            await this.invoke('opposition-response-reasoning', {
+        await this.busy(btn, 'Hukuki analiz başlatılıyor...', async () => {
+            const start = await this.invoke('opposition-response-reasoning', {
+                action: 'start',
                 taskId: this.taskId,
                 allowWebSearch: true
             });
+
+            const runId = start?.runId;
+            if (!runId) throw new Error('Reasoning run ID alınamadı.');
+
+            if (start?.resumed === true) {
+                console.info(`[Response Studio] mevcut reasoning run devam ettiriliyor: ${runId}`);
+            }
+
+            await this.pollReasoning(runId, btn);
+
             showNotification('Hukuki savunma reasoning’i tamamlandı.', 'success');
             await this.reload();
             this.setStage('draft');

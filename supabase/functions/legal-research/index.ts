@@ -325,6 +325,22 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function safeObject(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  )
+    ? value
+    : {};
+}
+
+function boundedPositiveInt(value, fallback, min = 1, max = 100) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
 function clamp(value, min, max, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
@@ -998,7 +1014,6 @@ function webAuthorityDoNotUseFor(verified, issueTags) {
   ) {
     result.push("single_letter_mark_beyond_verified_distinctiveness_rule");
   }
-
   return uniqueStrings(result);
 }
 
@@ -1248,7 +1263,6 @@ async function recoverOfficialGrounding(
     maxOutputTokens: 5000,
     systemInstruction: `
 Sen EVREKA'nın son resmî kaynak doğrulama katmanısın.
-
 SADECE resmî/primary kaynak ara:
 - AB kararları için CURIA / InfoCuria / EUR-Lex
 - Türkiye için Yargıtay / Danıştay / TÜRKPATENT / resmî mevzuat
@@ -1498,7 +1512,6 @@ async function bindModule(supabase, moduleId, authorityId, propositionId, score)
     is_core: true,
     notes: `EVREKA ${PACKAGE_VERSION} verified authority binding`,
   };
-
   if (existing?.id) {
     const { error } = await supabase
       .from("legal_module_authorities")
@@ -1636,7 +1649,7 @@ function groupedPriorGoods(caseContext) {
   return grouped;
 }
 
-function guidelineComparisonTargets(caseContext) {
+function guidelineComparisonTargets(caseContext, maxTargets = GUIDELINE_PAIR_MAX_TARGETS) {
   const ctx = safeCaseContext(caseContext);
   const decisionTree = safeObject(ctx?.canonicalDecisionTree);
   const goodsRows = safeArray(decisionTree?.goodsAssessments)
@@ -1778,7 +1791,7 @@ function guidelineComparisonTargets(caseContext) {
 
   return [...targets.values()]
     .sort((a, b) => b.priority - a.priority)
-    .slice(0, GUIDELINE_PAIR_MAX_TARGETS);
+    .slice(0, maxTargets);
 }
 
 function guidelineDegreeLabel(value) {
@@ -2382,8 +2395,9 @@ async function enrichGuidelineGoodsComparisons(
   supabase,
   apiKey,
   caseContext = {},
+  maxTargets = GUIDELINE_PAIR_MAX_TARGETS,
 ) {
-  const targets = guidelineComparisonTargets(caseContext);
+  const targets = guidelineComparisonTargets(caseContext, maxTargets);
 
   if (!targets.length) {
     return {
@@ -2472,6 +2486,7 @@ async function enrichMissingFromCorpus(
   apiKey,
   missingTags,
   caseContext = {},
+  maxModules = Number.POSITIVE_INFINITY,
 ) {
   const { data: modules, error } = await supabase
     .from("legal_modules")
@@ -2486,9 +2501,12 @@ async function enrichMissingFromCorpus(
 
   const promoted = [];
   let remaining = [...missingTags];
+  let attemptedModules = 0;
 
   for (const module of safeArray(modules)) {
     if (!intersect(uniqueStrings(module.legal_issue_tags), remaining).length) continue;
+    if (attemptedModules >= maxModules) break;
+    attemptedModules += 1;
 
     try {
       const result = await enrichOneModuleFromCorpus(
@@ -2518,6 +2536,7 @@ async function discoverWeb(
   missingTags,
   caseContext,
   researchLane = "balanced",
+  maxCandidates = WEB_MAX_CANDIDATES,
 ) {
   const laneInstruction =
     researchLane ===
@@ -2578,7 +2597,7 @@ KESİN KURALLAR:
 - Web makalesini karar gibi gösterme.
 - Dar bir proposition yaz.
 - Somut markaya ilişkin avukatın vermediği baskın/asli/yüksek ayırt edicilik gibi olgusal nitelendirme üretme.
-- En fazla ${WEB_MAX_CANDIDATES} güçlü aday üret.
+- En fazla ${maxCandidates} güçlü aday üret.
 `.trim(),
       prompt: `
 Research lane:
@@ -2941,6 +2960,7 @@ async function researchWeb(
   caseContext,
   autoVerify,
   researchLane = "balanced",
+  maxCandidates = WEB_MAX_CANDIDATES,
 ) {
   const discovery =
     await discoverWeb(
@@ -2948,9 +2968,10 @@ async function researchWeb(
       missingTags,
       caseContext,
       researchLane,
+      maxCandidates,
     );
   const rawCandidates = safeArray(discovery.parsed?.candidates)
-    .slice(0, WEB_MAX_CANDIDATES);
+    .slice(0, maxCandidates);
 
   const promoted = [];
   let candidateCount = 0;
@@ -2975,7 +2996,7 @@ async function researchWeb(
 
     try {
       const verification = await verifyWeb(apiKey, candidate, tags, researchLane);
-      const v = verification.parsed;
+      let v = verification.parsed;
 
       observedSearchQueries.push(...verification.queries);
 
@@ -3368,6 +3389,28 @@ serve(async (req) => {
     ),
   );
 
+  // Optional per-request bounds used by Response Studio to keep each hosted
+  // Edge invocation below Supabase's request-idle ceiling. Defaults preserve
+  // the existing legal-research behavior for all other callers.
+  const requestWebMaxCandidates = boundedPositiveInt(
+    body?.webMaxCandidates,
+    WEB_MAX_CANDIDATES,
+    1,
+    WEB_MAX_CANDIDATES,
+  );
+  const requestGuidelinePairMaxTargets = boundedPositiveInt(
+    body?.guidelinePairMaxTargets,
+    GUIDELINE_PAIR_MAX_TARGETS,
+    1,
+    GUIDELINE_PAIR_MAX_TARGETS,
+  );
+  const requestCorpusModuleLimit = boundedPositiveInt(
+    body?.corpusModuleLimit,
+    100,
+    1,
+    100,
+  );
+
   const caseContext =
     safeCaseContext(
       body?.caseContext,
@@ -3452,6 +3495,7 @@ serve(async (req) => {
           geminiApiKey,
           initialMissing,
           caseContext,
+          requestCorpusModuleLimit,
         );
 
       pack =
@@ -3476,6 +3520,7 @@ serve(async (req) => {
           supabase,
           geminiApiKey,
           caseContext,
+          requestGuidelinePairMaxTargets,
         );
 
       pack =
@@ -3497,6 +3542,7 @@ serve(async (req) => {
           geminiApiKey,
           guidelineEvidenceTags,
           caseContext,
+          requestCorpusModuleLimit,
         );
 
       pack =
@@ -3674,6 +3720,7 @@ serve(async (req) => {
             caseContext,
             autoVerify,
             researchLane,
+            requestWebMaxCandidates,
           );
 
         mergeWebResult(
@@ -3711,7 +3758,7 @@ serve(async (req) => {
           0,
           Math.max(
             1,
-            WEB_MAX_CANDIDATES,
+            requestWebMaxCandidates,
           ),
         ),
       );
@@ -3750,7 +3797,7 @@ serve(async (req) => {
           0,
           Math.max(
             1,
-            WEB_MAX_CANDIDATES,
+            requestWebMaxCandidates,
           ),
         ),
       );
@@ -3858,6 +3905,9 @@ serve(async (req) => {
         minCaseAuthorities,
         minYargitayAuthorities,
         minEuAuthorities,
+        requestWebMaxCandidates,
+        requestGuidelinePairMaxTargets,
+        requestCorpusModuleLimit,
         initialCaseAuthorityCount,
         initialYargitayAuthorityCount,
         initialEuAuthorityCount,

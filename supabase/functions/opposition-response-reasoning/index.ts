@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const PACKAGE_VERSION = "response-studio-1.0.0";
+const PACKAGE_VERSION = "response-studio-1.0.6";
 const OPENAI_MODEL = Deno.env.get("OPPOSITION_RESPONSE_REASONING_MODEL") ?? "gpt-5.6-sol";
 const MAX_OUTPUT_TOKENS = Number(Deno.env.get("OPPOSITION_RESPONSE_REASONING_MAX_TOKENS") ?? "42000");
 
@@ -58,9 +58,23 @@ async function invokeProjectFunction({ supabaseUrl, apiKey, bearerToken, functio
     },
     body: JSON.stringify(body),
   });
-  const data = await response.json().catch(() => ({}));
+
+  const raw = await response.text().catch(() => "");
+  let data: any = {};
+  if (raw) {
+    try { data = JSON.parse(raw); } catch { data = {}; }
+  }
+
   if (!response.ok || data?.success === false || data?.ok === false) {
-    throw new HttpError(response.status || 422, data?.error ?? `${functionName} çağrısı başarısız.`);
+    const upstreamMessage = text(data?.error);
+    const rawSnippet = raw && !upstreamMessage
+      ? raw.replace(/\s+/g, " ").trim().slice(0, 700)
+      : "";
+    const detail = upstreamMessage || rawSnippet || response.statusText || "yanıt gövdesi yok";
+    throw new HttpError(
+      response.status || 422,
+      `${functionName} ${response.status || "?"}: ${detail}`,
+    );
   }
   return data;
 }
@@ -290,7 +304,7 @@ function responseText(response: any) {
   return "";
 }
 
-async function callOpenAIJson(prompt: string, schema: any) {
+async function startOpenAIJson(prompt: string, schema: any) {
   const key = Deno.env.get("OPENAI_API_KEY") ?? "";
   if (!key) throw new HttpError(500, "OPENAI_API_KEY tanımlı değil.");
 
@@ -314,31 +328,125 @@ async function callOpenAIJson(prompt: string, schema: any) {
       max_output_tokens: MAX_OUTPUT_TOKENS,
     }),
   });
-  let data = await create.json().catch(() => ({}));
-  if (!create.ok) throw new HttpError(create.status, data?.error?.message ?? "OpenAI reasoning başlatılamadı.");
 
-  const responseId = text(data?.id);
-  for (let attempt = 0; data?.status === "queued" || data?.status === "in_progress"; attempt += 1) {
-    if (attempt > 110) throw new HttpError(504, "OpenAI reasoning zaman aşımına uğradı.");
-    await new Promise((resolve) => setTimeout(resolve, 1800));
-    const poll = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
-      headers: { "Authorization": `Bearer ${key}` },
-    });
-    data = await poll.json().catch(() => ({}));
-    if (!poll.ok) throw new HttpError(poll.status, data?.error?.message ?? "OpenAI reasoning sonucu alınamadı.");
+  const data = await create.json().catch(() => ({}));
+  if (!create.ok) {
+    throw new HttpError(
+      create.status,
+      data?.error?.message ?? "OpenAI reasoning başlatılamadı.",
+    );
   }
 
+  const responseId = text(data?.id);
+  if (!responseId) throw new HttpError(502, "OpenAI reasoning response ID üretmedi.");
+
+  return {
+    responseId,
+    status: text(data?.status) || "queued",
+    raw: data,
+  };
+}
+
+async function retrieveOpenAIResponse(responseId: string) {
+  const key = Deno.env.get("OPENAI_API_KEY") ?? "";
+  if (!key) throw new HttpError(500, "OPENAI_API_KEY tanımlı değil.");
+
+  const response = await fetch(
+    `https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`,
+    { headers: { "Authorization": `Bearer ${key}` } },
+  );
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new HttpError(
+      response.status,
+      data?.error?.message ?? "OpenAI reasoning sonucu alınamadı.",
+    );
+  }
+
+  return data;
+}
+
+function parseCompletedOpenAIResponse(data: any) {
   if (data?.status !== "completed") {
-    throw new HttpError(502, data?.error?.message ?? `Reasoning tamamlanamadı: ${data?.status ?? "unknown"}`);
+    throw new HttpError(
+      409,
+      data?.error?.message ??
+        `Reasoning henüz tamamlanmadı: ${data?.status ?? "unknown"}`,
+    );
   }
 
   const output = responseText(data);
   if (!output) throw new HttpError(502, "Reasoning modeli JSON çıktı üretmedi.");
+
   try {
-    return { parsed: JSON.parse(output), responseId };
+    return JSON.parse(output);
   } catch {
     throw new HttpError(502, "Reasoning modeli geçerli JSON üretmedi.");
   }
+}
+
+function stableJson(value: any): any {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value && typeof value === "object") {
+    const result: Record<string, any> = {};
+    for (const key of Object.keys(value).sort()) {
+      result[key] = stableJson(value[key]);
+    }
+    return result;
+  }
+  return value;
+}
+
+async function sha256Hex(value: unknown) {
+  const encoded = new TextEncoder().encode(
+    JSON.stringify(stableJson(value)),
+  );
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function reasoningInputFingerprint(workspace: any) {
+  const snapshot = {
+    sourceFingerprint: workspace?.case?.source_fingerprint ?? null,
+    analysisFingerprint: workspace?.case?.analysis_fingerprint ?? null,
+    procedureStage: workspace?.procedureStage ?? null,
+    proofOfUseRequested: workspace?.case?.proof_of_use_requested === true,
+    lawyerFindings: obj(workspace?.case?.lawyer_findings),
+    applicant: {
+      markText: workspace?.applicant?.markText ?? null,
+      classes: arr(workspace?.applicant?.classes),
+    },
+    priorMarks: arr(workspace?.priorMarks)
+      .map((m) => ({
+        id: m?.id ?? null,
+        markText: m?.mark_text ?? null,
+        applicationNo: m?.application_no ?? null,
+        registrationNo: m?.registration_no ?? null,
+        internationalRegistrationNo: m?.international_registration_no ?? null,
+        grounds: arr(m?.legal_grounds),
+        reliedScope: arr(m?.relied_scope),
+        registeredScope: arr(m?.registered_scope),
+        effectiveScope: arr(m?.effective_scope),
+        active: m?.is_active !== false,
+      }))
+      .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? ""))),
+    claims: arr(workspace?.claims)
+      .map((c) => ({
+        id: c?.id ?? null,
+        legalGround: c?.legal_ground ?? null,
+        claimType: c?.claim_type ?? null,
+        claimText: c?.claim_text ?? null,
+        challengedFinding: c?.challenged_finding ?? null,
+        sourcePage: c?.source_page ?? null,
+        sourceExcerpt: c?.source_excerpt ?? null,
+      }))
+      .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? ""))),
+  };
+
+  return await sha256Hex(snapshot);
 }
 
 function buildPrompt(workspace: any, authorityPack: any) {
@@ -399,6 +507,561 @@ Return the strict JSON schema only.
 `.trim();
 }
 
+function validateWorkspaceForReasoning(workspace: any) {
+  if (workspace?.sourceBundle?.complete !== true) {
+    throw new HttpError(
+      422,
+      `Kaynak belge paketi eksik: ${arr(workspace?.sourceBundle?.missing).join(", ")}`,
+    );
+  }
+
+  if (!arr(workspace?.claims).length) {
+    throw new HttpError(
+      422,
+      "Önce AI belge analizi tamamlanmalıdır; iddia haritası bulunmuyor.",
+    );
+  }
+
+  const hasRelativePriorRightGround = arr(workspace?.claims).some((c) =>
+    /6[\/_\s.-]*(?:1|3|4|5)/i.test(text(c?.legal_ground))
+  );
+
+  if (hasRelativePriorRightGround && !arr(workspace?.priorMarks).length) {
+    throw new HttpError(
+      422,
+      "İleri sürülen marka hakkına dayalı gerekçeler için mesnet hak çıkarılamadı. AI analizi yenilenmeli veya eksik mesnet hak avukat tarafından eklenmelidir.",
+    );
+  }
+}
+
+function currentSourceFingerprint(workspace: any) {
+  return text(
+    workspace?.case?.analysis_fingerprint ??
+    workspace?.case?.source_fingerprint ??
+    "",
+  );
+}
+
+function runPhase(run: any) {
+  return text(
+    run?.output_payload?.phase ??
+    run?.input_payload?.phase ??
+    "researching",
+  ) || "researching";
+}
+
+function phaseMessage(phase: string) {
+  if (phase === "research_corpus") return "Doğrulanmış hukuk corpus'u taranıyor.";
+  if (phase === "research_guideline") return "TÜRKPATENT Kılavuzu somut örnekleri taranıyor.";
+  if (phase === "research_yargitay") return "Yargıtay katmanı araştırılıyor ve doğrulanıyor.";
+  if (phase === "research_eu") return "CJEU / General Court katmanı araştırılıyor ve doğrulanıyor.";
+  if (phase === "collect_authorities") return "Doğrulanmış authority paketi birleştiriliyor.";
+  if (phase === "starting_reasoning") return "Doğrulanmış kaynak paketi hazır; GPT-5.6 Sol başlatılıyor.";
+  if (phase === "reasoning") return "GPT-5.6 Sol hukuki reasoning çalışıyor.";
+  if (phase === "completed") return "Hukuki analiz tamamlandı.";
+  if (phase === "failed") return "Hukuki analiz başarısız.";
+  return "Hukuki analiz hazırlanıyor.";
+}
+
+async function getWorkspace(
+  supabaseUrl: string,
+  apiKey: string,
+  bearerToken: string,
+  taskId: string,
+) {
+  const result = await invokeProjectFunction({
+    supabaseUrl,
+    apiKey,
+    bearerToken,
+    functionName: "opposition-response-workspace",
+    body: { action: "get", taskId },
+  });
+  return result.workspace;
+}
+
+async function markRunFailed(
+  supabase: ReturnType<typeof createClient>,
+  runId: string,
+  error: unknown,
+  outputPayload: Record<string, any> = {},
+) {
+  const message = error instanceof Error ? error.message : String(error);
+  await supabase.from("opposition_response_runs").update({
+    status: "failed",
+    error_message: message,
+    output_payload: {
+      ...outputPayload,
+      phase: "failed",
+      failedAt: new Date().toISOString(),
+      error: message,
+    },
+    completed_at: new Date().toISOString(),
+  }).eq("id", runId);
+}
+
+async function finalizeReasoning({
+  supabase,
+  run,
+  workspace,
+  authorityPack,
+  openAIData,
+  currentUserId,
+}: any) {
+  const storedFingerprint = text(run?.input_payload?.reasoningInputFingerprint);
+  const liveFingerprint = await reasoningInputFingerprint(workspace);
+
+  if (storedFingerprint && storedFingerprint !== liveFingerprint) {
+    throw new HttpError(
+      409,
+      "Reasoning çalışırken dosya verileri veya avukat bulguları değişti. Eski sonuç kaydedilmedi; hukuki analizi yeniden çalıştırın.",
+    );
+  }
+
+  const parsed = parseCompletedOpenAIResponse(openAIData);
+  const claimIds = arr(workspace?.claims)
+    .map((c) => text(c?.id))
+    .filter(Boolean);
+
+  const responseClaimIds = new Set(
+    arr(parsed?.claimResponses).map((row) => text(row?.claimId)),
+  );
+  const missingClaimIds = claimIds.filter((id) => !responseClaimIds.has(id));
+
+  if (missingClaimIds.length) {
+    throw new HttpError(
+      422,
+      `Hukuki reasoning karşı tarafın ${missingClaimIds.length} iddiasını cevaplamadı; run reddedildi.`,
+    );
+  }
+
+  parsed.proofOfUse = workspace?.procedureStage === "publication_opposition"
+    ? {
+        include: workspace?.case?.proof_of_use_requested === true,
+        instruction: workspace?.case?.proof_of_use_requested === true
+          ? "Karşı tarafın itirazına dayanak gösterdiği mesnet markaların dayanılan tüm mal ve hizmetleri bakımından kullanım ispatı talep edilecektir."
+          : "Kullanım ispatı talebi filing instruction olarak verilmemiştir.",
+      }
+    : {
+        include: false,
+        instruction: "YİDK karşı görüş aşamasında yeni kullanım ispatı talebi oluşturulmayacaktır.",
+      };
+
+  const { error: caseUpdateError } = await supabase
+    .from("opposition_response_cases")
+    .update({
+      current_reasoning: parsed,
+      current_research_run_id: run?.research_run_id ?? null,
+      status: "analysis",
+      current_draft: null,
+      current_draft_structured: null,
+      qa_report: null,
+      updated_by: currentUserId,
+    })
+    .eq("id", workspace.case.id);
+
+  if (caseUpdateError) {
+    throw new Error(
+      `Reasoning sonucu dosyaya kaydedilemedi: ${caseUpdateError.message}`,
+    );
+  }
+
+  const responseId = text(run?.output_payload?.responseId ?? openAIData?.id);
+  const finalOutput = {
+    ...obj(run?.output_payload),
+    phase: "completed",
+    responseId,
+    openAIStatus: "completed",
+    completedAt: new Date().toISOString(),
+    reasoning: parsed,
+  };
+
+  const { error: runUpdateError } = await supabase
+    .from("opposition_response_runs")
+    .update({
+      status: "completed",
+      output_payload: finalOutput,
+      completed_at: new Date().toISOString(),
+      error_message: null,
+    })
+    .eq("id", run.id);
+
+  if (runUpdateError) {
+    throw new Error(
+      `Reasoning run tamamlanamadı: ${runUpdateError.message}`,
+    );
+  }
+
+  return {
+    parsed,
+    authorityPack,
+    responseId,
+  };
+}
+
+
+const GUIDELINE_PHASE_ORDER = [
+  "goods_services_similarity",
+  "goods_retail_relation",
+  "sign_similarity",
+  "common_element",
+  "dominant_element",
+  "interdependence",
+];
+
+const CASE_AUTHORITY_PRIORITY = [
+  "sign_similarity",
+  "goods_services_similarity",
+  "common_element",
+  "interdependence",
+  "relevant_consumer",
+  "association",
+  "complementarity",
+];
+
+function pickCaseAuthorityTag(issueTags: string[]) {
+  for (const tag of CASE_AUTHORITY_PRIORITY) {
+    if (issueTags.includes(tag)) return tag;
+  }
+  return issueTags[0] ?? "sign_similarity";
+}
+
+function researchContextBody(workspace: any) {
+  return buildResearchContext(workspace);
+}
+
+async function assertRunInputsStillCurrent(run: any, workspace: any) {
+  const stored = text(run?.input_payload?.reasoningInputFingerprint);
+  const live = await reasoningInputFingerprint(workspace);
+  if (stored && stored !== live) {
+    throw new HttpError(
+      409,
+      "Hukuki analiz sırasında dosya verileri veya avukat bulguları değişti. Eski run kullanılmadı; analizi yeniden başlatın.",
+    );
+  }
+}
+
+async function callBoundedLegalResearch({
+  supabaseUrl,
+  apiKey,
+  bearerToken,
+  taskId,
+  workspace,
+  issueTags,
+  allowWebSearch = false,
+  minYargitayAuthorities = 0,
+  minEuAuthorities = 0,
+  forceGuidelineEvidence = false,
+  guidelineEvidenceTags = [],
+  guidelinePairMaxTargets = 1,
+}: any) {
+  return await invokeProjectFunction({
+    supabaseUrl,
+    apiKey,
+    bearerToken,
+    functionName: "legal-research",
+    body: {
+      action: "research",
+      taskId,
+      issueTags,
+      coverageThreshold: forceGuidelineEvidence ? 0 : 0.78,
+      requireCompleteCoverage: false,
+      minCaseAuthorities: 0,
+      minYargitayAuthorities,
+      minEuAuthorities,
+      allowWebSearch,
+      autoVerify: true,
+      forceGuidelineEvidence,
+      guidelineEvidenceTags,
+      caseContext: researchContextBody(workspace),
+      // 1.0.6 bounded-work controls. They are optional in legal-research and
+      // default to legacy behavior for all existing Opposition Studio callers.
+      webMaxCandidates: 1,
+      guidelinePairMaxTargets,
+      corpusModuleLimit: forceGuidelineEvidence ? 1 : 2,
+    },
+  });
+}
+
+async function updateRunState(
+  supabase: ReturnType<typeof createClient>,
+  runId: string,
+  patch: Record<string, any>,
+) {
+  const { data, error } = await supabase
+    .from("opposition_response_runs")
+    .update(patch)
+    .eq("id", runId)
+    .select("*")
+    .single();
+  if (error) throw new Error(`Reasoning run güncellenemedi: ${error.message}`);
+  return data;
+}
+
+async function findReusableRunningRun(
+  supabase: ReturnType<typeof createClient>,
+  responseCaseId: string,
+  taskId: string,
+) {
+  const { data, error } = await supabase
+    .from("opposition_response_runs")
+    .select("*")
+    .eq("response_case_id", responseCaseId)
+    .eq("run_type", "reasoning")
+    .eq("status", "running")
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  if (error) throw new Error(`Devam eden reasoning run okunamadı: ${error.message}`);
+
+  const now = Date.now();
+  for (const run of arr(data)) {
+    if (
+      text(run?.input_payload?.asyncOrchestratorVersion) !== PACKAGE_VERSION ||
+      text(run?.input_payload?.taskId) !== taskId
+    ) continue;
+
+    const ageMs = Math.max(0, now - new Date(run.created_at ?? 0).getTime());
+    if (ageMs < 45 * 60 * 1000) return run;
+  }
+  return null;
+}
+
+async function advanceResearchPhase({
+  supabase,
+  supabaseUrl,
+  apiKey,
+  auth,
+  taskId,
+  run,
+}: any) {
+  const workspace = await getWorkspace(supabaseUrl, apiKey, auth.token, taskId);
+  validateWorkspaceForReasoning(workspace);
+  await assertRunInputsStillCurrent(run, workspace);
+
+  const input = obj(run?.input_payload);
+  const issueTags = uniq(arr(input?.issueTags));
+  const phase = runPhase(run);
+
+  if (phase === "research_corpus") {
+    const cursor = Math.max(0, Number(input?.corpusCursor ?? 0));
+    if (cursor >= issueTags.length) {
+      const nextInput = { ...input, corpusCursor: cursor, phase: "research_guideline" };
+      const nextOutput = {
+        ...obj(run?.output_payload),
+        phase: "research_guideline",
+        progressMessage: phaseMessage("research_guideline"),
+      };
+      await updateRunState(supabase, run.id, { input_payload: nextInput, output_payload: nextOutput });
+      return { status: "running", phase: "research_guideline", progressMessage: nextOutput.progressMessage };
+    }
+
+    const tag = issueTags[cursor];
+    await callBoundedLegalResearch({
+      supabaseUrl, apiKey, bearerToken: auth.token, taskId, workspace,
+      issueTags: [tag],
+      allowWebSearch: false,
+    });
+
+    const nextCursor = cursor + 1;
+    const done = nextCursor >= issueTags.length;
+    const nextPhase = done ? "research_guideline" : "research_corpus";
+    const progressMessage = done
+      ? phaseMessage("research_guideline")
+      : `Doğrulanmış hukuk corpus'u taranıyor (${nextCursor + 1}/${issueTags.length}): ${issueTags[nextCursor]}`;
+
+    await updateRunState(supabase, run.id, {
+      input_payload: { ...input, corpusCursor: nextCursor, phase: nextPhase },
+      output_payload: {
+        ...obj(run?.output_payload),
+        phase: nextPhase,
+        progressMessage,
+        lastCompletedResearchTag: tag,
+      },
+    });
+    return { status: "running", phase: nextPhase, progressMessage };
+  }
+
+  if (phase === "research_guideline") {
+    const guidelineTags = uniq(
+      arr(input?.guidelineTags).length
+        ? arr(input?.guidelineTags)
+        : GUIDELINE_PHASE_ORDER.filter((tag) => issueTags.includes(tag)),
+    );
+    const cursor = Math.max(0, Number(input?.guidelineCursor ?? 0));
+
+    if (cursor >= guidelineTags.length) {
+      const nextPhase = input?.allowWebSearch === false ? "collect_authorities" : "research_yargitay";
+      const progressMessage = phaseMessage(nextPhase);
+      await updateRunState(supabase, run.id, {
+        input_payload: { ...input, guidelineCursor: cursor, phase: nextPhase },
+        output_payload: { ...obj(run?.output_payload), phase: nextPhase, progressMessage },
+      });
+      return { status: "running", phase: nextPhase, progressMessage };
+    }
+
+    const tag = guidelineTags[cursor];
+    await callBoundedLegalResearch({
+      supabaseUrl, apiKey, bearerToken: auth.token, taskId, workspace,
+      issueTags: [tag],
+      allowWebSearch: false,
+      forceGuidelineEvidence: true,
+      guidelineEvidenceTags: [tag],
+      guidelinePairMaxTargets: tag === "goods_services_similarity" ? 2 : 1,
+    });
+
+    const nextCursor = cursor + 1;
+    const done = nextCursor >= guidelineTags.length;
+    const nextPhase = done
+      ? (input?.allowWebSearch === false ? "collect_authorities" : "research_yargitay")
+      : "research_guideline";
+    const progressMessage = done
+      ? phaseMessage(nextPhase)
+      : `TÜRKPATENT Kılavuzu taranıyor (${nextCursor + 1}/${guidelineTags.length}): ${guidelineTags[nextCursor]}`;
+
+    await updateRunState(supabase, run.id, {
+      input_payload: { ...input, guidelineCursor: nextCursor, phase: nextPhase },
+      output_payload: {
+        ...obj(run?.output_payload),
+        phase: nextPhase,
+        progressMessage,
+        lastCompletedGuidelineTag: tag,
+      },
+    });
+    return { status: "running", phase: nextPhase, progressMessage };
+  }
+
+  if (phase === "research_yargitay") {
+    const tag = pickCaseAuthorityTag(issueTags);
+    await callBoundedLegalResearch({
+      supabaseUrl, apiKey, bearerToken: auth.token, taskId, workspace,
+      issueTags: [tag],
+      allowWebSearch: true,
+      minYargitayAuthorities: 1,
+      minEuAuthorities: 0,
+    });
+
+    const nextPhase = "research_eu";
+    const progressMessage = phaseMessage(nextPhase);
+    await updateRunState(supabase, run.id, {
+      input_payload: { ...input, phase: nextPhase, yargitayTag: tag },
+      output_payload: { ...obj(run?.output_payload), phase: nextPhase, progressMessage },
+    });
+    return { status: "running", phase: nextPhase, progressMessage };
+  }
+
+  if (phase === "research_eu") {
+    const tag = pickCaseAuthorityTag(issueTags);
+    await callBoundedLegalResearch({
+      supabaseUrl, apiKey, bearerToken: auth.token, taskId, workspace,
+      issueTags: [tag],
+      allowWebSearch: true,
+      minYargitayAuthorities: 0,
+      minEuAuthorities: 1,
+    });
+
+    const nextPhase = "collect_authorities";
+    const progressMessage = phaseMessage(nextPhase);
+    await updateRunState(supabase, run.id, {
+      input_payload: { ...input, phase: nextPhase, euTag: tag },
+      output_payload: { ...obj(run?.output_payload), phase: nextPhase, progressMessage },
+    });
+    return { status: "running", phase: nextPhase, progressMessage };
+  }
+
+  if (phase === "collect_authorities") {
+    // Final call is intentionally research-disabled: it only rebuilds and returns
+    // the full verified authority pack after the bounded phases above.
+    const research = await invokeProjectFunction({
+      supabaseUrl,
+      apiKey,
+      bearerToken: auth.token,
+      functionName: "legal-research",
+      body: {
+        action: "research",
+        taskId,
+        issueTags,
+        coverageThreshold: 0,
+        requireCompleteCoverage: false,
+        minCaseAuthorities: 0,
+        minYargitayAuthorities: 0,
+        minEuAuthorities: 0,
+        allowWebSearch: false,
+        autoVerify: true,
+        forceGuidelineEvidence: false,
+        caseContext: researchContextBody(workspace),
+        webMaxCandidates: 1,
+        guidelinePairMaxTargets: 1,
+        corpusModuleLimit: 1,
+      },
+    });
+
+    const authorityPack = compactAuthorityPack(research.authorityPack);
+    const propositionIds = arr(authorityPack?.propositions)
+      .map((p) => text(p?.propositionId))
+      .filter(Boolean);
+    const claimIds = arr(workspace?.claims)
+      .map((c) => text(c?.id))
+      .filter(Boolean);
+
+    const startingPayload = {
+      ...obj(run?.output_payload),
+      phase: "starting_reasoning",
+      progressMessage: phaseMessage("starting_reasoning"),
+      authorityPackCollectedAt: new Date().toISOString(),
+    };
+
+    run = await updateRunState(supabase, run.id, {
+      research_run_id: research.researchRunId ?? null,
+      authority_pack: authorityPack,
+      input_payload: { ...input, phase: "starting_reasoning" },
+      output_payload: startingPayload,
+      error_message: null,
+    });
+
+    const openAI = await startOpenAIJson(
+      buildPrompt(workspace, authorityPack),
+      reasoningSchema(propositionIds, claimIds),
+    );
+
+    const reasoningPayload = {
+      ...startingPayload,
+      phase: "reasoning",
+      progressMessage: phaseMessage("reasoning"),
+      responseId: openAI.responseId,
+      openAIStatus: openAI.status,
+      reasoningStartedAt: new Date().toISOString(),
+    };
+
+    const updatedRun = await updateRunState(supabase, run.id, {
+      input_payload: { ...obj(run?.input_payload), phase: "reasoning" },
+      output_payload: reasoningPayload,
+      error_message: null,
+    });
+
+    if (openAI.status === "completed") {
+      const finalized = await finalizeReasoning({
+        supabase,
+        run: updatedRun,
+        workspace,
+        authorityPack,
+        openAIData: openAI.raw,
+        currentUserId: auth.id,
+      });
+      return {
+        status: "completed",
+        phase: "completed",
+        reasoning: finalized.parsed,
+        authorityPack,
+        progressMessage: phaseMessage("completed"),
+      };
+    }
+
+    return { status: "running", phase: "reasoning", progressMessage: phaseMessage("reasoning") };
+  }
+
+  throw new HttpError(409, `Bilinmeyen araştırma aşaması: ${phase}`);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -407,151 +1070,229 @@ serve(async (req) => {
   const apiKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
   try {
+    if (!supabaseUrl || !serviceRoleKey || !apiKey) {
+      throw new HttpError(500, "Supabase ortam değişkenleri eksik.");
+    }
+
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     const auth = await assertInternalUser(req, supabase);
     const body = await req.json().catch(() => ({}));
-    const taskId = text(body.taskId);
+    const action = text(body?.action || "start");
+    const taskId = text(body?.taskId);
     if (!taskId) throw new HttpError(400, "taskId zorunludur.");
 
-    const workspaceResult = await invokeProjectFunction({
-      supabaseUrl, apiKey, bearerToken: auth.token,
-      functionName: "opposition-response-workspace",
-      body: { action: "get", taskId },
-    });
-    let workspace = workspaceResult.workspace;
+    if (action === "start") {
+      // Registry resolution is DB-bound and short; doing it before creating the run
+      // ensures all later research phases see the same canonical prior-right snapshot.
+      await invokeProjectFunction({
+        supabaseUrl, apiKey, bearerToken: auth.token,
+        functionName: "opposition-response-prior-rights",
+        body: { taskId },
+      });
 
-    if (workspace?.sourceBundle?.complete !== true) {
-      throw new HttpError(422, `Kaynak belge paketi eksik: ${arr(workspace?.sourceBundle?.missing).join(", ")}`);
-    }
-    if (!arr(workspace?.claims).length) {
-      throw new HttpError(422, "Önce AI belge analizi tamamlanmalıdır; iddia haritası bulunmuyor.");
-    }
-    const hasRelativePriorRightGround = arr(workspace?.claims).some((c) =>
-      /6[\/_\s.-]*(?:1|3|4|5)/i.test(text(c?.legal_ground))
-    );
-    if (hasRelativePriorRightGround && !arr(workspace?.priorMarks).length) {
-      throw new HttpError(422, "İleri sürülen marka hakkına dayalı gerekçeler için mesnet hak çıkarılamadı. AI analizi yenilenmeli veya eksik mesnet hak avukat tarafından eklenmelidir.");
-    }
+      const workspace = await getWorkspace(supabaseUrl, apiKey, auth.token, taskId);
+      validateWorkspaceForReasoning(workspace);
 
-    // Re-run registry resolution immediately before legal research so direct API calls,
-    // later lawyer additions and changed third-party records cannot leave reasoning stale.
-    await invokeProjectFunction({
-      supabaseUrl, apiKey, bearerToken: auth.token,
-      functionName: "opposition-response-prior-rights",
-      body: { taskId },
-    });
-    const refreshedWorkspace = await invokeProjectFunction({
-      supabaseUrl, apiKey, bearerToken: auth.token,
-      functionName: "opposition-response-workspace",
-      body: { action: "get", taskId },
-    });
-    workspace = refreshedWorkspace.workspace;
-
-    const issueTags = deriveIssueTags(workspace);
-    if (!issueTags.length) issueTags.push("sign_similarity", "goods_services_similarity");
-
-    const research = await invokeProjectFunction({
-      supabaseUrl, apiKey, bearerToken: auth.token,
-      functionName: "legal-research",
-      body: {
-        action: "research",
-        taskId,
-        issueTags,
-        coverageThreshold: 0.78,
-        requireCompleteCoverage: false,
-        minCaseAuthorities: 3,
-        minYargitayAuthorities: 1,
-        minEuAuthorities: 1,
-        allowWebSearch: body?.allowWebSearch !== false,
-        autoVerify: true,
-        forceGuidelineEvidence: true,
-        guidelineEvidenceTags: [
-          "goods_services_similarity", "goods_retail_relation", "sign_similarity",
-          "common_element", "dominant_element", "interdependence"
-        ].filter((tag) => issueTags.includes(tag)),
-        caseContext: buildResearchContext(workspace),
-      },
-    });
-
-    const authorityPack = compactAuthorityPack(research.authorityPack);
-    const propositionIds = arr(authorityPack.propositions).map((p) => p.propositionId).filter(Boolean);
-    const claimIds = arr(workspace.claims).map((c) => text(c.id)).filter(Boolean);
-
-    const { data: run, error: runError } = await supabase.from("opposition_response_runs").insert({
-      response_case_id: workspace.case.id,
-      run_type: "reasoning",
-      status: "running",
-      source_fingerprint: workspace.case.analysis_fingerprint ?? workspace.case.source_fingerprint,
-      model: OPENAI_MODEL,
-      research_run_id: research.researchRunId ?? null,
-      input_payload: { taskId, issueTags, procedureStage: workspace.procedureStage },
-      authority_pack: authorityPack,
-      created_by: auth.id,
-    }).select("id").single();
-    if (runError) throw new Error(`Reasoning run oluşturulamadı: ${runError.message}`);
-
-    try {
-      const result = await callOpenAIJson(
-        buildPrompt(workspace, authorityPack),
-        reasoningSchema(propositionIds, claimIds),
-      );
-
-      const responseClaimIds = new Set(arr(result.parsed?.claimResponses).map((row) => text(row?.claimId)));
-      const missingClaimIds = claimIds.filter((id) => !responseClaimIds.has(id));
-      if (missingClaimIds.length) {
-        throw new HttpError(422, `Hukuki reasoning karşı tarafın ${missingClaimIds.length} iddiasını cevaplamadı; run reddedildi.`);
+      const existing = await findReusableRunningRun(supabase, workspace.case.id, taskId);
+      if (existing) {
+        const phase = runPhase(existing);
+        return json({
+          success: true,
+          packageVersion: PACKAGE_VERSION,
+          runId: existing.id,
+          status: "running",
+          phase,
+          progressMessage: text(existing?.output_payload?.progressMessage) || phaseMessage(phase),
+          resumed: true,
+        }, 202);
       }
 
-      // Deterministic filing-control corrections: model may not override these.
-      result.parsed.proofOfUse = workspace.procedureStage === "publication_opposition"
-        ? {
-            include: workspace.case.proof_of_use_requested === true,
-            instruction: workspace.case.proof_of_use_requested === true
-              ? "Karşı tarafın itirazına dayanak gösterdiği mesnet markaların dayanılan tüm mal ve hizmetleri bakımından kullanım ispatı talep edilecektir."
-              : "Kullanım ispatı talebi filing instruction olarak verilmemiştir.",
-          }
-        : {
-            include: false,
-            instruction: "YİDK karşı görüş aşamasında yeni kullanım ispatı talebi oluşturulmayacaktır.",
-          };
+      const issueTags = deriveIssueTags(workspace);
+      if (!issueTags.length) issueTags.push("sign_similarity", "goods_services_similarity");
+      const guidelineTags = GUIDELINE_PHASE_ORDER.filter((tag) => issueTags.includes(tag));
+      const initialFingerprint = await reasoningInputFingerprint(workspace);
+      const nowIso = new Date().toISOString();
+      const initialProgress = issueTags.length
+        ? `Doğrulanmış hukuk corpus'u taranıyor (1/${issueTags.length}): ${issueTags[0]}`
+        : phaseMessage("research_corpus");
 
-      await supabase.from("opposition_response_cases").update({
-        current_reasoning: result.parsed,
-        current_research_run_id: research.researchRunId ?? null,
-        status: "analysis",
-        current_draft: null,
-        current_draft_structured: null,
-        qa_report: null,
-        updated_by: auth.id,
-      }).eq("id", workspace.case.id);
+      const { data: run, error: runError } = await supabase
+        .from("opposition_response_runs")
+        .insert({
+          response_case_id: workspace.case.id,
+          run_type: "reasoning",
+          status: "running",
+          source_fingerprint: currentSourceFingerprint(workspace),
+          model: OPENAI_MODEL,
+          research_run_id: null,
+          input_payload: {
+            taskId,
+            procedureStage: workspace.procedureStage,
+            phase: "research_corpus",
+            asyncOrchestratorVersion: PACKAGE_VERSION,
+            allowWebSearch: body?.allowWebSearch !== false,
+            reasoningInputFingerprint: initialFingerprint,
+            issueTags,
+            guidelineTags,
+            corpusCursor: 0,
+            guidelineCursor: 0,
+            startedAt: nowIso,
+          },
+          output_payload: {
+            phase: "research_corpus",
+            progressMessage: initialProgress,
+            startedAt: nowIso,
+          },
+          created_by: auth.id,
+        })
+        .select("id")
+        .single();
 
-      await supabase.from("opposition_response_runs").update({
-        status: "completed",
-        output_payload: { responseId: result.responseId, reasoning: result.parsed },
-        completed_at: new Date().toISOString(),
-      }).eq("id", run.id);
+      if (runError) throw new Error(`Reasoning run oluşturulamadı: ${runError.message}`);
 
       return json({
         success: true,
         packageVersion: PACKAGE_VERSION,
         runId: run.id,
-        researchRunId: research.researchRunId ?? null,
-        reasoning: result.parsed,
-        authorityPack,
-      });
-    } catch (error) {
-      await supabase.from("opposition_response_runs").update({
-        status: "failed",
-        error_message: error instanceof Error ? error.message : String(error),
-        completed_at: new Date().toISOString(),
-      }).eq("id", run.id);
-      throw error;
+        status: "running",
+        phase: "research_corpus",
+        progressMessage: initialProgress,
+        resumed: false,
+      }, 202);
     }
+
+    if (action === "status") {
+      const runId = text(body?.runId);
+      if (!runId) throw new HttpError(400, "runId zorunludur.");
+
+      const { data: run, error: runError } = await supabase
+        .from("opposition_response_runs")
+        .select("*")
+        .eq("id", runId)
+        .eq("run_type", "reasoning")
+        .maybeSingle();
+      if (runError) throw new Error(`Reasoning run okunamadı: ${runError.message}`);
+      if (!run) throw new HttpError(404, "Reasoning run bulunamadı.");
+
+      const { data: caseRow, error: caseError } = await supabase
+        .from("opposition_response_cases")
+        .select("id,task_id")
+        .eq("id", run.response_case_id)
+        .maybeSingle();
+      if (caseError) throw new Error(`Response case okunamadı: ${caseError.message}`);
+      if (!caseRow || text(caseRow.task_id) !== taskId) {
+        throw new HttpError(404, "Reasoning run bu göreve ait değil.");
+      }
+
+      if (run.status === "failed") {
+        throw new HttpError(409, text(run.error_message) || "Hukuki analiz başarısız oldu.");
+      }
+      if (run.status === "completed") {
+        return json({
+          success: true,
+          packageVersion: PACKAGE_VERSION,
+          runId,
+          status: "completed",
+          phase: "completed",
+          reasoning: run?.output_payload?.reasoning ?? null,
+          researchRunId: run?.research_run_id ?? null,
+          progressMessage: phaseMessage("completed"),
+        });
+      }
+
+      const phase = runPhase(run);
+
+      if (phase !== "reasoning") {
+        try {
+          const result = await advanceResearchPhase({
+            supabase, supabaseUrl, apiKey, auth, taskId, run,
+          });
+          return json({
+            success: true,
+            packageVersion: PACKAGE_VERSION,
+            runId,
+            researchRunId: run?.research_run_id ?? null,
+            ...result,
+          }, result.status === "completed" ? 200 : 202);
+        } catch (error) {
+          await markRunFailed(supabase, runId, error, obj(run?.output_payload));
+          throw error;
+        }
+      }
+
+      const workspace = await getWorkspace(supabaseUrl, apiKey, auth.token, taskId);
+      validateWorkspaceForReasoning(workspace);
+      await assertRunInputsStillCurrent(run, workspace);
+
+      const responseId = text(run?.output_payload?.responseId);
+      if (!responseId) throw new HttpError(409, "Reasoning response ID bulunamadı. Analizi yeniden başlatın.");
+
+      const openAIData = await retrieveOpenAIResponse(responseId);
+      const openAIStatus = text(openAIData?.status) || "unknown";
+      if (openAIStatus === "queued" || openAIStatus === "in_progress") {
+        return json({
+          success: true,
+          packageVersion: PACKAGE_VERSION,
+          runId,
+          status: "running",
+          phase: "reasoning",
+          researchRunId: run?.research_run_id ?? null,
+          openAIStatus,
+          progressMessage: phaseMessage("reasoning"),
+        }, 202);
+      }
+
+      if (openAIStatus !== "completed") {
+        const reason = text(
+          openAIData?.error?.message ??
+          openAIData?.incomplete_details?.reason ??
+          `OpenAI reasoning tamamlanamadı: ${openAIStatus}`,
+        );
+        const failure = new HttpError(502, reason);
+        await markRunFailed(supabase, runId, failure, {
+          ...obj(run?.output_payload), openAIStatus,
+        });
+        throw failure;
+      }
+
+      try {
+        const finalized = await finalizeReasoning({
+          supabase,
+          run,
+          workspace,
+          authorityPack: obj(run?.authority_pack),
+          openAIData,
+          currentUserId: auth.id,
+        });
+        return json({
+          success: true,
+          packageVersion: PACKAGE_VERSION,
+          runId,
+          status: "completed",
+          phase: "completed",
+          researchRunId: run?.research_run_id ?? null,
+          reasoning: finalized.parsed,
+          authorityPack: finalized.authorityPack,
+          progressMessage: phaseMessage("completed"),
+        });
+      } catch (error) {
+        await markRunFailed(supabase, runId, error, {
+          ...obj(run?.output_payload), openAIStatus,
+        });
+        throw error;
+      }
+    }
+
+    throw new HttpError(400, "action yalnız start veya status olabilir.");
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 500;
     console.error("[opposition-response-reasoning]", error);
-    return json({ success: false, packageVersion: PACKAGE_VERSION, error: error instanceof Error ? error.message : String(error) }, status);
+    return json({
+      success: false,
+      packageVersion: PACKAGE_VERSION,
+      error: error instanceof Error ? error.message : String(error),
+    }, status);
   }
 });

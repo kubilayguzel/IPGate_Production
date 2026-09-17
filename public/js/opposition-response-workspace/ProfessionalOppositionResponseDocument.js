@@ -2,7 +2,7 @@ import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
 import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
 
 const DEFAULT_TEMPLATE_URL =
-    './templates/itiraza-karsi-gorus-dilekce-taslagi.docx';
+    'https://kadxvkejzctwymzeyrrl.supabase.co/storage/v1/object/public/templates/itiraza-karsi-gorus-dilekce-taslagi.docx';
 const DOCUMENT_MARKER = '[[EVREKA_DOCUMENT_BODY]]';
 const WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -19,10 +19,38 @@ export class ProfessionalOppositionResponseDocument {
             throw new Error('Word çıktısı için dilekçe metni bulunamadı.');
         }
 
-        const response = await fetch(`${this.templateUrl}?responseStudio=1`, { cache: 'no-store' });
-        if (!response.ok) throw new Error('Word şablonu indirilemedi.');
+        const separator = this.templateUrl.includes('?') ? '&' : '?';
+        const templateRequestUrl = `${this.templateUrl}${separator}responseStudio=1`;
+        const response = await fetch(templateRequestUrl, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Word şablonu indirilemedi (HTTP ${response.status}). URL: ${this.templateUrl}`);
+        }
 
-        const zip = new PizZip(await response.arrayBuffer());
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        const templateBuffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(templateBuffer);
+        const hasZipMagic = bytes.length >= 4 &&
+            bytes[0] === 0x50 && bytes[1] === 0x4b &&
+            bytes[2] === 0x03 && bytes[3] === 0x04;
+
+        if (!hasZipMagic) {
+            const likelyFallback = contentType.includes('text/html') ||
+                contentType.includes('application/json') ||
+                contentType.includes('text/plain');
+            throw new Error(
+                `Word şablonu geçerli bir DOCX/ZIP değil. ` +
+                `URL: ${this.templateUrl}; Content-Type: ${contentType || 'bilinmiyor'}; ` +
+                `Boyut: ${bytes.length} byte.` +
+                (likelyFallback ? ' Sunucu büyük olasılıkla DOCX yerine HTML/JSON fallback döndürdü.' : '')
+            );
+        }
+
+        let zip;
+        try {
+            zip = new PizZip(templateBuffer);
+        } catch (error) {
+            throw new Error(`Word şablonu açılamadı: ${error?.message || String(error)}`);
+        }
         let xml = zip.file('word/document.xml')?.asText();
         if (!xml) throw new Error('Word şablonunun document.xml dosyası bulunamadı.');
         if (!xml.includes(DOCUMENT_MARKER)) {

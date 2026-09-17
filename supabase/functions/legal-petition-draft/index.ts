@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 const PACKAGE_VERSION = "6.1.6";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
 const SCOPE_QA_POLICY_VERSION = "6.1.11.2";
+const AUTHORITY_NARRATIVE_POLICY_VERSION = "6.1.12";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_PETITION_MODEL") ??
@@ -978,6 +979,9 @@ Kılavuzda somut işaret yapısına yakın verified örnek/proposition varsa quo
 MAL/HİZMET KARŞILAŞTIRMASI
 - Sınıf başlığı tek başına sonuç değildir; item'lar ve gerçek ilişki tartışılmalıdır.
 - Kılavuzdaki benzer somut kıyaslama/örnek verified proposition olarak mevcutsa özellikle kullan.
+- "Kılavuz karşılaştırma örneği:" proposition'ı mevcutsa, aynı Nice sınıf çiftine ilişkin örnekte hangi mal/hizmetlerin karşılaştırıldığını ve Kılavuzun hangi benzerlik derecesi/sonucuna ulaştığını paragraph.text içinde açıkla; sadece sayfa/başlık atfıyla yetinme.
+- Bu proposition quoteSafe ise quotePropositionIds ile seçmeye öncelik ver; exact alıntıyı renderer ekleyecektir.
+- Kılavuz örneği ile somut mal/hizmetler birebir aynı değilse "Kılavuz örneği aynı sınıf çifti bakımından yol göstericidir" mantığıyla dikkatli analoji kur; sonucu mekanik kopyalama.
 - "Aynı" veya "yüksek/orta/düşük" lawyer finding'i varsa tekrarlamakla yetinme; düzeyi destekleyen hukukî kriterleri anlat.
 - Manuel seviye yoksa reasoning memorandumun yaptığı bağımsız hukuki kıyası dilekçeye taşı.
 
@@ -1511,6 +1515,28 @@ function courtDecisionLabel(
   );
 }
 
+function cleanPropositionNarrative(
+  value,
+) {
+  return normalizeText(value)
+    .replace(/^Kılavuz karşılaştırma örneği:\s*/i, "")
+    .replace(/[.;:]\s*$/, "")
+    .trim();
+}
+
+function isGuidelineComparisonProposition(
+  proposition,
+) {
+  return (
+    isGuidelineProposition(proposition) &&
+    /^Kılavuz karşılaştırma örneği:/i.test(
+      normalizeText(
+        proposition?.propositionText,
+      ),
+    )
+  );
+}
+
 function authorityNarrativeSentence(
   proposition,
   useQuote,
@@ -1518,6 +1544,11 @@ function authorityNarrativeSentence(
   const quote =
     normalizeText(
       proposition?.verifiedQuote,
+    );
+
+  const propositionNarrative =
+    cleanPropositionNarrative(
+      proposition?.propositionText,
     );
 
   if (
@@ -1532,15 +1563,20 @@ function authorityNarrativeSentence(
         proposition?.quoteLocator,
       );
 
+    const substance =
+      propositionNarrative
+        ? `Nitekim ${locator} bölümünde ${propositionNarrative} açıklanmaktadır.`
+        : `Bu yaklaşım, ${locator} bölümündeki açıklamalarla da desteklenmektedir.`;
+
     if (
       useQuote &&
       proposition?.quoteSafe === true &&
       quote
     ) {
-      return `Nitekim ${locator} bölümünde, “${quote}” açıklamasına yer verilmiştir.`;
+      return `${substance} Kılavuzda bu husus, “${quote}” şeklinde ifade edilmiştir.`;
     }
 
-    return `Bu yaklaşım, ${locator} bölümündeki açıklamalarla da desteklenmektedir.`;
+    return substance;
   }
 
   const label =
@@ -1552,15 +1588,20 @@ function authorityNarrativeSentence(
     return "";
   }
 
+  const substance =
+    propositionNarrative
+      ? `${label} sayılı kararda ${propositionNarrative} kabul edilmiştir.`
+      : `Aynı hukuki ölçüt, ${label} sayılı kararda benimsenen yaklaşımla da uyumludur.`;
+
   if (
     useQuote &&
     proposition?.quoteSafe === true &&
     quote
   ) {
-    return `Nitekim ${label} sayılı kararda, “${quote}” denilmektedir.`;
+    return `${substance} Kararda, “${quote}” denilmektedir.`;
   }
 
-  return `Aynı hukuki ölçüt, ${label} sayılı kararda benimsenen yaklaşımla da uyumludur.`;
+  return substance;
 }
 
 function renderPetition({
@@ -1627,6 +1668,14 @@ function renderPetition({
 
   const quoteLayerPriority =
     (proposition) => {
+      if (
+        isGuidelineComparisonProposition(
+          proposition,
+        )
+      ) {
+        return 0;
+      }
+
       if (
         isGuidelineProposition(
           proposition,
@@ -2734,6 +2783,8 @@ function validateStructuredDraft({
       ADVOCACY_POLICY_VERSION,
     scopeQaPolicyVersion:
       SCOPE_QA_POLICY_VERSION,
+    authorityNarrativePolicyVersion:
+      AUTHORITY_NARRATIVE_POLICY_VERSION,
     checkedAt:
       new Date()
         .toISOString(),

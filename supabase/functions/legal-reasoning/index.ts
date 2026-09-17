@@ -5,6 +5,7 @@ const PACKAGE_VERSION = "6.1.6";
 const INPUT_POLICY_VERSION = "6.1.10";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
 const SCOPE_GATE_POLICY_VERSION = "6.1.11.1";
+const GUIDELINE_COMPARISON_POLICY_VERSION = "6.1.12";
 
 const OPENAI_MODEL =
   Deno.env.get("LEGAL_REASONING_MODEL") ??
@@ -627,6 +628,45 @@ function deriveIssueTags(
   ];
 }
 
+function groupPriorRightsGoodsForResearch(
+  priorRights,
+) {
+  const grouped = new Map();
+
+  for (const right of safeArray(priorRights)) {
+    const markText = normalizeText(right?.markText);
+
+    for (const cls of safeArray(right?.classes)) {
+      const classNo = Number(cls?.classNo);
+      if (!Number.isInteger(classNo) || classNo < 1 || classNo > 45) continue;
+
+      const existing = grouped.get(classNo) ?? {
+        classNo,
+        markTexts: new Set(),
+        items: new Set(),
+      };
+
+      if (markText) existing.markTexts.add(markText);
+
+      for (const item of safeArray(cls?.items)) {
+        const text = normalizeText(item);
+        if (text) existing.items.add(text);
+        if (existing.items.size >= 180) break;
+      }
+
+      grouped.set(classNo, existing);
+    }
+  }
+
+  return [...grouped.values()]
+    .sort((a, b) => a.classNo - b.classNo)
+    .map((row) => ({
+      classNo: row.classNo,
+      markTexts: [...row.markTexts].slice(0, 20),
+      items: [...row.items].slice(0, 180),
+    }));
+}
+
 function canonicalToResearchContext(
   canonical,
 ) {
@@ -816,7 +856,12 @@ function canonicalToResearchContext(
               }),
             ),
         )
-        .slice(0, 40),
+        .slice(0, 80),
+
+    priorGoodsClassGroups:
+      groupPriorRightsGoodsForResearch(
+        priorRights,
+      ),
   };
 }
 
@@ -1684,6 +1729,11 @@ AUTHORITY RULES
 - Do not write case numbers/ECLI/Yargıtay E.-K. references in free prose. Authority identity will be deterministically attached after your output.
 - Authority Pack'te quoteSafe=true + verifiedQuote bulunan proposition, dilekçe katmanında güvenli doğrudan alıntı yüzeyidir. Kritik bir meselede alıntı gerçekten argümanı güçlendirecekse authorityApplications.quoteRecommendation="use_if_verified" de.
 - Özellikle Kılavuz proposition'ında somut mal/hizmet veya işaret kıyaslama örneği bulunuyorsa ve somut dosyayla anlamlı ölçüde örtüşüyorsa bunu draftingInstructions içinde açıkça öne çıkar.
+- GUIDELINE GOODS COMPARISON — ${GUIDELINE_COMPARISON_POLICY_VERSION}: propositionText "Kılavuz karşılaştırma örneği:" ile başlıyor ve aynı Nice sınıf çiftini gösteriyorsa bunu mal/hizmet analizinde yüksek değerli yerel uygulama örneği olarak ele al.
+- Kılavuz örneğinin karşılaştırdığı mal/hizmetleri ve verdiği benzerlik derecesini/sonucunu açıkça memorandumda anlat; yalnız sayfa/başlık referansı verme.
+- Manuel similarityLevel varsa Kılavuz derecesi avukat seviyesini DEĞİŞTİREMEZ. Uyumluysa destekle; farklıysa malların/hizmetlerin somut kapsam farkını açıklayarak örneği ayırt et.
+- Manuel similarityLevel yoksa aynı sınıf çiftine ait Kılavuz örneği güçlü bir yerel referanstır; fakat Kılavuzdaki örnek mal/hizmet metni somut dosyayla aynı değilse sonucu mekanik olarak kopyalama.
+- Aynı sınıf çiftine ait quoteSafe Kılavuz örneği mevcutsa authorityApplications.quoteRecommendation="use_if_verified" seçimine güçlü öncelik ver.
 - Distinguish DIRECT authority, ANALOGICAL use, and LIMITING authority.
 - For core issues, use a LAYERED authority method when the supplied pack permits it:
   (a) TÜRKPATENT Marka İnceleme Kılavuzu for local examination doctrine,

@@ -3,6 +3,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const PACKAGE_VERSION = "6.1.6";
 const ADVOCACY_POLICY_VERSION = "6.1.11";
+const GUIDELINE_COMPARISON_POLICY_VERSION = "6.1.12";
+const GUIDELINE_PAIR_MATCH_THRESHOLD = Number(
+  Deno.env.get("GUIDELINE_PAIR_MATCH_THRESHOLD") ?? "0.32",
+);
+const GUIDELINE_PAIR_MATCH_COUNT = Math.max(
+  6,
+  Math.min(14, Number(Deno.env.get("GUIDELINE_PAIR_MATCH_COUNT") ?? "10") || 10),
+);
+const GUIDELINE_PAIR_MAX_TARGETS = Math.max(
+  1,
+  Math.min(10, Number(Deno.env.get("GUIDELINE_PAIR_MAX_TARGETS") ?? "6") || 6),
+);
 const RESEARCH_MODEL = Deno.env.get("LEGAL_RESEARCH_MODEL") ?? "gemini-3.8-flash";
 const EMBEDDING_MODEL = Deno.env.get("GEMINI_EMBEDDING_MODEL") ?? "gemini-embedding-2";
 const GUIDELINE_SOURCE_KEY =
@@ -116,6 +128,53 @@ const EXTRACTION_SCHEMA = {
     "supportSummary",
     "quoteText",
     "issueTags",
+    "confidence",
+  ],
+};
+
+const GUIDELINE_GOODS_COMPARISON_SCHEMA = {
+  type: "object",
+  properties: {
+    supported: { type: "boolean" },
+    sourceChunkId: { type: "string" },
+    sourceClassA: { type: "integer" },
+    sourceClassB: { type: "integer" },
+    classPairMatch: { type: "boolean" },
+    comparedItemA: { type: "string" },
+    comparedItemB: { type: "string" },
+    similarityDegree: {
+      type: "string",
+      enum: [
+        "identical",
+        "high",
+        "medium",
+        "low",
+        "none",
+        "not_expressly_graded",
+      ],
+    },
+    comparisonResult: { type: "string" },
+    comparisonCriteria: {
+      type: "array",
+      items: { type: "string" },
+    },
+    propositionText: { type: "string" },
+    quoteText: { type: "string" },
+    confidence: { type: "number" },
+  },
+  required: [
+    "supported",
+    "sourceChunkId",
+    "sourceClassA",
+    "sourceClassB",
+    "classPairMatch",
+    "comparedItemA",
+    "comparedItemB",
+    "similarityDegree",
+    "comparisonResult",
+    "comparisonCriteria",
+    "propositionText",
+    "quoteText",
     "confidence",
   ],
 };
@@ -1300,7 +1359,7 @@ async function authenticate(req, supabaseUrl, anonKey) {
 async function authorityPack(supabase, issueTags) {
   const { data, error } = await supabase.rpc("build_legal_authority_pack", {
     requested_issue_tags: issueTags,
-    max_propositions: 24,
+    max_propositions: 32,
   });
   if (error) throw new Error(`Authority Pack RPC: ${error.message}`);
   return data;
@@ -1467,6 +1526,303 @@ function compactRetrievalText(
   return text.length > max
     ? `${text.slice(0, max)}…`
     : text;
+}
+
+function normalizeClassNo(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 45
+    ? n
+    : null;
+}
+
+function extractMatchedPriorClassNumbers(row) {
+  const result = [];
+
+  for (const raw of safeArray(row?.matchedPriorClasses)) {
+    const text = String(raw ?? "").trim();
+    const match = text.match(/(?:^|:)(\d{1,2})$/);
+    const classNo = normalizeClassNo(match?.[1] ?? text);
+
+    if (classNo && !result.includes(classNo)) {
+      result.push(classNo);
+    }
+  }
+
+  return result;
+}
+
+const GOODS_QUERY_STOPWORDS = new Set([
+  "ve", "veya", "ile", "icin", "için", "bu", "bir", "olan", "olarak",
+  "hizmet", "hizmetleri", "mal", "mallar", "malları", "urun", "ürün",
+  "urunler", "ürünler", "sinif", "sınıf", "dahil", "ilgili", "yonelik",
+  "yönelik", "ait", "her", "turlu", "türlü", "bunlar", "bunların",
+]);
+
+function goodsQueryTokens(value) {
+  return new Set(
+    normalizeText(value)
+      .replace(/[^a-z0-9çğıöşü]+/gi, " ")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(
+        (token) =>
+          token.length >= 3 &&
+          !GOODS_QUERY_STOPWORDS.has(token),
+      ),
+  );
+}
+
+function goodsLexicalOverlap(left, right) {
+  const a = goodsQueryTokens(left);
+  const b = goodsQueryTokens(right);
+
+  if (!a.size || !b.size) return 0;
+
+  let common = 0;
+  for (const token of a) {
+    if (b.has(token)) common += 1;
+  }
+
+  return common / Math.max(1, Math.min(a.size, b.size));
+}
+
+function groupedPriorGoods(caseContext) {
+  const ctx = safeCaseContext(caseContext);
+  const grouped = new Map();
+
+  const preferredGroups = safeArray(ctx?.priorGoodsClassGroups);
+
+  if (preferredGroups.length) {
+    for (const row of preferredGroups) {
+      const classNo = normalizeClassNo(row?.classNo);
+      if (!classNo) continue;
+
+      grouped.set(classNo, {
+        classNo,
+        text: compactRetrievalText(
+          safeArray(row?.items).join("; "),
+          2600,
+        ),
+        markTexts: uniqueStrings(row?.markTexts),
+      });
+    }
+
+    return grouped;
+  }
+
+  for (const row of safeArray(ctx?.priorGoodsByClass)) {
+    const classNo = normalizeClassNo(row?.classNo);
+    if (!classNo) continue;
+
+    const existing = grouped.get(classNo) ?? {
+      classNo,
+      items: [],
+      markTexts: [],
+    };
+
+    existing.items.push(...safeArray(row?.items).map(String));
+    if (row?.markText) existing.markTexts.push(String(row.markText));
+    grouped.set(classNo, existing);
+  }
+
+  for (const [classNo, row] of grouped.entries()) {
+    grouped.set(classNo, {
+      classNo,
+      text: compactRetrievalText(uniqueStrings(row.items).join("; "), 2600),
+      markTexts: uniqueStrings(row.markTexts),
+    });
+  }
+
+  return grouped;
+}
+
+function guidelineComparisonTargets(caseContext) {
+  const ctx = safeCaseContext(caseContext);
+  const decisionTree = safeObject(ctx?.canonicalDecisionTree);
+  const goodsRows = safeArray(decisionTree?.goodsAssessments)
+    .filter((row) => row?.requestedRefusal === true);
+
+  const opponentMap = new Map(
+    safeArray(ctx?.opponentGoodsByClass)
+      .map((row) => [normalizeClassNo(row?.classNo), row])
+      .filter(([classNo]) => Boolean(classNo)),
+  );
+
+  const priorMap = groupedPriorGoods(ctx);
+  const targets = new Map();
+
+  const upsertTarget = ({
+    opponentClassNo,
+    priorClassNo,
+    priority,
+    reason,
+    manualSimilarity,
+    criteria,
+  }) => {
+    const opponent = opponentMap.get(opponentClassNo);
+    const prior = priorMap.get(priorClassNo);
+
+    if (!opponent || !prior) return;
+
+    const key = `${opponentClassNo}:${priorClassNo}`;
+    const candidate = {
+      key,
+      opponentClassNo,
+      priorClassNo,
+      opponentText: compactRetrievalText(opponent?.text, 2200),
+      priorText: compactRetrievalText(prior?.text, 2200),
+      priorMarkTexts: prior?.markTexts ?? [],
+      priority,
+      reason,
+      manualSimilarity: String(manualSimilarity ?? "").trim(),
+      criteria: uniqueStrings(criteria),
+    };
+
+    const existing = targets.get(key);
+    if (!existing || candidate.priority > existing.priority) {
+      targets.set(key, candidate);
+    }
+  };
+
+  const effectiveRows = goodsRows.length
+    ? goodsRows
+    : safeArray(ctx?.opponentGoodsByClass).map((row) => ({
+        opponentClassNo: row?.classNo,
+        requestedRefusal: true,
+      }));
+
+  for (const row of effectiveRows) {
+    const opponentClassNo = normalizeClassNo(row?.opponentClassNo);
+    if (!opponentClassNo || !opponentMap.has(opponentClassNo)) continue;
+
+    const manualPriorClasses = extractMatchedPriorClassNumbers(row);
+
+    for (const priorClassNo of manualPriorClasses) {
+      upsertTarget({
+        opponentClassNo,
+        priorClassNo,
+        priority: 1000,
+        reason: "lawyer_matched_class",
+        manualSimilarity: row?.similarityLevel,
+        criteria: row?.criteria,
+      });
+    }
+
+    if (priorMap.has(opponentClassNo)) {
+      upsertTarget({
+        opponentClassNo,
+        priorClassNo: opponentClassNo,
+        priority: 900,
+        reason: "same_nice_class",
+        manualSimilarity: row?.similarityLevel,
+        criteria: row?.criteria,
+      });
+    }
+
+    const opponentText = String(opponentMap.get(opponentClassNo)?.text ?? "");
+    const lexicalCandidates = [];
+
+    for (const [priorClassNo, prior] of priorMap.entries()) {
+      if (manualPriorClasses.includes(priorClassNo)) continue;
+
+      const lexicalScore = goodsLexicalOverlap(opponentText, prior?.text ?? "");
+      const retailBoost =
+        (
+          opponentClassNo === 35 &&
+          priorClassNo >= 1 &&
+          priorClassNo <= 34
+        ) ||
+        (
+          priorClassNo === 35 &&
+          opponentClassNo >= 1 &&
+          opponentClassNo <= 34
+        )
+          ? 0.24
+          : 0;
+
+      lexicalCandidates.push({
+        priorClassNo,
+        lexicalScore,
+        combinedScore: lexicalScore + retailBoost,
+        retailBoost,
+      });
+    }
+
+    lexicalCandidates
+      .sort((a, b) => b.combinedScore - a.combinedScore)
+      .slice(0, manualPriorClasses.length ? 1 : 2)
+      .forEach((candidate, index) => {
+        if (
+          candidate.combinedScore < 0.08 &&
+          candidate.retailBoost === 0
+        ) {
+          return;
+        }
+
+        upsertTarget({
+          opponentClassNo,
+          priorClassNo: candidate.priorClassNo,
+          priority:
+            520 +
+            Math.round(candidate.combinedScore * 250) -
+            index,
+          reason:
+            candidate.retailBoost > 0
+              ? "goods_retail_or_lexical_relation"
+              : "lexical_goods_relation",
+          manualSimilarity: row?.similarityLevel,
+          criteria: row?.criteria,
+        });
+      });
+  }
+
+  return [...targets.values()]
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, GUIDELINE_PAIR_MAX_TARGETS);
+}
+
+function guidelineDegreeLabel(value) {
+  const labels = {
+    identical: "aynı",
+    high: "yüksek derecede benzer",
+    medium: "orta derecede benzer",
+    low: "düşük derecede benzer",
+    none: "benzer değil",
+    not_expressly_graded: "açık bir derece verilmeden ilişkilendirilmiş",
+  };
+
+  return labels[String(value ?? "")] ?? "açık bir derece belirtilmeden değerlendirilmiş";
+}
+
+function sameUnorderedClassPair(a, b, x, y) {
+  const left = [Number(a), Number(b)].sort((m, n) => m - n).join(":");
+  const right = [Number(x), Number(y)].sort((m, n) => m - n).join(":");
+  return left === right;
+}
+
+function guidelineDegreeSupportedBySource(
+  degree,
+  sourceText,
+) {
+  const normalized = normalizeText(sourceText);
+  const tokens = {
+    identical: ["aynı", "özdeş", "identik"],
+    high: ["yüksek"],
+    medium: ["orta"],
+    low: ["düşük"],
+    none: [
+      "benzer değil",
+      "benzer değildir",
+      "benzer olmadığı",
+      "benzerlik bulunmad",
+    ],
+  };
+
+  if (degree === "not_expressly_graded") return true;
+
+  return safeArray(tokens[degree]).some((token) =>
+    normalized.includes(normalizeText(token))
+  );
 }
 
 function guidelineCaseRetrievalHint(
@@ -1786,6 +2142,329 @@ ${sourceText}
   );
 
   return { propositionId: proposition.id, issueTags };
+}
+
+async function enrichOneGuidelineGoodsComparison(
+  supabase,
+  apiKey,
+  target,
+) {
+  const query = [
+    `TÜRKPATENT Marka İnceleme Kılavuzu mal ve hizmet benzerliği karşılaştırma örneği`,
+    `Sınıf ${target.opponentClassNo} ile Sınıf ${target.priorClassNo} karşılaştırması`,
+    `Rakip sınıf ${target.opponentClassNo}: ${compactRetrievalText(target.opponentText, 1400)}`,
+    `Müstenit sınıf ${target.priorClassNo}: ${compactRetrievalText(target.priorText, 1400)}`,
+    target.manualSimilarity
+      ? `Avukat benzerlik seviyesi: ${target.manualSimilarity}`
+      : "",
+    target.criteria?.length
+      ? `Avukat kriterleri: ${target.criteria.join(", ")}`
+      : "",
+  ].filter(Boolean).join("\n");
+
+  const embedding = await createEmbedding(apiKey, query);
+
+  const { data: chunks, error } = await supabase.rpc(
+    "match_verified_legal_source_chunks_6_1_2",
+    {
+      query_embedding: embedding,
+      match_threshold: GUIDELINE_PAIR_MATCH_THRESHOLD,
+      match_count: GUIDELINE_PAIR_MATCH_COUNT,
+      source_key_filter: GUIDELINE_SOURCE_KEY,
+    },
+  );
+
+  if (error) {
+    throw new Error(
+      `Guideline pair retrieval ${target.key}: ${error.message}`,
+    );
+  }
+
+  const candidates = safeArray(chunks);
+  if (!candidates.length) return null;
+
+  const sourceText = candidates.map((chunk, i) => [
+    `SOURCE_${i + 1}`,
+    `chunkId: ${chunk.chunk_id}`,
+    `source: ${chunk.citation_label ?? chunk.source_title}`,
+    `page: ${chunk.page_from ?? "-"}`,
+    `heading: ${chunk.section_title ?? "-"}`,
+    `similarity: ${Number(chunk.similarity ?? 0).toFixed(4)}`,
+    "TEXT:",
+    String(chunk.content ?? "").slice(0, 3600),
+  ].join("\n")).join("\n\n----------------\n\n");
+
+  const result = await callGeminiJson(apiKey, {
+    schema: GUIDELINE_GOODS_COMPARISON_SCHEMA,
+    thinkingLevel: "low",
+    maxOutputTokens: 4200,
+    systemInstruction: `
+Sen EVREKA'nın TÜRKPATENT Marka İnceleme Kılavuzu mal/hizmet karşılaştırma örneği çıkarım katmanısın.
+
+AMAÇ:
+Somut dosyada Sınıf ${target.opponentClassNo} ile Sınıf ${target.priorClassNo} karşılaştırılıyor.
+Verilen VERIFIED CORPUS parçalarında TAM AYNI SINIF ÇİFTİNE ilişkin somut bir Kılavuz kıyaslaması varsa onu yapılandır.
+
+KESİN KURALLAR:
+- Yalnız SOURCE metnini kullan.
+- sourceClassA/sourceClassB Kılavuz örneğinde açıkça karşılaştırılan Nice sınıfları olsun.
+- classPairMatch=true YALNIZ ${target.opponentClassNo}↔${target.priorClassNo} sınıf çifti kaynakta açıkça mevcutsa verilebilir.
+- Aynı sınıf numarasının yalnız başlıkta geçmesi yeterli değildir; iki taraflı bir mal/hizmet karşılaştırması veya örnek sonucu bulunmalıdır.
+- similarityDegree yalnız kaynakta açıkça ifade edilen dereceyi yansıtsın. Kaynak derece vermiyorsa not_expressly_graded kullan.
+- comparedItemA/comparedItemB kaynakta karşılaştırılan mal/hizmet örneklerini kısa ve sadık biçimde taşısın.
+- comparisonResult Kılavuzun örnek sonucunu açıklasın; somut dosya hakkında sonuç yazma.
+- propositionText Kılavuzdaki örneği ve varsa benzerlik derecesini anlatan dar bir hukukî proposition olsun. Somut dosyanın aynı derecede olduğunu söyleme.
+- quoteText yalnız seçilen SOURCE içinde AYNEN geçen, örnek sonucu/dereceyi en iyi gösteren 8-45 kelimelik pasaj olsun. Uygun exact pasaj yoksa boş string.
+- Tam aynı sınıf çifti yoksa supported=false döndür; yakın ama farklı sınıf örneğini bu fonksiyonda kabul etme.
+`.trim(),
+    prompt: `
+TARGET COMPARISON
+${JSON.stringify(target)}
+
+VERIFIED CORPUS
+${sourceText}
+`.trim(),
+  });
+
+  const extracted = safeObject(result?.parsed);
+  if (
+    extracted?.supported !== true ||
+    extracted?.classPairMatch !== true ||
+    !sameUnorderedClassPair(
+      extracted?.sourceClassA,
+      extracted?.sourceClassB,
+      target.opponentClassNo,
+      target.priorClassNo,
+    )
+  ) {
+    return null;
+  }
+
+  const chunk = candidates.find(
+    (item) => String(item.chunk_id) === String(extracted.sourceChunkId),
+  );
+  if (!chunk) return null;
+
+  const confidence = clamp(extracted?.confidence, 0, 1, 0);
+  if (confidence < 0.80) return null;
+
+  const rawProposition = String(extracted?.propositionText ?? "").trim();
+  if (rawProposition.length < 45) return null;
+
+  const degree = String(extracted?.similarityDegree ?? "not_expressly_graded");
+  const propositionText = [
+    `Kılavuz karşılaştırma örneği: Sınıf ${target.opponentClassNo} ↔ Sınıf ${target.priorClassNo}.`,
+    rawProposition,
+    `Kılavuzdaki derece/sonuç: ${guidelineDegreeLabel(degree)}.`,
+  ].join(" ");
+
+  const fullSource = String(chunk.content ?? "").trim();
+
+  if (
+    !guidelineDegreeSupportedBySource(
+      degree,
+      fullSource,
+    )
+  ) {
+    return null;
+  }
+
+  const quoteText = String(extracted?.quoteText ?? "").trim();
+  const quoteSafe =
+    quoteText.length >= 20 &&
+    quoteText.length <= 700 &&
+    normalizeText(fullSource).includes(normalizeText(quoteText));
+
+  const issueTags = ["goods_services_similarity"];
+  if (
+    (
+      target.opponentClassNo === 35 &&
+      target.priorClassNo >= 1 &&
+      target.priorClassNo <= 34
+    ) ||
+    (
+      target.priorClassNo === 35 &&
+      target.opponentClassNo >= 1 &&
+      target.opponentClassNo <= 34
+    )
+  ) {
+    issueTags.push("goods_retail_relation");
+  }
+
+  const authority = await ensureCorpusAuthority(supabase, chunk);
+  const propositionEmbedding = await createEmbedding(apiKey, propositionText);
+  const hash = await sha256Hex(fullSource);
+  const quoteLocator = [
+    chunk.citation_label ?? chunk.source_title,
+    chunk.page_from ? `s. ${chunk.page_from}` : null,
+    chunk.section_title ?? null,
+  ].filter(Boolean).join(", ");
+
+  const pairKey = [target.opponentClassNo, target.priorClassNo]
+    .sort((a, b) => a - b)
+    .join("-");
+
+  const propositionKey = [
+    authority.authority_key,
+    "GUIDELINE-GOODS-PAIR",
+    pairKey,
+    chunk.page_from ?? "NA",
+    chunk.chunk_index ?? "NA",
+  ].join("-").replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 220);
+
+  const { data: proposition, error: propError } = await supabase
+    .from("legal_authority_propositions")
+    .upsert({
+      authority_id: authority.id,
+      proposition_key: propositionKey,
+      proposition_text: propositionText,
+      holding_text: fullSource,
+      source_locator: quoteLocator,
+      page_from: chunk.page_from ?? null,
+      page_to: chunk.page_to ?? chunk.page_from ?? null,
+      legal_issue_tags: uniqueStrings(issueTags),
+      use_for: ["SMK_6_1", ...uniqueStrings(issueTags)],
+      do_not_use_for: ["different_class_pair_without_separate_analysis"],
+      confidence,
+      verified: true,
+      citable: true,
+      quote_safe: quoteSafe,
+      verified_quote: quoteSafe ? quoteText : null,
+      quote_locator: quoteSafe ? quoteLocator : null,
+      quote_source_url: quoteSafe ? (chunk.source_url ?? null) : null,
+      embedding: propositionEmbedding,
+      source_chunk_id: isUuid(chunk.chunk_id) ? chunk.chunk_id : null,
+      source_chunk_index: chunk.chunk_index ?? null,
+      verification_excerpt: fullSource.slice(0, 2200),
+      verification_sha256: hash,
+      verification_method: "verified_guideline_exact_class_pair_example",
+      verified_at: new Date().toISOString(),
+      verified_by: `EVREKA_${PACKAGE_VERSION}`,
+      metadata: {
+        package_version: PACKAGE_VERSION,
+        guideline_comparison_policy_version: GUIDELINE_COMPARISON_POLICY_VERSION,
+        evidence_kind: "guideline_goods_comparison_example",
+        class_pair_key: pairKey,
+        target_opponent_class: target.opponentClassNo,
+        target_prior_class: target.priorClassNo,
+        source_class_a: Number(extracted?.sourceClassA),
+        source_class_b: Number(extracted?.sourceClassB),
+        similarity_degree: degree,
+        compared_item_a: String(extracted?.comparedItemA ?? ""),
+        compared_item_b: String(extracted?.comparedItemB ?? ""),
+        comparison_result: String(extracted?.comparisonResult ?? ""),
+        comparison_criteria: uniqueStrings(extracted?.comparisonCriteria),
+        target_reason: target.reason,
+        target_priority: target.priority,
+        corpus_similarity: chunk.similarity,
+      },
+    }, { onConflict: "authority_id,proposition_key" })
+    .select("id")
+    .single();
+
+  if (propError) {
+    throw new Error(`Guideline pair proposition ${target.key}: ${propError.message}`);
+  }
+
+  return {
+    propositionId: proposition.id,
+    authorityId: authority.id,
+    issueTags: uniqueStrings(issueTags),
+    target,
+    degree,
+    quoteSafe,
+    pageFrom: chunk.page_from ?? null,
+    sectionTitle: chunk.section_title ?? null,
+  };
+}
+
+async function enrichGuidelineGoodsComparisons(
+  supabase,
+  apiKey,
+  caseContext = {},
+) {
+  const targets = guidelineComparisonTargets(caseContext);
+
+  if (!targets.length) {
+    return {
+      propositionIds: [],
+      targets: [],
+      matches: [],
+    };
+  }
+
+  const { data: modules, error } = await supabase
+    .from("legal_modules")
+    .select("id,module_key,legal_issue_tags")
+    .neq("status", "retired")
+    .overlaps("legal_issue_tags", [
+      "goods_services_similarity",
+      "goods_retail_relation",
+    ]);
+
+  if (error) {
+    throw new Error(`Guideline pair modules: ${error.message}`);
+  }
+
+  const matches = [];
+  const concurrency = 2;
+
+  for (let i = 0; i < targets.length; i += concurrency) {
+    const batch = targets.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(
+      batch.map((target) =>
+        enrichOneGuidelineGoodsComparison(
+          supabase,
+          apiKey,
+          target,
+        )
+      ),
+    );
+
+    for (let j = 0; j < settled.length; j += 1) {
+      const result = settled[j];
+      const target = batch[j];
+
+      if (result.status === "rejected") {
+        console.error(
+          `[legal-research] guideline pair skipped ${target.key}`,
+          result.reason,
+        );
+        continue;
+      }
+
+      if (!result.value?.propositionId) continue;
+
+      matches.push(result.value);
+
+      for (const module of safeArray(modules)) {
+        if (
+          !intersect(
+            uniqueStrings(module?.legal_issue_tags),
+            result.value.issueTags,
+          ).length
+        ) {
+          continue;
+        }
+
+        await bindModule(
+          supabase,
+          module.id,
+          result.value.authorityId,
+          result.value.propositionId,
+          0.99,
+        );
+      }
+    }
+  }
+
+  await refreshModules(supabase);
+
+  return {
+    propositionIds: matches.map((item) => item.propositionId),
+    targets,
+    matches,
+  };
 }
 
 async function enrichMissingFromCorpus(
@@ -2502,6 +3181,7 @@ function safeCaseContext(value) {
     "canonicalDecisionTree",
     "opponentGoodsByClass",
     "priorGoodsByClass",
+    "priorGoodsClassGroups",
   ];
 
   const result = {};
@@ -2771,6 +3451,30 @@ serve(async (req) => {
           supabase,
           geminiApiKey,
           initialMissing,
+          caseContext,
+        );
+
+      pack =
+        await authorityPack(
+          supabase,
+          issueTags,
+        );
+    }
+
+    let guidelineGoodsComparison = {
+      propositionIds: [],
+      targets: [],
+      matches: [],
+    };
+
+    if (
+      forceGuidelineEvidence &&
+      issueTags.includes("goods_services_similarity")
+    ) {
+      guidelineGoodsComparison =
+        await enrichGuidelineGoodsComparisons(
+          supabase,
+          geminiApiKey,
           caseContext,
         );
 
@@ -3169,6 +3873,12 @@ serve(async (req) => {
         forceGuidelineEvidence,
         guidelineEvidenceTags,
         advocacyGuidelinePromoted,
+        guidelineGoodsComparisonPolicyVersion:
+          GUIDELINE_COMPARISON_POLICY_VERSION,
+        guidelineGoodsComparisonTargets:
+          guidelineGoodsComparison.targets,
+        guidelineGoodsComparisonMatches:
+          guidelineGoodsComparison.matches,
         webResearchLanes:
           webResult.lanes,
         finalCaseLawGapTags,
@@ -3228,6 +3938,14 @@ serve(async (req) => {
           corpusPromoted,
         advocacyGuidelinePromotedPropositionIds:
           advocacyGuidelinePromoted,
+        guidelineGoodsComparisonPolicyVersion:
+          GUIDELINE_COMPARISON_POLICY_VERSION,
+        guidelineGoodsComparisonPropositionIds:
+          guidelineGoodsComparison.propositionIds,
+        guidelineGoodsComparisonTargets:
+          guidelineGoodsComparison.targets,
+        guidelineGoodsComparisonMatches:
+          guidelineGoodsComparison.matches,
         guidelineEvidenceTags,
         forceGuidelineEvidence,
       },

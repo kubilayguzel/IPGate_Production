@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPGATE - İtiraza Karşı Görüş Studio</title>
+
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="./css/shared-styles.css">
+    <link rel="stylesheet" href="./css/task-update.css">
+    <link rel="stylesheet" href="./css/opposition-workspace.css">
+    <link rel="stylesheet" href="./css/opposition-response-workspace.css">
+</head>
+<body>
+    <div id="notification-container" class="response-notification-container"></div>
+    <div id="layout-placeholder"></div>
+
+    <div class="page-wrapper">
+        <main class="response-studio-page">
+            <section class="response-studio-header">
+                <div>
+                    <div class="response-eyebrow">EVREKA · OPPOSITION RESPONSE STUDIO</div>
+                    <div class="response-title-row">
+                        <div>
+                            <h1 id="responseStudioTitle">İtiraza Karşı Görüş Çalışma Alanı</h1>
+                            <div id="responseStudioSubtitle" class="response-subtitle">Dosya hazırlanıyor...</div>
+                        </div>
+                        <div class="response-header-actions">
+                            <a href="./my-tasks.html" class="btn btn-light border">
+                                <i class="fas fa-arrow-left mr-2"></i> İşlerime Dön
+                            </a>
+                            <a id="responseTaskDetailLink" href="#" target="_blank" rel="noopener" class="btn btn-outline-primary">
+                                <i class="fas fa-external-link-alt mr-2"></i> İş Detayı
+                            </a>
+                        </div>
+                    </div>
+                    <div id="responseCaseMeta" class="response-meta-row"></div>
+                </div>
+            </section>
+
+            <section class="response-studio-shell">
+                <nav class="response-nav" aria-label="İtiraza karşı görüş çalışma aşamaları">
+                    <button type="button" class="response-nav-item is-active" data-stage="sources">
+                        <span class="response-nav-number">1</span>
+                        <span><strong>Kaynak Dosya</strong><small>Tebligat · EPATS · dilekçe</small></span>
+                        <span class="response-nav-status" data-stage-status="sources">—</span>
+                    </button>
+                    <button type="button" class="response-nav-item" data-stage="claims">
+                        <span class="response-nav-number">2</span>
+                        <span><strong>İtiraz Analizi</strong><small>Taraflar · mesnetler · iddialar</small></span>
+                        <span class="response-nav-status" data-stage-status="claims">—</span>
+                    </button>
+                    <button type="button" class="response-nav-item" data-stage="findings">
+                        <span class="response-nav-number">3</span>
+                        <span><strong>Savunma Bulguları</strong><small>Opsiyonel lawyer findings</small></span>
+                        <span class="response-nav-status" data-stage-status="findings">—</span>
+                    </button>
+                    <button type="button" class="response-nav-item" data-stage="draft">
+                        <span class="response-nav-number">4</span>
+                        <span><strong>Karşı Görüş</strong><small>Research · Sol · QA · Word</small></span>
+                        <span class="response-nav-status" data-stage-status="draft">—</span>
+                    </button>
+                </nav>
+
+                <div class="response-body">
+                    <section class="response-stage is-active" data-stage-panel="sources">
+                        <div class="response-stage-heading">
+                            <div>
+                                <div class="response-kicker">ADIM 1 / 4</div>
+                                <h2>Kaynak Belgeler ve Usul Aşaması</h2>
+                                <p>Dosya kullanıcı tarafından yeniden tarif edilmez. Sistem indekslenmiş belgeleri ve işlem soy ağacını kendisi çözer.</p>
+                            </div>
+                            <span id="responseBundleBadge" class="response-badge">Yükleniyor</span>
+                        </div>
+                        <div id="responseSourcesMount"></div>
+                    </section>
+
+                    <section class="response-stage" data-stage-panel="claims">
+                        <div class="response-stage-heading">
+                            <div>
+                                <div class="response-kicker">ADIM 2 / 4</div>
+                                <h2>Karşı Tarafın İtiraz Haritası</h2>
+                                <p>Taraf bilgisi, mesnet markalar ve iddialar kaynak belgelerden çıkarılır. AI eksik bırakırsa avukat mesnet marka ekleyebilir.</p>
+                            </div>
+                        </div>
+                        <div id="responseClaimsMount"></div>
+                    </section>
+
+                    <section class="response-stage" data-stage-panel="findings">
+                        <div class="response-stage-heading">
+                            <div>
+                                <div class="response-kicker">ADIM 3 / 4</div>
+                                <h2>Savunma Bulguları</h2>
+                                <p>Alanlar opsiyoneldir. Boş alanlarda AI bağımsız hukuki değerlendirme yapar; girilen avukat bulguları bağlayıcıdır.</p>
+                            </div>
+                        </div>
+                        <div id="responseFindingsMount"></div>
+                    </section>
+
+                    <section class="response-stage" data-stage-panel="draft">
+                        <div class="response-stage-heading">
+                            <div>
+                                <div class="response-kicker">ADIM 4 / 4</div>
+                                <h2>İtiraza Karşı Görüş Dilekçesi</h2>
+                                <p>Doğrulanmış Kılavuz ve yargı kaynaklarıyla savunma reasoning'i, kontrollü dilekçe ve Strict QA.</p>
+                            </div>
+                        </div>
+                        <div id="responseDraftMount"></div>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script type="module" src="./js/opposition-response-workspace/main.js"></script>
+</body>
+</html>

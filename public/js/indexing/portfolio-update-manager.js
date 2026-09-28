@@ -183,14 +183,32 @@ export class PortfolioUpdateManager {
         const selectedOption = childSelect && childSelect.selectedIndex > -1 ? childSelect.options[childSelect.selectedIndex] : null;
         const childText = selectedOption ? selectedOption.text.toLowerCase() : '';
 
+        const isCourtDecisionNotification = childVal === '85';
+
         let isVisible = false;
-        if (childVal === '45' || childText.includes('tescil belgesi') || childVal === '40') {
+        if (childVal === '45' || isCourtDecisionNotification || childText.includes('tescil belgesi') || childVal === '40') {
             isVisible = true;
         }
 
         const registryEditorSection = document.getElementById('registry-editor-section');
         if (registryEditorSection) {
             registryEditorSection.style.display = isVisible ? 'block' : 'none';
+        }
+
+        // 85 - Mahkeme Kararı Bildirimi, indeksleme sırasında 45 ile aynı
+        // portföy bilgi formunu kullanır. DocumentReviewManager önce normal
+        // indeksleme buton durumunu kurduğu için 85 özelinde son UI durumunu
+        // burada "Kaydet ve İndeksle" olarak eşitliyoruz.
+        if (isCourtDecisionNotification) {
+            const savePortfolioBtn = document.getElementById('save-portfolio-btn');
+            const indexBtn = document.getElementById('saveTransactionBtn');
+
+            if (savePortfolioBtn) savePortfolioBtn.style.display = 'none';
+            if (indexBtn) {
+                indexBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Kaydet ve İndeksle';
+                indexBtn.classList.remove('btn-primary');
+                indexBtn.classList.add('btn-success');
+            }
         }
     }
 

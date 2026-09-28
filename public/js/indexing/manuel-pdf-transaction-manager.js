@@ -1101,6 +1101,26 @@ export class ManuelPdfTransactionManager {
                             }
                         }
                         
+                        // 66 - İtiraz/Dava Değerlendirme görevi için özel son tarih kuralı:
+                        // Tetiklenme anı + 5 takvim günü; ancak mevcut normal resmi son tarihi geçemez.
+                        const taskCreatedAt = new Date();
+                        let taskOfficialDueDate = new Date(baseDate);
+                        let taskOperationalDueDate = null;
+
+                        if (String(tType) === "66") {
+                            const evaluationFiveDayDeadline = new Date(taskCreatedAt);
+                            evaluationFiveDayDeadline.setDate(evaluationFiveDayDeadline.getDate() + 5);
+
+                            const normalOfficialDueDate = new Date(baseDate);
+                            const evaluationDeadline = evaluationFiveDayDeadline.getTime() > normalOfficialDueDate.getTime()
+                                ? normalOfficialDueDate
+                                : evaluationFiveDayDeadline;
+
+                            // 66 tipli işte operasyonel ve resmi son tarih aynıdır.
+                            taskOfficialDueDate = new Date(evaluationDeadline);
+                            taskOperationalDueDate = new Date(evaluationDeadline);
+                        }
+
                         const taskPayload = {
                             title: `${tType === "66" ? "Uzman Değerlendirmesi" : typeObj.name || 'Manuel İşlem'} Görevi`,
                             description: tType === "66" ? `Müvekkil değerlendirme ayarı açık olduğu için tetiklendi.` : `Manuel evrak yüklemesi sonucunda otomatik oluşturuldu.`,
@@ -1111,7 +1131,8 @@ export class ManuelPdfTransactionManager {
                             created_by: this.currentUser.id,
                             task_owner_id: String(taskOwnerId),
                             transaction_id: finalParentId ? String(finalParentId) : null,
-                            official_due_date: baseDate.toISOString(),
+                            official_due_date: taskOfficialDueDate.toISOString(),
+                            ...(String(tType) === "66" ? { operational_due_date: taskOperationalDueDate.toISOString() } : {}),
                             details: {
                                 // portfolio_manager modunda nihai e-posta da DB trigger tarafından senkronize edilir.
                                 assigned_to_email: isPortfolioManagerAssignment ? null : (this.currentUser?.email || 'sistem@evrekagroup.com'),
@@ -1125,7 +1146,7 @@ export class ManuelPdfTransactionManager {
                                 target_accrual_id: null,
                                 epatsDocumentNo: null,
                                 epatsDocumentDate: null,
-                                history: [{ action: 'Manuel evrak yüklemesi ile otomatik oluşturuldu.', timestamp: new Date().toISOString(), userEmail: this.currentUser.email }]
+                                history: [{ action: 'Manuel evrak yüklemesi ile otomatik oluşturuldu.', timestamp: taskCreatedAt.toISOString(), userEmail: this.currentUser.email }]
                             }
                         };
                         

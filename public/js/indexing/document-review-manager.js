@@ -1395,6 +1395,26 @@ export class DocumentReviewManager {
                         }
                     }
 
+                    // 66 - İtiraz/Dava Değerlendirme görevi için özel son tarih kuralı:
+                    // Tetiklenme anı + 5 takvim günü; ancak normal resmi son tarihi hiçbir zaman geçemez.
+                    const taskCreatedAt = new Date();
+                    let taskOfficialDueDate = new Date(officialDueDate);
+                    let taskOperationalDueDate = new Date(taskDueDate);
+
+                    if (String(tType) === "66") {
+                        const evaluationFiveDayDeadline = new Date(taskCreatedAt);
+                        evaluationFiveDayDeadline.setDate(evaluationFiveDayDeadline.getDate() + 5);
+
+                        const normalOfficialDueDate = new Date(officialDueDate);
+                        const evaluationDeadline = evaluationFiveDayDeadline.getTime() > normalOfficialDueDate.getTime()
+                            ? normalOfficialDueDate
+                            : evaluationFiveDayDeadline;
+
+                        // 66 tipli işte operasyonel ve resmi son tarih aynıdır.
+                        taskOfficialDueDate = new Date(evaluationDeadline);
+                        taskOperationalDueDate = new Date(evaluationDeadline);
+                    }
+
                     const taskData = {
                         title: `${childTypeObj.alias || childTypeObj.name} - ${this.matchedRecord.title || this.matchedRecord.brand_name || ipTitle}`,
                         description: taskDesc,
@@ -1417,12 +1437,12 @@ export class DocumentReviewManager {
                             target_accrual_id: null,
                             epatsDocumentNo: null,
                             epatsDocumentDate: null,
-                            history: [{ action: 'İndeksleme işlemi ile otomatik oluşturuldu.', timestamp: new Date().toISOString(), userEmail: this.currentUser.email }]
+                            history: [{ action: 'İndeksleme işlemi ile otomatik oluşturuldu.', timestamp: taskCreatedAt.toISOString(), userEmail: this.currentUser.email }]
                         },
-                        official_due_date: officialDueDate.toISOString(),
-                        operational_due_date: taskDueDate.toISOString(),
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
+                        official_due_date: taskOfficialDueDate.toISOString(),
+                        operational_due_date: taskOperationalDueDate.toISOString(),
+                        created_at: taskCreatedAt.toISOString(),
+                        updated_at: taskCreatedAt.toISOString()
                     };
 
                     if (taskData.details.similarity_score === null) delete taskData.details.similarity_score;

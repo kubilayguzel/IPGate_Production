@@ -688,6 +688,21 @@ export class AccrualUIManager {
                         ? '<span class="badge badge-success">Evet</span>' 
                         : '<span class="badge badge-secondary">Hayır</span>';
 
+                    let advisorSentAtHtml = '<span class="text-muted">-</span>';
+                    if (acc.sentToAdvisor) {
+                        if (acc.advisorSentAt) {
+                            const advisorDate = new Date(acc.advisorSentAt);
+                            if (!Number.isNaN(advisorDate.getTime())) {
+                                const datePart = advisorDate.toLocaleDateString('tr-TR');
+                                const timePart = advisorDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                                advisorSentAtHtml = `<span class="text-secondary"><i class="far fa-calendar-check mr-1"></i>${datePart} ${timePart}</span>`;
+                            }
+                        } else {
+                            // advisor_sent_at alanı eklenmeden önce gönderilmiş eski kayıtların kesin tarihi bulunmuyor.
+                            advisorSentAtHtml = '<span class="text-muted small" title="Bu kayıt tarih alanı eklenmeden önce mali müşavire gönderilmiş.">Eski kayıt</span>';
+                        }
+                    }
+
                     // 🔥 YURTDIŞI ÖDEMEYE ÖZEL DURUM VE KALAN TUTAR HESAPLAMASI
                     let expectedForeignTotals = {}; 
                     let remainingForeignTotals = {};
@@ -770,6 +785,7 @@ export class AccrualUIManager {
                         <td>${foreignRemainingHtml}</td>
                         <td>${documentHtml}</td>
                         <td class="text-center">${advisorStatusHtml}</td>
+                        <td>${advisorSentAtHtml}</td>
                     </tr>`;
                 }
 

@@ -7,6 +7,33 @@ export class PersonDataManager {
         const baseResult = await personService.getPersons();
         if (!baseResult.success) return baseResult;
 
+        // Ülke bilgisi persons tablosunda country_code olarak tutuluyor.
+        // Kişi Yönetimi ekranında ülke adını gösterebilmek için common/countries
+        // sözlüğüyle uygulama katmanında eşleştiriyoruz.
+        let countryMap = new Map();
+        try {
+            const countriesResult = await commonService.getCountries();
+            if (countriesResult?.success) {
+                countryMap = new Map(
+                    (countriesResult.data || [])
+                        .filter(country => country?.code)
+                        .map(country => [
+                            String(country.code).toUpperCase(),
+                            country.name || country.label || country.code
+                        ])
+                );
+            }
+        } catch (error) {
+            console.warn('Ülke sözlüğü yüklenemedi:', error);
+        }
+
+        const withLocation = (person) => ({
+            ...person,
+            countryName: person.countryCode
+                ? (countryMap.get(String(person.countryCode).toUpperCase()) || person.countryCode)
+                : null
+        });
+
         try {
             // Kişi -> portföy yöneticisi ilişkisini ayrıca çekiyoruz.
             // Böylece merkezi personService yapısını değiştirmeden Kişi Yönetimi ekranını zenginleştiriyoruz.
@@ -32,7 +59,7 @@ export class PersonDataManager {
                 const savedManager = savedManagerId ? userMap.get(savedManagerId) : null;
 
                 return {
-                    ...person,
+                    ...withLocation(person),
                     // Liste yalnızca veritabanındaki GERÇEK atamayı gösterir.
                     // portfolio_manager_user_id NULL ise kullanıcı "Atanmadı" olarak gösterilir.
                     portfolioManagerUserId: savedManagerId,
@@ -52,7 +79,7 @@ export class PersonDataManager {
             return {
                 success: true,
                 data: (baseResult.data || []).map(person => ({
-                    ...person,
+                    ...withLocation(person),
                     portfolioManagerUserId: null,
                     portfolioManagerName: null,
                     portfolioManagerEmail: null,

@@ -73,6 +73,7 @@ export class AccrualDataManager {
                     invoiceDescription: row.invoice_description || d.invoice_description || '', 
                     items: row.accrual_items || d.items || [],
                     sentToAdvisor: row.sent_to_advisor || false,
+                    advisorSentAt: row.advisor_sent_at || null,
                     subject: row.subject || d.subject || '',
                     requiresInvoice: row.requires_invoice ?? true,
                     // 🔥 ESKİ 'invoiceId' VE 'invoiceId2' ALANLARI SİLİNDİ, BUNLARIN YERİNE KÖPRÜ TABLOSU KULLANILACAK
@@ -986,12 +987,22 @@ export class AccrualDataManager {
 
     async markAsSentToAdvisor(accrualIds) {
         if (!accrualIds || accrualIds.length === 0) return;
-        
-        const promises = accrualIds.map(id => 
-            supabase.from('accruals').update({ sent_to_advisor: true }).eq('id', String(id))
-        );
-        
-        await Promise.all(promises);
+
+        // Aynı gönderim grubundaki tüm kayıtlar için tek ve ortak bir gönderim zamanı kullanılır.
+        // Kayıt yeniden mali müşavire gönderilirse advisor_sent_at son gönderim zamanına güncellenir.
+        const advisorSentAt = new Date().toISOString();
+        const normalizedIds = accrualIds.map(id => String(id));
+
+        const { error } = await supabase
+            .from('accruals')
+            .update({
+                sent_to_advisor: true,
+                advisor_sent_at: advisorSentAt
+            })
+            .in('id', normalizedIds);
+
+        if (error) throw error;
+        return advisorSentAt;
     }
 
     async createKolaybiInvoice(selectedIds, mergeStrategy = null) {

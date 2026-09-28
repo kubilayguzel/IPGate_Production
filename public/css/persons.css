@@ -102,3 +102,23 @@
 .action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
 .action-btn.edit-btn:hover { background: #fffbeb; color: #d97706; }
 .action-btn.delete-btn:hover { background: #fef2f2; color: #dc2626; }
+
+/* Kişi adı üzerinde adres / vergi dairesi bilgi tooltip'i */
+.person-name-with-info {
+    cursor: help;
+    border-bottom: 1px dashed #94a3b8;
+    text-decoration: none;
+}
+
+.person-name-with-info:focus {
+    outline: none;
+    border-bottom-color: #1e3c72;
+}
+
+.tooltip .tooltip-inner {
+    max-width: 460px;
+    text-align: left;
+    padding: 10px 12px;
+    line-height: 1.45;
+    white-space: pre-line;
+}

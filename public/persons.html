@@ -20,9 +20,14 @@
                     <h1 class="page-title">Kişi Yönetimi</h1>
                     <p class="page-subtitle">Sistemdeki tüm gerçek ve tüzel kişileri yönetin.</p>
                 </div>
-                <button class="btn btn-primary btn-lg px-4" id="addNewPersonBtn">
-                    <i class="fas fa-user-plus mr-2"></i> Yeni Kişi Ekle
-                </button>
+                <div class="d-flex align-items-center" style="gap: 10px;">
+                    <button type="button" class="btn btn-secondary btn-lg px-4" id="btnExportPersons">
+                        <i class="fas fa-file-excel mr-2"></i> Excel'e Aktar
+                    </button>
+                    <button class="btn btn-primary btn-lg px-4" id="addNewPersonBtn">
+                        <i class="fas fa-user-plus mr-2"></i> Yeni Kişi Ekle
+                    </button>
+                </div>
             </div>
 
             <div class="persons-card">
@@ -54,9 +59,6 @@
                                 </th>
                                 <th onclick="ui.handleSort('portfolioManagerName')" style="cursor:pointer;">
                                     Portföy Yöneticisi <i class="fas fa-sort ml-1 text-muted small"></i>
-                                </th>
-                                <th onclick="ui.handleSort('type')" style="cursor:pointer;">
-                                    Tip <i class="fas fa-sort ml-1 text-muted small"></i>
                                 </th>
                                 <th class="text-right">İşlemler</th>
                             </tr>
@@ -99,7 +101,12 @@
             // 5. Yeni Kişi Ekleme Butonu
             document.getElementById('addNewPersonBtn').onclick = () => modal.open();
 
-            // 6. Tablo Olay Dinleyicileri (Edit ve Delete)
+            // 6. Excel'e Aktar
+            document.getElementById('btnExportPersons')?.addEventListener('click', () => {
+                ui.exportToExcel();
+            });
+
+            // 7. Tablo Olay Dinleyicileri (Edit ve Delete)
             document.getElementById('personsTableBody').addEventListener('click', (e) => {
                 // Tıklanan element veya parent'ında data-id var mı bak
                 const target = e.target.closest('button');

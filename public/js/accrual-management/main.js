@@ -221,7 +221,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         { header: 'Ödeme Yapılacak Taraf', key: 'party', width: 35 },
                         { header: 'Toplam Tutar', key: 'total', width: 20 },
                         { header: 'Kalan Bakiye', key: 'remaining', width: 20 },
-                        { header: 'Müşavire İletildi', key: 'advisor', width: 18 }
+                        { header: 'Müşavire İletildi', key: 'advisor', width: 18 },
+                        { header: 'Müşavire Gönderim Tarihi', key: 'advisorSentAt', width: 24 }
                     ];
 
                     // Başlık Stili
@@ -294,13 +295,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                             party: acc.serviceInvoiceParty?.name || '-',
                             total: expectedStr,
                             remaining: remainingStr,
-                            advisor: acc.sentToAdvisor ? 'Evet' : 'Hayır'
+                            advisor: acc.sentToAdvisor ? 'Evet' : 'Hayır',
+                            advisorSentAt: acc.sentToAdvisor
+                                ? (acc.advisorSentAt
+                                    ? `${new Date(acc.advisorSentAt).toLocaleDateString('tr-TR')} ${new Date(acc.advisorSentAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+                                    : 'Eski kayıt')
+                                : '-'
                         });
 
                         // Hücre Stilleri
                         row.eachCell((cell, colNumber) => {
                             cell.font = { name: 'Montserrat', size: 10 };
-                            cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 8 ? 'center' : 'left' };
+                            cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 8 || colNumber === 9 ? 'center' : 'left' };
                             if (colNumber === 2) {
                                 if (fStatusTxt === 'Ödendi') cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FF15803D' } };
                                 else if (fStatusTxt === 'Ödenmedi') cell.font = { name: 'Montserrat', size: 10, bold: true, color: { argb: 'FFDC2626' } };
@@ -1492,20 +1498,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         // b) Kayıt başarılıysa, mail gönderme motorunu (Edge Function) otomatik tetikle
                         if (newNotif) {
-                            try {
-                                await supabase.functions.invoke('process-mail-notification', {
-                                    body: { notificationId: newNotif.id, action: 'send' }
-                                });
-                                // Gönderim Edge Function'a iletildikten sonra statüyü manuel olarak 'sent' yapıyoruz
-                                await supabase.from('mail_notifications')
-                                    .update({ status: 'sent', sent_at: new Date().toISOString() })
-                                    .eq('id', newNotif.id);
-                            } catch (err) {
-                                console.warn("Mail gönderim motoru (Edge Function) tetiklenemedi:", err);
+                            const { data: sendResult, error: sendError } = await supabase.functions.invoke('process-mail-notification', {
+                                body: { notificationId: newNotif.id, action: 'send' }
+                            });
+
+                            if (sendError) {
+                                throw new Error(`Mail gönderim motoru hatası: ${sendError.message || 'Bilinmeyen hata'}`);
                             }
+                            if (sendResult && sendResult.success === false) {
+                                throw new Error(`Mail gönderilemedi: ${sendResult.error || sendResult.message || 'Bilinmeyen hata'}`);
+                            }
+
+                            // Mail gönderimi başarılı olduktan sonra bildirim kaydını sent olarak işaretle.
+                            const { error: sentStatusError } = await supabase.from('mail_notifications')
+                                .update({ status: 'sent', sent_at: new Date().toISOString() })
+                                .eq('id', newNotif.id);
+                            if (sentStatusError) throw sentStatusError;
                         }
 
-                        // 6. DB Durumunu "Evet" (sent_to_advisor: true) Yap
+                        // 6. Mail gönderimi başarıyla tamamlandıktan sonra durum + tarih bilgisini birlikte yaz.
                         await this.dataManager.markAsSentToAdvisor(selectedAccruals.map(a => a.id));
 
                         this.state.selectedIds.clear();

@@ -1,137 +1,168 @@
-// content_script.js (Final Fix: Loading Screen & Busy State Check)
+// TP EPATS Otomasyon - content_script.js
+// v3.2.1
+// Yeni akış:
+// 1) Belgelerim'de başvuru no ile arama
+// 2) İşlem Tipi = "Üst Yazı" veya "Tescil belgesi ve üst yazısı" olan satırları sırayla açma
+// 3) epats2 doküman ekranında Dosya Adı içinde hedef belge adlarını bulma
+// 4) İndirme ikonuna basıp PDF'i IPGate/Supabase'e kaydetme
+// 5) Aynı başvurudaki tüm Üst Yazılar bittikten sonra kuyruğu ilerletme
+
 (() => {
-  // --- SINGLETON CHECK ---
   if (window.TP_SCRIPT_ALREADY_LOADED) {
-      console.log("[TP-AUTO] ♻️ Script zaten yüklü.");
-      return; 
+    console.log("[TP-AUTO] ♻️ Script zaten yüklü.");
+    return;
   }
   window.TP_SCRIPT_ALREADY_LOADED = true;
 
   const TAG = "[TP-AUTO]";
-  
-  // --- STATE ---
-  let isActionInProgress = false; 
-  let searchPassCount = 0; 
-  let globalProcessingLock = false; 
-  let isAdvancing = false;          
-  let lastProcessedUrl = null;      
-
-  console.log("[TP-AUTO] Content script loaded:", location.href);
-
-  // --- 1. MESAJ DİNLEYİCİSİ ---
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request?.action === "PDF_URL_CAPTURED" && request?.url) {
-      sendResponse({ ok: true }); 
-
-      if (request.url === lastProcessedUrl) return; 
-      if (globalProcessingLock || isAdvancing) return; 
-
-      globalProcessingLock = true;
-      lastProcessedUrl = request.url;
-
-      (async () => {
-        try {
-          const state = await chrome.storage.local.get(["tp_waiting_pdf_url", "tp_download_clicked"]);
-          if (!state.tp_waiting_pdf_url) {
-            globalProcessingLock = false; 
-            return;
-          }
-          await chrome.storage.local.set({ tp_download_clicked: true, tp_waiting_pdf_url: false });
-          await processDocument(request.url, null);
-        } catch (err) {
-          console.error(TAG, "Hata:", err);
-          globalProcessingLock = false; 
-        }
-      })();
-      return true;
-    }
-  });
-
-  if (window.top !== window) return;
-  
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const DEFAULT_UPLOAD_ENDPOINT =
     "https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/save-epats-document";
 
-  // storage'dan endpoint oku (UI/background set eder: tp_upload_url)
+  const TARGET_OPERATION_PATTERNS = [
+    "ust yazi",
+    "tescil belgesi ve ust yazisi"
+  ];
+
+  const TARGET_FILE_PATTERNS = [
+    "marka yenileme belgesi",
+    "tescil belgesitb",
+    "myb"
+  ];
+
+  let isActionInProgress = false;
+  let globalProcessingLock = false;
+  let isAdvancing = false;
+  let lastProcessedUrl = null;
+  let mainRunLock = false;
+
+  let pendingPdfResolver = null;
+  let pendingPdfTimer = null;
+
+  console.log(TAG, "Content script loaded:", location.href);
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function normalizeText(value) {
+    return String(value || "")
+      .toLocaleLowerCase("tr-TR")
+      .replace(/ı/g, "i")
+      .replace(/ş/g, "s")
+      .replace(/ğ/g, "g")
+      .replace(/ü/g, "u")
+      .replace(/ö/g, "o")
+      .replace(/ç/g, "c")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function compactText(value) {
+    return normalizeText(value).replace(/[^a-z0-9]/g, "");
+  }
+
+  function isVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  }
+
+  function qAll(selector) {
+    const docs = [document];
+    document.querySelectorAll("iframe").forEach((fr) => {
+      try {
+        if (fr.contentDocument) docs.push(fr.contentDocument);
+      } catch (_) {}
+    });
+
+    for (const d of docs) {
+      const el = d.querySelector(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function qAllMany(selector) {
+    let out = [];
+    const docs = [document];
+    document.querySelectorAll("iframe").forEach((fr) => {
+      try {
+        if (fr.contentDocument) docs.push(fr.contentDocument);
+      } catch (_) {}
+    });
+
+    for (const d of docs) {
+      out = out.concat(Array.from(d.querySelectorAll(selector)));
+    }
+    return out;
+  }
+
+  function superClick(el) {
+    if (!el) return false;
+    try {
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+    } catch (_) {}
+
+    try {
+      el.click();
+      return true;
+    } catch (_) {
+      try {
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  function fillInputAngularSafe(input, value) {
+    if (!input) return false;
+    input.focus();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (setter) setter.call(input, value);
+    else input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.blur();
+    return true;
+  }
+
+  async function throttle(key, ms) {
+    const now = Date.now();
+    const obj = await chrome.storage.local.get([key]);
+    if (now - (obj[key] || 0) < ms) return false;
+    await chrome.storage.local.set({ [key]: now });
+    return true;
+  }
+
+  function sendInternalMessage(message) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(response || { ok: true });
+          }
+        });
+      } catch (e) {
+        resolve({ ok: false, error: e?.message || String(e) });
+      }
+    });
+  }
+
   async function getUploadEndpoint() {
     const { tp_upload_url } = await chrome.storage.local.get(["tp_upload_url"]);
     return tp_upload_url || DEFAULT_UPLOAD_ENDPOINT;
   }
 
-  // --- KUYRUK KONTROL ---
-  document.addEventListener("TP_RESET", async () => {
-    try { await chrome.storage.local.clear(); } catch {}
-  });
-
-  async function checkQueueAndSetAppNo() {
-    const data = await chrome.storage.local.get(["tp_queue", "tp_is_queue_running", "tp_queue_index", "tp_app_no"]);
-    if (!data.tp_is_queue_running || !data.tp_queue || data.tp_queue.length === 0) return true; 
-
-    const currentIndex = data.tp_queue_index || 0;
-    if (currentIndex >= data.tp_queue.length) {
-      console.log(TAG, "🏁 Kuyruk tamamlandı!");
-      await chrome.storage.local.set({ tp_is_queue_running: false, tp_queue: [] });
-      alert("Toplu işlem tamamlandı!");
-      return false; 
-    }
-
-    const currentJob = data.tp_queue[currentIndex];
-    if (data.tp_app_no !== currentJob.appNo) {
-      console.log(TAG, `🔄 Yeni İş: ${currentIndex + 1}/${data.tp_queue.length} - ${currentJob.appNo}`);
-      await chrome.storage.local.set({
-        tp_app_no: currentJob.appNo,
-        tp_current_job_id: currentJob.ipId,
-        tp_current_doc_type: currentJob.docType,
-        tp_clicked_ara: false,
-        tp_download_clicked: false,
-        tp_grid_ready: false,
-        tp_prev_grid_sig: null,
-        tp_expanded_twice: false,
-        tp_last_belgelerim_try: 0,
-        tp_last_search_ts: 0
-      });
-      searchPassCount = 0; 
-      return true;
-    }
-    return true;
+  function sanitizeFileName(name, appNo) {
+    let result = String(name || `tescil_belgesi_${appNo || "evrak"}.pdf`).trim();
+    if (!/\.pdf$/i.test(result)) result += ".pdf";
+    return result.replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ.\-_ ]/g, "_").replace(/\s+/g, "_");
   }
 
-  // --- ADVANCE QUEUE ---
-  async function advanceQueue() {
-    if (isAdvancing) return;
-    isAdvancing = true;
-    console.log(TAG, "✅ İşlem bitti, ilerleniyor...");
-
-    try {
-        const input = qAll("#textbox551 input");
-        if (input) fillInputAngularSafe(input, ""); 
-
-        const data = await chrome.storage.local.get(["tp_queue_index"]);
-        const nextIndex = (data.tp_queue_index || 0) + 1;
-
-        await chrome.storage.local.set({ 
-          tp_queue_index: nextIndex,
-          tp_app_no: null,            
-          tp_download_clicked: false, 
-          tp_clicked_ara: false,      
-          tp_waiting_pdf_url: false,  
-          tp_grid_ready: false,
-          tp_prev_grid_sig: null,
-          tp_expanded_twice: false,
-          tp_last_belgelerim_try: 0,
-          tp_last_search_ts: 0
-        });
-
-        console.log(TAG, `🔓 Sıradaki İndeks: ${nextIndex}`);
-        globalProcessingLock = false; 
-        isActionInProgress = false;
-        await sleep(2000); 
-    } catch (e) { console.error(TAG, e); } 
-    finally { isAdvancing = false; }
-  }
-
-  // --- PDF PROCESS ---
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -141,315 +172,503 @@
     });
   }
 
-  async function processDocument(downloadUrl, element) {
-    console.log(TAG, "📄 PDF İndiriliyor:", downloadUrl);
+  async function processDocument(downloadUrl, options = {}) {
+    const advanceQueueAfter = options.advanceQueueAfter === true;
+    console.log(TAG, "📄 PDF indiriliyor:", downloadUrl);
+
     try {
       const response = await fetch(downloadUrl, { credentials: "include" });
       if (!response.ok) throw new Error("HTTP " + response.status);
+
       const blob = await response.blob();
       if (!blob.size) throw new Error("Boş dosya");
+
       const base64data = await blobToBase64(blob);
       if (!base64data || base64data.length < 1000) throw new Error("Base64 geçersiz");
 
-      // tp_app_no verisini de storage'dan çekiyoruz
-      const storage = await chrome.storage.local.get(["tp_current_job_id", "tp_current_doc_type", "tp_token", "tp_app_no"]);
+      const storage = await chrome.storage.local.get([
+        "tp_current_job_id",
+        "tp_current_doc_type",
+        "tp_token",
+        "tp_app_no",
+        "tp_current_file_name"
+      ]);
+
+      const fileName = sanitizeFileName(
+        options.fileName || storage.tp_current_file_name,
+        storage.tp_app_no
+      );
+
       const payload = {
         ipRecordId: storage.tp_current_job_id,
         fileBase64: base64data,
-        fileName: `tescil_belgesi_${storage.tp_app_no || 'evrak'}.pdf`.replace(/[^a-zA-Z0-9.\-_]/g, '_'),
+        fileName,
         mimeType: "application/pdf",
         docType: storage.tp_current_doc_type || "45",
-        appNo: storage.tp_app_no // 🔥 Supabase fonksiyonunun beklediği başvuru numarası
+        appNo: storage.tp_app_no
       };
 
-      console.log(TAG, "📤 Upload Başlıyor:", payload.ipRecordId);
       const endpoint = await getUploadEndpoint();
-      console.log(TAG, "🌍 Upload endpoint:", endpoint);
+      console.log(TAG, "📤 Upload başlıyor:", payload.ipRecordId, fileName);
 
       const uploadRes = await fetch(endpoint, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${storage.tp_token}` 
+          "Authorization": `Bearer ${storage.tp_token}`
         },
-        // 🔥 ÇÖZÜM 2: Firebase zarfını kaldırdık, Supabase'in anlayacağı standart formata çevirdik
-        body: JSON.stringify(payload), 
+        body: JSON.stringify(payload)
       });
 
+      if (!uploadRes.ok) {
+        const errorText = await uploadRes.text();
+        throw new Error(`Upload hatası (${uploadRes.status}): ${errorText}`);
+      }
 
-      if (uploadRes.ok) console.log(TAG, "✅ Başarılı");
-      else console.error(TAG, "❌ Hata:", await uploadRes.text());
+      console.log(TAG, "✅ PDF IPGate'e kaydedildi:", fileName);
 
-    } catch (error) { console.error(TAG, "Process hatası:", error); } 
-    finally { await advanceQueue(); }
-  }
-
-  // --- DOM HELPERS ---
-  function qAll(selector) {
-    const docs = [document];
-    document.querySelectorAll("iframe").forEach(fr => { try { if(fr.contentDocument) docs.push(fr.contentDocument); } catch{} });
-    for (const d of docs) { const el = d.querySelector(selector); if (el) return el; }
-    return null;
-  }
-  function qAllMany(selector) {
-    let out = [];
-    const docs = [document];
-    document.querySelectorAll("iframe").forEach(fr => { try { if(fr.contentDocument) docs.push(fr.contentDocument); } catch{} });
-    for (const d of docs) out = out.concat(Array.from(d.querySelectorAll(selector)));
-    return out;
-  }
-  function superClick(el) {
-    if (!el) return false;
-    try { el.click(); return true; } catch { return false; }
-  }
-  function fillInputAngularSafe(input, value) {
-    if (!input) return false;
-    input.focus();
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    if (setter) setter.call(input, value); else input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.blur();
-    return true;
-  }
-  async function throttle(key, ms) {
-    const now = Date.now();
-    const obj = await chrome.storage.local.get([key]);
-    if (now - (obj[key] || 0) < ms) return false;
-    await chrome.storage.local.set({ [key]: now });
-    return true;
+      if (advanceQueueAfter) await advanceQueue();
+      return true;
+    } catch (error) {
+      console.error(TAG, "❌ PDF işleme hatası:", error);
+      if (advanceQueueAfter) await advanceQueue();
+      return false;
+    }
   }
 
-  // --- GRID HELPERS (sonuçların gerçekten yenilendiğini anlamak için) ---
-  function getGridHost() {
-    // EPATS ui-grid yapısı farklı sayfalarda değişebiliyor; o yüzden birden fazla aday.
+  function resolvePendingPdf(result) {
+    if (pendingPdfTimer) {
+      clearTimeout(pendingPdfTimer);
+      pendingPdfTimer = null;
+    }
+    if (pendingPdfResolver) {
+      const resolver = pendingPdfResolver;
+      pendingPdfResolver = null;
+      resolver(Boolean(result));
+    }
+  }
+
+  function waitForPdfProcessed(timeoutMs = 20000) {
+    if (pendingPdfTimer) clearTimeout(pendingPdfTimer);
+    pendingPdfResolver = null;
+
+    return new Promise((resolve) => {
+      pendingPdfResolver = resolve;
+      pendingPdfTimer = setTimeout(() => {
+        pendingPdfTimer = null;
+        pendingPdfResolver = null;
+        resolve(false);
+      }, timeoutMs);
+    });
+  }
+
+  function isDetailPage() {
     return (
-      qAll(".ui-grid-render-container-body") ||
-      qAll(".ui-grid-viewport") ||
-      qAll(".ui-grid-canvas")
+      location.hostname === "epats2.turkpatent.gov.tr" ||
+      location.href.includes("/run/TP/dokumanlar/")
     );
   }
 
-  function getFirstRowText() {
-    const row = qAllMany(".ui-grid-row").find(r => r.offsetParent !== null);
-    return (row?.innerText || "").trim();
-  }
+  // PDF URL background tarafından yakalandığında aktif alıcı sekmede işlenir.
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request?.action !== "PDF_URL_CAPTURED" || !request?.url) return;
 
-  function getGridSignature() {
-    const host = getGridHost();
-    const hostText = (host?.innerText || "").trim();
-    const firstRow = getFirstRowText();
-    // Çok büyük text'i storage'a basmamak için kısalt.
-    const compact = (firstRow || hostText).replace(/\s+/g, " ").slice(0, 200);
-    const rowCount = qAllMany(".ui-grid-row").filter(r => r.offsetParent !== null).length;
-    return `${rowCount}|${compact}`;
-  }
+    sendResponse({ ok: true });
 
-  async function waitForGridToRefresh(prevSig, timeoutMs = 20000) {
-    const start = Date.now();
+    if (request.url === lastProcessedUrl) return true;
+    if (globalProcessingLock) return true;
 
-    // Grid DOM'undan ek bir imza (signature aynı kalsa bile DOM değişimini yakalar)
-    const getDomStamp = () => {
-      const rows = document.querySelectorAll(".ui-grid-row");
-      const count = rows.length;
+    globalProcessingLock = true;
+    lastProcessedUrl = request.url;
 
-      // İlk satırdan ufak bir metin parçası al (çok pahalı olmasın)
-      const firstText =
-        rows[0]?.innerText?.trim()?.slice(0, 80) || "";
+    (async () => {
+      try {
+        const storage = await chrome.storage.local.get([
+          "tp_waiting_pdf_url",
+          "tp_current_file_name"
+        ]);
 
-      // Canvas boyu da değişimde iyi sinyal olur
-      const canvas = document.querySelector(".ui-grid-canvas");
-      const h = canvas?.scrollHeight || 0;
-
-      return `${count}|${h}|${firstText}`;
-    };
-
-    const prevDomStamp = getDomStamp();
-
-    let sawBusy = false;
-    let stableOkCount = 0;     // arka arkaya “ok” gördüğümüzde true döneceğiz
-    let lastSig = null;
-
-    while (Date.now() - start < timeoutMs) {
-      const busy = isPageBusy();
-      if (busy) {
-        sawBusy = true;
-        stableOkCount = 0; // busy iken stabil sayma
-        await sleep(250);
-        continue;
-      }
-
-      const sig = getGridSignature();
-      const domStamp = getDomStamp();
-
-      // 1) Signature değiştiyse (ve 0| değilse) -> güçlü sinyal
-      const sigChangedAndValid = sig && sig !== prevSig && !sig.startsWith("0|");
-
-      // 2) Signature değişmedi ama DOM değiştiyse -> yenilenmiş olabilir
-      const domChanged = domStamp !== prevDomStamp;
-
-      // 3) “0|” geçici olabiliyor; busy döngüsü gördükten sonra 0| dışına çıkınca kabul et
-      const sigNowValid = sig && !sig.startsWith("0|");
-
-      // Kabul koşulu:
-      // - sig değişip valid ise
-      // - veya DOM değiştiyse ve sig valid ise
-      // - veya en az bir busy döngüsü gördük ve sig valid ise (bazı durumlarda sig aynı kalabiliyor)
-      let ok =
-        sigChangedAndValid ||
-        (domChanged && sigNowValid) ||
-        (sawBusy && sigNowValid);
-
-      // Ek race önlemi: 2 kere üst üste ok görmeden dönme
-      // (grid bazen 1 tick doğru görünüp sonra tekrar değişebiliyor)
-      if (ok) {
-        // Aynı sig'i iki kez üst üste görürsek daha güvenli
-        if (lastSig === sig) stableOkCount += 1;
-        else stableOkCount = 1;
-
-        lastSig = sig;
-
-        if (stableOkCount >= 2) return true;
-      } else {
-        stableOkCount = 0;
-        lastSig = sig;
-      }
-
-      await sleep(250);
-    }
-
-    console.warn(TAG, "⚠️ Grid yenilenmesi zaman aşımı. Mevcut veri ile devam edilecek.");
-    return false;
-  }
-
-
-  async function clearEvrakAdiFilter() {
-    const cells = qAllMany(".ui-grid-header-cell");
-    for (const cell of cells) {
-      if (cell.innerText.toLowerCase().includes("evrak adı")) {
-        const input = cell.querySelector("input");
-        if (input && (input.value || "").trim() !== "") {
-          fillInputAngularSafe(input, "");
-          await sleep(300);
+        if (!storage.tp_waiting_pdf_url && isDetailPage()) {
+          globalProcessingLock = false;
+          return;
         }
-        return true;
+
+        await chrome.storage.local.set({ tp_waiting_pdf_url: false });
+
+        const ok = await processDocument(request.url, {
+          advanceQueueAfter: !isDetailPage(),
+          fileName: storage.tp_current_file_name || null
+        });
+
+        resolvePendingPdf(ok);
+      } catch (err) {
+        console.error(TAG, "PDF_URL_CAPTURED hatası:", err);
+        resolvePendingPdf(false);
+      } finally {
+        globalProcessingLock = false;
+      }
+    })();
+
+    return true;
+  });
+
+  if (window.top !== window) return;
+
+  document.addEventListener("TP_RESET", async () => {
+    try { await chrome.storage.local.clear(); } catch (_) {}
+  });
+
+  // ---------------------------------------------------------------------------
+  // ORTAK TABLO / KOLON YARDIMCILARI
+  // ---------------------------------------------------------------------------
+
+  function getCells(row) {
+    if (!row) return [];
+    let cells = Array.from(row.querySelectorAll(":scope > td, :scope > th"));
+    if (cells.length) return cells;
+
+    cells = Array.from(row.querySelectorAll(".ui-grid-cell, [role='gridcell'], [role='cell']"));
+    return cells;
+  }
+
+  function getHeaderCellsForRow(row) {
+    const table = row?.closest?.("table");
+    if (table) {
+      const headerRow = table.querySelector("thead tr") || table.querySelector("tr");
+      if (headerRow) {
+        const cells = Array.from(headerRow.querySelectorAll("th, [role='columnheader']"));
+        if (cells.length) return cells;
       }
     }
-    return false;
+
+    const gridHeaders = qAllMany(".ui-grid-header-cell, [role='columnheader']").filter(isVisible);
+    return gridHeaders;
   }
 
-  // 🔥 [GÜNCELLENDİ] SAYFA MEŞGULİYET KONTROLÜ
-  function isPageBusy() {
-    // 1. Selector bazlı kontrol (Spinner, Overlay, Backdrop)
-    const busySelectors = [
-        ".modal-backdrop",          // Bootstrap modal arkası
-        ".block-ui-overlay",        // Angular BlockUI
-        ".block-ui-message-container",
-        ".loading-spinner",
-        ".fa-spinner",
-        ".fa-refresh.fa-spin",
-        "div[ng-show='isLoading']", // Angular loading flag
-        ".ui-grid-icon-spin"        // Grid yükleniyor ikonu
-    ];
-
-    const els = qAllMany(busySelectors.join(","));
-    const isOverlayVisible = els.some(el => {
-        const style = window.getComputedStyle(el);
-        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-    });
-
-    if (isOverlayVisible) {
-        // console.log(TAG, "⏳ Sayfa meşgul (Overlay/Spinner)...");
-        return true;
-    }
-
-    // 2. Metin bazlı kontrol ("Lütfen Bekleyiniz", "Yükleniyor")
-    const messageContainers = qAllMany(".modal-content, .alert, .growl-message, .block-ui-message");
-    const hasWaitText = messageContainers.some(el => {
-        const text = (el.innerText || "").toLowerCase();
-        const style = window.getComputedStyle(el);
-        const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-        
-        return isVisible && (
-            text.includes("bekleyiniz") || 
-            text.includes("yükleniyor") || 
-            text.includes("işleminiz") ||
-            text.includes("aranıyor")
-        );
-    });
-
-    if (hasWaitText) {
-        // console.log(TAG, "⏳ Sayfa meşgul (Mesaj: Bekleyiniz/Yükleniyor)...");
-        return true;
-    }
-
-    return false;
+  function findColumnIndex(row, label) {
+    const wanted = normalizeText(label);
+    const headers = getHeaderCellsForRow(row);
+    return headers.findIndex((h) => normalizeText(h.innerText || h.textContent).includes(wanted));
   }
 
-  // --- EPATS UI ---
-  async function clickAraButtonOnly() {
-    const { tp_clicked_ara } = await chrome.storage.local.get(["tp_clicked_ara"]);
-    if (tp_clicked_ara) return true; 
-
-    // Arama tetiklenmeden önce mevcut grid imzasını kaydet ki,
-    // yeni başvuruya ait sonuçlar gelmeden filtreleme başlamasın.
-    const prevSig = getGridSignature();
-
-    const root = qAll("#button549");
-    if (!root) return false;
-    const btn = root.querySelector("div.btn[ng-click]") || root.querySelector(".btn");
-    
-    // Ara butonu pasifse bekle
-    if (!btn || btn.hasAttribute("disabled") || btn.classList.contains("disabled")) {
-        console.log(TAG, "⏳ Ara butonu pasif, bekleniyor...");
-        return false;
-    }
-
-    console.log(TAG, "🔎 Ara butonuna basılıyor...");
-    superClick(btn);
-    
-    await chrome.storage.local.set({ 
-        tp_clicked_ara: true,
-        tp_last_search_ts: Date.now(),
-        tp_prev_grid_sig: prevSig
-    });
-    return true;
+  function getCellText(row, label) {
+    const cells = getCells(row);
+    const idx = findColumnIndex(row, label);
+    if (idx >= 0 && cells[idx]) return (cells[idx].innerText || cells[idx].textContent || "").trim();
+    return "";
   }
 
-  function isGirisPage() { return location.href.includes("/run/TP/EDEVLET/giris"); }
-  function isBelgelerimScreenOpen() { return (!!qAll("div.ui-select-container[name='selectbox550']") || !!qAll("#textbox551 input")); }
-  
+  function getScrollableAncestor(el) {
+    let current = el?.parentElement || null;
+    while (current && current !== document.body) {
+      const style = window.getComputedStyle(current);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        current.scrollHeight > current.clientHeight + 10
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // EPATS2 DETAY SAYFASI: DOSYA ADINA GÖRE PDF BUL / KAYDET
+  // ---------------------------------------------------------------------------
+
+  function getDetailRows() {
+    const tableRows = qAllMany("table tbody tr").filter((r) => getCells(r).length > 0 && isVisible(r));
+    if (tableRows.length) return tableRows;
+
+    const roleRows = qAllMany("[role='row']").filter((r) => {
+      if (!isVisible(r)) return false;
+      if (r.querySelector("[role='columnheader']")) return false;
+      return getCells(r).length > 0;
+    });
+    if (roleRows.length) return roleRows;
+
+    return qAllMany(".ui-grid-row").filter(isVisible);
+  }
+
+  function getDetailFileName(row) {
+    const byHeader = getCellText(row, "Dosya Adı") || getCellText(row, "Dosya Adi");
+    if (byHeader) return byHeader;
+
+    const cells = getCells(row);
+    const nonEmpty = cells
+      .map((c) => (c.innerText || c.textContent || "").trim())
+      .filter(Boolean);
+    return nonEmpty.length ? nonEmpty[nonEmpty.length - 1] : (row.innerText || "").trim();
+  }
+
+  function isTargetFileName(name) {
+    const normal = normalizeText(name);
+    const compact = compactText(name);
+
+    return (
+      normal.includes("marka yenileme belgesi") ||
+      compact.includes("markayenilemebelgesi") ||
+      compact.includes("tescilbelgesitb") ||
+      compact.includes("myb")
+    );
+  }
+
+  function findDownloadClickable(row) {
+    const icon = row.querySelector(
+      "i.fa-download, i.fas.fa-download, i.far.fa-download, " +
+      ".glyphicon-download, .glyphicon-download-alt, " +
+      "[class*='download'], [title*='ndir'], [aria-label*='ndir']"
+    );
+
+    if (icon) {
+      return icon.closest("a, button, [ng-click], [onclick], [role='button']") || icon;
+    }
+
+    const cells = getCells(row);
+    const firstCell = cells[0] || row;
+    const clickable = firstCell.querySelector("a, button, [ng-click], [onclick], [role='button']");
+    return clickable || null;
+  }
+
+  function getClickableHref(clickable) {
+    if (!clickable) return null;
+    const anchor = clickable.matches?.("a") ? clickable : clickable.closest?.("a");
+    const raw = anchor?.getAttribute?.("href") || "";
+    if (!raw || raw === "#" || raw.toLowerCase().startsWith("javascript:")) return null;
+    try { return new URL(raw, location.href).href; } catch (_) { return null; }
+  }
+
+  async function waitForDetailRows(timeoutMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const rows = getDetailRows();
+      if (rows.length > 0) return rows;
+      await sleep(300);
+    }
+    return [];
+  }
+
+  async function markCurrentUpperWriteComplete(savedCount) {
+    const state = await chrome.storage.local.get([
+      "tp_processed_upper_keys",
+      "tp_current_upper_key",
+      "tp_job_saved_count"
+    ]);
+
+    const processed = Array.isArray(state.tp_processed_upper_keys)
+      ? state.tp_processed_upper_keys.slice()
+      : [];
+
+    if (state.tp_current_upper_key && !processed.includes(state.tp_current_upper_key)) {
+      processed.push(state.tp_current_upper_key);
+    }
+
+    await chrome.storage.local.set({
+      tp_processed_upper_keys: processed,
+      tp_waiting_detail: false,
+      tp_current_upper_key: null,
+      tp_detail_open_ts: 0,
+      tp_job_saved_count: Number(state.tp_job_saved_count || 0) + Number(savedCount || 0),
+      tp_current_file_name: null,
+      tp_waiting_pdf_url: false
+    });
+  }
+
+  async function processDetailDownloadRow(row, fileName) {
+    const clickable = findDownloadClickable(row);
+    if (!clickable) {
+      console.warn(TAG, "⚠️ Hedef belge bulundu ancak indirme ikonu bulunamadı:", fileName);
+      return false;
+    }
+
+    const href = getClickableHref(clickable);
+
+    lastProcessedUrl = null;
+    globalProcessingLock = false;
+
+    await chrome.storage.local.set({
+      tp_current_file_name: fileName,
+      tp_waiting_pdf_url: true
+    });
+
+    await sendInternalMessage({ action: "REGISTER_PDF_RECEIVER" });
+
+    const waitPromise = waitForPdfProcessed(20000);
+    console.log(TAG, "⬇️ İndirme ikonuna basılıyor:", fileName);
+    superClick(clickable);
+
+    let ok = await waitPromise;
+
+    // Bazı yeni ekranlarda link doğrudan href olarak geliyor fakat PDF isteği
+    // webRequest tarafından yakalanmayabiliyor. Bu durumda href'i fallback olarak kullan.
+    if (!ok && href) {
+      console.warn(TAG, "⚠️ PDF yakalama zaman aşımı; href fallback deneniyor:", href);
+      lastProcessedUrl = href;
+      globalProcessingLock = true;
+      ok = await processDocument(href, { advanceQueueAfter: false, fileName });
+      globalProcessingLock = false;
+    }
+
+    await chrome.storage.local.set({
+      tp_waiting_pdf_url: false,
+      tp_current_file_name: null
+    });
+
+    return ok;
+  }
+
+  async function runDetailPageAutomation() {
+    console.log(TAG, "📂 EPATS2 doküman detay ekranı algılandı.");
+
+    await sendInternalMessage({ action: "REGISTER_PDF_RECEIVER" });
+
+    const rows = await waitForDetailRows(15000);
+    if (!rows.length) {
+      console.warn(TAG, "⚠️ Detay sayfasında doküman satırı bulunamadı.");
+      await markCurrentUpperWriteComplete(0);
+      await sendInternalMessage({ action: "CLOSE_CURRENT_TAB" });
+      return;
+    }
+
+    const targets = rows.filter((row) => isTargetFileName(getDetailFileName(row)));
+    console.log(TAG, `🎯 Detay sayfasında ${targets.length} hedef belge bulundu.`);
+
+    let savedCount = 0;
+
+    for (const row of targets) {
+      const fileName = getDetailFileName(row);
+      if (!fileName) continue;
+
+      try {
+        const ok = await processDetailDownloadRow(row, fileName);
+        if (ok) savedCount += 1;
+      } catch (e) {
+        console.error(TAG, "Detay belge işleme hatası:", e);
+      }
+
+      await sleep(500);
+    }
+
+    await markCurrentUpperWriteComplete(savedCount);
+    console.log(TAG, `✅ Üst Yazı taraması tamamlandı. Kaydedilen belge: ${savedCount}`);
+    await sleep(500);
+    await sendInternalMessage({ action: "CLOSE_CURRENT_TAB" });
+  }
+
+  // EPATS2 detay sekmesinde ana kuyruk döngüsüne girme.
+  if (isDetailPage()) {
+    runDetailPageAutomation().catch(async (err) => {
+      console.error(TAG, "❌ Detay sayfası otomasyon hatası:", err);
+      try { await markCurrentUpperWriteComplete(0); } catch (_) {}
+      try { await sendInternalMessage({ action: "CLOSE_CURRENT_TAB" }); } catch (_) {}
+    });
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ANA EPATS SAYFASI / KUYRUK
+  // ---------------------------------------------------------------------------
+
+  function isGirisPage() {
+    return location.href.includes("/run/TP/EDEVLET/giris");
+  }
+
   function findLoginButtonOnGiris() {
     const direct = qAll('a[href*="turkiye.gov.tr"]');
-    if(direct) return direct;
-    return qAllMany("a,button").find(el => (el.textContent||"").toLowerCase().includes("giriş"));
+    if (direct) return direct;
+
+    return qAllMany("a,button").find((el) =>
+      normalizeText(el.textContent).includes("giris")
+    );
   }
 
   async function clickBelgelerim() {
     if (!(await throttle("tp_last_belgelerim_try", 3000))) return false;
-    const targets = qAllMany("div[ng-click]");
-    const target = targets.find(x => (x.textContent || "").trim() === "Belgelerim");
-    if(target) { superClick(target); return true; }
+
+    const targets = qAllMany("a, button, div[ng-click], li, span");
+    const target = targets.find((el) => normalizeText(el.textContent).trim() === "belgelerim");
+    if (target) {
+      superClick(target);
+      return true;
+    }
     return false;
   }
 
+  function findApplicationNumberInput() {
+    const oldInput = qAll("#textbox551 input");
+    if (oldInput) return oldInput;
+
+    const inputs = qAllMany("input[type='text'], input:not([type])").filter(isVisible);
+
+    const byContext = inputs.find((input) => {
+      let node = input.parentElement;
+      for (let i = 0; i < 3 && node; i++, node = node.parentElement) {
+        if (normalizeText(node.innerText).includes("basvuru numarasi")) return true;
+      }
+      return false;
+    });
+
+    return byContext || null;
+  }
+
+  function findSearchButton() {
+    const oldRoot = qAll("#button549");
+    if (oldRoot) {
+      const oldBtn = oldRoot.querySelector("div.btn[ng-click]") || oldRoot.querySelector(".btn") || oldRoot;
+      if (oldBtn) return oldBtn;
+    }
+
+    return qAllMany("button, a.btn, div.btn[ng-click]")
+      .filter(isVisible)
+      .find((el) => normalizeText(el.innerText || el.textContent).trim() === "ara") || null;
+  }
+
+  function isBelgelerimScreenOpen() {
+    return Boolean(findApplicationNumberInput() && findSearchButton());
+  }
+
   async function ensureDosyaTuruMarka() {
-    const container = qAll("div.ui-select-container[name='selectbox550']");
-    if (!container) return false;
-    if (container.innerText.toLowerCase().includes("marka")) return true;
-    
-    if (!(await throttle("tp_last_select_try", 1000))) return false;
-    const toggle = container.querySelector(".ui-select-toggle");
-    if (!container.classList.contains("open")) { superClick(toggle); await sleep(200); }
-    const rows = qAllMany(".ui-select-choices-row");
-    const markaRow = rows.find(el => el.innerText.toLowerCase().includes("marka"));
-    if (markaRow) { superClick(markaRow); await sleep(300); }
+    const oldContainer = qAll("div.ui-select-container[name='selectbox550']");
+    if (oldContainer) {
+      if (normalizeText(oldContainer.innerText).includes("marka")) return true;
+      if (!(await throttle("tp_last_select_try", 1000))) return false;
+
+      const toggle = oldContainer.querySelector(".ui-select-toggle") || oldContainer;
+      if (!oldContainer.classList.contains("open")) {
+        superClick(toggle);
+        await sleep(250);
+      }
+
+      const rows = qAllMany(".ui-select-choices-row");
+      const markaRow = rows.find((el) => normalizeText(el.innerText).includes("marka"));
+      if (markaRow) {
+        superClick(markaRow);
+        await sleep(350);
+        return true;
+      }
+    }
+
+    const selects = qAllMany("select").filter(isVisible);
+    for (const select of selects) {
+      const markaOption = Array.from(select.options || []).find((o) => normalizeText(o.textContent) === "marka");
+      if (!markaOption) continue;
+      if (select.value !== markaOption.value) {
+        select.value = markaOption.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await sleep(300);
+      }
+      return true;
+    }
+
     return false;
   }
 
   async function fillBasvuruNo(appNo) {
-    const input = qAll("#textbox551 input");
+    const input = findApplicationNumberInput();
     if (!input) return false;
+
     if ((input.value || "").trim() !== String(appNo)) {
       fillInputAngularSafe(input, String(appNo));
       await sleep(300);
@@ -457,254 +676,451 @@
     return true;
   }
 
-  // --- ACCORDION & DOWNLOAD ---
-  function getAccordionHost() { return qAll("div.ui-grid-tree-base-row-header-buttons"); }
-  
-  function getAccordionClickable() {
-    const host = getAccordionHost();
-    if (!host || host.offsetParent === null) return null; 
-    return host.querySelector("i") || host;
+  function isPageBusy() {
+    const busySelectors = [
+      ".modal-backdrop",
+      ".block-ui-overlay",
+      ".block-ui-message-container",
+      ".loading-spinner",
+      ".fa-spinner",
+      ".fa-refresh.fa-spin",
+      "div[ng-show='isLoading']",
+      ".ui-grid-icon-spin"
+    ];
+
+    const els = qAllMany(busySelectors.join(","));
+    const overlayVisible = els.some(isVisible);
+    if (overlayVisible) return true;
+
+    const messageContainers = qAllMany(".modal-content, .alert, .growl-message, .block-ui-message");
+    return messageContainers.some((el) => {
+      if (!isVisible(el)) return false;
+      const text = normalizeText(el.innerText);
+      return (
+        text.includes("bekleyiniz") ||
+        text.includes("yukleniyor") ||
+        text.includes("isleminiz") ||
+        text.includes("araniyor")
+      );
+    });
   }
 
-  function readAccordionState() {
-    const host = getAccordionHost();
-    if (!host) return "none";
-    const cls = (host.querySelector("i")?.className || host.className || "").toLowerCase();
-    if (cls.includes("minus")) return "minus"; 
-    if (cls.includes("plus")) return "plus";   
-    return "unknown";
+  function getMainResultRows() {
+    const gridRows = qAllMany(".ui-grid-row").filter(isVisible);
+    if (gridRows.length) return gridRows;
+
+    const tableRows = qAllMany("table tbody tr").filter((r) => isVisible(r) && getCells(r).length > 0);
+    if (tableRows.length) return tableRows;
+
+    return qAllMany("[role='row']").filter((r) => {
+      if (!isVisible(r)) return false;
+      if (r.querySelector("[role='columnheader']")) return false;
+      return getCells(r).length > 0;
+    });
   }
 
-  async function ensureAccordionOpenAtStart() {
-    const state = readAccordionState();
-    if (state === "minus") return true; 
-    const clickable = getAccordionClickable();
-    if(clickable) { superClick(clickable); await sleep(2000); }
-    return readAccordionState() === "minus";
+  function getGridSignature() {
+    const rows = getMainResultRows();
+    const firstText = rows[0] ? normalizeText(rows[0].innerText).slice(0, 180) : "";
+    return `${rows.length}|${firstText}`;
   }
 
-  async function ensureAccordionExpandedAfterFilter() {
-    await sleep(800);
-    const clickable = getAccordionClickable();
-    if (!clickable) return false;
-    const state = readAccordionState();
-    
-    if (state === "plus") { superClick(clickable); await sleep(1500); }
-    else if (state === "minus") { 
-        superClick(clickable); await sleep(800);
-        superClick(clickable); await sleep(1500);
-    }
-    return true;
-  }
+  async function waitForGridToRefresh(prevSig, timeoutMs = 20000) {
+    const start = Date.now();
+    let sawBusy = false;
+    let validCount = 0;
 
-  async function setEvrakAdiFilter(term) {
-    const cells = qAllMany(".ui-grid-header-cell");
-    for (const cell of cells) {
-      if (cell.innerText.toLowerCase().includes("evrak adı")) {
-        const input = cell.querySelector("input");
-        if(input) { fillInputAngularSafe(input, term); await sleep(800); return true; }
+    while (Date.now() - start < timeoutMs) {
+      if (isPageBusy()) {
+        sawBusy = true;
+        validCount = 0;
+        await sleep(250);
+        continue;
       }
+
+      const sig = getGridSignature();
+      const rows = getMainResultRows();
+      const hasRows = rows.length > 0;
+      const changed = sig && sig !== prevSig && hasRows;
+
+      if (changed || (sawBusy && hasRows) || (Date.now() - start > 2500 && hasRows)) {
+        validCount += 1;
+        if (validCount >= 2) return true;
+      } else {
+        validCount = 0;
+      }
+
+      await sleep(300);
     }
+
     return false;
   }
 
+  async function clickAraButtonOnly() {
+    const { tp_clicked_ara } = await chrome.storage.local.get(["tp_clicked_ara"]);
+    if (tp_clicked_ara) return true;
 
-  async function downloadTescilBelge() {
-    const { tp_download_clicked, tp_clicked_ara, tp_waiting_pdf_url } = await chrome.storage.local.get([
-      "tp_download_clicked",
-      "tp_clicked_ara",
-      "tp_waiting_pdf_url"
+    const btn = findSearchButton();
+    if (!btn || btn.hasAttribute("disabled") || btn.classList.contains("disabled")) return false;
+
+    const prevSig = getGridSignature();
+    console.log(TAG, "🔎 Ara butonuna basılıyor...");
+    superClick(btn);
+
+    await chrome.storage.local.set({
+      tp_clicked_ara: true,
+      tp_last_search_ts: Date.now(),
+      tp_prev_grid_sig: prevSig,
+      tp_grid_ready: false
+    });
+    return true;
+  }
+
+  function getOperationTypeText(row) {
+    const byHeader = getCellText(row, "İşlem Tipi") || getCellText(row, "Islem Tipi");
+    if (byHeader) return byHeader;
+    return row.innerText || row.textContent || "";
+  }
+
+  function isUpperWriteRow(row) {
+    const operationType = normalizeText(getOperationTypeText(row));
+    return TARGET_OPERATION_PATTERNS.some(pattern => operationType.includes(pattern));
+  }
+
+  function makeUpperWriteKey(row) {
+    const rowText = normalizeText(row.innerText || row.textContent).replace(/\s+/g, " ").trim();
+    const evrakNo = getCellText(row, "Evrak No");
+    const evrakTarihi = getCellText(row, "Evrak Tarihi");
+    const operationType = getOperationTypeText(row);
+    return normalizeText(`${evrakNo}|${evrakTarihi}|${operationType}|${rowText}`);
+  }
+
+  function findFolderClickable(row) {
+    const icon = row.querySelector(
+      "i.fa-folder, i.fa-folder-open, .fa-folder, .fa-folder-open, " +
+      ".glyphicon-folder-open, .glyphicon-folder-close, [class*='folder']"
+    );
+
+    if (icon) {
+      return icon.closest("a, button, [ng-click], [onclick], [role='button']") || icon;
+    }
+
+    const cells = getCells(row);
+    const firstCell = cells[0] || row;
+    return firstCell.querySelector("a, button, [ng-click], [onclick], [role='button']") || null;
+  }
+
+  function getDetailUrlFromClickable(clickable) {
+    if (!clickable) return null;
+    const anchor = clickable.matches?.("a") ? clickable : clickable.closest?.("a");
+    const raw = anchor?.getAttribute?.("href") || "";
+    if (!raw || raw === "#" || raw.toLowerCase().startsWith("javascript:")) return null;
+    try { return new URL(raw, location.href).href; } catch (_) { return null; }
+  }
+
+  function getMainGridScrollContainer(rows) {
+    const uiViewport = qAll(".ui-grid-viewport");
+    if (uiViewport && uiViewport.scrollHeight > uiViewport.clientHeight + 10) return uiViewport;
+    return getScrollableAncestor(rows[0]);
+  }
+
+  async function openUpperWriteRow(row) {
+    const clickable = findFolderClickable(row);
+    if (!clickable) {
+      console.warn(TAG, "⚠️ Üst Yazı satırı bulundu fakat klasör ikonu bulunamadı.", row.innerText);
+      return false;
+    }
+
+    const key = makeUpperWriteKey(row);
+    const detailUrl = getDetailUrlFromClickable(clickable);
+
+    await chrome.storage.local.set({
+      tp_waiting_detail: true,
+      tp_current_upper_key: key,
+      tp_detail_open_ts: Date.now()
+    });
+
+    console.log(TAG, "📁 Üst Yazı açılıyor:", key);
+
+    if (detailUrl && detailUrl.includes("turkpatent.gov.tr")) {
+      const response = await sendInternalMessage({ action: "OPEN_DETAIL_URL", url: detailUrl });
+      if (response?.ok) return true;
+    }
+
+    const clicked = superClick(clickable);
+    if (!clicked) {
+      await chrome.storage.local.set({
+        tp_waiting_detail: false,
+        tp_current_upper_key: null,
+        tp_detail_open_ts: 0
+      });
+    }
+    return clicked;
+  }
+
+  async function scanUpperWriteRows() {
+    const state = await chrome.storage.local.get([
+      "tp_processed_upper_keys",
+      "tp_waiting_detail",
+      "tp_detail_open_ts"
     ]);
 
-    // PDF beklerken asla yeniden filtreleme / dokuman arama yapma.
-    if (tp_waiting_pdf_url) return true;
+    if (state.tp_waiting_detail) {
+      const elapsed = Date.now() - Number(state.tp_detail_open_ts || 0);
+      if (elapsed < 120000) return true;
 
-    if (tp_download_clicked || isActionInProgress || !tp_clicked_ara) return true;
-    if (isAdvancing) return true;
-
-    // 🔥 Tablo yüklenmediyse bekle
-    if (!getAccordionClickable()) return false; 
-
-    isActionInProgress = true;
-    try {
-        await ensureAccordionOpenAtStart();
-        const aramaListesi = ["Marka Yenileme Belges", "MYB", "TB", "Tescil_belgesi_us"];
-        
-        for (const terim of aramaListesi) {
-            console.log(TAG, `🔍 Filtre: ${terim}`);
-            await setEvrakAdiFilter(terim);
-            await sleep(1500);
-            await ensureAccordionExpandedAfterFilter();
-
-            const icons = qAllMany("i.fa-download").filter(el => el.offsetParent !== null);
-            const targetIcon = icons[1] || icons[0]; 
-
-            if (targetIcon) {
-                console.log(TAG, `✅ Dosya Bulundu: ${terim}`);
-                await chrome.storage.local.set({ tp_waiting_pdf_url: true });
-
-                // 1) Mümkünse download linkini yakala (PDF yeni sekme açılmadan da indirilebiliyor)
-                const linkEl = targetIcon.closest("a");
-                const href = (linkEl && linkEl.href) ? linkEl.href : null;
-
-                // 2) UI davranışını korumak için yine tıkla
-                superClick(targetIcon);
-                await sleep(800);
-
-                // 3) Eğer href yakaladıysak, background yakalamayı beklemeden direkt PDF'i indirip işle.
-                // (Bu, sizde görülen "PDF Timeout" problemine çözüm olur.)
-                if (href) {
-                  console.log(TAG, "🔗 PDF linki yakalandı, direkt indirilecek:", href);
-
-                  // Bu noktadan sonra filtre yazma / tekrar arama yapma.
-                  await chrome.storage.local.set({ tp_download_clicked: true, tp_waiting_pdf_url: false });
-                  globalProcessingLock = true;
-                  lastProcessedUrl = href;
-
-                  // Kısa bir gecikme: bazı durumlarda server click sonrası dosyayı hazır ediyor.
-                  setTimeout(() => {
-                    processDocument(href, null).catch(() => {});
-                  }, 400);
-                  return true;
-                }
-
-                setTimeout(async () => {
-                  const s = await chrome.storage.local.get(["tp_waiting_pdf_url", "tp_download_clicked"]);
-                  if (s.tp_waiting_pdf_url && !s.tp_download_clicked) {
-                    console.warn(TAG, "⏳ PDF Timeout. Geçiliyor.");
-                    await chrome.storage.local.set({ tp_waiting_pdf_url: false });
-                    globalProcessingLock = false;
-                    await advanceQueue();
-                  }
-                }, 12000);
-                return true;
-            }
-        }
-        
-        searchPassCount++;
-        if (searchPassCount >= 2) {
-            console.log(TAG, "⚠️ Belge yok, geçiliyor.");
-            await advanceQueue(); 
-        }
-    } catch(e) { console.error(TAG, e); await advanceQueue(); } 
-    finally { isActionInProgress = false; }
-  }
-
-// --- ANA DÖNGÜ ---
-async function run() {
-  if (isAdvancing) return;
-
-  const continueProcess = await checkQueueAndSetAppNo();
-  if (!continueProcess) return;
-
-  const {
-    tp_app_no,
-    tp_clicked_ara,
-    tp_download_clicked,
-    tp_last_search_ts
-  } = await chrome.storage.local.get([
-    "tp_app_no",
-    "tp_clicked_ara",
-    "tp_download_clicked",
-    "tp_last_search_ts"
-  ]);
-
-  if (!tp_app_no) return;
-
-  if (isGirisPage()) {
-    const btn = findLoginButtonOnGiris();
-    if (btn) superClick(btn);
-    return;
-  }
-
-  if (isBelgelerimScreenOpen()) {
-    const okMarka = await ensureDosyaTuruMarka();
-    if (!okMarka) return;
-
-    const input = qAll("#textbox551 input");
-    const currentVal = input ? (input.value || "").trim() : "";
-
-    if (currentVal !== String(tp_app_no)) {
-      // Önce önceki aramadan kalan "Evrak adı" filtresini temizle.
-      await clearEvrakAdiFilter();
-
-      // Garanti olsun diye arama state'ini de sıfırla (başvuru no değişti).
+      console.warn(TAG, "⚠️ Detay ekranı zaman aşımına uğradı; aynı Üst Yazı tekrar denenecek.");
       await chrome.storage.local.set({
+        tp_waiting_detail: false,
+        tp_current_upper_key: null,
+        tp_detail_open_ts: 0
+      });
+      return true;
+    }
+
+    const processed = Array.isArray(state.tp_processed_upper_keys)
+      ? state.tp_processed_upper_keys
+      : [];
+
+    const rows = getMainResultRows();
+    if (!rows.length) return false;
+
+    const upperRows = rows.filter(isUpperWriteRow);
+
+    for (const row of upperRows) {
+      const key = makeUpperWriteKey(row);
+      if (processed.includes(key)) continue;
+
+      await openUpperWriteRow(row);
+      return true;
+    }
+
+    const scrollContainer = getMainGridScrollContainer(rows);
+    if (scrollContainer) {
+      const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 8;
+      if (!atBottom) {
+        const step = Math.max(200, Math.floor(scrollContainer.clientHeight * 0.75));
+        scrollContainer.scrollTop = Math.min(
+          scrollContainer.scrollTop + step,
+          scrollContainer.scrollHeight
+        );
+        scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await sleep(650);
+        return true;
+      }
+    }
+
+    const finalState = await chrome.storage.local.get(["tp_job_saved_count"]);
+    console.log(
+      TAG,
+      `✅ Başvurudaki tüm Üst Yazılar tarandı. Kaydedilen hedef belge: ${Number(finalState.tp_job_saved_count || 0)}`
+    );
+    await advanceQueue();
+    return true;
+  }
+
+  async function resetMainGridScroll() {
+    const rows = getMainResultRows();
+    const scrollContainer = getMainGridScrollContainer(rows);
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await sleep(250);
+    }
+  }
+
+  async function checkQueueAndSetAppNo() {
+    const data = await chrome.storage.local.get([
+      "tp_queue",
+      "tp_is_queue_running",
+      "tp_queue_index",
+      "tp_app_no"
+    ]);
+
+    if (!data.tp_is_queue_running || !data.tp_queue || data.tp_queue.length === 0) return true;
+
+    const currentIndex = data.tp_queue_index || 0;
+    if (currentIndex >= data.tp_queue.length) {
+      console.log(TAG, "🏁 Kuyruk tamamlandı!");
+      await chrome.storage.local.set({
+        tp_is_queue_running: false,
+        tp_queue: [],
+        tp_pdf_receiver_tab_id: null
+      });
+      alert("Toplu işlem tamamlandı!");
+      return false;
+    }
+
+    const currentJob = data.tp_queue[currentIndex];
+    if (data.tp_app_no !== currentJob.appNo) {
+      console.log(TAG, `🔄 Yeni iş: ${currentIndex + 1}/${data.tp_queue.length} - ${currentJob.appNo}`);
+
+      await chrome.storage.local.set({
+        tp_app_no: currentJob.appNo,
+        tp_current_job_id: currentJob.ipId,
+        tp_current_doc_type: currentJob.docType,
         tp_clicked_ara: false,
         tp_download_clicked: false,
         tp_waiting_pdf_url: false,
         tp_grid_ready: false,
-        tp_grid_retry: 0
+        tp_prev_grid_sig: null,
+        tp_last_belgelerim_try: 0,
+        tp_last_search_ts: 0,
+        tp_grid_retry: 0,
+        tp_processed_upper_keys: [],
+        tp_waiting_detail: false,
+        tp_current_upper_key: null,
+        tp_detail_open_ts: 0,
+        tp_job_saved_count: 0,
+        tp_current_file_name: null
       });
 
-      await fillBasvuruNo(tp_app_no);
-      return;
+      await resetMainGridScroll();
+      return true;
     }
 
-    if (!tp_clicked_ara) {
-      await clickAraButtonOnly();
-      return;
+    return true;
+  }
+
+  async function advanceQueue() {
+    if (isAdvancing) return;
+    isAdvancing = true;
+    console.log(TAG, "➡️ Başvuru tamamlandı, kuyruk ilerletiliyor...");
+
+    try {
+      const input = findApplicationNumberInput();
+      if (input) fillInputAngularSafe(input, "");
+
+      const data = await chrome.storage.local.get(["tp_queue_index"]);
+      const nextIndex = (data.tp_queue_index || 0) + 1;
+
+      await chrome.storage.local.set({
+        tp_queue_index: nextIndex,
+        tp_app_no: null,
+        tp_download_clicked: false,
+        tp_clicked_ara: false,
+        tp_waiting_pdf_url: false,
+        tp_grid_ready: false,
+        tp_prev_grid_sig: null,
+        tp_last_belgelerim_try: 0,
+        tp_last_search_ts: 0,
+        tp_grid_retry: 0,
+        tp_processed_upper_keys: [],
+        tp_waiting_detail: false,
+        tp_current_upper_key: null,
+        tp_detail_open_ts: 0,
+        tp_job_saved_count: 0,
+        tp_current_file_name: null,
+        tp_pdf_receiver_tab_id: null
+      });
+
+      await resetMainGridScroll();
+      await sleep(1500);
+    } catch (e) {
+      console.error(TAG, "Kuyruk ilerletme hatası:", e);
+    } finally {
+      isActionInProgress = false;
+      globalProcessingLock = false;
+      isAdvancing = false;
     }
+  }
 
-    // 1) Çok kısa bir güvenlik beklemesi
-    if (tp_clicked_ara && (Date.now() - (tp_last_search_ts || 0) < 1500)) return;
+  async function run() {
+    if (mainRunLock || isAdvancing) return;
+    mainRunLock = true;
 
-    // 2) UI hala yükleniyorsa asla devam etme
-    if (isPageBusy()) {
-      console.log(TAG, "⏳ Sayfa meşgul, bekleniyor...");
-      return;
-    }
+    try {
+      const continueProcess = await checkQueueAndSetAppNo();
+      if (!continueProcess) return;
 
-    // 3) Asıl kritik nokta:
-    // Ara'ya basıldıktan sonra grid'in gerçekten yenilenmesini bekle.
-    const {
-      tp_grid_ready,
-      tp_prev_grid_sig,
-      tp_grid_retry = 0
-    } = await chrome.storage.local.get([
-      "tp_grid_ready",
-      "tp_prev_grid_sig",
-      "tp_grid_retry"
-    ]);
+      const state = await chrome.storage.local.get([
+        "tp_app_no",
+        "tp_clicked_ara",
+        "tp_grid_ready",
+        "tp_prev_grid_sig",
+        "tp_grid_retry",
+        "tp_last_search_ts"
+      ]);
 
-    if (tp_clicked_ara && !tp_grid_ready) {
-      const ok = await waitForGridToRefresh(tp_prev_grid_sig || "", 20000);
+      if (!state.tp_app_no) return;
 
-      if (!ok) {
-        // ✅ Grid gelmediyse ready yapma. 1 kez daha Ara'ya basıp dene.
-        const nextRetry = tp_grid_retry + 1;
+      if (isGirisPage()) {
+        const btn = findLoginButtonOnGiris();
+        if (btn) superClick(btn);
+        return;
+      }
 
-        if (nextRetry <= 1) {
-          console.log(TAG, "🔁 Grid gelmedi, Ara tekrar deneniyor...");
-          await chrome.storage.local.set({ tp_grid_retry: nextRetry, tp_grid_ready: false });
-          await clickAraButtonOnly();
+      if (!isBelgelerimScreenOpen()) {
+        await clickBelgelerim();
+        return;
+      }
+
+      const okMarka = await ensureDosyaTuruMarka();
+      if (!okMarka) return;
+
+      const input = findApplicationNumberInput();
+      const currentVal = input ? (input.value || "").trim() : "";
+
+      if (currentVal !== String(state.tp_app_no)) {
+        await chrome.storage.local.set({
+          tp_clicked_ara: false,
+          tp_grid_ready: false,
+          tp_grid_retry: 0,
+          tp_processed_upper_keys: [],
+          tp_waiting_detail: false,
+          tp_job_saved_count: 0
+        });
+        await resetMainGridScroll();
+        await fillBasvuruNo(state.tp_app_no);
+        return;
+      }
+
+      if (!state.tp_clicked_ara) {
+        await clickAraButtonOnly();
+        return;
+      }
+
+      if (Date.now() - Number(state.tp_last_search_ts || 0) < 1200) return;
+      if (isPageBusy()) return;
+
+      if (!state.tp_grid_ready) {
+        const ok = await waitForGridToRefresh(state.tp_prev_grid_sig || "", 18000);
+
+        if (!ok) {
+          const nextRetry = Number(state.tp_grid_retry || 0) + 1;
+          if (nextRetry <= 1) {
+            console.log(TAG, "🔁 Sonuç tablosu gelmedi; Ara tekrar deneniyor...");
+            await chrome.storage.local.set({
+              tp_grid_retry: nextRetry,
+              tp_clicked_ara: false,
+              tp_grid_ready: false
+            });
+            return;
+          }
+
+          console.warn(TAG, "⚠️ Sonuç tablosu yüklenemedi; başvuru atlanıyor.");
+          await advanceQueue();
           return;
         }
 
-        console.log(TAG, "⛔ Grid yine gelmedi, bu tur atlanıyor.");
-        await chrome.storage.local.set({ tp_grid_retry: 0, tp_grid_ready: false });
-        return; // burada istersen "işi atla/ilerle" mantığını çağırabilirsin
+        await chrome.storage.local.set({
+          tp_grid_ready: true,
+          tp_grid_retry: 0,
+          tp_prev_grid_sig: getGridSignature()
+        });
+        await resetMainGridScroll();
+        return;
       }
 
-      // ✅ Grid yenilendi: ready yap, retry sıfırla, prev sig güncelle
-      const newSig = getGridSignature() || "";
-      await chrome.storage.local.set({
-        tp_grid_ready: true,
-        tp_grid_retry: 0,
-        tp_prev_grid_sig: newSig
-      });
-
-      return; // Bir sonraki tick'te indirmeye geçsin
+      await scanUpperWriteRows();
+    } catch (e) {
+      console.error(TAG, "Ana otomasyon döngüsü hatası:", e);
+    } finally {
+      mainRunLock = false;
     }
-
-    if (tp_clicked_ara && tp_grid_ready && !tp_download_clicked && !isActionInProgress) {
-      await downloadTescilBelge();
-    }
-
-    return;
   }
 
-  await clickBelgelerim();
-}
-  setInterval(() => run().catch(() => {}), 2000);
+  setInterval(() => {
+    run().catch((e) => console.error(TAG, e));
+  }, 1800);
 })();

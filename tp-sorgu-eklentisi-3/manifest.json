@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "TP EPATS Otomasyon - V3 (Queue Support)",
-  "version": "3.2.1",
-  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. Üst Yazı ve Tescil belgesi ve üst yazısı / doküman ekranı desteği.",
-  "permissions": ["storage", "tabs", "scripting", "webRequest"],
+  "version": "3.2.4",
+  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. Tescil belgesi ve üst yazısı kayıtlarında TB_ dosya adı desteği.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "webRequest"
+  ],
   "host_permissions": [
     "https://epats.turkpatent.gov.tr/*",
     "https://epats2.turkpatent.gov.tr/*"
@@ -27,7 +32,9 @@
         "https://epats.turkpatent.gov.tr/*",
         "https://epats2.turkpatent.gov.tr/*"
       ],
-      "js": ["content_script.js"],
+      "js": [
+        "content_script.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }

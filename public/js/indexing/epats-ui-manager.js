@@ -18,7 +18,8 @@ export class EpatsUiManager {
         // Desteklenen Eklenti ID'leri (Hangi eklenti yüklüyse o çalışır)
         this.extensionIds = [
             "eofiokhjckpokhljndldiicngcmpcpda", // 1. ID (Mevcut)
-            "hffjgcfcelfemkmgocpjjphfmjlhpdnb"  // 2. ID (Yeni)
+            "hffjgcfcelfemkmgocpjjphfmjlhpdnb", // 2. ID (Yeni)
+            "adhjjcokdlefdknagcjidgpaoanlbhhb"  // 3. ID (Yeni)
         ];
 
         this.init();

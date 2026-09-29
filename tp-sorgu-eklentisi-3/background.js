@@ -1,5 +1,5 @@
 // TP EPATS Otomasyon - background.js
-// v3.2.0 - epats2 + çoklu "Üst Yazı" tarama desteği
+// v3.2.2 - epats2 + çoklu "Üst Yazı" tarama desteği
 
 let activeJobTabId = null;
 let pdfReceiverTabId = null;

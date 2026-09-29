@@ -1,9 +1,10 @@
 // TP EPATS Otomasyon - content_script.js
-// v3.2.1
+// v3.2.4
 // Yeni akış:
 // 1) Belgelerim'de başvuru no ile arama
 // 2) İşlem Tipi = "Üst Yazı" veya "Tescil belgesi ve üst yazısı" olan satırları sırayla açma
 // 3) epats2 doküman ekranında Dosya Adı içinde hedef belge adlarını bulma
+//    - "Tescil belgesi ve üst yazısı" için ayrıca TB_ desenini kabul etme
 // 4) İndirme ikonuna basıp PDF'i IPGate/Supabase'e kaydetme
 // 5) Aynı başvurudaki tüm Üst Yazılar bittikten sonra kuyruğu ilerletme
 
@@ -103,16 +104,26 @@
       el.scrollIntoView({ block: "center", inline: "nearest" });
     } catch (_) {}
 
+    // Yeni EPATS2 ekranında bazı ikonlar doğrudan <a>/<button> değil;
+    // Angular/JS click listener'ı span/svg/img gibi bir alt elemana bağlı olabiliyor.
+    // Gerçek kullanıcı tıklamasına daha yakın bir event dizisi gönderiyoruz.
     try {
-      el.click();
+      const opts = { bubbles: true, cancelable: true, view: window, button: 0 };
+      el.dispatchEvent(new MouseEvent("mouseover", opts));
+      el.dispatchEvent(new MouseEvent("mouseenter", opts));
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
+      if (typeof el.click === "function") el.click();
       return true;
     } catch (_) {
       try {
-        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-        return true;
-      } catch (_) {
-        return false;
-      }
+        if (typeof el.click === "function") {
+          el.click();
+          return true;
+        }
+      } catch (_) {}
+      return false;
     }
   }
 
@@ -379,6 +390,11 @@
   // ---------------------------------------------------------------------------
 
   function getDetailRows() {
+    // EPATS2'nin güncel doküman ekranındaki gerçek satır yapısı.
+    // Örn: <tr class="bmm-table-row" ng-repeat="value in _datasource ...">
+    const epats2Rows = qAllMany("tr.bmm-table-row").filter((r) => getCells(r).length > 0 && isVisible(r));
+    if (epats2Rows.length) return epats2Rows;
+
     const tableRows = qAllMany("table tbody tr").filter((r) => getCells(r).length > 0 && isVisible(r));
     if (tableRows.length) return tableRows;
 
@@ -392,44 +408,113 @@
     return qAllMany(".ui-grid-row").filter(isVisible);
   }
 
-  function getDetailFileName(row) {
+  function getDetailFileName(row, options = {}) {
     const byHeader = getCellText(row, "Dosya Adı") || getCellText(row, "Dosya Adi");
+    if (byHeader && isTargetFileName(byHeader, options)) return byHeader;
+
+    // Header eşleşmesi yeni EPATS2 tablosunda kolon yapısı nedeniyle şaşarsa,
+    // hedef ifadeyi içeren hücreyi doğrudan bul. Örn:
+    // "Ek1 Tescil Belgesitb_2022_005861..pdf"
+    const cells = getCells(row);
+    for (const cell of cells) {
+      const text = (cell.innerText || cell.textContent || "").trim();
+      if (text && isTargetFileName(text, options)) return text;
+    }
+
     if (byHeader) return byHeader;
 
-    const cells = getCells(row);
     const nonEmpty = cells
       .map((c) => (c.innerText || c.textContent || "").trim())
       .filter(Boolean);
-    return nonEmpty.length ? nonEmpty[nonEmpty.length - 1] : (row.innerText || "").trim();
+    return nonEmpty.length ? nonEmpty[nonEmpty.length - 1] : (row.innerText || row.textContent || "").trim();
   }
 
-  function isTargetFileName(name) {
+  function isTargetFileName(name, options = {}) {
     const normal = normalizeText(name);
     const compact = compactText(name);
+    const allowTbPrefix = Boolean(options.allowTbPrefix);
 
     return (
       normal.includes("marka yenileme belgesi") ||
       compact.includes("markayenilemebelgesi") ||
       compact.includes("tescilbelgesitb") ||
-      compact.includes("myb")
+      compact.includes("myb") ||
+      // Yalnızca ana ekranda "Tescil belgesi ve üst yazısı" işlem tipinden
+      // gelindiyse TB_ ile adlandırılan dosyaları da hedef kabul et.
+      // Örn: "tescil belgesi TB_2015_52633.pdf"
+      (allowTbPrefix && normal.includes("tb_"))
     );
   }
 
+  function rowContainsTargetFile(row, options = {}) {
+    if (!row) return false;
+    if (isTargetFileName(getDetailFileName(row, options), options)) return true;
+    // Son emniyet: kolon indeksleri/başlıkları beklenmedikse tüm satır metnini tara.
+    return isTargetFileName(row.innerText || row.textContent || "", options);
+  }
+
   function findDownloadClickable(row) {
-    const icon = row.querySelector(
-      "i.fa-download, i.fas.fa-download, i.far.fa-download, " +
-      ".glyphicon-download, .glyphicon-download-alt, " +
-      "[class*='download'], [title*='ndir'], [aria-label*='ndir']"
-    );
-
-    if (icon) {
-      return icon.closest("a, button, [ng-click], [onclick], [role='button']") || icon;
-    }
-
     const cells = getCells(row);
     const firstCell = cells[0] || row;
-    const clickable = firstCell.querySelector("a, button, [ng-click], [onclick], [role='button']");
-    return clickable || null;
+
+    // 1) EPATS2 güncel DOM yapısı (29.09.2026):
+    // <div style="...cursor:pointer..." ng-click="$parent.$parent.dokumanIndir(value);">
+    //   <i class="fa fa-download"></i>
+    // </div>
+    // İkonun kendisine değil Angular ng-click taşıyan wrapper'a basmak gerekir.
+    const epats2DownloadControl =
+      firstCell.querySelector("[ng-click*='dokumanIndir'], [data-ng-click*='dokumanIndir']") ||
+      row.querySelector("[ng-click*='dokumanIndir'], [data-ng-click*='dokumanIndir']");
+    if (epats2DownloadControl) return epats2DownloadControl;
+
+    // 2) Bilinen download selector'ları (eski/yeni EPATS varyasyonları)
+    const knownIcon = row.querySelector(
+      "i.fa-download, i.fas.fa-download, i.far.fa-download, " +
+      ".glyphicon-download, .glyphicon-download-alt, " +
+      "[class*='download'], [class*='Download'], " +
+      "[title*='ndir'], [title*='İndir'], [title*='Indir'], " +
+      "[aria-label*='ndir'], [aria-label*='İndir'], [aria-label*='Indir'], " +
+      "img[src*='download'], img[src*='Download'], svg[class*='download']"
+    );
+
+    if (knownIcon) {
+      return knownIcon.closest("a, button, [ng-click], [data-ng-click], [onclick], [role='button'], [tabindex]") || knownIcon;
+    }
+
+    // 3) Yeni ekrandaki ikon ilk kolonda. Önce klasik tıklanabilir wrapper'ları ara.
+    const directClickable = firstCell.querySelector(
+      "a[href], button, [ng-click], [data-ng-click], [onclick], [role='button'], [tabindex]"
+    );
+    if (directClickable) return directClickable;
+
+    // 4) Wrapper yoksa ikonun kendisini yakala. TÜRKPATENT bazı ekranlarda
+    // click listener'ını doğrudan <i>/<span>/<svg>/<img> üzerine bağlıyor.
+    const iconLike = firstCell.querySelector("i, svg, img, span, .fa, .fas, .far, .glyphicon");
+    if (iconLike) {
+      let node = iconLike;
+      while (node && node !== firstCell && node !== row) {
+        const style = window.getComputedStyle(node);
+        if (
+          style.cursor === "pointer" ||
+          node.hasAttribute?.("ng-click") ||
+          node.hasAttribute?.("data-ng-click") ||
+          node.hasAttribute?.("onclick") ||
+          node.getAttribute?.("role") === "button"
+        ) {
+          return node;
+        }
+        node = node.parentElement;
+      }
+      return iconLike;
+    }
+
+    // 5) İlk hücrenin kendisi tıklanabilir olabilir.
+    try {
+      const firstStyle = window.getComputedStyle(firstCell);
+      if (firstStyle.cursor === "pointer") return firstCell;
+    } catch (_) {}
+
+    return null;
   }
 
   function getClickableHref(clickable) {
@@ -469,6 +554,7 @@
       tp_processed_upper_keys: processed,
       tp_waiting_detail: false,
       tp_current_upper_key: null,
+      tp_current_upper_operation_type: null,
       tp_detail_open_ts: 0,
       tp_job_saved_count: Number(state.tp_job_saved_count || 0) + Number(savedCount || 0),
       tp_current_file_name: null,
@@ -497,7 +583,17 @@
 
     const waitPromise = waitForPdfProcessed(20000);
     console.log(TAG, "⬇️ İndirme ikonuna basılıyor:", fileName);
-    superClick(clickable);
+
+    // Güncel EPATS2'de Angular ng-click doğrudan wrapper div üzerinde.
+    // Burada tek bir native click kullanıyoruz; superClick'in ek MouseEvent zinciri
+    // aynı ng-click'in iki kez tetiklenmesine yol açmasın.
+    const ngClickValue = clickable.getAttribute?.("ng-click") || clickable.getAttribute?.("data-ng-click") || "";
+    if (ngClickValue.includes("dokumanIndir") && typeof clickable.click === "function") {
+      clickable.scrollIntoView?.({ block: "center", inline: "nearest" });
+      clickable.click();
+    } else {
+      superClick(clickable);
+    }
 
     let ok = await waitPromise;
 
@@ -532,13 +628,29 @@
       return;
     }
 
-    const targets = rows.filter((row) => isTargetFileName(getDetailFileName(row)));
+    const detailState = await chrome.storage.local.get(["tp_current_upper_operation_type"]);
+    const currentUpperOperationType = normalizeText(detailState.tp_current_upper_operation_type || "");
+    const allowTbPrefix = currentUpperOperationType.includes("tescil belgesi ve ust yazisi");
+    const fileMatchOptions = { allowTbPrefix };
+
+    if (allowTbPrefix) {
+      console.log(TAG, 'ℹ️ "Tescil belgesi ve üst yazısı" detayı: TB_ dosya adı kriteri de aktif.');
+    }
+
+    const targets = rows.filter((row) => rowContainsTargetFile(row, fileMatchOptions));
     console.log(TAG, `🎯 Detay sayfasında ${targets.length} hedef belge bulundu.`);
+
+    if (!targets.length) {
+      console.log(TAG, "ℹ️ Detay satırları (hedef bulunamadı):", rows.map((row) => ({
+        fileName: getDetailFileName(row, fileMatchOptions),
+        rowText: (row.innerText || row.textContent || "").trim()
+      })));
+    }
 
     let savedCount = 0;
 
     for (const row of targets) {
-      const fileName = getDetailFileName(row);
+      const fileName = getDetailFileName(row, fileMatchOptions);
       if (!fileName) continue;
 
       try {
@@ -787,6 +899,11 @@
     return TARGET_OPERATION_PATTERNS.some(pattern => operationType.includes(pattern));
   }
 
+  function isRegistrationCertificateUpperWriteRow(row) {
+    const operationType = normalizeText(getOperationTypeText(row));
+    return operationType.includes("tescil belgesi ve ust yazisi");
+  }
+
   function makeUpperWriteKey(row) {
     const rowText = normalizeText(row.innerText || row.textContent).replace(/\s+/g, " ").trim();
     const evrakNo = getCellText(row, "Evrak No");
@@ -834,13 +951,22 @@
     const key = makeUpperWriteKey(row);
     const detailUrl = getDetailUrlFromClickable(clickable);
 
+    const operationTypeText = getOperationTypeText(row);
+
     await chrome.storage.local.set({
       tp_waiting_detail: true,
       tp_current_upper_key: key,
+      tp_current_upper_operation_type: operationTypeText,
       tp_detail_open_ts: Date.now()
     });
 
-    console.log(TAG, "📁 Üst Yazı açılıyor:", key);
+    console.log(
+      TAG,
+      isRegistrationCertificateUpperWriteRow(row)
+        ? '📁 "Tescil belgesi ve üst yazısı" açılıyor (TB_ kriteri aktif):'
+        : "📁 Üst Yazı açılıyor:",
+      key
+    );
 
     if (detailUrl && detailUrl.includes("turkpatent.gov.tr")) {
       const response = await sendInternalMessage({ action: "OPEN_DETAIL_URL", url: detailUrl });
@@ -852,6 +978,7 @@
       await chrome.storage.local.set({
         tp_waiting_detail: false,
         tp_current_upper_key: null,
+        tp_current_upper_operation_type: null,
         tp_detail_open_ts: 0
       });
     }
@@ -873,6 +1000,7 @@
       await chrome.storage.local.set({
         tp_waiting_detail: false,
         tp_current_upper_key: null,
+        tp_current_upper_operation_type: null,
         tp_detail_open_ts: 0
       });
       return true;
@@ -970,6 +1098,7 @@
         tp_processed_upper_keys: [],
         tp_waiting_detail: false,
         tp_current_upper_key: null,
+        tp_current_upper_operation_type: null,
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
         tp_current_file_name: null
@@ -1008,6 +1137,7 @@
         tp_processed_upper_keys: [],
         tp_waiting_detail: false,
         tp_current_upper_key: null,
+        tp_current_upper_operation_type: null,
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
         tp_current_file_name: null,

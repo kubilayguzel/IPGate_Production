@@ -1,60 +1,9 @@
 // TP EPATS Otomasyon - background.js
-// v3.2.5 - duplicate PDF capture koruması + top-frame mesajlaşma
+// v3.2.7 - 3.2.4 PDF yakalama akışı + yalnızca top-frame content script
 
 let activeJobTabId = null;
 let pdfReceiverTabId = null;
-const dispatchedCaptureIds = new Set();
-const recentPdfUrls = new Map();
-const PDF_URL_DEDUP_MS = 15000;
-
-function rememberRecentPdfUrl(url) {
-  const now = Date.now();
-  for (const [key, ts] of recentPdfUrls.entries()) {
-    if (now - ts > PDF_URL_DEDUP_MS * 4) recentPdfUrls.delete(key);
-  }
-  const previous = recentPdfUrls.get(url) || 0;
-  if (now - previous < PDF_URL_DEDUP_MS) return false;
-  recentPdfUrls.set(url, now);
-  return true;
-}
-
-async function claimPdfDispatch(url) {
-  const state = await chrome.storage.local.get([
-    "tp_pdf_capture_id",
-    "tp_pdf_dispatched_capture_id",
-    "tp_waiting_pdf_url"
-  ]);
-
-  const captureId = state.tp_pdf_capture_id || null;
-
-  // Detay sayfasındaki her indirme tıklaması benzersiz bir captureId üretir.
-  // Aynı click'ten tabs.onUpdated + webRequest veya redirect üzerinden birden
-  // fazla PDF olayı gelse bile yalnızca ilkini receiver'a gönder.
-  if (captureId) {
-    if (!state.tp_waiting_pdf_url) {
-      console.log("[BG] PDF olayı beklenmiyor; atlandı:", captureId, url);
-      return { ok: false, captureId };
-    }
-
-    if (
-      dispatchedCaptureIds.has(captureId) ||
-      state.tp_pdf_dispatched_capture_id === captureId
-    ) {
-      console.log("[BG] Aynı PDF capture tekrar yakalandı; atlandı:", captureId, url);
-      return { ok: false, captureId };
-    }
-
-    // In-memory claim'i await'ten önce al; eşzamanlı iki event aynı storage
-    // değerini okusa bile ikinci callback burada durur. Storage kaydı ise
-    // service worker yeniden başlarsa koruma sağlamaya devam eder.
-    dispatchedCaptureIds.add(captureId);
-    await chrome.storage.local.set({ tp_pdf_dispatched_capture_id: captureId });
-    return { ok: true, captureId };
-  }
-
-  // Eski / captureId'siz akışlar için kısa süreli URL dedup fallback'i.
-  return { ok: rememberRecentPdfUrl(url), captureId: null };
-}
+let lastPdfUrl = null;
 
 const EPATS_HOST_PATTERNS = [
   "https://epats.turkpatent.gov.tr/*",
@@ -94,9 +43,6 @@ async function getPdfReceiverTabId() {
 }
 
 async function sendPdfUrlToReceiver(url) {
-  const claim = await claimPdfDispatch(url);
-  if (!claim.ok) return;
-
   const targetTabId = await getPdfReceiverTabId();
   if (!targetTabId) {
     console.warn("[BG] PDF bulundu fakat alıcı sekme yok:", url);
@@ -105,21 +51,12 @@ async function sendPdfUrlToReceiver(url) {
 
   await ensureContentScript(targetTabId);
 
-  const message = {
-    action: "PDF_URL_CAPTURED",
-    url,
-    captureId: claim.captureId
-  };
-
-  // Mesajı yalnızca top frame'e gönder. Manifest de all_frames=false,
-  // fakat frameId:0 ikinci bir güvenlik katmanı olarak tutuluyor.
   chrome.tabs.sendMessage(
     targetTabId,
-    message,
-    { frameId: 0 },
+    { action: "PDF_URL_CAPTURED", url },
     async (resp) => {
       if (!chrome.runtime.lastError) {
-        console.log("[BG] PDF URL alıcıya gönderildi:", targetTabId, claim.captureId, resp);
+        console.log("[BG] PDF URL alıcıya gönderildi:", targetTabId, resp);
         return;
       }
 
@@ -128,8 +65,7 @@ async function sendPdfUrlToReceiver(url) {
 
       chrome.tabs.sendMessage(
         targetTabId,
-        message,
-        { frameId: 0 },
+        { action: "PDF_URL_CAPTURED", url },
         (resp2) => {
           if (chrome.runtime.lastError) {
             console.warn("[BG] sendMessage RETRY FAIL:", chrome.runtime.lastError.message);
@@ -173,9 +109,7 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
       tp_current_upper_key: null,
       tp_job_saved_count: 0,
       tp_current_file_name: null,
-      tp_pdf_capture_id: null,
-      tp_pdf_dispatched_capture_id: null,
-      tp_pdf_capture_consumed: false
+      tp_finish_current_job: false
     },
     () => {
       chrome.tabs.create(
@@ -197,10 +131,6 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
     if (request?.action === "REGISTER_PDF_RECEIVER") {
-      if (sender?.frameId != null && sender.frameId !== 0) {
-        sendResponse({ ok: false, ignored: true, reason: "non_top_frame" });
-        return;
-      }
       const tabId = sender?.tab?.id;
       if (tabId) {
         pdfReceiverTabId = tabId;
@@ -260,6 +190,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   if (!isPdfLikeUrl(url)) return;
 
+  if (url === lastPdfUrl) return;
+  lastPdfUrl = url;
   console.log("[BG] PDF sekmesi yakalandı:", url);
 
   await sendPdfUrlToReceiver(url);
@@ -272,7 +204,8 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (!hasPdfContentType(details.responseHeaders)) return;
 
     const url = details.url;
-    if (!url) return;
+    if (!url || url === lastPdfUrl) return;
+    lastPdfUrl = url;
 
     console.log("[BG] PDF yakalandı (Content-Type):", url);
     await sendPdfUrlToReceiver(url);

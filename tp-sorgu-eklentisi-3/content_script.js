@@ -1,12 +1,12 @@
 // TP EPATS Otomasyon - content_script.js
-// v3.2.5
+// v3.2.7
 // Yeni akış:
 // 1) Belgelerim'de başvuru no ile arama
 // 2) İşlem Tipi = "Üst Yazı" veya "Tescil belgesi ve üst yazısı" olan satırları sırayla açma
 // 3) epats2 doküman ekranında Dosya Adı içinde hedef belge adlarını bulma
 //    - "Tescil belgesi ve üst yazısı" için ayrıca TB_ desenini kabul etme
 // 4) İndirme ikonuna basıp PDF'i IPGate/Supabase'e kaydetme
-// 5) Aynı başvurudaki tüm Üst Yazılar bittikten sonra kuyruğu ilerletme
+// 5) Yenileme belgesi kaydedilirse başvuruyu hemen bitirme; aksi halde tüm Üst Yazılar bitince kuyruğu ilerletme
 
 (() => {
   // Bu otomasyon yalnızca top frame'de çalışır. Önceki sürümde listener
@@ -286,6 +286,7 @@
   }
 
   // PDF URL background tarafından yakalandığında aktif alıcı sekmede işlenir.
+  // Bu listener yalnızca top frame'de kurulur (dosyanın başındaki guard sayesinde).
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request?.action !== "PDF_URL_CAPTURED" || !request?.url) return;
 
@@ -301,37 +302,15 @@
       try {
         const storage = await chrome.storage.local.get([
           "tp_waiting_pdf_url",
-          "tp_current_file_name",
-          "tp_pdf_capture_id",
-          "tp_pdf_capture_consumed"
+          "tp_current_file_name"
         ]);
 
-        // Background mesajı belirli bir indirme tıklamasına aitse yalnızca
-        // halen aktif olan capture ile eşleştiğinde kabul et.
-        if (
-          request.captureId &&
-          storage.tp_pdf_capture_id &&
-          request.captureId !== storage.tp_pdf_capture_id
-        ) {
-          console.log(TAG, "♻️ Eski PDF capture mesajı atlandı:", request.captureId);
-          return;
-        }
-
-        if (storage.tp_pdf_capture_consumed) {
-          console.log(TAG, "♻️ PDF capture zaten işlendi; tekrar atlandı:", request.captureId || request.url);
-          return;
-        }
-
         if (!storage.tp_waiting_pdf_url && isDetailPage()) {
+          globalProcessingLock = false;
           return;
         }
 
-        // Upload başlamadan capture'ı tüket. Aynı PDF için geç gelen ikinci
-        // mesaj bu noktadan sonra tekrar processDocument çalıştıramaz.
-        await chrome.storage.local.set({
-          tp_waiting_pdf_url: false,
-          tp_pdf_capture_consumed: true
-        });
+        await chrome.storage.local.set({ tp_waiting_pdf_url: false });
 
         const ok = await processDocument(request.url, {
           advanceQueueAfter: !isDetailPage(),
@@ -471,6 +450,16 @@
     );
   }
 
+  function isRenewalCertificateFileName(name) {
+    const normal = normalizeText(name);
+    const compact = compactText(name);
+    return (
+      normal.includes("marka yenileme belgesi") ||
+      compact.includes("markayenilemebelgesi") ||
+      compact.includes("myb")
+    );
+  }
+
   function rowContainsTargetFile(row, options = {}) {
     if (!row) return false;
     if (isTargetFileName(getDetailFileName(row, options), options)) return true;
@@ -583,8 +572,7 @@
       tp_detail_open_ts: 0,
       tp_job_saved_count: Number(state.tp_job_saved_count || 0) + Number(savedCount || 0),
       tp_current_file_name: null,
-      tp_waiting_pdf_url: false,
-      tp_pdf_capture_consumed: true
+      tp_waiting_pdf_url: false
     });
   }
 
@@ -600,17 +588,9 @@
     lastProcessedUrl = null;
     globalProcessingLock = false;
 
-    const captureId =
-      (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-        ? crypto.randomUUID()
-        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
     await chrome.storage.local.set({
       tp_current_file_name: fileName,
-      tp_waiting_pdf_url: true,
-      tp_pdf_capture_id: captureId,
-      tp_pdf_dispatched_capture_id: null,
-      tp_pdf_capture_consumed: false
+      tp_waiting_pdf_url: true
     });
 
     await sendInternalMessage({ action: "REGISTER_PDF_RECEIVER" });
@@ -643,8 +623,7 @@
 
     await chrome.storage.local.set({
       tp_waiting_pdf_url: false,
-      tp_current_file_name: null,
-      tp_pdf_capture_consumed: true
+      tp_current_file_name: null
     });
 
     return ok;
@@ -673,6 +652,13 @@
     }
 
     const targets = rows.filter((row) => rowContainsTargetFile(row, fileMatchOptions));
+    // Yenileme belgesi bulunduysa önce onu işle. Başarıyla kaydedildiğinde
+    // bu başvuru için başka Üst Yazı / EPATS2 detayı aranmayacak.
+    targets.sort((a, b) => {
+      const aName = getDetailFileName(a, fileMatchOptions);
+      const bName = getDetailFileName(b, fileMatchOptions);
+      return Number(isRenewalCertificateFileName(bName)) - Number(isRenewalCertificateFileName(aName));
+    });
     console.log(TAG, `🎯 Detay sayfasında ${targets.length} hedef belge bulundu.`);
 
     if (!targets.length) {
@@ -683,6 +669,7 @@
     }
 
     let savedCount = 0;
+    let finishCurrentJob = false;
 
     for (const row of targets) {
       const fileName = getDetailFileName(row, fileMatchOptions);
@@ -690,7 +677,19 @@
 
       try {
         const ok = await processDetailDownloadRow(row, fileName);
-        if (ok) savedCount += 1;
+        if (ok) {
+          savedCount += 1;
+
+          if (isRenewalCertificateFileName(fileName)) {
+            finishCurrentJob = true;
+            console.log(
+              TAG,
+              "✅ Yenileme belgesi kaydedildi; bu başvuru tamamlandı. Başka Üst Yazı aranmayacak:",
+              fileName
+            );
+            break;
+          }
+        }
       } catch (e) {
         console.error(TAG, "Detay belge işleme hatası:", e);
       }
@@ -699,7 +698,15 @@
     }
 
     await markCurrentUpperWriteComplete(savedCount);
-    console.log(TAG, `✅ Üst Yazı taraması tamamlandı. Kaydedilen belge: ${savedCount}`);
+    if (finishCurrentJob) {
+      await chrome.storage.local.set({ tp_finish_current_job: true });
+    }
+    console.log(
+      TAG,
+      finishCurrentJob
+        ? `✅ Yenileme belgesi ile başvuru tamamlandı. Kaydedilen belge: ${savedCount}`
+        : `✅ Üst Yazı taraması tamamlandı. Kaydedilen belge: ${savedCount}`
+    );
     await sleep(500);
     await sendInternalMessage({ action: "CLOSE_CURRENT_TAB" });
   }
@@ -1024,8 +1031,15 @@
     const state = await chrome.storage.local.get([
       "tp_processed_upper_keys",
       "tp_waiting_detail",
-      "tp_detail_open_ts"
+      "tp_detail_open_ts",
+      "tp_finish_current_job"
     ]);
+
+    if (state.tp_finish_current_job) {
+      console.log(TAG, "➡️ Yenileme belgesi kaydedildi; kalan Üst Yazılar atlanıyor.");
+      await advanceQueue();
+      return true;
+    }
 
     if (state.tp_waiting_detail) {
       const elapsed = Date.now() - Number(state.tp_detail_open_ts || 0);
@@ -1137,9 +1151,7 @@
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
         tp_current_file_name: null,
-        tp_pdf_capture_id: null,
-        tp_pdf_dispatched_capture_id: null,
-        tp_pdf_capture_consumed: false
+        tp_finish_current_job: false
       });
 
       await resetMainGridScroll();
@@ -1179,10 +1191,8 @@
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
         tp_current_file_name: null,
-        tp_pdf_receiver_tab_id: null,
-        tp_pdf_capture_id: null,
-        tp_pdf_dispatched_capture_id: null,
-        tp_pdf_capture_consumed: false
+        tp_finish_current_job: false,
+        tp_pdf_receiver_tab_id: null
       });
 
       await resetMainGridScroll();

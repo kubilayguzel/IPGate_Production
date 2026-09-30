@@ -148,6 +148,123 @@ export class TaskDataManager {
         } catch (e) { return null; }
     }
 
+    async searchInternationalMonitoring(term) {
+        const q = String(term || '').trim().replace(/[(),]/g, ' ');
+        if (q.length < 2) return [];
+
+        try {
+            const { data, error } = await supabase
+                .from('international_monitoring')
+                .select('id, mark_name, applicant_name, application_no, nice_classes, countries, start_date, end_date, image_path, created_at')
+                .or(`mark_name.ilike.%${q}%,applicant_name.ilike.%${q}%,application_no.ilike.%${q}%`)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (error) throw error;
+
+            const ensureArray = (value) => {
+                if (!value) return [];
+                if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
+                if (typeof value === 'string') {
+                    try {
+                        const parsed = JSON.parse(value);
+                        if (Array.isArray(parsed)) return parsed.map(v => String(v)).filter(Boolean);
+                    } catch (_) {}
+                    return value.split(',').map(v => v.trim()).filter(Boolean);
+                }
+                return [String(value)];
+            };
+
+            // Eski yurtdışı izleme kayıtlarında nice_classes bazen
+            // ["32 33 43"], "32,33,43" veya benzeri biçimlerde tutulmuş olabiliyor.
+            // UI'daki 1-45 sınıf butonlarıyla doğru eşleşebilmesi için tüm bu biçimleri
+            // tek tek sınıf numaralarına normalize ediyoruz.
+            const normalizeNiceClasses = (value) => {
+                const rawItems = ensureArray(value);
+                const result = [];
+                rawItems.forEach(item => {
+                    const matches = String(item || '').match(/\d{1,2}/g) || [];
+                    matches.forEach(match => {
+                        const no = Number(match);
+                        if (no >= 1 && no <= 45) {
+                            const normalized = String(no);
+                            if (!result.includes(normalized)) result.push(normalized);
+                        }
+                    });
+                });
+                return result.sort((a, b) => Number(a) - Number(b));
+            };
+
+            return (data || []).map(row => ({
+                id: row.id,
+                markName: row.mark_name || '',
+                applicantName: row.applicant_name || '',
+                applicationNo: row.application_no || '',
+                niceClasses: normalizeNiceClasses(row.nice_classes),
+                countries: ensureArray(row.countries),
+                startDate: row.start_date || '',
+                endDate: row.end_date || '',
+                imagePath: row.image_path || '',
+                createdAt: row.created_at || null,
+                _source: 'international_monitoring'
+            }));
+        } catch (error) {
+            console.error('Yurtdışı izleme markası arama hatası:', error);
+            return [];
+        }
+    }
+
+    async createInternationalMonitoringRecord(recordData) {
+        const payload = {
+            mark_name: String(recordData.markName || '').trim(),
+            applicant_name: String(recordData.applicantName || '').trim() || null,
+            application_no: String(recordData.applicationNo || '').trim() || null,
+            nice_classes: Array.isArray(recordData.niceClasses) ? recordData.niceClasses.map(String) : [],
+            countries: Array.isArray(recordData.countries) ? recordData.countries.map(String) : [],
+            start_date: recordData.startDate || null,
+            end_date: recordData.endDate || null,
+            image_path: recordData.imagePath || null
+        };
+
+        const { data, error } = await supabase
+            .from('international_monitoring')
+            .insert([payload])
+            .select('id, mark_name, applicant_name, application_no, nice_classes, countries, start_date, end_date, image_path, created_at')
+            .single();
+
+        if (error) throw error;
+
+        return {
+            id: data.id,
+            markName: data.mark_name || '',
+            applicantName: data.applicant_name || '',
+            applicationNo: data.application_no || '',
+            niceClasses: Array.isArray(data.nice_classes) ? data.nice_classes.map(String) : [],
+            countries: Array.isArray(data.countries) ? data.countries.map(String) : [],
+            startDate: data.start_date || '',
+            endDate: data.end_date || '',
+            imagePath: data.image_path || '',
+            createdAt: data.created_at || null,
+            _source: 'international_monitoring'
+        };
+    }
+
+    async uploadInternationalMonitoringImage(file) {
+        if (!file) return null;
+        try {
+            const ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'jpg';
+            const cleanExt = String(ext || 'jpg').replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'jpg';
+            const path = `monitoring/manual_monitoring_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${cleanExt}`;
+            const { error } = await supabase.storage.from('brand_images').upload(path, file, { cacheControl: '3600', upsert: false });
+            if (error) throw error;
+            const { data } = supabase.storage.from('brand_images').getPublicUrl(path);
+            return data?.publicUrl || path;
+        } catch (error) {
+            console.error('Yurtdışı izleme marka görseli yükleme hatası:', error);
+            throw error;
+        }
+    }
+
     async getAssignmentRule(taskTypeId) {
         if (!taskTypeId) return null;
         try {

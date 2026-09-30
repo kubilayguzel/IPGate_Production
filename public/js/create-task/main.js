@@ -30,6 +30,8 @@ class CreateTaskController {
             selectedIpRecord: null, selectedTaskType: null, selectedRelatedParties: [], selectedRelatedParty: null,
             selectedTpInvoiceParty: null, selectedServiceInvoiceParty: null, selectedApplicants: [], priorities: [],
             selectedCountries: [], uploadedFiles: [], selectedOwners: [],
+            selectedInternationalMonitoring: null, monitoringMode: 'existing', monitoringSelectedClasses: [], monitoringSelectedCountries: [],
+            monitoringNewRecordCreated: false,
             isWithdrawalTask: false, searchSource: 'portfolio', isNiceClassificationInitialized: false, selectedWipoAripoChildren: [],
             assignmentRule: null
         };
@@ -292,6 +294,9 @@ class CreateTaskController {
         const mainType = e.target.value;
         const specificSelect = document.getElementById('specificTaskType');
 
+        // Ana tür değiştiğinde Menşe alanını varsayılan olarak geri getir.
+        // Marka İzleme Talebi (86) seçildiğinde handleSpecificTypeChange içinde tekrar gizlenecek.
+        this.toggleOriginSectionForMonitoring(false);
         this.uiManager.clearContainer();
         this.resetSelections();
         this.state.assignmentRule = null;
@@ -379,6 +384,19 @@ class CreateTaskController {
         }
     }
 
+    toggleOriginSectionForMonitoring(isMonitoringRequest) {
+        const originSelect = document.getElementById('originSelect');
+        const originGrid = originSelect?.closest('.form-grid');
+        const countrySelectionContainer = document.getElementById('countrySelectionContainer');
+
+        if (originGrid) originGrid.style.display = isMonitoringRequest ? 'none' : '';
+        if (countrySelectionContainer && isMonitoringRequest) countrySelectionContainer.style.display = 'none';
+
+        // 86 için Menşe verisi kullanılmıyor. Alanı pasif hale getirerek yanlışlıkla
+        // başka event/validasyon akışlarına dahil olmasını da önlüyoruz.
+        if (originSelect) originSelect.disabled = !!isMonitoringRequest;
+    }
+
     toggleAssetSearchVisibility(originValue) {
         const typeId = String(this.state.selectedTaskType?.id || '');
         const container = document.getElementById('assetSearchContainer');
@@ -396,11 +414,32 @@ class CreateTaskController {
         this.state.selectedTaskType = selectedType;
         this.state.assignmentRule = null;
         
-        if (!selectedType) { this.uiManager.clearContainer(); return; }
+        if (!selectedType) {
+            this.toggleOriginSectionForMonitoring(false);
+            this.uiManager.clearContainer();
+            return;
+        }
 
         const tIdStr = String(typeId);
         this.state.isWithdrawalTask = (tIdStr === '21' || tIdStr === '8' || tIdStr === '37');
+        this.toggleOriginSectionForMonitoring(tIdStr === TASK_IDS.MARKA_IZLEME_TALEBI);
         
+        if (tIdStr === TASK_IDS.MARKA_IZLEME_TALEBI) {
+            this.uiManager.renderMonitoringRequestForm(selectedType);
+            this.setupMonitoringRequestForm();
+
+            if (document.getElementById('createTaskAccrualContainer')) {
+                this.accrualFormManager = new AccrualFormManager('createTaskAccrualContainer', 'createTaskAcc', this.state.allPersons);
+                this.accrualFormManager.render();
+            }
+
+            this.applyAssignmentRule(await this.dataManager.getAssignmentRule(typeId));
+            this.dedupeActionButtons();
+            setTimeout(() => initTaskDatePickers(), 100);
+            this.validator.checkCompleteness(this.state);
+            return;
+        }
+
         if (['79', '80', '81', '82'].includes(tIdStr)) {
             this.uiManager.renderOtherTaskForm(selectedType);
             if (tIdStr === '82') {
@@ -659,6 +698,261 @@ class CreateTaskController {
             if(previewImg) previewImg.src = URL.createObjectURL(blob);
             if(container) container.style.display = 'block';
         };
+    }
+
+    setupMonitoringRequestForm() {
+        this.state.monitoringMode = 'existing';
+        this.state.selectedInternationalMonitoring = null;
+        this.state.monitoringSelectedClasses = [];
+        this.state.monitoringSelectedCountries = [];
+        this.state.monitoringNewRecordCreated = false;
+
+        const existingRadio = document.getElementById('monitoringModeExisting');
+        const newRadio = document.getElementById('monitoringModeNew');
+        const existingSection = document.getElementById('monitoringExistingSection');
+        const newSection = document.getElementById('monitoringNewSection');
+        const searchInput = document.getElementById('internationalMonitoringSearch');
+        const searchResults = document.getElementById('internationalMonitoringSearchResults');
+        const selectedContainer = document.getElementById('selectedInternationalMonitoringContainer');
+        const classGrid = document.getElementById('monitoringNiceClassGrid');
+        const selectedClassesText = document.getElementById('monitoringSelectedClassesText');
+        const countryInput = document.getElementById('monitoringCountrySearch');
+        const countryResults = document.getElementById('monitoringCountrySearchResults');
+        const selectedCountriesContainer = document.getElementById('monitoringSelectedCountries');
+        const startInput = document.getElementById('monitoringStartDate');
+        const endInput = document.getElementById('monitoringEndDate');
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const resetScope = () => {
+            this.state.monitoringSelectedClasses = [];
+            this.state.monitoringSelectedCountries = [];
+            if (startInput) startInput.value = '';
+            if (endInput) endInput.value = '';
+            renderClasses();
+            renderCountries();
+        };
+
+        const renderClasses = () => {
+            const selected = new Set((this.state.monitoringSelectedClasses || []).map(String));
+            classGrid?.querySelectorAll('.monitoring-nice-class-btn').forEach(btn => {
+                const active = selected.has(String(btn.dataset.class));
+                btn.classList.toggle('btn-primary', active);
+                btn.classList.toggle('btn-outline-secondary', !active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+
+                // shared-styles.css genel .btn stilinde border:none kullandığı için
+                // Bootstrap outline sınıfları tek başına görünür olmayabiliyor.
+                // Bu özel seçim ekranında durumu açıkça görünür kılıyoruz.
+                btn.style.background = active ? '#1e3c72' : '#ffffff';
+                btn.style.color = active ? '#ffffff' : '#475569';
+                btn.style.border = active ? '2px solid #1e3c72' : '1px solid #cbd5e1';
+                btn.style.fontWeight = active ? '700' : '600';
+                btn.style.boxShadow = active ? '0 2px 6px rgba(30, 60, 114, 0.28)' : 'none';
+            });
+            if (selectedClassesText) {
+                selectedClassesText.textContent = selected.size ? [...selected].sort((a,b) => Number(a)-Number(b)).join(', ') : 'Henüz seçim yok';
+            }
+        };
+
+        const renderCountries = () => {
+            if (!selectedCountriesContainer) return;
+            const items = this.state.monitoringSelectedCountries || [];
+            if (!items.length) {
+                selectedCountriesContainer.innerHTML = '<span class="text-muted small">Henüz ülke seçilmedi.</span>';
+                return;
+            }
+            selectedCountriesContainer.innerHTML = items.map((c, idx) => `
+                <span class="badge badge-primary p-2" style="font-size:0.85rem;">
+                    ${escapeHtml(c.name || c.code)}${c.code ? ` <span style="opacity:.75;">(${escapeHtml(c.code)})</span>` : ''}
+                    <button type="button" class="btn btn-link p-0 ml-2 text-white remove-monitoring-country" data-index="${idx}" style="line-height:1;"><i class="fas fa-times"></i></button>
+                </span>`).join('');
+        };
+
+        const hideSelectedRecord = () => {
+            this.state.selectedInternationalMonitoring = null;
+            this.state.monitoringNewRecordCreated = false;
+            if (selectedContainer) selectedContainer.style.display = 'none';
+            const img = document.getElementById('selectedInternationalMonitoringImage');
+            const placeholder = document.getElementById('selectedInternationalMonitoringPlaceholder');
+            if (img) { img.src = ''; img.style.display = 'none'; }
+            if (placeholder) placeholder.style.display = 'flex';
+        };
+
+        const applyRecordScope = (record) => {
+            const rawNice = Array.isArray(record?.niceClasses) ? record.niceClasses : [record?.niceClasses];
+            const normalizedNice = [];
+            rawNice.filter(Boolean).forEach(value => {
+                const matches = String(value).match(/\d{1,2}/g) || [];
+                matches.forEach(match => {
+                    const no = Number(match);
+                    if (no >= 1 && no <= 45 && !normalizedNice.includes(String(no))) normalizedNice.push(String(no));
+                });
+            });
+            this.state.monitoringSelectedClasses = normalizedNice.sort((a, b) => Number(a) - Number(b));
+            const countryValues = Array.isArray(record?.countries) ? record.countries : [];
+            this.state.monitoringSelectedCountries = countryValues.map(value => {
+                const raw = String(value || '').trim();
+                const match = (this.state.allCountries || []).find(c =>
+                    String(c.name || '').toLocaleLowerCase('tr-TR') === raw.toLocaleLowerCase('tr-TR') ||
+                    String(c.code || '').toLocaleLowerCase('tr-TR') === raw.toLocaleLowerCase('tr-TR')
+                );
+                return match ? { code: match.code || '', name: match.name || raw } : { code: '', name: raw };
+            }).filter(c => c.name);
+            if (startInput) startInput.value = record?.startDate || '';
+            if (endInput) endInput.value = record?.endDate || '';
+            renderClasses();
+            renderCountries();
+        };
+
+        const showSelectedRecord = async (record) => {
+            this.state.selectedInternationalMonitoring = record;
+            this.state.monitoringNewRecordCreated = false;
+            if (!selectedContainer) return;
+
+            document.getElementById('selectedInternationalMonitoringName').textContent = record.markName || '-';
+            document.getElementById('selectedInternationalMonitoringApplicant').textContent = record.applicantName || '-';
+            document.getElementById('selectedInternationalMonitoringAppNo').textContent = record.applicationNo || '-';
+            selectedContainer.style.display = 'block';
+
+            const img = document.getElementById('selectedInternationalMonitoringImage');
+            const placeholder = document.getElementById('selectedInternationalMonitoringPlaceholder');
+            if (record.imagePath && img) {
+                const resolved = await this.dataManager.resolveImageUrl(record.imagePath);
+                if (resolved) {
+                    img.src = resolved;
+                    img.style.display = 'block';
+                    if (placeholder) placeholder.style.display = 'none';
+                }
+            }
+
+            applyRecordScope(record);
+            this.validator.checkCompleteness(this.state);
+        };
+
+        const switchMode = (mode) => {
+            this.state.monitoringMode = mode;
+            hideSelectedRecord();
+            resetScope();
+            if (existingSection) existingSection.style.display = mode === 'existing' ? 'block' : 'none';
+            if (newSection) newSection.style.display = mode === 'new' ? 'block' : 'none';
+            if (searchResults) searchResults.style.display = 'none';
+            this.validator.checkCompleteness(this.state);
+        };
+
+        existingRadio?.addEventListener('change', () => { if (existingRadio.checked) switchMode('existing'); });
+        newRadio?.addEventListener('change', () => { if (newRadio.checked) switchMode('new'); });
+
+        let searchTimer;
+        searchInput?.addEventListener('input', (e) => {
+            const term = e.target.value.trim();
+            clearTimeout(searchTimer);
+            if (term.length < 2) {
+                if (searchResults) searchResults.style.display = 'none';
+                return;
+            }
+
+            searchTimer = setTimeout(async () => {
+                const items = await this.dataManager.searchInternationalMonitoring(term);
+                if (!searchResults) return;
+                if (!items.length) {
+                    searchResults.innerHTML = '<div class="p-3 text-muted text-center">Kayıt bulunamadı. İsterseniz “Yeni Marka Ekle” seçeneğini kullanabilirsiniz.</div>';
+                } else {
+                    searchResults.innerHTML = items.map(item => `
+                        <div class="search-result-item international-monitoring-result" data-id="${escapeHtml(item.id)}">
+                            <div class="font-weight-bold text-primary">${escapeHtml(item.markName || '-')}</div>
+                            <div class="small text-dark mt-1">${escapeHtml(item.applicationNo || 'Başvuru/Tescil no yok')}</div>
+                            <div class="small text-muted">${escapeHtml(item.applicantName || 'Sahip bilgisi yok')}</div>
+                        </div>`).join('');
+                }
+                searchResults.style.display = 'block';
+                searchResults.querySelectorAll('.international-monitoring-result').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const record = items.find(x => String(x.id) === String(el.dataset.id));
+                        if (record) showSelectedRecord(record);
+                        if (searchInput) searchInput.value = '';
+                        searchResults.style.display = 'none';
+                    });
+                });
+            }, 300);
+        });
+
+        document.getElementById('clearSelectedInternationalMonitoring')?.addEventListener('click', () => {
+            hideSelectedRecord();
+            resetScope();
+            this.validator.checkCompleteness(this.state);
+        });
+
+        classGrid?.addEventListener('click', (e) => {
+            const btn = e.target.closest('.monitoring-nice-class-btn');
+            if (!btn) return;
+            const classNo = String(btn.dataset.class);
+            const list = this.state.monitoringSelectedClasses || [];
+            if (list.includes(classNo)) this.state.monitoringSelectedClasses = list.filter(x => x !== classNo);
+            else this.state.monitoringSelectedClasses = [...list, classNo].sort((a,b) => Number(a)-Number(b));
+            renderClasses();
+            this.validator.checkCompleteness(this.state);
+        });
+
+        countryInput?.addEventListener('input', (e) => {
+            const term = e.target.value.trim().toLocaleLowerCase('tr-TR');
+            if (!countryResults) return;
+            if (term.length < 2) { countryResults.style.display = 'none'; return; }
+
+            const matches = (this.state.allCountries || []).filter(c =>
+                String(c.name || '').toLocaleLowerCase('tr-TR').includes(term) ||
+                String(c.code || '').toLocaleLowerCase('tr-TR').includes(term)
+            ).slice(0, 12);
+
+            countryResults.innerHTML = matches.length ? matches.map(c => `
+                <div class="search-result-item monitoring-country-result" data-code="${escapeHtml(c.code || '')}" data-name="${escapeHtml(c.name || '')}">
+                    <i class="fas fa-map-marker-alt text-muted mr-2"></i>${escapeHtml(c.name || c.code)}
+                    <span class="text-muted small ml-1">(${escapeHtml(c.code || '')})</span>
+                </div>`).join('') : '<div class="p-3 text-muted text-center">Ülke bulunamadı.</div>';
+            countryResults.style.display = 'block';
+        });
+
+        countryResults?.addEventListener('click', (e) => {
+            const item = e.target.closest('.monitoring-country-result');
+            if (!item) return;
+            const country = { code: item.dataset.code || '', name: item.dataset.name || item.dataset.code || '' };
+            const exists = (this.state.monitoringSelectedCountries || []).some(c =>
+                (country.code && c.code === country.code) || String(c.name).toLocaleLowerCase('tr-TR') === String(country.name).toLocaleLowerCase('tr-TR')
+            );
+            if (!exists) this.state.monitoringSelectedCountries.push(country);
+            if (countryInput) countryInput.value = '';
+            countryResults.style.display = 'none';
+            renderCountries();
+            this.validator.checkCompleteness(this.state);
+        });
+
+        selectedCountriesContainer?.addEventListener('click', (e) => {
+            const btn = e.target.closest('.remove-monitoring-country');
+            if (!btn) return;
+            const idx = Number(btn.dataset.index);
+            if (!Number.isNaN(idx)) this.state.monitoringSelectedCountries.splice(idx, 1);
+            renderCountries();
+            this.validator.checkCompleteness(this.state);
+        });
+
+        ['monitoringNewMarkName', 'monitoringNewApplicantName', 'monitoringNewApplicationNo', 'monitoringStartDate', 'monitoringEndDate', 'monitoringNewBrandImage']
+            .forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('input', () => this.validator.checkCompleteness(this.state));
+                el.addEventListener('change', () => this.validator.checkCompleteness(this.state));
+            });
+
+        searchInput?.addEventListener('blur', () => setTimeout(() => { if (searchResults) searchResults.style.display = 'none'; }, 180));
+        countryInput?.addEventListener('blur', () => setTimeout(() => { if (countryResults) countryResults.style.display = 'none'; }, 180));
+
+        renderClasses();
+        renderCountries();
     }
 
     setupIpRecordSearch() {
@@ -1147,6 +1441,11 @@ class CreateTaskController {
         this.state.priorities = [];
         this.state.selectedWipoAripoChildren = [];
         this.state.selectedCountries = [];
+        this.state.selectedInternationalMonitoring = null;
+        this.state.monitoringMode = 'existing';
+        this.state.monitoringSelectedClasses = [];
+        this.state.monitoringSelectedCountries = [];
+        this.state.monitoringNewRecordCreated = false;
     }
 
     // 🔥 YENİ: WIPO / ARIPO Ana Kaydı Arama Motoru

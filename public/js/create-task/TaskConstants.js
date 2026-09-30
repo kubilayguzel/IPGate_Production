@@ -20,7 +20,9 @@ export const TASK_IDS = {
     ITIRAZA_EK_BELGE: '37',
     KULLANIM_ISPATI_DELILI_SUNMA: '39',
     // 🔥 YENİ EKLENEN: Marka İptal Talebi (Veritabanı ID: 68)
-    MARKA_IPTAL_TALEBI: '68' 
+    MARKA_IPTAL_TALEBI: '68',
+    // Yurtdışı marka izleme portföyü için manuel talep işi
+    MARKA_IZLEME_TALEBI: '86'
 };
 
 // İlgili Taraf (Related Party) seçimi zorunlu olan işlem tipleri

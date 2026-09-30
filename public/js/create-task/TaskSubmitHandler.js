@@ -49,11 +49,17 @@ export class TaskSubmitHandler {
             const isPortfolioManagerAssignment = state?.assignmentRule?.assignmentType === 'portfolio_manager';
             const assignedTo = document.getElementById('assignedTo')?.value;
             const assignedUser = isPortfolioManagerAssignment ? null : state.allUsers.find(u => u.id === assignedTo);
+            const isMonitoringRequest = String(selectedTaskType.id) === TASK_IDS.MARKA_IZLEME_TALEBI;
+            const monitoringRequest = isMonitoringRequest ? await this._prepareInternationalMonitoringRequest(state) : null;
             
             let taskTitle = document.getElementById('taskTitle')?.value;
             let taskDesc = document.getElementById('taskDescription')?.value;
 
-            if (selectedTaskType.alias === 'Başvuru' && selectedTaskType.ipType === 'trademark') {
+            if (isMonitoringRequest) {
+                const markName = monitoringRequest?.markName || 'Marka';
+                taskTitle = `${markName} - Marka İzleme Talebi`;
+                taskDesc = taskDesc || `${markName} markası için yurtdışı marka izleme talebi.`;
+            } else if (selectedTaskType.alias === 'Başvuru' && selectedTaskType.ipType === 'trademark') {
                 const brandText = document.getElementById('brandExampleText')?.value;
                 taskTitle = brandText ? `${brandText} Marka Başvurusu` : selectedTaskType.alias;
                 taskDesc = taskDesc || `'${brandText || 'Yeni'}' markası için başvuru işlemi.`;
@@ -151,10 +157,35 @@ export class TaskSubmitHandler {
                 priority: document.getElementById('taskPriority')?.value || 'medium',
                 assigned_to: assignedUser ? assignedUser.id : null,
                 status: 'open',
-                ip_record_id: selectedIpRecord ? selectedIpRecord.id : null,
+                ip_record_id: isMonitoringRequest ? null : (selectedIpRecord ? selectedIpRecord.id : null),
+                task_owner_id: isMonitoringRequest ? (monitoringRequest?.ownerPersonId || null) : null,
                 
                 details: {
                     assigned_to_email: assignedUser ? assignedUser.email : null,
+                    ...(monitoringRequest ? {
+                        monitoring_type: 'international',
+                        international_monitoring_id: monitoringRequest.id,
+                        monitoring_record_created: !!monitoringRequest.createdFromTask,
+                        monitoring_mark_name: monitoringRequest.markName || null,
+                        monitoring_applicant_name: monitoringRequest.applicantName || null,
+                        monitoring_application_no: monitoringRequest.applicationNo || null,
+                        monitoring_nice_classes: monitoringRequest.niceClasses || [],
+                        monitoring_countries: monitoringRequest.countries || [],
+                        monitoring_country_codes: monitoringRequest.countryCodes || [],
+                        monitoring_start_date: monitoringRequest.startDate || null,
+                        monitoring_end_date: monitoringRequest.endDate || null,
+                        monitoring_image_path: monitoringRequest.imagePath || null,
+                        monitoring_owner_person_id: monitoringRequest.ownerPersonId || null,
+
+                        // Mevcut görev/mail altyapısının kullandığı ortak alanlar.
+                        // 86 tipi ip_records kaydına bağlı olmadığı için bu snapshot alanlarını
+                        // doğrudan monitoring kaydından dolduruyoruz.
+                        iprecordTitle: monitoringRequest.markName || null,
+                        iprecordApplicationNo: monitoringRequest.applicationNo || null,
+                        applicationNo: monitoringRequest.applicationNo || null,
+                        iprecordApplicantName: monitoringRequest.applicantName || null,
+                        brandImageUrl: monitoringRequest.imagePath || null
+                    } : {}),
                     ...(isPortfolioManagerAssignment ? { assignment_mode: 'portfolio_manager' } : {}),
                     bulletin_no: bulletinNo ? String(bulletinNo) : null,
                     bulletin_date: bulletinDate ? String(bulletinDate) : null,
@@ -194,6 +225,23 @@ export class TaskSubmitHandler {
             }
 
             this._enrichTaskWithParties(taskData, selectedTaskType, selectedRelatedParties, selectedRelatedParty, selectedIpRecord);
+
+            if (monitoringRequest?.applicantName) {
+                const monitoringOwnerId = monitoringRequest.ownerPersonId ? String(monitoringRequest.ownerPersonId) : null;
+
+                taskData.details.related_party_name = monitoringRequest.applicantName;
+                taskData.details.relatedPartyName = monitoringRequest.applicantName;
+
+                if (monitoringOwnerId) {
+                    // Yurtdışı izleme listesindeki kayıtlı sahip bu işin gerçek sahibi / ilgili tarafıdır.
+                    taskData.task_owner_id = monitoringOwnerId;
+                    taskData.details.task_owner_id = monitoringOwnerId;
+                    taskData.details.related_party_id = monitoringOwnerId;
+                    taskData.details.relatedPartyId = monitoringOwnerId;
+                    taskData.details.clientId = monitoringOwnerId;
+                    taskData.details.client_id = monitoringOwnerId;
+                }
+            }
 
             if (selectedTaskType.alias === 'Başvuru' && selectedTaskType.ipType === 'trademark') {
                 if (selectedApplicants && selectedApplicants.length > 0) {
@@ -622,6 +670,135 @@ export class TaskSubmitHandler {
         if (taskData.details.similarity_score === null || taskData.details.similarity_score === undefined) {
             delete taskData.details.similarity_score;
         }
+    }
+
+    _resolveMonitoringOwnerPerson(state, applicantName) {
+        const rawName = String(applicantName || '').trim();
+        if (!rawName) return null;
+
+        const normalizeName = (value) => String(value || '')
+            .toLocaleLowerCase('tr-TR')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const target = normalizeName(rawName);
+        const matches = (state?.allPersons || []).filter(person => normalizeName(person?.name) === target);
+
+        // Aynı isimde birden fazla kişi varsa otomatik bağlamak risklidir.
+        if (matches.length !== 1) return null;
+        return matches[0];
+    }
+
+    _requireMonitoringOwnerPerson(state, applicantName) {
+        const rawName = String(applicantName || '').trim();
+        if (!rawName) {
+            throw new Error('İzleme markasının sahip bilgisi bulunmuyor. Önce yurtdışı izleme kaydına sahip bilgisini ekleyiniz.');
+        }
+
+        const ownerPerson = this._resolveMonitoringOwnerPerson(state, rawName);
+        if (!ownerPerson?.id) {
+            throw new Error(`İzleme markası sahibi "${rawName}" Kişiler tablosunda tekil bir kayıtla eşleştirilemedi. İş sahibi ve e-posta alıcısının doğru belirlenebilmesi için Kişiler kaydını kontrol ediniz.`);
+        }
+        return ownerPerson;
+    }
+
+    async _prepareInternationalMonitoringRequest(state) {
+        const mode = state?.monitoringMode || 'existing';
+        const niceClasses = (state?.monitoringSelectedClasses || []).map(String).filter(Boolean);
+        const selectedCountries = state?.monitoringSelectedCountries || [];
+        const countries = selectedCountries.map(c => String(c?.name || c?.code || '').trim()).filter(Boolean);
+        const countryCodes = selectedCountries.map(c => String(c?.code || '').trim()).filter(Boolean);
+        const startDate = document.getElementById('monitoringStartDate')?.value || '';
+        const endDate = document.getElementById('monitoringEndDate')?.value || '';
+
+        if (!niceClasses.length) throw new Error('En az bir Nice sınıfı seçiniz.');
+        if (!countries.length) throw new Error('En az bir ülke seçiniz.');
+        if (!startDate || !endDate) throw new Error('İzleme başlangıç ve bitiş tarihlerini seçiniz.');
+        if (new Date(endDate) < new Date(startDate)) throw new Error('İzleme bitiş tarihi başlangıç tarihinden önce olamaz.');
+
+        if (mode === 'existing') {
+            const record = state?.selectedInternationalMonitoring;
+            if (!record) throw new Error('Lütfen yurtdışı izleme listesinden bir marka seçiniz.');
+            const ownerPerson = this._requireMonitoringOwnerPerson(state, record.applicantName);
+            return {
+                id: record.id,
+                markName: record.markName || '',
+                applicantName: record.applicantName || '',
+                applicationNo: record.applicationNo || '',
+                niceClasses,
+                countries,
+                countryCodes,
+                startDate,
+                endDate,
+                imagePath: record.imagePath || null,
+                ownerPersonId: String(ownerPerson.id),
+                ownerPersonName: ownerPerson.name || record.applicantName || '',
+                createdFromTask: false
+            };
+        }
+
+        // Aynı submit tekrar denenirse daha önce bu formdan oluşturduğumuz kaydı yeniden insert etmeyelim.
+        if (state?.monitoringNewRecordCreated && state?.selectedInternationalMonitoring?.id) {
+            const existingCreated = state.selectedInternationalMonitoring;
+            const ownerPerson = this._requireMonitoringOwnerPerson(state, existingCreated.applicantName);
+            return {
+                id: existingCreated.id,
+                markName: existingCreated.markName || '',
+                applicantName: existingCreated.applicantName || '',
+                applicationNo: existingCreated.applicationNo || '',
+                niceClasses,
+                countries,
+                countryCodes,
+                startDate,
+                endDate,
+                imagePath: existingCreated.imagePath || null,
+                ownerPersonId: String(ownerPerson.id),
+                ownerPersonName: ownerPerson.name || existingCreated.applicantName || '',
+                createdFromTask: true
+            };
+        }
+
+        const markName = document.getElementById('monitoringNewMarkName')?.value?.trim() || '';
+        const applicantName = document.getElementById('monitoringNewApplicantName')?.value?.trim() || '';
+        const applicationNo = document.getElementById('monitoringNewApplicationNo')?.value?.trim() || '';
+        const imageFile = document.getElementById('monitoringNewBrandImage')?.files?.[0] || null;
+
+        if (!markName) throw new Error('Yeni marka için marka adı zorunludur.');
+        if (!applicantName) throw new Error('Yeni marka için marka sahibi zorunludur.');
+        const ownerPerson = this._requireMonitoringOwnerPerson(state, applicantName);
+
+        let imagePath = null;
+        if (imageFile) imagePath = await this.dataManager.uploadInternationalMonitoringImage(imageFile);
+
+        const created = await this.dataManager.createInternationalMonitoringRecord({
+            markName,
+            applicantName,
+            applicationNo,
+            niceClasses,
+            countries,
+            startDate,
+            endDate,
+            imagePath
+        });
+
+        state.selectedInternationalMonitoring = created;
+        state.monitoringNewRecordCreated = true;
+
+        return {
+            id: created.id,
+            markName: created.markName || markName,
+            applicantName: created.applicantName || applicantName,
+            applicationNo: created.applicationNo || applicationNo,
+            niceClasses,
+            countries,
+            countryCodes,
+            startDate,
+            endDate,
+            imagePath: created.imagePath || imagePath,
+            ownerPersonId: String(ownerPerson.id),
+            ownerPersonName: ownerPerson.name || created.applicantName || applicantName,
+            createdFromTask: true
+        };
     }
 
     async _handleTrademarkApplication(state, taskData) {

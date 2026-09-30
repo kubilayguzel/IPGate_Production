@@ -71,6 +71,132 @@ export class TaskUIManager {
         this.container.innerHTML = contentHtml;
     }
 
+    renderMonitoringRequestForm(taskType) {
+        if (!this.container) return;
+
+        const niceButtons = Array.from({ length: 45 }, (_, i) => i + 1).map(no => `
+            <button type="button" class="btn btn-sm btn-outline-secondary monitoring-nice-class-btn" data-class="${no}"
+                    style="min-width:42px; margin:3px; border-radius:8px;">${no}</button>`).join('');
+
+        this.container.innerHTML = `
+        <div class="premium-card mb-4">
+            <div class="card-header-custom">
+                <span><i class="fas fa-globe text-primary mr-2"></i>${taskType.name || 'Marka İzleme Talebi'}</span>
+            </div>
+            <div class="card-body-custom">
+                <div class="alert alert-info border-0 mb-4" style="border-radius:12px;">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    Yurtdışı izleme listesindeki mevcut bir markayı seçebilir veya yeni bir marka ekleyerek talebi oluşturabilirsiniz.
+                </div>
+
+                <div class="form-group mb-4">
+                    <label class="form-label font-weight-bold">Marka Kaynağı</label>
+                    <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons" style="gap:8px;">
+                        <label class="btn btn-outline-primary active flex-fill" style="border-radius:10px;">
+                            <input type="radio" name="monitoringRecordMode" id="monitoringModeExisting" value="existing" checked>
+                            <i class="fas fa-search mr-1"></i> Mevcut İzleme Markasından Seç
+                        </label>
+                        <label class="btn btn-outline-success flex-fill" style="border-radius:10px;">
+                            <input type="radio" name="monitoringRecordMode" id="monitoringModeNew" value="new">
+                            <i class="fas fa-plus mr-1"></i> Yeni Marka Ekle
+                        </label>
+                    </div>
+                </div>
+
+                <div id="monitoringExistingSection" class="p-4 border rounded bg-light mb-4">
+                    <label class="form-label font-weight-bold">Yurtdışı İzleme Listesinde Ara</label>
+                    <div class="search-input-wrapper">
+                        <input type="text" id="internationalMonitoringSearch" class="form-input"
+                               placeholder="Marka adı, başvuru/tescil no veya sahip adı..." autocomplete="off">
+                        <div id="internationalMonitoringSearchResults" class="search-results-list" style="display:none;"></div>
+                    </div>
+                    <div id="selectedInternationalMonitoringContainer" class="mt-3" style="display:none;">
+                        <div class="d-flex justify-content-between align-items-center p-3 border rounded bg-white shadow-sm">
+                            <div class="d-flex align-items-center" style="min-width:0;">
+                                <div class="mr-3">
+                                    <img id="selectedInternationalMonitoringImage" src=""
+                                         style="width:58px;height:58px;object-fit:contain;border:1px solid #ddd;border-radius:8px;display:none;background:#fff;">
+                                    <div id="selectedInternationalMonitoringPlaceholder"
+                                         style="width:58px;height:58px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#adb5bd;background:#fff;">
+                                        <i class="fas fa-image"></i>
+                                    </div>
+                                </div>
+                                <div style="min-width:0;">
+                                    <div id="selectedInternationalMonitoringName" class="font-weight-bold text-primary"></div>
+                                    <div class="small text-muted mt-1">Sahip: <span id="selectedInternationalMonitoringApplicant">-</span></div>
+                                    <div class="small text-muted">Başvuru/Tescil No: <span id="selectedInternationalMonitoringAppNo">-</span></div>
+                                </div>
+                            </div>
+                            <button type="button" id="clearSelectedInternationalMonitoring" class="btn btn-sm btn-outline-danger" title="Seçimi kaldır">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="monitoringNewSection" class="p-4 border rounded bg-light mb-4" style="display:none;">
+                    <h6 class="text-success font-weight-bold mb-3"><i class="fas fa-plus-circle mr-2"></i>Yeni Yurtdışı İzleme Markası</h6>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Marka Adı *</label>
+                            <input type="text" id="monitoringNewMarkName" class="form-input" placeholder="Marka adını giriniz...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Başvuru Sahibi</label>
+                            <input type="text" id="monitoringNewApplicantName" class="form-input" placeholder="Kişi veya firma adı...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Başvuru / Tescil No</label>
+                            <input type="text" id="monitoringNewApplicationNo" class="form-input" placeholder="Başvuru veya tescil numarası...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Marka Görseli</label>
+                            <input type="file" id="monitoringNewBrandImage" class="form-control" accept="image/*">
+                            <small class="text-muted">Opsiyonel</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 border rounded mb-4" style="background:#fff;">
+                    <h6 class="text-primary font-weight-bold mb-3"><i class="fas fa-bullseye mr-2"></i>İzleme Kapsamı</h6>
+
+                    <div class="form-group">
+                        <label class="form-label font-weight-bold">Nice Sınıfları *</label>
+                        <div id="monitoringNiceClassGrid" class="d-flex flex-wrap p-2 border rounded bg-light">${niceButtons}</div>
+                        <div class="mt-2 small text-muted">Seçilen sınıflar: <strong id="monitoringSelectedClassesText">Henüz seçim yok</strong></div>
+                    </div>
+
+                    <div class="form-group mt-4 position-relative">
+                        <label class="form-label font-weight-bold">İzlenecek Ülkeler *</label>
+                        <div class="search-input-wrapper">
+                            <input type="text" id="monitoringCountrySearch" class="form-input" placeholder="Ülke adı veya kodu ile arayın..." autocomplete="off">
+                            <div id="monitoringCountrySearchResults" class="search-results-list" style="display:none;"></div>
+                        </div>
+                        <div id="monitoringSelectedCountries" class="d-flex flex-wrap mt-2" style="gap:6px;"></div>
+                    </div>
+
+                    <div class="form-grid mt-4">
+                        <div class="form-group">
+                            <label class="form-label">İzleme Başlangıç Tarihi *</label>
+                            <input type="date" id="monitoringStartDate" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">İzleme Bitiş Tarihi *</label>
+                            <input type="date" id="monitoringEndDate" class="form-input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">${this._getAccrualCardHtml(true)}</div>
+                <div class="mt-4">${this._getJobDetailsHtml(true)}</div>
+            </div>
+        </div>
+        <div id="formActionsContainer" class="premium-footer-actions mt-4">
+            <button type="button" id="cancelBtn" class="btn btn-secondary btn-lg rounded-pill px-4"><i class="fas fa-times mr-2"></i>İptal</button>
+            <button type="submit" id="saveTaskBtn" class="btn btn-success btn-lg rounded-pill px-5 shadow" disabled><i class="fas fa-check-double mr-2"></i>İşi Oluştur ve Kaydet</button>
+        </div>`;
+    }
+
     renderOtherTaskForm(taskType) {
         if (!this.container) return;
         const typeId = String(taskType.id);

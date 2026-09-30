@@ -80,6 +80,10 @@ export class TaskDetailManager {
 
             // STANDART İŞ DETAYI GÖRÜNÜMÜ
             let { ipRecord, transactionType, assignedUser, accruals = [] } = options;
+            let taskDetails = {};
+            try { taskDetails = typeof task.details === 'string' ? JSON.parse(task.details) : (task.details || {}); } catch (_) { taskDetails = {}; }
+            const currentTaskTypeId = String(task.taskType || task.task_type_id || task.taskTypeId || '');
+            const isMonitoringRequest = currentTaskTypeId === '86' || taskDetails.monitoring_type === 'international';
 
             let targetRecordId = task.ip_record_id || task.related_ip_record_id || task.relatedIpRecordId;
             if (!targetRecordId && (String(task.taskType) === '53' || (task.title || '').toLowerCase().includes('tahakkuk'))) {
@@ -105,10 +109,34 @@ export class TaskDetailManager {
             }
 
             let relatedPartyTxt = task.relatedPartyName || task.iprecordApplicantName || '-';
+            if (isMonitoringRequest && taskDetails.monitoring_applicant_name) relatedPartyTxt = taskDetails.monitoring_applicant_name;
             const assignedName = assignedUser ? (assignedUser.displayName || assignedUser.email) : (task.assignedTo_email || 'Atanmamış');
-            const relatedRecordTxt = ipRecord ? (ipRecord.application_number || ipRecord.title || ipRecord.brand_name) : 'İlgili kayıt bulunamadı';
+            const relatedRecordTxt = isMonitoringRequest
+                ? (taskDetails.monitoring_mark_name || task.title || 'Yurtdışı izleme markası')
+                : (ipRecord ? (ipRecord.application_number || ipRecord.title || ipRecord.brand_name) : 'İlgili kayıt bulunamadı');
             const taskTypeDisplay = transactionType ? (transactionType.alias || transactionType.name) : (task.taskType || '-');
             const statusText = this.statusDisplayMap[task.status] || task.status;
+            const relatedPartyLabel = isMonitoringRequest ? 'MARKA / BAŞVURU SAHİBİ' : 'İLGİLİ TARAF / MÜVEKKİL';
+            const relatedRecordLabel = isMonitoringRequest ? 'İZLEME MARKASI' : 'İLGİLİ VARLIK (DOSYA)';
+            const relatedRecordIcon = isMonitoringRequest ? 'fas fa-globe text-primary' : 'fas fa-folder text-muted';
+
+            const monitoringScopeHtml = isMonitoringRequest ? `
+                <div style="background:#fff; border:1px solid #e0e0e0; border-radius:8px; box-shadow:0 1px 2px rgba(0,0,0,0.03); margin-bottom:20px; overflow:hidden;">
+                    <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; align-items:center; font-size:0.95rem; font-weight:700; color:#1e3c72; background-color:#fff;">
+                        <i class="fas fa-globe mr-2 text-primary"></i> YURTDIŞI MARKA İZLEME KAPSAMI
+                    </div>
+                    <div style="padding:20px;">
+                        <div class="row">
+                            <div class="col-md-4 mb-3"><small class="text-muted d-block mb-1">MARKA</small><strong>${taskDetails.monitoring_mark_name || '-'}</strong></div>
+                            <div class="col-md-4 mb-3"><small class="text-muted d-block mb-1">BAŞVURU / TESCİL NO</small><strong>${taskDetails.monitoring_application_no || '-'}</strong></div>
+                            <div class="col-md-4 mb-3"><small class="text-muted d-block mb-1">SAHİP</small><strong>${taskDetails.monitoring_applicant_name || '-'}</strong></div>
+                            <div class="col-md-6 mb-3"><small class="text-muted d-block mb-1">NICE SINIFLARI</small><strong>${Array.isArray(taskDetails.monitoring_nice_classes) && taskDetails.monitoring_nice_classes.length ? taskDetails.monitoring_nice_classes.join(', ') : '-'}</strong></div>
+                            <div class="col-md-6 mb-3"><small class="text-muted d-block mb-1">İZLENECEK ÜLKELER</small><strong>${Array.isArray(taskDetails.monitoring_countries) && taskDetails.monitoring_countries.length ? taskDetails.monitoring_countries.join(', ') : '-'}</strong></div>
+                            <div class="col-md-6 mb-2"><small class="text-muted d-block mb-1">BAŞLANGIÇ</small><strong>${this._formatDate(taskDetails.monitoring_start_date)}</strong></div>
+                            <div class="col-md-6 mb-2"><small class="text-muted d-block mb-1">BİTİŞ</small><strong>${this._formatDate(taskDetails.monitoring_end_date)}</strong></div>
+                        </div>
+                    </div>
+                </div>` : '';
 
             const styles = {
                 container: `font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #333; background-color: #f8f9fa; padding: 20px;`,
@@ -143,7 +171,7 @@ export class TaskDetailManager {
                     </div>
                     <div style="${styles.cardBody}">
                         <div class="mb-4">
-                            <label style="${styles.label}">İLGİLİ TARAF / MÜVEKKİL</label>
+                            <label style="${styles.label}">${relatedPartyLabel}</label>
                             <div style="${styles.valueBox} border-left: 4px solid #1e3c72;">
                                  <i class="fas fa-user-tie text-primary mr-3 fa-lg" style="color: #1e3c72 !important;"></i>
                                  <span style="font-size: 1.1rem; font-weight: 600;">${relatedPartyTxt}</span>
@@ -160,14 +188,16 @@ export class TaskDetailManager {
                         </div>` : ''}
 
                         <div>
-                            <label style="${styles.label}">İLGİLİ VARLIK (DOSYA)</label>
+                            <label style="${styles.label}">${relatedRecordLabel}</label>
                             <div style="${styles.valueBox}">
-                                 <i class="fas fa-folder text-muted mr-3"></i>
+                                 <i class="${relatedRecordIcon} mr-3"></i>
                                  <span style="font-size: 1rem; font-weight: 500;">${relatedRecordTxt}</span>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                ${monitoringScopeHtml}
 
                 <div style="${styles.card}">
                     <div style="${styles.cardHeader}">

@@ -78,7 +78,32 @@ export class TaskValidator {
                 isComplete = Object.values(checks).every(val => val === true);
             
             } 
-            // --- SENARYO 2: DİĞER İŞLEMLER ---
+            // --- SENARYO 2: YURTDIŞI MARKA İZLEME TALEBİ (86) ---
+            else if (asId(selectedTaskType?.id) === TASK_IDS.MARKA_IZLEME_TALEBI) {
+                const assignedTo = document.getElementById('assignedTo')?.value;
+                const mode = state?.monitoringMode || 'existing';
+                const selectedRecord = state?.selectedInternationalMonitoring;
+                const newMarkName = document.getElementById('monitoringNewMarkName')?.value?.trim();
+                const newApplicantName = document.getElementById('monitoringNewApplicantName')?.value?.trim();
+                const ownerName = mode === 'existing' ? selectedRecord?.applicantName : newApplicantName;
+                const classes = state?.monitoringSelectedClasses || [];
+                const countries = state?.monitoringSelectedCountries || [];
+                const startDate = document.getElementById('monitoringStartDate')?.value;
+                const endDate = document.getElementById('monitoringEndDate')?.value;
+                const validDateRange = !!startDate && !!endDate && new Date(endDate) >= new Date(startDate);
+
+                checks = {
+                    'Atanan Kişi': isPortfolioManagerAssignment || !!assignedTo,
+                    'Marka': mode === 'existing' ? !!selectedRecord : !!newMarkName,
+                    'Marka Sahibi': !!String(ownerName || '').trim(),
+                    'Nice Sınıfı': classes.length > 0,
+                    'Ülke': countries.length > 0,
+                    'İzleme Tarihleri': validDateRange
+                };
+
+                isComplete = Object.values(checks).every(val => val === true);
+            }
+            // --- SENARYO 3: DİĞER İŞLEMLER ---
             else {
                 const taskTitle = document.getElementById('taskTitle')?.value?.trim() || selectedTaskType?.alias;
                 
@@ -101,7 +126,7 @@ export class TaskValidator {
                 checks = {
                     'Atanan Kişi': isPortfolioManagerAssignment || !!assignedTo,
                     'İş Başlığı': !!taskTitle,
-                    'Varlık/Sahip Seçimi': isAssetOrOwnerValid, // <-- Burası hata veriyorsa PORTFÖYDEN ARAMA kısmından marka seçilmemiş demektir
+                    'Varlık/Sahip Seçimi': isAssetOrOwnerValid,
                     'İlgili Taraf': !needsRelated || hasRelated
                 };
 

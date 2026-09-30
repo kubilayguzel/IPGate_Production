@@ -1,5 +1,5 @@
 // TP EPATS Otomasyon - content_script.js
-// v3.2.4
+// v3.2.5
 // Yeni akış:
 // 1) Belgelerim'de başvuru no ile arama
 // 2) İşlem Tipi = "Üst Yazı" veya "Tescil belgesi ve üst yazısı" olan satırları sırayla açma
@@ -9,6 +9,11 @@
 // 5) Aynı başvurudaki tüm Üst Yazılar bittikten sonra kuyruğu ilerletme
 
 (() => {
+  // Bu otomasyon yalnızca top frame'de çalışır. Önceki sürümde listener
+  // iframe'lerde de kaydolabildiği için tek PDF olayı birden fazla upload
+  // çağrısına dönüşebiliyordu.
+  if (window.top !== window) return;
+
   if (window.TP_SCRIPT_ALREADY_LOADED) {
     console.log("[TP-AUTO] ♻️ Script zaten yüklü.");
     return;
@@ -296,15 +301,37 @@
       try {
         const storage = await chrome.storage.local.get([
           "tp_waiting_pdf_url",
-          "tp_current_file_name"
+          "tp_current_file_name",
+          "tp_pdf_capture_id",
+          "tp_pdf_capture_consumed"
         ]);
 
-        if (!storage.tp_waiting_pdf_url && isDetailPage()) {
-          globalProcessingLock = false;
+        // Background mesajı belirli bir indirme tıklamasına aitse yalnızca
+        // halen aktif olan capture ile eşleştiğinde kabul et.
+        if (
+          request.captureId &&
+          storage.tp_pdf_capture_id &&
+          request.captureId !== storage.tp_pdf_capture_id
+        ) {
+          console.log(TAG, "♻️ Eski PDF capture mesajı atlandı:", request.captureId);
           return;
         }
 
-        await chrome.storage.local.set({ tp_waiting_pdf_url: false });
+        if (storage.tp_pdf_capture_consumed) {
+          console.log(TAG, "♻️ PDF capture zaten işlendi; tekrar atlandı:", request.captureId || request.url);
+          return;
+        }
+
+        if (!storage.tp_waiting_pdf_url && isDetailPage()) {
+          return;
+        }
+
+        // Upload başlamadan capture'ı tüket. Aynı PDF için geç gelen ikinci
+        // mesaj bu noktadan sonra tekrar processDocument çalıştıramaz.
+        await chrome.storage.local.set({
+          tp_waiting_pdf_url: false,
+          tp_pdf_capture_consumed: true
+        });
 
         const ok = await processDocument(request.url, {
           advanceQueueAfter: !isDetailPage(),
@@ -322,8 +349,6 @@
 
     return true;
   });
-
-  if (window.top !== window) return;
 
   document.addEventListener("TP_RESET", async () => {
     try { await chrome.storage.local.clear(); } catch (_) {}
@@ -558,7 +583,8 @@
       tp_detail_open_ts: 0,
       tp_job_saved_count: Number(state.tp_job_saved_count || 0) + Number(savedCount || 0),
       tp_current_file_name: null,
-      tp_waiting_pdf_url: false
+      tp_waiting_pdf_url: false,
+      tp_pdf_capture_consumed: true
     });
   }
 
@@ -574,9 +600,17 @@
     lastProcessedUrl = null;
     globalProcessingLock = false;
 
+    const captureId =
+      (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
     await chrome.storage.local.set({
       tp_current_file_name: fileName,
-      tp_waiting_pdf_url: true
+      tp_waiting_pdf_url: true,
+      tp_pdf_capture_id: captureId,
+      tp_pdf_dispatched_capture_id: null,
+      tp_pdf_capture_consumed: false
     });
 
     await sendInternalMessage({ action: "REGISTER_PDF_RECEIVER" });
@@ -609,7 +643,8 @@
 
     await chrome.storage.local.set({
       tp_waiting_pdf_url: false,
-      tp_current_file_name: null
+      tp_current_file_name: null,
+      tp_pdf_capture_consumed: true
     });
 
     return ok;
@@ -1101,7 +1136,10 @@
         tp_current_upper_operation_type: null,
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
-        tp_current_file_name: null
+        tp_current_file_name: null,
+        tp_pdf_capture_id: null,
+        tp_pdf_dispatched_capture_id: null,
+        tp_pdf_capture_consumed: false
       });
 
       await resetMainGridScroll();
@@ -1141,7 +1179,10 @@
         tp_detail_open_ts: 0,
         tp_job_saved_count: 0,
         tp_current_file_name: null,
-        tp_pdf_receiver_tab_id: null
+        tp_pdf_receiver_tab_id: null,
+        tp_pdf_capture_id: null,
+        tp_pdf_dispatched_capture_id: null,
+        tp_pdf_capture_consumed: false
       });
 
       await resetMainGridScroll();

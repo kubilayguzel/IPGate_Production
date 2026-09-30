@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TP EPATS Otomasyon - V3 (Queue Support)",
-  "version": "3.2.4",
-  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. Tescil belgesi ve üst yazısı kayıtlarında TB_ dosya adı desteği.",
+  "version": "3.2.5",
+  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. EPATS2 belge indirmelerinde aynı PDF'nin birden fazla kaydedilmesini önleyen tek-frame ve capture-id koruması.",
   "permissions": [
     "storage",
     "tabs",
@@ -36,7 +36,7 @@
         "content_script.js"
       ],
       "run_at": "document_idle",
-      "all_frames": true
+      "all_frames": false
     }
   ]
 }

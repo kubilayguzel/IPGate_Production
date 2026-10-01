@@ -2014,8 +2014,105 @@ export const accrualService = {
         } catch (error) { return { success: false, error: error.message }; }
     },
 
+    async _buildDefaultAccrualDescription(taskId, fallbackTaskTitle = null) {
+        if (!taskId) return null;
+
+        try {
+            const fetchTask = async (id) => {
+                if (!id) return null;
+                const { data } = await supabase
+                    .from('tasks')
+                    .select('id, title, task_type_id, ip_record_id, details')
+                    .eq('id', String(id))
+                    .maybeSingle();
+                return data || null;
+            };
+
+            let task = await fetchTask(taskId);
+            if (!task) {
+                const fallback = String(fallbackTaskTitle || '').trim();
+                return fallback ? `İş: ${fallback}` : null;
+            }
+
+            let details = task.details || {};
+            if (typeof details === 'string') {
+                try { details = JSON.parse(details); } catch(e) { details = {}; }
+            }
+
+            // Tahakkuk oluşturma görevi kendi parent işine bağlıysa asıl iş bağlamını kullan.
+            const parentTaskId = details.parent_task_id || details.relatedTaskId || details.related_task_id || null;
+            if ((String(task.task_type_id) === '53' || /tahakkuk/i.test(String(task.title || ''))) && parentTaskId) {
+                const parentTask = await fetchTask(parentTaskId);
+                if (parentTask) {
+                    task = parentTask;
+                    details = task.details || {};
+                    if (typeof details === 'string') {
+                        try { details = JSON.parse(details); } catch(e) { details = {}; }
+                    }
+                }
+            }
+
+            const nestedDetails = details.details && typeof details.details === 'object' ? details.details : {};
+            let workName = String(task.title || fallbackTaskTitle || '').replace(/^Tahakkuk Oluşturma:\s*/i, '').trim();
+            let fileNo = details.iprecordApplicationNo || details.iprecord_application_no || details.applicationNo || details.application_number || details.target_app_no || nestedDetails.iprecordApplicationNo || nestedDetails.iprecord_application_no || null;
+            let markName = details.iprecordTitle || details.iprecord_title || details.relatedIpRecordTitle || details.brand_name || details.markName || nestedDetails.iprecordTitle || nestedDetails.iprecord_title || null;
+
+            if (task.ip_record_id && (!fileNo || !markName)) {
+                const { data: ipRecord } = await supabase
+                    .from('ip_records')
+                    .select('application_number, title, ip_record_trademark_details(brand_name)')
+                    .eq('id', String(task.ip_record_id))
+                    .maybeSingle();
+
+                if (ipRecord) {
+                    const tmDetails = Array.isArray(ipRecord.ip_record_trademark_details)
+                        ? ipRecord.ip_record_trademark_details[0]
+                        : ipRecord.ip_record_trademark_details;
+                    fileNo = fileNo || ipRecord.application_number || null;
+                    markName = markName || tmDetails?.brand_name || ipRecord.title || null;
+                } else {
+                    const { data: suit } = await supabase
+                        .from('suits')
+                        .select('file_no, title, court_name')
+                        .eq('id', String(task.ip_record_id))
+                        .maybeSingle();
+                    if (suit) {
+                        fileNo = fileNo || suit.file_no || null;
+                        markName = markName || suit.title || suit.court_name || null;
+                    }
+                }
+            }
+
+            const clean = (value) => {
+                const text = String(value || '').trim();
+                return text && text !== '-' && text.toLowerCase() !== 'null' && text.toLowerCase() !== 'undefined' ? text : null;
+            };
+
+            workName = clean(workName);
+            fileNo = clean(fileNo);
+            markName = clean(markName);
+
+            const lines = [];
+            if (workName) lines.push(`İş: ${workName}`);
+            if (fileNo) lines.push(`Dosya No: ${fileNo}`);
+            if (markName) lines.push(`Marka: ${markName}`);
+
+            return lines.length ? lines.join('\n') : null;
+        } catch (error) {
+            console.warn('[ACCRUAL] Varsayılan tahakkuk notu oluşturulamadı:', error);
+            const fallback = String(fallbackTaskTitle || '').trim();
+            return fallback ? `İş: ${fallback}` : null;
+        }
+    },
+
     async addAccrual(accrualData) {
         try {
+            let effectiveDescription = String(accrualData.description || '').trim();
+            // Serbest tahakkuklarda taskId yoktur; yalnız görev bağlantılı yeni tahakkuklara varsayılan iç not eklenir.
+            if (!effectiveDescription && accrualData.taskId) {
+                effectiveDescription = await this._buildDefaultAccrualDescription(accrualData.taskId, accrualData.taskTitle);
+            }
+
             let isInserted = false, insertedData = null, retryCount = 0;
             while (!isInserted && retryCount < 5) {
                 const nextId = accrualData.id || await this._getNextAccrualId();
@@ -2040,7 +2137,7 @@ export const accrualService = {
                     vat_rate: accrualData.vatRate || 0,
                     apply_vat_to_official_fee: accrualData.applyVatToOfficialFee || false,
                     is_foreign_transaction: accrualData.isForeignTransaction || false,
-                    description: accrualData.description || null,
+                    description: effectiveDescription || null,
                     invoice_description: accrualData.invoice_description || accrualData.invoiceDescription || null,
                     foreign_status: 'unpaid' // 🔥 YENİ EKLENDİ
                 };

@@ -210,6 +210,15 @@ export class AccrualUIManager {
                         }
                     }
 
+                    // Doğrudan ip_record bağlantısı olmayan/eski görevlerde snapshot alanlarını kullan.
+                    // Böylece normal tahakkuklarda da serbest tahakkuktaki gibi dosya no ve marka adı görünür.
+                    if (relatedFileDisplay === '-' && task.iprecordApplicationNo && task.iprecordApplicationNo !== '-') {
+                        relatedFileDisplay = String(task.iprecordApplicationNo);
+                    }
+                    if (fullSubject === '-' && task.iprecordTitle && task.iprecordTitle !== '-') {
+                        fullSubject = String(task.iprecordTitle);
+                    }
+
                     if (typeObj && typeObj.ipType) {
                         const ipTypeMap = { 'trademark': 'Marka', 'patent': 'Patent', 'design': 'Tasarım', 'suit': 'Dava' };
                         fieldDisplay = ipTypeMap[typeObj.ipType] || typeObj.ipType.toUpperCase();

@@ -427,6 +427,11 @@ export class TaskSubmitHandler {
             
             const newAccrualId = await accrualService._getNextAccrualId();
 
+            let effectiveAccrualDescription = String(accrualData.description || '').trim();
+            if (!effectiveAccrualDescription) {
+                effectiveAccrualDescription = await accrualService._buildDefaultAccrualDescription(taskId, taskTitle);
+            }
+
             const finalAccrual = {
                 id: String(newAccrualId),
                 task_id: String(taskId),
@@ -449,7 +454,7 @@ export class TaskSubmitHandler {
                 vat_rate: Number(accrualData.vatRate) || 20,
                 apply_vat_to_official_fee: Boolean(accrualData.applyVatToOfficialFee),
                 is_foreign_transaction: Boolean(accrualData.isForeignTransaction),
-                description: accrualData.description || null, 
+                description: effectiveAccrualDescription || null, 
                 invoice_description: accrualData.invoice_description || accrualData.invoiceDescription || null, // 🔥 EKSİK OLAN FATURA AÇIKLAMASI EKLENDİ
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()

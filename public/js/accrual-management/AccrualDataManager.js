@@ -168,8 +168,10 @@ export class AccrualDataManager {
         if (error) throw new Error("Görevler çekilemedi: " + error.message);
 
         data.forEach(row => {
-            const d = row.details || {};
-            let epats = row.epats_document || d.epatsDocument || (d.details && d.details.epatsDocument) || null;
+            let d = row.details || {};
+            if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { d = {}; } }
+            const nestedDetails = d.details && typeof d.details === 'object' ? d.details : {};
+            let epats = row.epats_document || d.epatsDocument || nestedDetails.epatsDocument || null;
             if (typeof epats === 'string') { try { epats = JSON.parse(epats); } catch(e) {} }
 
             this.allTasks[String(row.id)] = {
@@ -177,6 +179,8 @@ export class AccrualDataManager {
                 title: String(row.title || d.title || 'İsimsiz İş'),
                 taskType: String(row.task_type_id || row.task_type || d.taskType || ''),
                 relatedIpRecordId: row.ip_record_id ? String(row.ip_record_id) : null,
+                iprecordApplicationNo: d.iprecordApplicationNo || d.iprecord_application_no || d.applicationNo || d.application_number || d.target_app_no || nestedDetails.iprecordApplicationNo || nestedDetails.iprecord_application_no || null,
+                iprecordTitle: d.iprecordTitle || d.iprecord_title || d.relatedIpRecordTitle || d.brand_name || d.markName || nestedDetails.iprecordTitle || nestedDetails.iprecord_title || null,
                 assignedTo_uid: row.assigned_to ? String(row.assigned_to) : null,
                 epatsDocument: epats
             };
@@ -232,8 +236,9 @@ export class AccrualDataManager {
 
                 if (task.relatedIpRecordId) {
                     const ipRec = this.ipRecordsMap[task.relatedIpRecordId]; 
-                    if(ipRec) searchTerms.push(ipRec.applicationNumber);
+                    if(ipRec) searchTerms.push(ipRec.applicationNumber, ipRec.markName);
                 }
+                searchTerms.push(task.iprecordApplicationNo, task.iprecordTitle);
             } else {
                 searchTerms.push(acc.taskTitle);
             }

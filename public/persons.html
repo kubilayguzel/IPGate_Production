@@ -18,7 +18,7 @@
             <div class="page-header">
                 <div>
                     <h1 class="page-title">Kişi Yönetimi</h1>
-                    <p class="page-subtitle">Sistemdeki tüm gerçek ve tüzel kişileri yönetin.</p>
+                    <p class="page-subtitle">Sistemdeki yerli/yabancı gerçek ve tüzel kişileri yönetin.</p>
                 </div>
                 <div class="d-flex align-items-center" style="gap: 10px;">
                     <button type="button" class="btn btn-secondary btn-lg px-4" id="btnExportPersons">
@@ -31,13 +31,18 @@
             </div>
 
             <div class="persons-card">
-                <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-4 person-list-toolbar">
                     <div class="search-input-group">
                         <i class="fas fa-search text-muted mt-1"></i>
                         <input type="text" id="personSearchInput" class="form-control border-0 bg-transparent" 
                                placeholder="İsim, e-posta, TPE no veya portföy yöneticisi ile ara..." 
                                oninput="ui.filterPersons(this.value)">
                     </div>
+                    <select id="nationalityFilter" class="form-control person-nationality-filter" onchange="ui.filterNationality(this.value)">
+                        <option value="all">Tüm Kişiler</option>
+                        <option value="domestic">Yerli</option>
+                        <option value="foreign">Yabancı</option>
+                    </select>
                 </div>
 
                 <div class="table-responsive">
@@ -47,6 +52,9 @@
                                 <th style="width: 50px;">#</th>
                                 <th onclick="ui.handleSort('name')" style="cursor:pointer;">
                                     Ad Soyad / Firma Adı <i class="fas fa-sort ml-1 text-muted small"></i>
+                                </th>
+                                <th onclick="ui.handleSort('nationalityType')" style="cursor:pointer;">
+                                    Statü <i class="fas fa-sort ml-1 text-muted small"></i>
                                 </th>
                                 <th onclick="ui.handleSort('tckn')" style="cursor:pointer;">
                                     Kimlik / VKN <i class="fas fa-sort ml-1 text-muted small"></i>

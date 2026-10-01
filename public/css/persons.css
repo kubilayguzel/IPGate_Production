@@ -122,3 +122,51 @@
     line-height: 1.45;
     white-space: pre-line;
 }
+
+/* Yerli / Yabancı kişi ayrımı */
+.person-list-toolbar { gap: 15px; }
+.person-nationality-filter {
+    max-width: 180px;
+    min-width: 160px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #334155;
+}
+
+.nationality-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 72px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+.nationality-domestic {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+}
+.nationality-foreign {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+#personNationalityType {
+    font-weight: 700;
+}
+
+@media (max-width: 768px) {
+    .person-list-toolbar {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+    .person-nationality-filter {
+        max-width: none;
+        width: 100%;
+    }
+}

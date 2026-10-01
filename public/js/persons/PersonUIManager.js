@@ -10,6 +10,8 @@ export class PersonUIManager {
 
         this.sortColumn = 'name';
         this.sortDirection = 'asc';
+        this.searchTerm = '';
+        this.nationalityFilter = 'all';
 
         this.pagination = new Pagination({
             containerId: 'paginationContainer',
@@ -56,19 +58,13 @@ export class PersonUIManager {
     }
 
     filterPersons(query) {
-        const term = query.toLocaleLowerCase('tr-TR').trim();
+        this.searchTerm = String(query || '').toLocaleLowerCase('tr-TR').trim();
+        this.pagination.currentPage = 1;
+        this.applyFiltersAndSort();
+    }
 
-        if (!term) {
-            this.filteredData = [...this.allPersons];
-        } else {
-            this.filteredData = this.allPersons.filter(p => 
-                (p.name || '').toLocaleLowerCase('tr-TR').includes(term) ||
-                (p.email || '').toLocaleLowerCase('tr-TR').includes(term) ||
-                (p.tckn || p.taxNo || '').includes(term) ||
-                (p.tpeNo || '').includes(term) ||
-                (p.portfolioManagerName || 'Atanmadı').toLocaleLowerCase('tr-TR').includes(term)
-            );
-        }
+    filterNationality(value) {
+        this.nationalityFilter = ['domestic', 'foreign'].includes(value) ? value : 'all';
         this.pagination.currentPage = 1;
         this.applyFiltersAndSort();
     }
@@ -84,8 +80,23 @@ export class PersonUIManager {
     }
 
     applyFiltersAndSort() {
-        const term = document.getElementById('personSearchInput')?.value || '';
-        let sourceData = term ? [...this.filteredData] : [...this.allPersons];
+        let sourceData = [...this.allPersons];
+
+        if (this.searchTerm) {
+            sourceData = sourceData.filter(p => {
+                const nationalityText = p.nationalityType === 'foreign' ? 'yabancı yabanci foreign' : 'yerli domestic';
+                return (p.name || '').toLocaleLowerCase('tr-TR').includes(this.searchTerm) ||
+                    (p.email || '').toLocaleLowerCase('tr-TR').includes(this.searchTerm) ||
+                    (p.tckn || p.taxNo || '').toLocaleLowerCase('tr-TR').includes(this.searchTerm) ||
+                    (p.tpeNo || '').toLocaleLowerCase('tr-TR').includes(this.searchTerm) ||
+                    (p.portfolioManagerName || 'Atanmadı').toLocaleLowerCase('tr-TR').includes(this.searchTerm) ||
+                    nationalityText.includes(this.searchTerm);
+            });
+        }
+
+        if (this.nationalityFilter !== 'all') {
+            sourceData = sourceData.filter(p => (p.nationalityType || 'domestic') === this.nationalityFilter);
+        }
 
         sourceData.sort((a, b) => {
             let valA = (a[this.sortColumn] || '').toString().toLocaleLowerCase('tr-TR');
@@ -169,6 +180,7 @@ export class PersonUIManager {
             const columns = [
                 { header: 'Sıra', key: 'rowNo', width: 8 },
                 { header: 'Ad Soyad / Firma Adı', key: 'name', width: 38 },
+                { header: 'Yerli / Yabancı', key: 'nationality', width: 16 },
                 { header: 'Kimlik / VKN', key: 'identityNo', width: 19 },
                 { header: 'TPE No', key: 'tpeNo', width: 16 },
                 { header: 'E-posta', key: 'email', width: 32 },
@@ -184,14 +196,14 @@ export class PersonUIManager {
             worksheet.columns = columns;
             worksheet.spliceRows(1, 0, [], [], [], []);
 
-            worksheet.mergeCells('A1:L2');
+            worksheet.mergeCells('A1:M2');
             const titleCell = worksheet.getCell('A1');
             titleCell.value = 'KİŞİ YÖNETİMİ - TÜM KİŞİLER';
             titleCell.font = { name: 'Montserrat', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
             titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
             titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-            worksheet.mergeCells('A3:L3');
+            worksheet.mergeCells('A3:M3');
             const subtitleCell = worksheet.getCell('A3');
             subtitleCell.value = `Oluşturulma Tarihi: ${new Date().toLocaleString('tr-TR')} | Kayıt Sayısı: ${source.length}`;
             subtitleCell.font = { name: 'Montserrat', size: 9, italic: true, color: { argb: 'FF64748B' } };
@@ -214,6 +226,7 @@ export class PersonUIManager {
                 const row = worksheet.addRow({
                     rowNo: index + 1,
                     name: person.name || '-',
+                    nationality: person.nationalityType === 'foreign' ? 'Yabancı' : 'Yerli',
                     identityNo: person.tckn || person.taxNo || '-',
                     tpeNo: person.tpeNo || '-',
                     email: person.email || '-',
@@ -231,7 +244,7 @@ export class PersonUIManager {
                     cell.font = { name: 'Montserrat', size: 10 };
                     cell.alignment = {
                         vertical: 'middle',
-                        horizontal: [1, 3, 4].includes(colNumber) ? 'center' : 'left',
+                        horizontal: [1, 3, 4, 5].includes(colNumber) ? 'center' : 'left',
                         wrapText: true
                     };
                     cell.border = {
@@ -251,6 +264,7 @@ export class PersonUIManager {
             worksheet.getColumn(1).alignment = { horizontal: 'center' };
             worksheet.getColumn(3).alignment = { horizontal: 'center' };
             worksheet.getColumn(4).alignment = { horizontal: 'center' };
+            worksheet.getColumn(5).alignment = { horizontal: 'center' };
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], {
@@ -332,7 +346,7 @@ export class PersonUIManager {
         const paginatedData = this.pagination.getCurrentPageData(this.filteredData);
 
         if (paginatedData.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">Kayıt bulunamadı.</td></tr>';
             return;
         }
 
@@ -358,6 +372,11 @@ export class PersonUIManager {
                             data-placement="top"
                             title="${safePersonInfoTooltip}"
                         >${safeName}</span>
+                    </td>
+                    <td>
+                        <span class="nationality-badge ${(p.nationalityType || 'domestic') === 'foreign' ? 'nationality-foreign' : 'nationality-domestic'}">
+                            ${(p.nationalityType || 'domestic') === 'foreign' ? 'Yabancı' : 'Yerli'}
+                        </span>
                     </td>
                     <td>${p.tckn || p.taxNo || '<span class="text-light">-</span>'}</td>
                     <td>${p.tpeNo || '<span class="text-light">-</span>'}</td>

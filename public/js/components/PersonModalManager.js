@@ -64,13 +64,23 @@ export class PersonModalManager {
                                 <h6 class="text-primary font-weight-bold mb-4 border-bottom pb-2"><i class="fas fa-info-circle mr-2"></i>Genel Bilgiler</h6>
                                 <div class="row">
                                     <div class="col-md-6 border-right">
-                                        <div class="form-group">
-                                            <label class="small font-weight-bold text-muted">KİŞİ TİPİ *</label>
-                                            <select id="personType" class="form-control rounded-lg border-2" required>
-                                                <option value="gercek">Gerçek Kişi</option>
-                                                <option value="tuzel">Tüzel Kişi (Firma)</option>
-                                            </select>
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label class="small font-weight-bold text-muted">KİŞİ STATÜSÜ *</label>
+                                                <select id="personNationalityType" class="form-control rounded-lg border-2" required>
+                                                    <option value="domestic">Yerli</option>
+                                                    <option value="foreign">Yabancı</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label class="small font-weight-bold text-muted">KİŞİ TİPİ *</label>
+                                                <select id="personType" class="form-control rounded-lg border-2" required>
+                                                    <option value="gercek">Gerçek Kişi</option>
+                                                    <option value="tuzel">Tüzel Kişi (Firma)</option>
+                                                </select>
+                                            </div>
                                         </div>
+                                        <div id="personNationalityHelp" class="small text-muted mb-3">Yerli kişiler için ülke Türkiye olarak kullanılır.</div>
                                         <div class="form-group">
                                             <label class="small font-weight-bold text-muted" id="personNameLabel">AD SOYAD / FİRMA ADI *</label>
                                             <input type="text" id="personName" class="form-control rounded-lg border-2 shadow-sm" required>
@@ -78,7 +88,7 @@ export class PersonModalManager {
                                         <div id="gercekFields">
                                             <div class="form-row">
                                                 <div class="form-group col-md-6">
-                                                    <label class="small font-weight-bold text-muted">TC KİMLİK NO</label>
+                                                    <label class="small font-weight-bold text-muted" id="personTcknLabel">TC KİMLİK NO</label>
                                                     <input type="text" id="personTckn" class="form-control rounded-lg border-2" maxlength="11">
                                                 </div>
                                                 <div class="form-group col-md-6">
@@ -90,11 +100,11 @@ export class PersonModalManager {
                                         <div id="tuzelFields" style="display:none;">
                                             <div class="form-row">
                                                 <div class="form-group col-md-6">
-                                                    <label class="small font-weight-bold text-muted">VERGİ NO (VKN)</label>
+                                                    <label class="small font-weight-bold text-muted" id="personVknLabel">VERGİ NO (VKN)</label>
                                                     <input type="text" id="personVkn" class="form-control rounded-lg border-2" maxlength="10">
                                                 </div>
                                                 <div class="form-group col-md-6">
-                                                    <label class="small font-weight-bold text-muted">VERGİ DAİRESİ</label>
+                                                    <label class="small font-weight-bold text-muted" id="personTaxOfficeLabel">VERGİ DAİRESİ</label>
                                                     <input list="taxOfficeDatalist" id="personTaxOffice" class="form-control rounded-lg border-2" placeholder="Yazarak arayın...">
                                                     <datalist id="taxOfficeDatalist"></datalist>
                                                 </div>
@@ -124,7 +134,7 @@ export class PersonModalManager {
                             <div class="card border-0 shadow-sm rounded-lg mb-4 p-4">
                                 <h6 class="text-primary font-weight-bold mb-4 border-bottom pb-2"><i class="fas fa-map-marker-alt mr-2"></i>Adres Bilgileri</h6>
                                 <div class="row">
-                                    <div class="col-md-3"><label class="small font-weight-bold text-muted">ÜLKE</label><select id="countrySelect" class="form-control rounded-lg border-2"></select></div>
+                                    <div class="col-md-3"><label class="small font-weight-bold text-muted" id="personCountryLabel">ÜLKE</label><select id="countrySelect" class="form-control rounded-lg border-2"></select></div>
                                     <div class="col-md-3"><label class="small font-weight-bold text-muted">İL / EYALET</label><select id="provinceSelect" class="form-control rounded-lg border-2"></select><input type="text" id="provinceText" class="form-control rounded-lg border-2" style="display:none;"></div>
                                     <div class="col-md-3"><label class="small font-weight-bold text-muted">İLÇE</label><select id="districtSelect" class="form-control rounded-lg border-2"></select><input type="text" id="districtText" class="form-control rounded-lg border-2" style="display:none;"></div>
                                     <div class="col-md-3"><label class="small font-weight-bold text-muted">TAM ADRES</label><input type="text" id="personAddress" class="form-control rounded-lg border-2"></div>
@@ -341,29 +351,35 @@ export class PersonModalManager {
     setupEventListeners() {
         const el = (id) => document.getElementById(id);
         
-        if(el('personTckn')) el('personTckn').oninput = (e) => e.target.value = e.target.value.replace(/\D/g, '').slice(0, 11);
-        if(el('personVkn')) el('personVkn').oninput = (e) => e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+        if(el('personTckn')) el('personTckn').oninput = (e) => {
+            if (this.getNationalityType() === 'domestic') {
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 11);
+            } else {
+                e.target.value = e.target.value.slice(0, 50);
+            }
+        };
+        if(el('personVkn')) el('personVkn').oninput = (e) => {
+            if (this.getNationalityType() === 'domestic') {
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+            } else {
+                e.target.value = e.target.value.slice(0, 50);
+            }
+        };
+
+        if(el('personNationalityType')) el('personNationalityType').onchange = async (e) => {
+            await this.applyNationalityUi(e.target.value, { resetCountry: true });
+        };
         
         if(el('personType')) el('personType').onchange = (e) => {
             const isGercek = e.target.value === 'gercek';
             el('gercekFields').style.display = isGercek ? '' : 'none';
             el('tuzelFields').style.display = isGercek ? 'none' : '';
             el('personNameLabel').innerText = isGercek ? 'Ad Soyad *' : 'Firma Adı *';
+            this.applyPersonIdentityUi();
         };
 
         if(el('countrySelect')) el('countrySelect').onchange = async (e) => {
-            const countryCode = e.target.value;
-            const isTR = /^(TR|TUR)$/i.test(countryCode);
-            el('provinceSelect').style.display = isTR ? '' : 'none';
-            el('provinceText').style.display = isTR ? 'none' : '';
-            el('districtSelect').style.display = isTR ? '' : 'none';
-            el('districtText').style.display = isTR ? 'none' : '';
-            
-            if (isTR) {
-                await this.loadProvinces(countryCode);
-            } else {
-                if(el('districtSelect')) el('districtSelect').innerHTML = '';
-            }
+            await this.applyAddressMode(e.target.value);
         };
 
         // 🔥 YENİ: İl değiştiğinde ilçeleri yükle
@@ -426,6 +442,82 @@ export class PersonModalManager {
                 if(group) group.style.display = e.target.checked ? 'block' : 'none';
             };
         }
+    }
+
+    getNationalityType() {
+        return document.getElementById('personNationalityType')?.value === 'foreign' ? 'foreign' : 'domestic';
+    }
+
+    applyPersonIdentityUi() {
+        const isForeign = this.getNationalityType() === 'foreign';
+        const isGercek = document.getElementById('personType')?.value !== 'tuzel';
+        const tcknInput = document.getElementById('personTckn');
+        const vknInput = document.getElementById('personVkn');
+        const phoneInput = document.getElementById('personPhone');
+        const tcknLabel = document.getElementById('personTcknLabel');
+        const vknLabel = document.getElementById('personVknLabel');
+        const taxOfficeLabel = document.getElementById('personTaxOfficeLabel');
+        const help = document.getElementById('personNationalityHelp');
+
+        if (tcknLabel) tcknLabel.textContent = isForeign ? 'KİMLİK / PASAPORT NO' : 'TC KİMLİK NO';
+        if (vknLabel) vknLabel.textContent = isForeign ? 'VERGİ / KAYIT NO' : 'VERGİ NO (VKN)';
+        if (taxOfficeLabel) taxOfficeLabel.textContent = isForeign ? 'VERGİ DAİRESİ / KAYIT MERCİİ' : 'VERGİ DAİRESİ';
+        if (tcknInput) tcknInput.maxLength = isForeign ? 50 : 11;
+        if (vknInput) vknInput.maxLength = isForeign ? 50 : 10;
+        if (phoneInput) phoneInput.placeholder = isForeign ? '+__ ___ ___ ____' : '+90 5__ ___ __ __';
+        if (help) {
+            help.textContent = isForeign
+                ? 'Yabancı kişilerde ülke seçimi zorunludur; il/eyalet ve ilçe serbest metin olarak girilir.'
+                : 'Yerli kişiler için ülke Türkiye olarak kullanılır; il ve ilçe listeden seçilir.';
+        }
+
+        // Kişi tipi görünürlüğünü koru.
+        const gercekFields = document.getElementById('gercekFields');
+        const tuzelFields = document.getElementById('tuzelFields');
+        if (gercekFields) gercekFields.style.display = isGercek ? '' : 'none';
+        if (tuzelFields) tuzelFields.style.display = isGercek ? 'none' : '';
+    }
+
+    async applyAddressMode(countryCode) {
+        const isTR = /^(TR|TUR)$/i.test(String(countryCode || ''));
+        const provinceSelect = document.getElementById('provinceSelect');
+        const provinceText = document.getElementById('provinceText');
+        const districtSelect = document.getElementById('districtSelect');
+        const districtText = document.getElementById('districtText');
+
+        if (provinceSelect) provinceSelect.style.display = isTR ? '' : 'none';
+        if (provinceText) provinceText.style.display = isTR ? 'none' : '';
+        if (districtSelect) districtSelect.style.display = isTR ? '' : 'none';
+        if (districtText) districtText.style.display = isTR ? 'none' : '';
+
+        if (isTR) {
+            await this.loadProvinces(countryCode);
+        } else if (districtSelect) {
+            districtSelect.innerHTML = '';
+        }
+    }
+
+    async applyNationalityUi(nationalityType, { resetCountry = false } = {}) {
+        const isForeign = nationalityType === 'foreign';
+        const countrySelect = document.getElementById('countrySelect');
+
+        if (countrySelect) {
+            const trOption = Array.from(countrySelect.options).find(option => /^(TR|TUR)$/i.test(option.value));
+            if (trOption) trOption.disabled = isForeign;
+
+            if (isForeign) {
+                countrySelect.disabled = false;
+                if (resetCountry && /^(TR|TUR)$/i.test(countrySelect.value)) countrySelect.value = '';
+            } else {
+                // Yeni kişi veya kullanıcı tarafından açıkça Yerli seçimi yapıldığında Türkiye'ye sabitle.
+                if (resetCountry && trOption) countrySelect.value = trOption.value;
+                countrySelect.disabled = true;
+            }
+
+            await this.applyAddressMode(countrySelect.value);
+        }
+
+        this.applyPersonIdentityUi();
     }
 
     async open(personId = null, callback = null) {
@@ -507,6 +599,25 @@ export class PersonModalManager {
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Yükleniyor...';
 
         try {
+            const countrySel = document.getElementById('countrySelect');
+            const provinceSel = document.getElementById('provinceSelect');
+            const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
+            const nationalityType = this.getNationalityType();
+            const countryCode = countrySel?.value || '';
+            const isTurkey = /^(TR|TUR)$/i.test(countryCode);
+
+            // Dosya yüklemelerine başlamadan önce yerli/yabancı - ülke tutarlılığını doğrula.
+            if (nationalityType === 'domestic' && !isTurkey) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Kaydet';
+                return showNotification('Yerli kişi için ülke Türkiye olmalıdır. Kayıt yabancıysa Kişi Statüsü alanından Yabancı seçiniz.', 'warning');
+            }
+            if (nationalityType === 'foreign' && (!countryCode || isTurkey)) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Kaydet';
+                return showNotification('Yabancı kişi için Türkiye dışında bir ülke seçiniz.', 'warning');
+            }
+
             const processedDocs = [];
             for (const doc of this.documents) {
                 if (doc.isNew && doc.fileObj) {
@@ -521,10 +632,6 @@ export class PersonModalManager {
                 });
             }
 
-            const countrySel = document.getElementById('countrySelect');
-            const provinceSel = document.getElementById('provinceSelect');
-            const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
-
             const petitionControllerUserId = document.getElementById('person-petition-controller')?.value || null;
             if (petitionControllerUserId) {
                 const controllerResult = await portfolioManagerService.getUserById(petitionControllerUserId);
@@ -537,7 +644,9 @@ export class PersonModalManager {
             const personData = {
                 ...(this.isEdit && this.originalPersonData ? this.originalPersonData : {}),
                 id: this.currentPersonId,
-                name: nameVal,                type: document.getElementById('personType').value,
+                name: nameVal,
+                type: document.getElementById('personType').value,
+                nationalityType: nationalityType,
                 tckn: document.getElementById('personTckn').value,
                 birthDate: document.getElementById('personBirthDate').value,
                 taxNo: document.getElementById('personVkn').value,
@@ -916,7 +1025,9 @@ export class PersonModalManager {
 
     async loadInitialData() {
         const countries = await this.dataManager.getCountries();
-        const options = countries.map(c => `<option value="${c.code}">${c.name}</option>`).join('');
+        const options = ['<option value="">Ülke Seçiniz</option>']
+            .concat(countries.map(c => `<option value="${c.code}">${c.name}</option>`))
+            .join('');
         
         const countrySelect = document.getElementById('countrySelect');
         const docCountry = document.getElementById('docCountry');
@@ -931,6 +1042,10 @@ export class PersonModalManager {
             if(docCountry) docCountry.value = trOption.code;
             await this.loadProvinces(trOption.code);
         }
+
+        const nationalitySelect = document.getElementById('personNationalityType');
+        if (nationalitySelect) nationalitySelect.value = 'domestic';
+        await this.applyNationalityUi('domestic', { resetCountry: true });
 
         // IPGATE_PORTFOLIO_MANAGER_V1: Portföy yöneticisi adaylarını yükle
         await this.loadPortfolioManagers();
@@ -1128,6 +1243,11 @@ export class PersonModalManager {
         const p = res.data;
         this.originalPersonData = p; // 🔥 GÜVENLİK 2: Tarife (price_list) gibi formda olmayan verileri hafızaya alıyoruz!
 
+        const nationalityType = p.nationalityType === 'foreign' ? 'foreign' : 'domestic';
+        const nationalitySelect = document.getElementById('personNationalityType');
+        if (nationalitySelect) nationalitySelect.value = nationalityType;
+        await this.applyNationalityUi(nationalityType, { resetCountry: false });
+
         document.getElementById('personType').value = p.type || 'gercek';
         document.getElementById('personType').dispatchEvent(new Event('change'));
         document.getElementById('personName').value = p.name || '';
@@ -1230,6 +1350,9 @@ export class PersonModalManager {
     resetForm() {
         const form = document.getElementById('personForm');
         if (form) form.reset();
+        const nationalitySelect = document.getElementById('personNationalityType');
+        if (nationalitySelect) nationalitySelect.value = 'domestic';
+        this.applyPersonIdentityUi();
         
         this.documents = [];
         this.docsToDelete = []; 
@@ -1254,8 +1377,16 @@ export class PersonModalManager {
         const el = document.getElementById(id);
         if (!el) return;
 
-        el.onfocus = () => { if(!el.value) el.value = '+90 '; };
+        el.onfocus = () => {
+            if (!el.value && this.getNationalityType() === 'domestic') el.value = '+90 ';
+        };
         el.oninput = (e) => {
+            if (this.getNationalityType() === 'foreign') {
+                // Yabancı kişi/ilgili telefonlarında uluslararası formatı serbest bırak.
+                e.target.value = e.target.value.replace(/[^0-9+()\-\s]/g, '').slice(0, 30);
+                return;
+            }
+
             let v = e.target.value.replace(/\D/g, '');
             if (v.startsWith('90')) v = v.slice(2);
             v = v.slice(0, 10);

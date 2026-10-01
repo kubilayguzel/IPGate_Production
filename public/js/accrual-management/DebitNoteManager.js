@@ -98,6 +98,10 @@ export class DebitNoteManager {
                 : `<h1 style="margin: 0; font-size: 28px; color: #1e3c72; letter-spacing: 2px;">EVREKA</h1>`;
 
             const subjectText = this._translateToEnglish(accrual.invoiceDescription || accrual.description || accrual.subject || accrual.taskTitle || 'Professional Services');
+            const personTaxNo = String(person?.taxNo || person?.tax_no || '').trim();
+            const personTaxNoHtml = personTaxNo
+                ? `<p style="margin: 0; line-height: 1.5; color: #666; font-size: 12px;">Tax No: ${personTaxNo}</p>`
+                : '';
 
             // 6. PDF İçin HTML Tasarımı (Tipografi + Banka Konumu Güncellendi)
             const container = document.createElement('div');
@@ -137,6 +141,7 @@ export class DebitNoteManager {
                         <p style="margin: 0 0 5px 0; color: #666; font-size: 12px;">To:</p>
                         <p style="margin: 0 0 5px 0; color: #333; font-size: 13px; font-weight: bold;">${person.name}</p>
                         <p style="margin: 0; line-height: 1.5; color: #666; font-size: 12px;">${person.address || ''}</p>
+                        ${personTaxNoHtml}
                         <p style="margin: 0; line-height: 1.5; color: #666; font-size: 12px;">${person.countryCode || ''}</p>
                     </div>
 

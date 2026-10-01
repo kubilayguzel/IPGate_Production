@@ -575,8 +575,22 @@ export function addMonthsToDate(date, months) {
     const year = date.getFullYear();
     const month = date.getMonth();
     const day = date.getDate();
-    
-    const newDate = new Date(year, month + months, day);
+
+    // Hedef ayda aynı gün yoksa (örn. 31 Ocak + 1 ay),
+    // hukuki süre hesabında hedef ayın son gününü kullan.
+    const targetMonthStart = new Date(year, month + months, 1);
+    const lastDayOfTargetMonth = new Date(
+        targetMonthStart.getFullYear(),
+        targetMonthStart.getMonth() + 1,
+        0
+    ).getDate();
+    const targetDay = Math.min(day, lastDayOfTargetMonth);
+    const newDate = new Date(
+        targetMonthStart.getFullYear(),
+        targetMonthStart.getMonth(),
+        targetDay
+    );
+
     console.log(`DEBUG addMonthsToDate: ${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')} + ${months} ay = ${newDate.getFullYear()}-${String(newDate.getMonth()+1).padStart(2,'0')}-${String(newDate.getDate()).padStart(2,'0')}`);
     
     return newDate;

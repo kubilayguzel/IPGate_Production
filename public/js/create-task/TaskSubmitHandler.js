@@ -612,6 +612,9 @@ export class TaskSubmitHandler {
                 const official = findNextWorkingDay(baseDate, TURKEY_HOLIDAYS);
                 const operational = new Date(official);
                 operational.setDate(operational.getDate() - 3);
+                while (isWeekend(operational) || isHoliday(operational, TURKEY_HOLIDAYS)) {
+                    operational.setDate(operational.getDate() - 1);
+                }
 
                 taskData.official_due_date = official.toISOString();
                 taskData.operational_due_date = operational.toISOString();

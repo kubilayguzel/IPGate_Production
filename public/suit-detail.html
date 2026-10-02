@@ -15,10 +15,10 @@
         .page-header { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); display: flex; justify-content: space-between; align-items: center; }
         .page-title { font-size: 1.8em; color: #1e3c72; margin-bottom: 5px; font-weight: 700; }
         .page-subtitle { color: #666; font-size: 1em; margin: 0; }
-        
+
         .section-card { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 20px; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05); margin-bottom: 25px; transition: transform 0.2s; }
         .section-title { font-size: 1.2em; color: #1e3c72; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #f0f2f5; font-weight: 600; }
-        
+
         /* Detay Görünüm Stilleri (Read-Only) */
         .detail-row { display: flex; margin-bottom: 15px; border-bottom: 1px solid #f8f9fa; padding-bottom: 8px; }
         .detail-row:last-child { border-bottom: none; margin-bottom: 0; }
@@ -37,7 +37,7 @@
         .timeline-desc { color: #555; font-size: 0.95em; }
         .timeline-badges { margin-top: 8px; }
         .badge-type { background-color: #e3f2fd; color: #1e3c72; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
-        
+
         .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; transition: all 0.3s; }
         .btn-secondary { background-color: #6c757d; border: none; }
         .btn-primary { background: linear-gradient(45deg, #1e3c72, #2a5298); border: none; }
@@ -61,10 +61,10 @@
 
             <div class="row">
                 <div class="col-lg-7">
-                    
+
                     <div class="section-card">
                         <h3 class="section-title"><i class="fas fa-info-circle mr-2"></i>Temel Bilgiler</h3>
-                        
+
                         <div class="detail-row">
                             <span class="detail-label">Dava Durumu:</span>
                             <span class="detail-value" id="viewSuitStatus">-</span>
@@ -93,7 +93,7 @@
 
                     <div class="section-card">
                         <h3 class="section-title"><i class="fas fa-users mr-2"></i>Taraf Bilgileri</h3>
-                        
+
                         <div class="detail-row">
                             <span class="detail-label">Müvekkil:</span>
                             <span class="detail-value" id="viewClientName">-</span>
@@ -147,10 +147,10 @@
         (async function() {
             await loadSharedLayout();
             const { data: { session } } = await supabase.auth.getSession();
-            
+
             if (!session) return window.location.href = 'index.html';
             if (!suitId) return window.location.href = 'portfolio.html';
-            
+
             await loadSuitData();
             await loadSuitTransactions(); // Timeline ve Belgeler Yükle
         })();
@@ -164,7 +164,7 @@
                     .select('*')
                     .eq('id', suitId)
                     .single();
-                
+
                 if (error || !data) {
                     alert('Dava bulunamadı.');
                     return window.location.href = 'portfolio.html';
@@ -190,7 +190,7 @@
                 // 4. Davaya ait ana belgeleri çek
                 const { data: docsData } = await supabase.from('suit_documents').select('*').eq('suit_id', suitId);
                 currentDocuments = docsData || [];
-                
+
                 // Başlıkları Güncelle
                 const displayTitle = data.file_no || data.title || 'Dava Detayı';
                 document.getElementById('suitTitleHeader').textContent = displayTitle;
@@ -208,7 +208,7 @@
                 let statusObj = STATUSES.litigation ? STATUSES.litigation.find(s => s.value === statusVal) : null;
                 const statusText = statusObj ? statusObj.text : statusVal;
                 const statusColor = statusObj && statusObj.color ? statusObj.color : 'secondary';
-                
+
                 const statusEl = document.getElementById('viewSuitStatus');
                 statusEl.innerHTML = `<span class="badge badge-${statusColor}" style="font-size: 1rem; padding: 8px 12px;">${statusText}</span>`;
 
@@ -245,7 +245,7 @@
                     `)
                     .eq('ip_record_id', suitId) 
                     .order('transaction_date', { ascending: false });
-                
+
                 if (error) throw error;
 
                 if (!snap || snap.length === 0) {
@@ -258,7 +258,7 @@
                     const date = formatToTRDate(t.transaction_date || t.created_at);
                     const desc = t.description || t.note || 'İşlem detay girilmemiş.';
                     const typeName = t.transaction_types?.name || 'İşlem'; 
-                    
+
                     let docs = [];
 
                     // DURUM 1: Bu işlem bir Task (İş) tarafından tetiklendiyse -> Task belgelerini al
@@ -316,7 +316,7 @@
             const el = document.getElementById(id); 
             if(el) el.textContent = val || '-'; 
         }
-        
+
         function formatDate(dateVal) {
             return formatToTRDate(dateVal);
         }
@@ -327,6 +327,8 @@
             return roles[role.toLowerCase()] || role;
         }
     </script>
+
+<script type="module" src="./js/suit-detail-enhancement.js"></script>
 <script type="module" src="./js/layout-loader.js"></script>
 </body>
 </html>

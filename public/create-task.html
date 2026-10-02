@@ -7,9 +7,9 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    
+
     <link rel="stylesheet" href="./css/shared-styles.css">
-    
+
     <link rel="modulepreload" href="./supabase-config.js">
     <link rel="modulepreload" href="./js/layout-loader.js">
 
@@ -202,14 +202,14 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
 <body>
     <div id="notification-container" class="notification-container"></div>
     <div id="layout-placeholder"></div>
-    
+
     <div class="page-wrapper">
         <main class="main-container">
             <section class="page-header">
                 <h1 class="page-title">Yeni İş Oluştur</h1>
                 <p class="page-subtitle">Oluşturmak istediğiniz işin türünü seçerek başlayın.</p>
             </section>
-            
+
             <div class="form-container">
                 <form id="createTaskForm" onsubmit="return false;">
                     <div class="premium-card mb-4">
@@ -217,7 +217,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
                             <span><i class="fas fa-tasks text-primary mr-2"></i>1. İş Türü Seçimi</span>
                         </div>
                         <div class="card-body-custom">
-                            
+
                             <div class="row mb-4" id="mainTypeCardContainer">
                                 <div class="col mb-2">
                                     <div class="selection-card color-blue" onclick="selectMainType('trademark', this)">
@@ -293,24 +293,24 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
                                     <option value="">Önce İşin Ana Türünü Seçin</option>
                                 </select>
                             </div>
-                            
+
                             <div class="form-grid mt-3">
                                 <div class="form-group">
                                     <label for="originSelect" class="form-label">Menşe</label>
                                     <select id="originSelect" class="form-select"></select>
                                 </div>
                             </div>
-                            
+
                             <div id="countrySelectionContainer" class="form-section" style="display:none; margin-top:20px; padding-top:20px; border-top:1px solid #e1e8ed;">
                                 <h6 class="text-primary font-weight-bold mb-3" id="countrySelectionTitle">Ulusal Menşe Ülke Seçimi</h6>
-                                
+
                                 <div id="singleCountrySelectWrapper" class="form-group full-width">
                                     <label for="countrySelect" class="form-label">Ülke</label>
                                     <select id="countrySelect" class="form-select"></select>
                                 </div>
-                                
+
                                 <div id="multiCountrySelectWrapper" style="display: none;">
-                                    
+
                                     <div id="subsequentDesignationWrapper" style="display: none; margin-bottom: 25px; padding: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
                                         <label class="form-label font-weight-bold text-primary mb-3"><i class="fas fa-link mr-2"></i>Sonraki Belirleme (Subsequent Designation) mi?</label>
                                         <div class="d-flex" style="gap: 30px;">
@@ -361,7 +361,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
                     </div>
 
                     <div id="conditionalFieldsContainer"></div>
-                    
+
                 </form>
             </div>
         </main>
@@ -392,6 +392,13 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/tr.js"></script>
 
     <script type="module" src="./js/create-portfolio-by-opposition.js"></script>
+
+    <!--
+      AŞAMA 1B HOTFIX:
+      Dava uyumluluk katmanı bağımsız modül olarak yüklenir.
+      Patch başarısız olsa bile aşağıdaki ana create-task modülü ayrıca çalışır.
+    -->
+    <script type="module" src="./js/create-task/litigation-suit-creation-patch.js"></script>
     <script type="module" src="./js/create-task/main.js"></script>
 
     <script>

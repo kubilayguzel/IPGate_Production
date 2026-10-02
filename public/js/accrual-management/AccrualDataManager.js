@@ -161,26 +161,82 @@ export class AccrualDataManager {
     async _fetchTasksInBatches() {
         const rawIds = this.allAccruals.map(a => a.taskId);
         const validIds = [...new Set(rawIds.filter(id => id && id !== 'null' && id !== 'undefined'))];
-        this.allTasks = {}; 
-        
-        if (validIds.length === 0) return;
-        const { data, error } = await supabase.from('tasks').select('*').in('id', validIds);
-        if (error) throw new Error("Görevler çekilemedi: " + error.message);
+        this.allTasks = {};
 
-        data.forEach(row => {
-            let d = row.details || {};
+        if (validIds.length === 0) return;
+
+        // Tahakkuk listesinde görev + portföy bilgisini tek kaynaktan çöz.
+        // v_tasks_dashboard, tasks.ip_record_id üzerinden başvuru no ve marka adını
+        // zaten iprecordApplicationNo / iprecordTitle olarak zenginleştiriyor.
+        const { data, error } = await supabase
+            .from('v_tasks_dashboard')
+            .select('*')
+            .in('id', validIds);
+        if (error) throw new Error("Görev görünümü çekilemedi: " + error.message);
+
+        const parseDetails = (row) => {
+            let d = row?.details || {};
             if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { d = {}; } }
+            return d && typeof d === 'object' ? d : {};
+        };
+
+        const getParentTaskId = (row) => {
+            const d = parseDetails(row);
             const nestedDetails = d.details && typeof d.details === 'object' ? d.details : {};
-            let epats = row.epats_document || d.epatsDocument || nestedDetails.epatsDocument || null;
+            return d.parent_task_id || d.relatedTaskId || nestedDetails.parent_task_id || nestedDetails.relatedTaskId || null;
+        };
+
+        // Eski tahakkuklarda task_id bazen Tahakkuk Oluşturma alt görevine bağlı olabilir.
+        // Parent desteğini koruyoruz; parent kayıtlarını da aynı view üzerinden çözüyoruz.
+        const taskRows = new Map((data || []).map(row => [String(row.id), row]));
+        const missingParentIds = [...new Set(
+            (data || [])
+                .map(row => getParentTaskId(row))
+                .filter(id => id && !taskRows.has(String(id)))
+                .map(String)
+        )];
+
+        if (missingParentIds.length > 0) {
+            const { data: parentRows, error: parentError } = await supabase
+                .from('v_tasks_dashboard')
+                .select('*')
+                .in('id', missingParentIds);
+            if (parentError) throw new Error("Parent görev görünümü çekilemedi: " + parentError.message);
+            (parentRows || []).forEach(row => taskRows.set(String(row.id), row));
+        }
+
+        (data || []).forEach(row => {
+            const d = parseDetails(row);
+            const nestedDetails = d.details && typeof d.details === 'object' ? d.details : {};
+            const parentTaskId = getParentTaskId(row);
+            const parentRow = parentTaskId ? taskRows.get(String(parentTaskId)) : null;
+            const parentDetails = parseDetails(parentRow);
+            const parentNestedDetails = parentDetails.details && typeof parentDetails.details === 'object' ? parentDetails.details : {};
+
+            let epats = d.epatsDocument || nestedDetails.epatsDocument || null;
             if (typeof epats === 'string') { try { epats = JSON.parse(epats); } catch(e) {} }
 
             this.allTasks[String(row.id)] = {
                 id: String(row.id),
                 title: String(row.title || d.title || 'İsimsiz İş'),
                 taskType: String(row.task_type_id || row.task_type || d.taskType || ''),
-                relatedIpRecordId: row.ip_record_id ? String(row.ip_record_id) : null,
-                iprecordApplicationNo: d.iprecordApplicationNo || d.iprecord_application_no || d.applicationNo || d.application_number || d.target_app_no || nestedDetails.iprecordApplicationNo || nestedDetails.iprecord_application_no || null,
-                iprecordTitle: d.iprecordTitle || d.iprecord_title || d.relatedIpRecordTitle || d.brand_name || d.markName || nestedDetails.iprecordTitle || nestedDetails.iprecord_title || null,
+                relatedIpRecordId: row.ip_record_id
+                    ? String(row.ip_record_id)
+                    : (parentRow?.ip_record_id ? String(parentRow.ip_record_id) : null),
+                iprecordApplicationNo:
+                    row.iprecordApplicationNo || row.iprecord_application_no ||
+                    d.iprecordApplicationNo || d.iprecord_application_no || d.applicationNo || d.application_number || d.target_app_no ||
+                    nestedDetails.iprecordApplicationNo || nestedDetails.iprecord_application_no ||
+                    parentRow?.iprecordApplicationNo || parentRow?.iprecord_application_no ||
+                    parentDetails.iprecordApplicationNo || parentDetails.iprecord_application_no || parentDetails.applicationNo || parentDetails.application_number || parentDetails.target_app_no ||
+                    parentNestedDetails.iprecordApplicationNo || parentNestedDetails.iprecord_application_no || null,
+                iprecordTitle:
+                    row.iprecordTitle || row.iprecord_title ||
+                    d.iprecordTitle || d.iprecord_title || d.relatedIpRecordTitle || d.brand_name || d.markName ||
+                    nestedDetails.iprecordTitle || nestedDetails.iprecord_title ||
+                    parentRow?.iprecordTitle || parentRow?.iprecord_title ||
+                    parentDetails.iprecordTitle || parentDetails.iprecord_title || parentDetails.relatedIpRecordTitle || parentDetails.brand_name || parentDetails.markName ||
+                    parentNestedDetails.iprecordTitle || parentNestedDetails.iprecord_title || null,
                 assignedTo_uid: row.assigned_to ? String(row.assigned_to) : null,
                 epatsDocument: epats
             };

@@ -1,9 +1,12 @@
 // TP EPATS Otomasyon - background.js
-// v3.2.7 - 3.2.4 PDF yakalama akışı + yalnızca top-frame content script
+// v3.2.8 - PDF capture dedupe + PDF sekmesini her durumda kapatma düzeltmesi
 
 let activeJobTabId = null;
 let pdfReceiverTabId = null;
 let lastPdfUrl = null;
+let lastPdfUrlAt = 0;
+
+const PDF_DEDUPE_WINDOW_MS = 15000;
 
 const EPATS_HOST_PATTERNS = [
   "https://epats.turkpatent.gov.tr/*",
@@ -40,6 +43,21 @@ async function ensureContentScript(tabId) {
 async function getPdfReceiverTabId() {
   await loadRuntimeTabIds();
   return pdfReceiverTabId || activeJobTabId || null;
+}
+
+function isRecentDuplicatePdfUrl(url) {
+  const now = Date.now();
+  const isDuplicate =
+    Boolean(url) &&
+    url === lastPdfUrl &&
+    now - lastPdfUrlAt < PDF_DEDUPE_WINDOW_MS;
+
+  if (!isDuplicate) {
+    lastPdfUrl = url;
+    lastPdfUrlAt = now;
+  }
+
+  return isDuplicate;
 }
 
 async function sendPdfUrlToReceiver(url) {
@@ -81,6 +99,9 @@ async function sendPdfUrlToReceiver(url) {
 async function maybeClosePdfTab(tabId) {
   await loadRuntimeTabIds();
   if (!tabId || tabId < 0) return;
+
+  // Ana kuyruk sekmesini veya aktif doküman-detay alıcı sekmesini burada
+  // kapatmıyoruz. Detay sekmesi kendi akışı sonunda CLOSE_CURRENT_TAB ile kapanır.
   if (tabId === activeJobTabId || tabId === pdfReceiverTabId) return;
 
   setTimeout(() => {
@@ -88,11 +109,42 @@ async function maybeClosePdfTab(tabId) {
   }, 1500);
 }
 
+/**
+ * Aynı PDF URL'si hem webRequest hem de tabs.onUpdated tarafından görülebilir.
+ *
+ * Önemli ayrım:
+ * - URL'yi receiver'a yalnızca bir kez gönder.
+ * - Fakat duplicate event başka bir PDF sekmesine aitse o sekmeyi yine de kapat.
+ *
+ * Eski akışta "aynı URL" kontrolü tab kapatma işleminden önce return ettiği için,
+ * webRequest detay sekmesinde URL'yi önce yakaladığında sonradan açılan PDF sekmesi
+ * bazen açık kalabiliyordu.
+ */
+async function handlePdfCapture(url, tabId, source) {
+  if (!url) return;
+
+  const duplicate = isRecentDuplicatePdfUrl(url);
+
+  if (!duplicate) {
+    console.log(`[BG] PDF yakalandı (${source}):`, url);
+    await sendPdfUrlToReceiver(url);
+  } else {
+    console.log(`[BG] Aynı PDF tekrar yakalandı (${source}); upload tekrar tetiklenmedi.`);
+  }
+
+  // Duplicate olsa dahi yeni açılmış PDF sekmesini kapatma kontrolü yapılır.
+  await maybeClosePdfTab(tabId);
+}
+
 chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
   if (request.action !== "START_QUEUE") return;
 
   const fallbackUrl =
     "https://kadxvkejzctwymzeyrrl.supabase.co/functions/v1/save-epats-document";
+
+  // Yeni kuyrukta önceki PDF dedupe state'ini temizle.
+  lastPdfUrl = null;
+  lastPdfUrlAt = 0;
 
   chrome.storage.local.set(
     {
@@ -190,12 +242,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   if (!isPdfLikeUrl(url)) return;
 
-  if (url === lastPdfUrl) return;
-  lastPdfUrl = url;
-  console.log("[BG] PDF sekmesi yakalandı:", url);
-
-  await sendPdfUrlToReceiver(url);
-  await maybeClosePdfTab(tabId);
+  await handlePdfCapture(url, tabId, "tabs.onUpdated");
 });
 
 chrome.webRequest.onHeadersReceived.addListener(
@@ -203,13 +250,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (details.tabId == null || details.tabId < 0) return;
     if (!hasPdfContentType(details.responseHeaders)) return;
 
-    const url = details.url;
-    if (!url || url === lastPdfUrl) return;
-    lastPdfUrl = url;
-
-    console.log("[BG] PDF yakalandı (Content-Type):", url);
-    await sendPdfUrlToReceiver(url);
-    await maybeClosePdfTab(details.tabId);
+    await handlePdfCapture(details.url, details.tabId, "Content-Type");
   },
   { urls: EPATS_HOST_PATTERNS },
   ["responseHeaders"]

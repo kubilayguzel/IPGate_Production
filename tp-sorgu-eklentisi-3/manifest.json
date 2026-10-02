@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TP EPATS Otomasyon - V3 (Queue Support)",
-  "version": "3.2.7",
-  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. Aynı PDF tekrarını önler; yenileme belgesi kaydedilince mevcut başvuruyu tamamlar.",
+  "version": "3.2.8",
+  "description": "EPATS üzerinden toplu belge indirme ve kuyruk yönetimi. Aynı PDF tekrarını istemci ve sunucu tarafında önler; PDF sekmesini kapatıp akışı sürdürür.",
   "permissions": [
     "storage",
     "tabs",

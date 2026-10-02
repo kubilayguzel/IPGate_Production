@@ -26,6 +26,7 @@ class TaskUpdateController {
         this.uiManager = new TaskUpdateUIManager();
         this.accrualManager = null; 
         this.taskId = null;
+        this.returnTarget = 'task-management.html';
         this.taskData = null;
         this.masterData = {}; 
         this.currentDocuments = [];
@@ -46,8 +47,12 @@ class TaskUpdateController {
         this.uiManager.ensureApplicationDataModal();
         this.setupApplicationModalEvents();
 
-        this.taskId = new URLSearchParams(window.location.search).get('id');
-        if (!this.taskId) return window.location.href = 'task-management.html';
+        const queryParams = new URLSearchParams(window.location.search);
+        this.taskId = queryParams.get('id');
+        this.returnTarget = queryParams.get('returnTo') === 'my-tasks'
+            ? 'my-tasks.html'
+            : 'task-management.html';
+        if (!this.taskId) return window.location.href = this.returnTarget;
 
         const session = await authService.getCurrentSession();
         if (!session) return window.location.href = 'index.html';
@@ -307,7 +312,7 @@ class TaskUpdateController {
 
         const cancelBtn = document.getElementById('cancelEditBtn');
         if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => window.location.href = 'task-management.html');
+            cancelBtn.addEventListener('click', () => window.location.href = this.returnTarget);
         }
 
         const fileArea = document.getElementById('fileUploadArea');
@@ -1416,7 +1421,7 @@ class TaskUpdateController {
         if (res.success) {
             showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
             localStorage.setItem('crossTabUpdatedTaskId', this.taskId);
-            setTimeout(() => { window.location.href = 'task-management.html'; }, 1000); 
+            setTimeout(() => { window.location.href = this.returnTarget; }, 1000); 
         } else {
             showNotification('Hata: ' + res.error, 'error');
         }

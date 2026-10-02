@@ -588,7 +588,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const isValidStatus = ['pending', 'open'].includes(task.status);
                         const targetPage = (isApp && isValidStatus) ? 'data-entry.html' : 'task-update.html';
 
-                        window.location.href = `${targetPage}?id=${taskId}`;
+                        window.location.href = targetPage === 'task-update.html'
+                            ? `${targetPage}?id=${taskId}&returnTo=my-tasks`
+                            : `${targetPage}?id=${taskId}`;
                     }
                 }
                 else if (btn.classList.contains('assign-btn')) this.openAssignTaskModal(taskId);
@@ -1704,7 +1706,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 setTimeout(() => { 
                     const targetPage = isApplication ? 'data-entry.html' : 'task-update.html';
-                    window.location.href = `${targetPage}?id=${insertedTask.id}`; 
+                    window.location.href = targetPage === 'task-update.html'
+                        ? `${targetPage}?id=${insertedTask.id}&returnTo=my-tasks`
+                        : `${targetPage}?id=${insertedTask.id}`; 
                 }, 1000);
 
             } catch (err) {

@@ -1,5 +1,6 @@
 // public/js/indexing/suit-record-matcher.js
-// AŞAMA 3 - Dava dosyaları için salt-okunur arama yardımcı sınıfı.
+// AŞAMA 3R - Dava kaydını esas no / mahkeme / taraflar / müvekkil ve
+// bağlı dava konusu IP varlığı üzerinden arar.
 
 export class SuitRecordMatcher {
     normalizeText(value) {
@@ -14,74 +15,78 @@ export class SuitRecordMatcher {
             .replace(/[^0-9a-zçğıöşü]/gi, '');
     }
 
-    findMatches(query, suits, limit = 10) {
-        const normalizedQuery = this.normalizeText(query);
-        const compactQuery = this.normalizeCompact(query);
+    findMatches(query, suits, limit = 20) {
+        const q = this.normalizeText(query);
+        const qc = this.normalizeCompact(query);
+        if (!q || q.length < 2 || !Array.isArray(suits)) return [];
 
-        if (!normalizedQuery || normalizedQuery.length < 3) return [];
-        if (!Array.isArray(suits) || suits.length === 0) return [];
+        const tokens = q.split(/\s+/).filter(Boolean);
 
-        const queryTokens = normalizedQuery
-            .split(/\s+/)
-            .map((x) => x.trim())
-            .filter(Boolean);
+        return suits.map((suit) => {
+            const subject = suit._subjectRecord || {};
+            const fields = [
+                suit.file_no,
+                suit.title,
+                suit.court_name,
+                suit.suit_type,
+                suit._clientName,
+                suit.client_role,
+                suit.opposing_party,
+                suit.opposing_counsel,
+                ...(suit._partyNames || []),
+                subject.title,
+                subject.brandText,
+                subject.applicationNumber,
+                subject.registrationNumber,
+                subject.wipoIR,
+                subject.aripoIR,
+                subject.applicantName,
+                ...(subject.applicants || []).map(a =>
+                    typeof a === 'string' ? a : (a?.name || '')
+                )
+            ].filter(Boolean);
 
-        return suits
-            .map((suit) => {
-                const fields = [
-                    suit.file_no,
-                    suit.title,
-                    suit.court_name,
-                    suit.suit_type,
-                    suit._clientName,
-                    suit.opposing_party,
-                    ...(suit._partyNames || [])
-                ].filter(Boolean);
+            const hay = this.normalizeText(fields.join(' | '));
+            const hayc = this.normalizeCompact(fields.join(' | '));
+            const tokenMatch = tokens.every(t => hay.includes(t));
+            const compactMatch = qc.length >= 3 && hayc.includes(qc);
+            if (!tokenMatch && !compactMatch) return null;
 
-                const haystack = this.normalizeText(fields.join(' | '));
-                const compactHaystack = this.normalizeCompact(fields.join(' | '));
+            const fileNo = this.normalizeText(suit.file_no);
+            const fileNoC = this.normalizeCompact(suit.file_no);
+            const subjectTitle = this.normalizeText(subject.title || subject.brandText);
+            const subjectNo = this.normalizeText(
+                subject.applicationNumber || subject.registrationNumber ||
+                subject.wipoIR || subject.aripoIR
+            );
+            const partyText = this.normalizeText([
+                suit._clientName, suit.opposing_party, suit.opposing_counsel,
+                ...(suit._partyNames || [])
+            ].filter(Boolean).join(' | '));
 
-                const fileNo = this.normalizeText(suit.file_no);
-                const compactFileNo = this.normalizeCompact(suit.file_no);
-                const title = this.normalizeText(suit.title);
-                const court = this.normalizeText(suit.court_name);
-                const client = this.normalizeText(suit._clientName);
+            let score = 10;
+            if (fileNo && fileNo === q) score += 150;
+            else if (fileNoC && fileNoC === qc) score += 145;
+            else if (fileNo && fileNo.startsWith(q)) score += 120;
+            else if (fileNoC && fileNoC.includes(qc)) score += 100;
 
-                const tokenMatch = queryTokens.every((token) =>
-                    haystack.includes(token)
-                );
+            if (subjectTitle && subjectTitle === q) score += 115;
+            else if (subjectTitle && subjectTitle.includes(q)) score += 90;
 
-                const compactMatch =
-                    compactQuery.length >= 4 &&
-                    compactHaystack.includes(compactQuery);
+            if (subjectNo && subjectNo === q) score += 110;
+            else if (subjectNo && subjectNo.includes(q)) score += 80;
 
-                if (!tokenMatch && !compactMatch) return null;
+            if (partyText && partyText.includes(q)) score += 75;
 
-                let score = 10;
+            const title = this.normalizeText(suit.title);
+            const court = this.normalizeText(suit.court_name);
+            if (title && title.includes(q)) score += 55;
+            if (court && court.includes(q)) score += 45;
 
-                if (fileNo && fileNo === normalizedQuery) score += 100;
-                else if (compactFileNo && compactFileNo === compactQuery) score += 95;
-                else if (fileNo && fileNo.startsWith(normalizedQuery)) score += 80;
-                else if (compactFileNo && compactFileNo.includes(compactQuery)) score += 70;
-
-                if (title && title.includes(normalizedQuery)) score += 40;
-                if (court && court.includes(normalizedQuery)) score += 30;
-                if (client && client.includes(normalizedQuery)) score += 30;
-
-                return { suit, score };
-            })
-            .filter(Boolean)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, limit)
-            .map((item) => item.suit);
-    }
-
-    getDisplayLabel(suit) {
-        if (!suit) return 'Dava Dosyası';
-
-        const fileNo = suit.file_no || 'Esas No Yok';
-        const court = suit.court_name || 'Mahkeme Yok';
-
-        return `${fileNo} • ${court}`;
+            return { suit, score };
+        }).filter(Boolean)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit)
+          .map(x => x.suit);
     }
 }

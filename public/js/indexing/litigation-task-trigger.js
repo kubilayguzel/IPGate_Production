@@ -1,5 +1,10 @@
 // public/js/indexing/litigation-task-trigger.js
-// IPGate Dava Yönetimi - AŞAMA 5S
+// IPGate Dava Yönetimi - AŞAMA 8C-2
+// Baz: AŞAMA 5S + 6B + 7.
+// Ek:
+// - suit_decision_task_rules resolver
+// - 76 -> 93 ve 77(İstinaf) -> 96 karar-sonrası işler
+// - rule bazlı due_period/due_period_unit
 //
 // AŞAMA 4'ün güvenli dava write branch'inin ÜZERİNE eklenir.
 // Marka / Patent / Tasarım indeksleme akışına dokunmaz.
@@ -16,6 +21,7 @@
 // incoming_documents.status: litigation_indexed -> task/status automation -> litigation_mail_ready.
 
 import './litigation-indexing-write.js';
+import './litigation-8c2-indexing-patch.js';
 
 import {
     DocumentReviewManager
@@ -189,6 +195,201 @@ function calculateOfficialDeadlineFromType(
         period,
         unit
     };
+}
+
+function calculateOfficialDeadlineFromRuleOrType(
+    manager,
+    transactionTypeId,
+    deliveryDate,
+    rule
+) {
+    const rulePeriod = Number(
+        rule?.duePeriod ??
+        rule?.due_period ??
+        0
+    );
+
+    const ruleUnit = String(
+        rule?.duePeriodUnit ??
+        rule?.due_period_unit ??
+        ''
+    )
+        .toLowerCase()
+        .trim();
+
+    if (
+        Number.isFinite(rulePeriod) &&
+        rulePeriod > 0 &&
+        ruleUnit
+    ) {
+        const delivery = normalizeDateInput(deliveryDate);
+
+        if (!delivery) {
+            return {
+                date: null,
+                error: 'invalid_delivery_date',
+                period: rulePeriod,
+                unit: ruleUnit
+            };
+        }
+
+        let rawDue = new Date(delivery);
+
+        if (ruleUnit === 'day' || ruleUnit === 'days') {
+            rawDue.setDate(rawDue.getDate() + rulePeriod);
+        } else if (ruleUnit === 'week' || ruleUnit === 'weeks') {
+            rawDue.setDate(rawDue.getDate() + (rulePeriod * 7));
+        } else if (ruleUnit === 'month' || ruleUnit === 'months') {
+            rawDue = addMonthsToDate(rawDue, rulePeriod);
+        } else {
+            return {
+                date: null,
+                error: 'unsupported_due_period_unit',
+                period: rulePeriod,
+                unit: ruleUnit
+            };
+        }
+
+        const adjusted = findNextWorkingDay(
+            rawDue,
+            TURKEY_HOLIDAYS
+        );
+
+        return {
+            date: setSafeNoon(adjusted),
+            error: null,
+            period: rulePeriod,
+            unit: ruleUnit
+        };
+    }
+
+    return calculateOfficialDeadlineFromType(
+        manager,
+        transactionTypeId,
+        deliveryDate
+    );
+}
+
+function stageKeyFromParentType(typeId) {
+    const id = String(typeId || '');
+
+    if (id === '60') return 'cassation';
+    if (id === '59') return 'appeal';
+
+    if (['49','54','55','56','57','58'].includes(id)) {
+        return 'first_instance';
+    }
+
+    return null;
+}
+
+function resolveDecisionAutomationRule(
+    manager,
+    {
+        incomingTypeId,
+        parentTypeId,
+        sourceContext
+    }
+) {
+    const sourceType = txTypeObject(manager, incomingTypeId);
+
+    if (!sourceType) return null;
+
+    const eventKind = String(
+        sourceType.suit_event_kind ??
+        sourceType.suitEventKind ??
+        ''
+    )
+        .toLowerCase()
+        .trim();
+
+    if (eventKind !== 'decision') return null;
+
+    const rules = parseTriggerRules(
+        sourceType.suit_decision_task_rules ??
+        sourceType.suitDecisionTaskRules
+    )
+        .filter((rule) => rule && rule.enabled !== false)
+        .sort(
+            (a, b) =>
+                Number(a.priority ?? 100) -
+                Number(b.priority ?? 100)
+        );
+
+    const stage = String(
+        sourceContext?.stage ||
+        stageKeyFromParentType(parentTypeId) ||
+        ''
+    );
+
+    const outcome = String(
+        sourceContext?.client_outcome ??
+        sourceContext?.clientOutcome ??
+        ''
+    );
+
+    if (!stage || !outcome) return null;
+
+    for (const rule of rules) {
+        const ruleStage = String(rule.stage || '');
+
+        if (ruleStage && ruleStage !== stage) {
+            continue;
+        }
+
+        const outcomes = normalizeStringArray(
+            rule.client_outcomes ??
+            rule.clientOutcomes
+        );
+
+        if (
+            outcomes.length > 0 &&
+            !outcomes.includes(outcome)
+        ) {
+            continue;
+        }
+
+        const taskTypeId =
+            rule.task_type_id ??
+            rule.taskTypeId;
+
+        if (!taskTypeId) continue;
+
+        return {
+            taskTypeId: String(taskTypeId),
+            legalBasis:
+                rule.legal_basis ??
+                rule.legalBasis ??
+                `Karar sonucu: ${outcome}`,
+            deadlineMode:
+                rule.deadline_mode ??
+                rule.deadlineMode ??
+                'decision_rule_due_period',
+            ruleId:
+                rule.id ??
+                rule.rule_id ??
+                null,
+            duePeriod: Number(
+                rule.due_period ??
+                rule.duePeriod ??
+                0
+            ),
+            duePeriodUnit: String(
+                rule.due_period_unit ??
+                rule.duePeriodUnit ??
+                ''
+            ),
+            ruleKind: 'decision',
+            stage,
+            clientOutcome: outcome,
+            nextStage:
+                rule.next_stage ??
+                rule.nextStage ??
+                null
+        };
+    }
+
+    return null;
 }
 
 function calculateOperationalDeadline(officialDueDate) {
@@ -385,7 +586,11 @@ function resolveAutomationRule(
             ruleId:
                 rule.id ??
                 rule.rule_id ??
-                null
+                null,
+
+            duePeriod: null,
+            duePeriodUnit: null,
+            ruleKind: 'standard'
         };
     }
 
@@ -408,7 +613,11 @@ function resolveAutomationRule(
                 'transaction_type_due_period',
 
             ruleId:
-                'legacy_task_triggered'
+                'legacy_task_triggered',
+
+            duePeriod: null,
+            duePeriodUnit: null,
+            ruleKind: 'legacy'
         };
     }
 
@@ -468,7 +677,8 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                         transaction_type_id,
                         parent_id,
                         task_id,
-                        transaction_date
+                        transaction_date,
+                        suit_context
                     `)
                     .eq(
                         'id',
@@ -502,7 +712,8 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 .select(`
                     id,
                     transaction_type_id,
-                    ip_record_id
+                    ip_record_id,
+                    suit_context
                 `)
                 .eq(
                     'id',
@@ -780,10 +991,11 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 sourceTx.transaction_date;
 
             const deadlineConfig =
-                calculateOfficialDeadlineFromType(
+                calculateOfficialDeadlineFromRuleOrType(
                     this,
                     sourceTx.transaction_type_id,
-                    deliveryDate
+                    deliveryDate,
+                    rule
                 );
 
             const officialDue =
@@ -931,6 +1143,23 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
 
                     trigger_rule_id:
                         rule.ruleId ||
+                        null,
+
+                    trigger_rule_kind:
+                        rule.ruleKind ||
+                        'standard',
+
+                    source_suit_context:
+                        sourceTx.suit_context ||
+                        {},
+
+                    decision_client_outcome:
+                        rule.clientOutcome ||
+                        sourceTx.suit_context?.client_outcome ||
+                        null,
+
+                    planned_next_stage:
+                        rule.nextStage ||
                         null,
 
                     deadline_mode:
@@ -1227,20 +1456,40 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                         context.suit
                     );
 
+            const decisionRule =
+                resolveDecisionAutomationRule(
+                    this,
+                    {
+                        incomingTypeId:
+                            incomingDocument
+                                .transaction_type_id,
+
+                        parentTypeId:
+                            context.parentTx
+                                ?.transaction_type_id,
+
+                        sourceContext:
+                            context.sourceTx
+                                ?.suit_context ||
+                            {}
+                    }
+                );
+
             const rule =
+                decisionRule ||
                 resolveAutomationRule(
                     this,
                     {
-                    incomingTypeId:
-                        incomingDocument
-                            .transaction_type_id,
+                        incomingTypeId:
+                            incomingDocument
+                                .transaction_type_id,
 
-                    clientRole:
-                        client.clientRole,
+                        clientRole:
+                            client.clientRole,
 
-                    parentTypeId:
-                        context.parentTx
-                            ?.transaction_type_id
+                        parentTypeId:
+                            context.parentTx
+                                ?.transaction_type_id
                     }
                 );
 
@@ -1430,7 +1679,44 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                     ?.client_role ||
                 null;
 
+            const decisionPreviewContext =
+                this._getLitigationDecisionContextFromUi?.(
+                    childTypeId,
+                    parentTx
+                ) || {
+                    valid: true,
+                    stage: stageKeyFromParentType(
+                        parentTx?.transaction_type_id
+                    )
+                };
+
+            if (decisionPreviewContext.valid === false) {
+                deadlineEl.value =
+                    decisionPreviewContext.error ||
+                    'Karar sonucunu seçin';
+                return;
+            }
+
+            const decisionRule =
+                resolveDecisionAutomationRule(
+                    this,
+                    {
+                        incomingTypeId:
+                            childTypeId,
+                        parentTypeId:
+                            parentTx
+                                ?.transaction_type_id,
+                        sourceContext: {
+                            stage:
+                                decisionPreviewContext.stage,
+                            client_outcome:
+                                decisionPreviewContext.clientOutcome
+                        }
+                    }
+                );
+
             const rule =
+                decisionRule ||
                 resolveAutomationRule(
                     this,
                     {
@@ -1466,13 +1752,15 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                     );
 
                 const period =
-                    typeObj?.due_period ??
-                    typeObj?.duePeriod ??
+                    rule.duePeriod ||
+                    typeObj?.due_period ||
+                    typeObj?.duePeriod ||
                     0;
 
                 const unit =
-                    typeObj?.due_period_unit ??
-                    typeObj?.duePeriodUnit ??
+                    rule.duePeriodUnit ||
+                    typeObj?.due_period_unit ||
+                    typeObj?.duePeriodUnit ||
                     '-';
 
                 deadlineEl.value =
@@ -1481,10 +1769,11 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
             }
 
             const deadlineConfig =
-                calculateOfficialDeadlineFromType(
+                calculateOfficialDeadlineFromRuleOrType(
                     this,
                     childTypeId,
-                    deliveryRaw
+                    deliveryRaw,
+                    rule
                 );
 
             const official =

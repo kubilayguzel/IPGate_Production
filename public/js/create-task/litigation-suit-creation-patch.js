@@ -1,5 +1,7 @@
 // public/js/create-task/litigation-suit-creation-patch.js
-// AŞAMA 1B - Create Task > Dava oluşturma uyumluluk katmanı
+// AŞAMA 8C-2 - Create Task > Dava işlem hiyerarşisi uyumluluk katmanı
+// Baz: AŞAMA 1B.
+// Ek: Mevcut dava dosyasında suit_event_kind=work olan işlemleri aktif stage altına child yazma.
 //
 // AMAÇ:
 // - Mevcut TaskSubmitHandler.js dosyasını fiziksel olarak değiştirmeden,
@@ -14,7 +16,49 @@ import { TaskSubmitHandler } from './TaskSubmitHandler.js';
 import { supabase } from '../../supabase-config.js';
 
 const SUIT_CREATION_TYPE_IDS = new Set(['49', '54', '55', '56', '57', '58']);
+const FIRST_INSTANCE_PARENT_TYPES = new Set(['49', '54', '55', '56', '57', '58']);
 const proto = TaskSubmitHandler.prototype;
+
+const normalizeStringArray = (raw) => {
+    if (!raw) return [];
+
+    if (Array.isArray(raw)) {
+        return raw.map(String).filter(Boolean);
+    }
+
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed.map(String).filter(Boolean);
+            }
+        } catch {
+            return raw
+                .replace(/[{}]/g, '')
+                .split(',')
+                .map((v) => v.replace(/^\"+|\"+$/g, '').trim())
+                .filter(Boolean);
+        }
+    }
+
+    return [];
+};
+
+const stageKeyFromParentType = (typeId) => {
+    const id = String(typeId || '');
+    if (id === '60') return 'cassation';
+    if (id === '59') return 'appeal';
+    if (FIRST_INSTANCE_PARENT_TYPES.has(id)) return 'first_instance';
+    return null;
+};
+
+const stageRankFromParentType = (typeId) => {
+    const key = stageKeyFromParentType(typeId);
+    if (key === 'cassation') return 3;
+    if (key === 'appeal') return 2;
+    if (key === 'first_instance') return 1;
+    return 0;
+};
 
 // Aynı modül yanlışlıkla ikinci kez yüklenirse prototype'ı tekrar sarmalama.
 if (!proto.__litigationStage1BPatched) {
@@ -341,6 +385,219 @@ if (!proto.__litigationStage1BPatched) {
         }
     };
 
+    proto._addLitigationWorkTransactionToActiveStage =
+        async function(
+            recordId,
+            taskType,
+            taskId,
+            state,
+            taskDocuments = []
+        ) {
+            const typeId = String(taskType?.id || '');
+
+            if (!typeId || !recordId) {
+                return null;
+            }
+
+            let metadata = taskType || {};
+
+            if (!metadata.suit_event_kind) {
+                const {
+                    data,
+                    error
+                } = await supabase
+                    .from('transaction_types')
+                    .select(`
+                        id,
+                        suit_event_kind,
+                        suit_stage_scope,
+                        stage_transition_on_completion
+                    `)
+                    .eq('id', typeId)
+                    .maybeSingle();
+
+                if (error) throw error;
+
+                metadata = {
+                    ...metadata,
+                    ...(data || {})
+                };
+            }
+
+            if (
+                String(metadata.suit_event_kind || '') !== 'work'
+            ) {
+                return null;
+            }
+
+            const {
+                data: suit,
+                error: suitError
+            } = await supabase
+                .from('suits')
+                .select('id')
+                .eq('id', String(recordId))
+                .maybeSingle();
+
+            if (suitError) throw suitError;
+
+            // Marka/patent/tasarım work tipi ise mevcut akışa geri dön.
+            if (!suit) {
+                return null;
+            }
+
+            const {
+                data: parents,
+                error: parentError
+            } = await supabase
+                .from('transactions')
+                .select(`
+                    id,
+                    ip_record_id,
+                    transaction_type_id,
+                    transaction_date,
+                    created_at,
+                    suit_context
+                `)
+                .eq('ip_record_id', String(recordId))
+                .eq('transaction_hierarchy', 'parent')
+                .in(
+                    'transaction_type_id',
+                    ['49','54','55','56','57','58','59','60']
+                );
+
+            if (parentError) throw parentError;
+
+            const activeParent =
+                [...(parents || [])]
+                    .sort((a, b) => {
+                        const rankDiff =
+                            stageRankFromParentType(b.transaction_type_id) -
+                            stageRankFromParentType(a.transaction_type_id);
+
+                        if (rankDiff !== 0) return rankDiff;
+
+                        return (
+                            new Date(b.transaction_date || b.created_at || 0).getTime() -
+                            new Date(a.transaction_date || a.created_at || 0).getTime()
+                        );
+                    })[0] || null;
+
+            if (!activeParent) {
+                throw new Error(
+                    'Dava için aktif yargılama aşaması bulunamadı.'
+                );
+            }
+
+            const activeStage =
+                stageKeyFromParentType(activeParent.transaction_type_id);
+
+            const scopes =
+                normalizeStringArray(metadata.suit_stage_scope);
+
+            if (
+                scopes.length > 0 &&
+                !scopes.includes(activeStage)
+            ) {
+                throw new Error(
+                    `${taskType.alias || taskType.name || typeId} işlemi ${activeStage} aşamasında kullanılamaz.`
+                );
+            }
+
+            const {
+                data: sessionData
+            } = await supabase.auth.getSession();
+
+            const session = sessionData?.session || null;
+
+            const dbUser =
+                (state?.allUsers || [])
+                    .find(
+                        (u) =>
+                            u.email === session?.user?.email
+                    );
+
+            const txId = this.generateUUID();
+
+            const transactionData = {
+                id: txId,
+                ip_record_id: String(recordId),
+                transaction_type_id: typeId,
+                description:
+                    `${taskType.name || taskType.alias || typeId} işlemi.`,
+                transaction_hierarchy: 'child',
+                parent_id: String(activeParent.id),
+                task_id: String(taskId),
+                user_id: dbUser?.id || null,
+                user_email: session?.user?.email || null,
+                user_name:
+                    dbUser
+                        ? (dbUser.display_name || dbUser.name)
+                        : null,
+                transaction_date: new Date().toISOString(),
+                suit_context: {
+                    stage: activeStage,
+                    work_origin: 'manual_task',
+                    planned_stage_transition:
+                        metadata.stage_transition_on_completion || null
+                }
+            };
+
+            let insertedTxId = null;
+
+            try {
+                const {
+                    data: newTx,
+                    error: txError
+                } = await supabase
+                    .from('transactions')
+                    .insert(transactionData)
+                    .select('id')
+                    .single();
+
+                if (txError) throw txError;
+
+                insertedTxId = String(newTx.id);
+
+                if (taskDocuments.length > 0) {
+                    const docInserts =
+                        taskDocuments.map((d) => ({
+                            transaction_id: insertedTxId,
+                            document_name: d.name,
+                            document_url: d.url,
+                            document_type: 'other'
+                        }));
+
+                    const {
+                        error: docError
+                    } = await supabase
+                        .from('transaction_documents')
+                        .insert(docInserts);
+
+                    if (docError) throw docError;
+                }
+
+                return insertedTxId;
+
+            } catch (error) {
+                if (insertedTxId) {
+                    try {
+                        await supabase
+                            .from('transactions')
+                            .delete()
+                            .eq('id', insertedTxId);
+                    } catch (cleanupError) {
+                        console.warn(
+                            '[LITIGATION 8C-2] Work transaction rollback uyarısı:',
+                            cleanupError
+                        );
+                    }
+                }
+
+                throw error;
+            }
+        };
+
     proto._addTransactionToPortfolio = async function(
         recordId,
         taskType,
@@ -348,6 +605,32 @@ if (!proto.__litigationStage1BPatched) {
         state,
         taskDocuments = []
     ) {
+        // 59/60 artık manuel iş türü olarak stage başlatamaz.
+        // DB listesinde de selectable=false; bu ayrıca stale-cache güvenliğidir.
+        if (['59','60'].includes(String(taskType?.id || ''))) {
+            throw new Error(
+                'İstinaf/Yargıtay aşaması manuel iş oluşturarak başlatılamaz. Karşı taraf dilekçesini indeksleyin veya ilgili kanun yolu işini tamamlayın.'
+            );
+        }
+
+        // Yeni suit açılışında AŞAMA 1B parent mantığı korunur.
+        // Mevcut dava dosyasında DB'de work olarak tanımlı işlemler
+        // aktif yargılama aşamasının child transaction'ı olur.
+        if (!this._litigationStage1BContext) {
+            const litigationWorkTx =
+                await this._addLitigationWorkTransactionToActiveStage(
+                    recordId,
+                    taskType,
+                    taskId,
+                    state,
+                    taskDocuments
+                );
+
+            if (litigationWorkTx) {
+                return litigationWorkTx;
+            }
+        }
+
         const txId = await originalAddTransactionToPortfolio.call(
             this,
             recordId,

@@ -1,5 +1,7 @@
 // public/js/portfolio/litigation-hierarchy-patch.js
-// IPGate Dava Yönetimi - AŞAMA 8B
+// IPGate Dava Yönetimi - AŞAMA 8C-2
+// Baz: AŞAMA 8B nested accordion.
+// Ek: event türleri DB suit_event_kind metadata'sından okunur; karar sonucu ve stage başlatan gösterilir.
 //
 // Amaç:
 // - Portföy > Davalar ekranında gerçek transaction zincirinden yargılama aşamasını göstermek.
@@ -181,10 +183,53 @@ function normalizeDocuments(tx) {
     return docs;
 }
 
-function eventCategory(typeId) {
+function eventCategory(
+    manager,
+    typeId
+) {
     const id =
         String(typeId || '');
 
+    const meta =
+        typeInfo(
+            manager,
+            id
+        );
+
+    const kind =
+        String(
+            meta?.suit_event_kind ||
+            meta?.suitEventKind ||
+            ''
+        )
+            .toLowerCase()
+            .trim();
+
+    if (kind === 'decision') {
+        return {
+            key: 'decision',
+            label: 'KARAR',
+            icon: 'fa-gavel'
+        };
+    }
+
+    if (kind === 'incoming') {
+        return {
+            key: 'incoming',
+            label: 'GELEN EVRAK',
+            icon: 'fa-file-import'
+        };
+    }
+
+    if (kind === 'work') {
+        return {
+            key: 'work',
+            label: 'İŞ / ÇIKTI',
+            icon: 'fa-briefcase'
+        };
+    }
+
+    // Eski kayıtlar için geriye dönük fallback.
     if (INCOMING_TYPES.has(id)) {
         return {
             key: 'incoming',
@@ -228,6 +273,7 @@ function normalizedTransaction(
 
         _eventCategory:
             eventCategory(
+                manager,
                 tx?.transaction_type_id
             )
     };
@@ -527,6 +573,46 @@ function buildHierarchy(
     };
 }
 
+async function loadLitigationTypeMetadata(
+    typeIds
+) {
+    const ids = [
+        ...new Set(
+            (typeIds || [])
+                .filter(Boolean)
+                .map(String)
+        )
+    ];
+
+    if (!ids.length) {
+        return [];
+    }
+
+    const {
+        data,
+        error
+    } = await supabase
+        .from('transaction_types')
+        .select(`
+            id,
+            name,
+            alias,
+            ip_type,
+            hierarchy,
+            suit_event_kind,
+            suit_stage_scope,
+            stage_transition_on_index,
+            stage_transition_on_completion
+        `)
+        .in('id', ids);
+
+    if (error) {
+        throw error;
+    }
+
+    return data || [];
+}
+
 async function loadSuitTransactions(
     suitIds
 ) {
@@ -584,6 +670,7 @@ async function loadSuitTransactions(
                                 transaction_date,
                                 created_at,
                                 task_id,
+                                suit_context,
                                 transaction_documents (
                                     id,
                                     document_name,
@@ -795,6 +882,12 @@ function ensureStyles() {
             background: #fff7ed;
         }
 
+        .litigation-event-chip.decision {
+            color: #7e22ce;
+            border-color: #d8b4fe;
+            background: #faf5ff;
+        }
+
         .litigation-event-actions {
             flex: 0 0 auto;
             display: flex;
@@ -866,6 +959,74 @@ function buildDocumentLinks(
             `
         )
         .join('');
+}
+
+function litigationContextMeta(tx) {
+    const ctx =
+        tx?.suit_context &&
+        typeof tx.suit_context === 'object'
+            ? tx.suit_context
+            : {};
+
+    const parts = [];
+
+    const decisionResultLabels = {
+        accept: 'Kabul',
+        partial_accept: 'Kısmen Kabul',
+        reject: 'Ret'
+    };
+
+    const outcomeLabels = {
+        favorable: 'Lehe',
+        partially_favorable:
+            'Kısmen Lehe / Kısmen Aleyhe',
+        unfavorable: 'Aleyhe'
+    };
+
+    if (ctx.decision_result) {
+        parts.push(
+            `Karar: ${
+                decisionResultLabels[
+                    ctx.decision_result
+                ] ||
+                ctx.decision_result
+            }`
+        );
+    }
+
+    if (ctx.client_outcome) {
+        parts.push(
+            `Müvekkil açısından: ${
+                outcomeLabels[
+                    ctx.client_outcome
+                ] ||
+                ctx.client_outcome
+            }`
+        );
+    }
+
+    return parts.join(' · ');
+}
+
+function stageInitiatorLabel(tx) {
+    const initiator =
+        tx?.suit_context
+            ?.stage_initiator ||
+        null;
+
+    if (initiator === 'client') {
+        return 'Müvekkil';
+    }
+
+    if (initiator === 'opponent') {
+        return 'Karşı Taraf';
+    }
+
+    if (initiator === 'both') {
+        return 'Her İki Taraf';
+    }
+
+    return null;
 }
 
 function createStageRow(
@@ -946,6 +1107,13 @@ function createStageRow(
                     <div class="litigation-stage-meta">
                         ${esc(node.typeName)}
                         · ${esc(stageDate)}
+                        ${
+                            stageInitiatorLabel(
+                                node.transaction
+                            )
+                                ? ` · Başlatan: ${esc(stageInitiatorLabel(node.transaction))}`
+                                : ''
+                        }
                     </div>
                 </div>
             </div>
@@ -975,10 +1143,11 @@ function createEventRow(
         parentNodeId;
 
     const category =
-        tx._eventCategory ||
-        eventCategory(
-            tx.transaction_type_id
-        );
+        tx._eventCategory || {
+            key: 'transaction',
+            label: 'İŞLEM',
+            icon: 'fa-stream'
+        };
 
     const date =
         formatDateSafe(
@@ -1037,6 +1206,11 @@ function createEventRow(
                                 ? ` · ${esc(tx.description)}`
                                 : ''
                         }
+                        ${
+                            litigationContextMeta(tx)
+                                ? ` · ${esc(litigationContextMeta(tx))}`
+                                : ''
+                        }
                     </div>
                 </div>
 
@@ -1074,18 +1248,18 @@ function appendStageTree(
         stageRow
     );
 
-    // Kullanıcının istediği görsel mantık:
-    // aktif aşama parent, önceki derece onun child'ı.
-    if (node.previous) {
-        appendStageTree(
-            fragment,
-            node.previous,
-            node.nodeId,
-            depth + 1,
-            false
-        );
-    }
-
+    // AŞAMA 8C-2 HOTFIX:
+    // Her yargılama aşamasının kendi event/child işlemleri
+    // doğrudan o stage başlığının hemen altında gösterilir.
+    //
+    // Örnek:
+    // İSTİNAF
+    //   ├─ İstinaf Başvurusu
+    //   ├─ Duruşma Zaptı
+    //   └─ İLK DERECE
+    //
+    // Böylece İstinaf/Yargıtay child'ları görsel olarak
+    // bir alt dereceye aitmiş gibi algılanmaz.
     for (
         const tx of
         (node.events || [])
@@ -1096,6 +1270,18 @@ function appendStageTree(
                 node.nodeId,
                 depth + 1
             )
+        );
+    }
+
+    // Önceki yargılama derecesi, mevcut stage'in event'lerinden sonra
+    // ayrı bir nested stage node olarak gösterilir.
+    if (node.previous) {
+        appendStageTree(
+            fragment,
+            node.previous,
+            node.nodeId,
+            depth + 1,
+            false
         );
     }
 }
@@ -1415,6 +1601,41 @@ if (
                     await loadSuitTransactions(
                         suitIds
                     );
+
+                // transactionTypeService geriye dönük map'inde 8C-1 metadata
+                // alanlarını expose etmiyor. Dava accordion'u için metadata'yı
+                // doğrudan DB'den okuyup mevcut map'e merge ediyoruz.
+                const litigationTypeMetadata =
+                    await loadLitigationTypeMetadata(
+                        transactions.map(
+                            (tx) =>
+                                tx.transaction_type_id
+                        )
+                    );
+
+                for (
+                    const meta of
+                    litigationTypeMetadata
+                ) {
+                    const key = String(meta.id);
+                    const existing =
+                        this.transactionTypesMap
+                            ?.get(key) ||
+                        {};
+
+                    this.transactionTypesMap
+                        ?.set(
+                            key,
+                            {
+                                ...existing,
+                                ...meta,
+                                id: key,
+                                ipType:
+                                    meta.ip_type ||
+                                    existing.ipType
+                            }
+                        );
+                }
 
                 const bySuit =
                     new Map();

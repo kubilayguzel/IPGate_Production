@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3"
+import { handleLitigationIndexed } from "./litigation-handler.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,7 +30,7 @@ serve(async (req: Request) => {
   try {
     const payload = await req.json();
     const { record } = payload;
-    
+
     console.log(`[HANDLE_INDEXED] 🚀 Tetiklendi! Evrak Durumu: ${record?.status}, Kaynak: ${record?.document_source}`);
 
     // 🔥 KESİN ÇÖZÜM: Manuel işlem sekmesinden girilen işlemler için mail oluşturmayı tamamen iptal et!
@@ -38,11 +39,28 @@ serve(async (req: Request) => {
         return new Response("Manuel işlem, mail bildirimi atlandı.", { status: 200 });
     }
 
+    // 🏛️ DAVA BRANCH — mevcut marka/patent/design indexed akışından tamamen izole.
+    // AŞAMA 6B: litigation_indexed artık yalnız task/status otomasyonu için ara statüdür.
+    // Mail SADECE frontend otomasyonu tamamlayıp litigation_mail_ready yazdıktan sonra oluşur.
+    if (record?.status === 'litigation_mail_ready') {
+        console.log(`[HANDLE_INDEXED_LITIGATION] 🏛️ Dava mail-ready branch'ine yönlendirildi.`);
+        const litigationAdmin = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+
+        return await handleLitigationIndexed(
+            record,
+            litigationAdmin,
+            corsHeaders
+        );
+    }
+
     if (record?.status !== 'indexed') {
         console.log(`[HANDLE_INDEXED] ⏭️ İPTAL EDİLDİ: Evrak henüz indekslenmemiş.`);
         return new Response("İşlem atlandı.", { status: 200 });
     }
-    
+
     console.log(`[HANDLE_INDEXED] ✅ Evrak indekslenmiş, işlem başlıyor...`);
 
     const supabaseAdmin = createClient(
@@ -60,14 +78,14 @@ serve(async (req: Request) => {
 
     let transactionData = null;
     let taskId = null;
-    
+
     // --- SOYAĞACI (LINEAGE) ALGORİTMASI ---
     let oppositionOwner = "Belirtilmemiş";
     const lineageTxIds: string[] = []; 
 
     if (transactionId) {
         let currentTxId = transactionId;
-        
+
         const { data: firstTx } = await supabaseAdmin.from('transactions').select('*').eq('id', transactionId).single();
         if (firstTx) {
             transactionData = firstTx;
@@ -78,9 +96,9 @@ serve(async (req: Request) => {
         while (currentTxId) {
             lineageTxIds.push(currentTxId);
             const { data: txData } = await supabaseAdmin.from('transactions').select('opposition_owner, parent_id, task_id').eq('id', currentTxId).single();
-            
+
             if (!txData) break;
-            
+
             if (!taskId && txData.task_id) taskId = txData.task_id;
 
             if (oppositionOwner === "Belirtilmemiş" && txData.opposition_owner && txData.opposition_owner.trim() !== '') {
@@ -150,7 +168,7 @@ serve(async (req: Request) => {
                     }
                 }
             }
-            
+
             if (to.length === 0 && cc.length > 0) {
                 to.push(cc[0]);
             }
@@ -289,7 +307,7 @@ serve(async (req: Request) => {
             console.log(`[HANDLE_INDEXED] 📅 Tarih GÖREVDEN (Task) alındı: ${genelSonTarih}`);
         }
     } 
-    
+
     // 🔥 YENİ EKLENEN KISIM: İşlem Türü Adını (Alias/Name) Veritabanından Çekiyoruz
     let txTypeName = record.description || txTypeId;
     let duePeriodMonths = 2; 
@@ -302,7 +320,7 @@ serve(async (req: Request) => {
             if (ttData.due_period !== null) duePeriodMonths = Number(ttData.due_period);
         }
     }
-    
+
     // 2. 🔥 KULLANICI TALEBİ: Eğer bu bir alt işlemse (parent'ı varsa), mailde Parent'ın (Ana İşlemin) alias değerini gösterelim!
     if (transactionData && transactionData.parent_id) {
         const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id').eq('id', transactionData.parent_id).maybeSingle();
@@ -313,7 +331,7 @@ serve(async (req: Request) => {
             }
         }
     }
-    
+
     if (genelSonTarih === "-") {
         let calculatedGenelDate = new Date(tebligDate);
         calculatedGenelDate.setMonth(calculatedGenelDate.getMonth() + duePeriodMonths);
@@ -342,7 +360,7 @@ serve(async (req: Request) => {
                 console.log(`[HANDLE_INDEXED] 🎯 Arayüzden Seçilen Orijinal Parent Tipi Notlardan Okundu: ${parentTaskTypeId}`);
             }
         } 
-        
+
         // Eğer notta yoksa (eski veya farklı tipteki işlemler vs.), DB'deki fiziksel ebeveynine bak (Fallback)
         if (!parentTaskTypeId && transactionData.parent_id) {
             const { data: pTx } = await supabaseAdmin.from('transactions').select('transaction_type_id, type').eq('id', transactionData.parent_id).maybeSingle();
@@ -364,7 +382,7 @@ serve(async (req: Request) => {
     if (rule && rule.template_id) {
         templateId = rule.template_id;
         const { data: template } = await supabaseAdmin.from('mail_templates').select('subject, mail_subject, body').eq('id', templateId).maybeSingle();
-        
+
         if (template) {
             finalSubject = template.mail_subject || template.subject || finalSubject;
             let rawBody = template.body || finalBody;
@@ -372,7 +390,7 @@ serve(async (req: Request) => {
             // 🔥 3. AKTİF ŞARTLARI BELİRLE (Varyantlar için)
             const recordOwnerType = isPortfolio ? 'self' : 'third_party';
             const activeConditions = [`owner_${recordOwnerType}`];
-            
+
             if (parentTaskTypeId) {
                 // Seçilen Parent neyse doğrudan onun varyantlarını dinamik olarak havuza ekle
                 // Örn 2 seçildiyse: parent_2 ve parent_2_self
@@ -466,7 +484,7 @@ serve(async (req: Request) => {
             }
         } catch (e) {}
     }
-    
+
     const mailPayload = {
         id: mailId, 
         related_ip_record_id: ipRecordId, 

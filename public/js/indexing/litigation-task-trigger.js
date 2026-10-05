@@ -13,7 +13,7 @@
 // 6) 76 Karar / 78 Kesinleşme Şerhi için deterministic suit.status güncellemek.
 //
 // Mail hala kapalıdır:
-// incoming_documents.status = litigation_indexed olarak kalır.
+// incoming_documents.status: litigation_indexed -> task/status automation -> litigation_mail_ready.
 
 import './litigation-indexing-write.js';
 
@@ -1115,13 +1115,86 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
             };
         };
 
+    proto._markLitigationMailReady =
+        async function() {
+            if (!this.pdfId) {
+                throw new Error(
+                    'Mail-ready için incoming document id bulunamadı.'
+                );
+            }
+
+            const {
+                data,
+                error
+            } = await supabase
+                .from('incoming_documents')
+                .update({
+                    status:
+                        'litigation_mail_ready'
+                })
+                .eq(
+                    'id',
+                    String(this.pdfId)
+                )
+                .eq(
+                    'status',
+                    'litigation_indexed'
+                )
+                .select('id, status')
+                .maybeSingle();
+
+            if (error) {
+                throw error;
+            }
+
+            if (data?.status === 'litigation_mail_ready') {
+                console.log(
+                    '[LITIGATION AŞAMA 6B] Mail-ready statüsü yazıldı:',
+                    data.id
+                );
+
+                return true;
+            }
+
+            // Idempotent retry: zaten mail-ready ise başarılı kabul et.
+            const {
+                data: current,
+                error: currentError
+            } = await supabase
+                .from('incoming_documents')
+                .select('id, status')
+                .eq(
+                    'id',
+                    String(this.pdfId)
+                )
+                .maybeSingle();
+
+            if (currentError) {
+                throw currentError;
+            }
+
+            if (
+                current?.status ===
+                    'litigation_mail_ready'
+            ) {
+                return true;
+            }
+
+            throw new Error(
+                `Dava evrakı mail-ready durumuna alınamadı. Mevcut status: ${current?.status || 'bulunamadı'}`
+            );
+        };
+
     proto._runLitigationPostIndexAutomation =
         async function() {
             if (
                 this.matchedEntityType !==
                 'suit'
             ) {
-                return;
+                return {
+                    readyForMail: false,
+                    reason: 'not_suit'
+                };
             }
 
             const suitId =
@@ -1132,7 +1205,10 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 !suitId ||
                 !this.pdfId
             ) {
-                return;
+                return {
+                    readyForMail: false,
+                    reason: 'missing_suit_or_pdf'
+                };
             }
 
             const {
@@ -1158,12 +1234,17 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 incomingError ||
                 !incomingDocument
             ) {
-                console.warn(
-                    '[LITIGATION AŞAMA 5] incoming_document okunamadı:',
+                console.error(
+                    '[LITIGATION AŞAMA 6B] incoming_document okunamadı:',
                     incomingError
                 );
 
-                return;
+                throw (
+                    incomingError ||
+                    new Error(
+                        'incoming_document bulunamadı.'
+                    )
+                );
             }
 
             // AŞAMA 4 başarılı olmadan hiçbir otomasyon çalışmasın.
@@ -1177,7 +1258,11 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                         .ip_record_id
                 ) !== String(suitId)
             ) {
-                return;
+                return {
+                    readyForMail: false,
+                    reason:
+                        'incoming_not_ready_for_post_index'
+                };
             }
 
             const context =
@@ -1229,7 +1314,13 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
 
             if (!rule) {
                 // Bilerek otomatik task üretmeyen evrak.
-                return;
+                // 70+davacı veya 73-78 gibi senaryolarda mail yine hazırlanabilir.
+                return {
+                    readyForMail: true,
+                    taskCreated: false,
+                    taskId: null,
+                    reason: 'no_task_rule'
+                };
             }
 
             const result =
@@ -1269,7 +1360,12 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                     5000
                 );
 
-                return;
+                return {
+                    readyForMail: true,
+                    taskCreated: false,
+                    taskId: result.taskId,
+                    duplicatePrevented: true
+                };
             }
 
             if (result.ownerMissing) {
@@ -1279,7 +1375,12 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                     9000
                 );
 
-                return;
+                return {
+                    readyForMail: true,
+                    taskCreated: true,
+                    taskId: result.taskId,
+                    ownerMissing: true
+                };
             }
 
             showNotification(
@@ -1287,9 +1388,17 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 'success',
                 7000
             );
+
+            return {
+                readyForMail: true,
+                taskCreated: true,
+                taskId: result.taskId,
+                duplicatePrevented: false
+            };
         };
 
     // AŞAMA 4 write başarıyla tamamlandıktan sonra task/status otomasyonu.
+    // Otomasyon tamamen bittikten sonra mail-ready statüsüne geçilir.
     proto._handleLitigationIndexingSave =
         async function(...args) {
             await previousLitigationSave.apply(
@@ -1298,18 +1407,34 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
             );
 
             try {
-                await this
-                    ._runLitigationPostIndexAutomation();
+                const automationResult =
+                    await this
+                        ._runLitigationPostIndexAutomation();
+
+                if (
+                    automationResult
+                        ?.readyForMail
+                ) {
+                    await this
+                        ._markLitigationMailReady();
+
+                    console.log(
+                        '[LITIGATION AŞAMA 6B] Task/status otomasyonu tamamlandı; mail-ready tetiklendi.',
+                        automationResult
+                    );
+                }
+
             } catch (error) {
                 // Transaction ve incoming_document AŞAMA 4'te başarıyla
-                // kaydedilmiş olabilir; task hatası nedeniyle onları rollback etmiyoruz.
+                // kaydedilmiş olabilir; task/mail-ready hatası nedeniyle onları rollback etmiyoruz.
+                // Kritik güvenlik: hata halinde status litigation_indexed kalır ve eksik mail üretilmez.
                 console.error(
-                    '[LITIGATION AŞAMA 5] Post-index otomasyon hatası:',
+                    '[LITIGATION AŞAMA 6B] Post-index / mail-ready otomasyon hatası:',
                     error
                 );
 
                 showNotification(
-                    `Dava evrakı indekslendi ancak otomatik görev oluşturulamadı: ${error.message || error}`,
+                    `Dava evrakı indekslendi ancak otomatik görev/mail bildirimi tamamlanamadı: ${error.message || error}`,
                     'warning',
                     10000
                 );

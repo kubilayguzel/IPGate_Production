@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>İş Detayı ve Düzenleme - Hukuk Bürosu Yönetim Paneli</title>
-    
+
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    
+
     <link rel="stylesheet" href="css/shared-styles.css">
     <link rel="stylesheet" href="css/task-update.css"> 
 </head>
@@ -20,7 +20,7 @@
         <div id="top-bar-container"></div>
 
         <div class="main-container container">
-            
+
             <div class="page-header mb-4">
                 <div>
                     <h1 class="page-title">İş Detayı ve Düzenleme</h1>
@@ -31,7 +31,7 @@
             <form id="taskDetailForm">
                 <div class="row">
                     <div class="col-12">
-                        
+
                         <div class="premium-card section-card">
                             <div class="card-header-custom section-title">
                                 <span><i class="fas fa-info-circle mr-2 text-primary"></i> Genel Bilgiler</span>
@@ -70,7 +70,7 @@
                                         <select id="taskStatus" class="form-select"></select>
                                     </div>
                                 </div>
-                                
+
                                 <div class="form-grid mt-3">
                                     <div class="form-group">
                                         <label class="form-label">Resmi Son Tarih (Due Date)</label>
@@ -192,7 +192,7 @@
                             </div>
                             <div class="card-body-custom">
                                 <p class="text-muted small mb-4">Bu alan sadece resmi kurumdan gelen veya kuruma sunulan nihai evraklar içindir.</p>
-                                
+
                                 <div id="updatedApplicationInfoArea" class="p-3 mb-4 bg-light rounded border" style="display: none;">
                                     <h6 class="text-dark font-weight-bold mb-3" style="font-size: 0.95em;">
                                         <i class="fas fa-check-circle text-success mr-1"></i>
@@ -244,7 +244,7 @@
 
                     </div>
                 </div> 
-                
+
                 <div class="premium-footer-actions">
                     <button type="button" class="btn btn-secondary btn-lg rounded-pill px-4" id="cancelEditBtn">
                         <i class="fas fa-times mr-2"></i>İptal
@@ -274,8 +274,7 @@
                 <div class="modal-footer bg-light" style="border-radius: 0 0 16px 16px;">
                     <button type="button" class="btn btn-secondary rounded-pill px-4" data-dismiss="modal" onclick="$('#accrualModal').modal('hide')">İptal</button>
                     <button type="button" class="btn btn-primary rounded-pill px-4" id="saveAccrualBtn">
-                        <i class="fas fa-check mr-2"></i>Kaydet
-                    </button>
+                        <i class="fas fa-check mr-2"></i>Kaydet</button>
                 </div>
             </div>
         </div>
@@ -291,7 +290,8 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc =
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
-    
+
     <script type="module" src="js/task-update/main.js"></script>
+    <script type="module" src="js/task-update/litigation-task-update.js"></script>
 </body>
 </html>

@@ -1,7 +1,11 @@
 // public/js/indexing/litigation-indexing-write.js
-// IPGate Dava Yönetimi - AŞAMA 7
-// Baz: AŞAMA 4 güvenli dava write branch.
-// Ek: indeksleme sırasında kullanıcı kontrollü dava statüsü seçimi.
+// IPGate Dava Yönetimi - AŞAMA 8A
+// Baz: AŞAMA 7 güvenli dava write branch.
+// Ek:
+// - Kullanıcı kontrollü İlk Derece -> İstinaf -> Yargıtay stage zinciri.
+// - 59/60 parent transaction'ları aynı suits.id altında parent_id ile bağlanır.
+// - Evraktan otomatik yargılama aşaması tahmini YOK.
+// - AŞAMA 7 manuel suits.status seçimi aynen korunur.
 //
 // Dava kayıtları için AYRI write branch.
 // Mevcut Marka / Patent / Tasarım handleSave() akışı değiştirilmez.
@@ -37,6 +41,26 @@ const proto = DocumentReviewManager.prototype;
 // 61-65 kullanıcı/vekil tarafından hazırlanacak işlerdir; bu dosya indeksleme
 // ekranında özellikle gösterilmez.
 const FIRST_INSTANCE_CHILDREN = ['70', '71', '72', '73', '74', '75', '76', '78'];
+
+const FIRST_INSTANCE_PARENT_TYPES = Object.freeze([
+    '49',
+    '54',
+    '55',
+    '56',
+    '57',
+    '58'
+]);
+
+const JUDICIAL_STAGE_TYPES = Object.freeze({
+    appeal: '59',
+    cassation: '60'
+});
+
+const JUDICIAL_STAGE_LABELS = Object.freeze({
+    first_instance: 'İlk Derece',
+    appeal: 'İstinaf',
+    cassation: 'Yargıtay'
+});
 
 const LITIGATION_PARENT_CHILD_MAP = Object.freeze({
     // İlk derece dava parent'ları
@@ -104,6 +128,132 @@ function isSuitTypeObject(obj) {
 
     // Eski kayıt yapısında ip_type boş gelirse ID whitelist zaten ikinci güvenliktir.
     return !ipType || ipType === 'suit';
+}
+
+function isParentTransaction(tx) {
+    return String(
+        tx?.transaction_hierarchy ||
+        'parent'
+    ).toLowerCase() === 'parent';
+}
+
+function judicialStageKeyFromType(typeId) {
+    const raw = String(typeId || '');
+
+    if (raw === JUDICIAL_STAGE_TYPES.cassation) {
+        return 'cassation';
+    }
+
+    if (raw === JUDICIAL_STAGE_TYPES.appeal) {
+        return 'appeal';
+    }
+
+    if (FIRST_INSTANCE_PARENT_TYPES.includes(raw)) {
+        return 'first_instance';
+    }
+
+    return null;
+}
+
+function judicialStageRank(typeId) {
+    const key = judicialStageKeyFromType(typeId);
+
+    if (key === 'cassation') return 3;
+    if (key === 'appeal') return 2;
+    if (key === 'first_instance') return 1;
+
+    return 0;
+}
+
+function judicialStageLabelFromType(typeId) {
+    const key = judicialStageKeyFromType(typeId);
+
+    return key
+        ? JUDICIAL_STAGE_LABELS[key]
+        : 'Bilinmeyen Aşama';
+}
+
+function supportedStageParents(transactions) {
+    return (transactions || [])
+        .filter(
+            (tx) =>
+                isParentTransaction(tx) &&
+                judicialStageRank(
+                    tx.transaction_type_id
+                ) > 0
+        );
+}
+
+function findHighestJudicialStageParent(transactions) {
+    const parents =
+        supportedStageParents(
+            transactions
+        );
+
+    if (parents.length === 0) {
+        return null;
+    }
+
+    return [...parents]
+        .sort(
+            (a, b) => {
+                const rankDiff =
+                    judicialStageRank(
+                        b.transaction_type_id
+                    ) -
+                    judicialStageRank(
+                        a.transaction_type_id
+                    );
+
+                if (rankDiff !== 0) {
+                    return rankDiff;
+                }
+
+                const da =
+                    new Date(
+                        a.transaction_date ||
+                        a.created_at ||
+                        0
+                    ).getTime();
+
+                const db =
+                    new Date(
+                        b.transaction_date ||
+                        b.created_at ||
+                        0
+                    ).getTime();
+
+                return db - da;
+            }
+        )[0];
+}
+
+function findDirectStageChild(
+    transactions,
+    parentId,
+    stageTypeId
+) {
+    return (transactions || [])
+        .find(
+            (tx) =>
+                isParentTransaction(tx) &&
+                String(tx.parent_id || '') ===
+                    String(parentId || '') &&
+                String(tx.transaction_type_id || '') ===
+                    String(stageTypeId || '')
+        ) || null;
+}
+
+function stageActionTargetType(action) {
+    if (action === 'start_appeal') {
+        return JUDICIAL_STAGE_TYPES.appeal;
+    }
+
+    if (action === 'start_cassation') {
+        return JUDICIAL_STAGE_TYPES.cassation;
+    }
+
+    return null;
 }
 
 function litigationStatusOptions() {
@@ -192,6 +342,29 @@ function ensureWriteStyles() {
             margin-top: 8px;
         }
 
+        #litigationStageControl {
+            border: 1px solid #d8dee9;
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        #litigationStageControl .litigation-stage-current {
+            font-size: .75rem;
+            color: #475467;
+            margin-top: 6px;
+        }
+
+        #litigationStageControl .litigation-stage-warning {
+            font-size: .72rem;
+            color: #7c5d12;
+            background: #fff8e1;
+            border: 1px solid #f2dc8d;
+            border-radius: 7px;
+            padding: 7px 9px;
+            margin-top: 8px;
+        }
+
         #litigationStatusControl {
             border: 1px solid #d8dee9;
             background: #f8fafc;
@@ -232,6 +405,229 @@ if (!proto.__litigationIndexingStage4Patched) {
     const smartHandleSave = proto.handleSave;
     const normalUpdateChildOptions = proto.updateChildTransactionOptions;
     const normalUpdateDeadline = proto.updateCalculatedDeadline;
+
+    proto._refreshLitigationStageControl =
+        function() {
+            const wrapper =
+                document.getElementById(
+                    'litigationStageControl'
+                );
+
+            const parentSelect =
+                document.getElementById(
+                    'parentTransactionSelect'
+                );
+
+            if (
+                !wrapper ||
+                !parentSelect
+            ) {
+                return;
+            }
+
+            const parentTxId =
+                String(
+                    parentSelect.value ||
+                    ''
+                );
+
+            const parentTx =
+                (this.currentTransactions || [])
+                    .find(
+                        (tx) =>
+                            String(tx.id) ===
+                            parentTxId
+                    ) ||
+                null;
+
+            const highest =
+                findHighestJudicialStageParent(
+                    this.currentTransactions
+                );
+
+            const highestLabel =
+                highest
+                    ? judicialStageLabelFromType(
+                        highest.transaction_type_id
+                    )
+                    : 'Belirlenemedi';
+
+            const selectedTypeId =
+                parentTx
+                    ? String(
+                        parentTx.transaction_type_id ||
+                        ''
+                    )
+                    : '';
+
+            const selectedStageLabel =
+                parentTx
+                    ? judicialStageLabelFromType(
+                        selectedTypeId
+                    )
+                    : '-';
+
+            const actions = [
+                {
+                    value: '',
+                    text:
+                        'Mevcut aşamada devam et'
+                }
+            ];
+
+            if (
+                parentTx &&
+                FIRST_INSTANCE_PARENT_TYPES
+                    .includes(
+                        selectedTypeId
+                    ) &&
+                !findDirectStageChild(
+                    this.currentTransactions,
+                    parentTx.id,
+                    JUDICIAL_STAGE_TYPES.appeal
+                )
+            ) {
+                actions.push({
+                    value:
+                        'start_appeal',
+
+                    text:
+                        'Yeni İstinaf aşaması başlat'
+                });
+            }
+
+            if (
+                parentTx &&
+                selectedTypeId ===
+                    JUDICIAL_STAGE_TYPES.appeal &&
+                !findDirectStageChild(
+                    this.currentTransactions,
+                    parentTx.id,
+                    JUDICIAL_STAGE_TYPES.cassation
+                )
+            ) {
+                actions.push({
+                    value:
+                        'start_cassation',
+
+                    text:
+                        'Yeni Yargıtay aşaması başlat'
+                });
+            }
+
+            const previousValue =
+                document.getElementById(
+                    'litigationStageActionSelect'
+                )?.value ||
+                '';
+
+            wrapper.innerHTML = `
+                <label class="custom-label">
+                    <i class="fas fa-sitemap mr-1"></i>
+                    Yargılama Aşaması
+                </label>
+
+                <select
+                    id="litigationStageActionSelect"
+                    class="form-control shadow-sm"
+                    ${parentTx ? '' : 'disabled'}
+                >
+                    ${actions.map(
+                        (item) => `
+                            <option value="${esc(item.value)}">
+                                ${esc(item.text)}
+                            </option>
+                        `
+                    ).join('')}
+                </select>
+
+                <div class="litigation-stage-current">
+                    <strong>Dosyanın en üst aşaması:</strong>
+                    ${esc(highestLabel)}
+                    ${
+                        parentTx
+                            ? ` · <strong>Seçili parent:</strong> ${esc(selectedStageLabel)}`
+                            : ''
+                    }
+                </div>
+
+                <div class="litigation-stage-warning">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Sistem evrak içeriğinden aşama tahmini yapmaz.
+                    Yeni İstinaf/Yargıtay parent'ı yalnız açık seçiminizle oluşturulur.
+                </div>
+            `;
+
+            const select =
+                document.getElementById(
+                    'litigationStageActionSelect'
+                );
+
+            if (select) {
+                const stillValid =
+                    actions.some(
+                        (item) =>
+                            item.value ===
+                            previousValue
+                    );
+
+                select.value =
+                    stillValid
+                        ? previousValue
+                        : '';
+
+                select.onchange =
+                    () => {
+                        this
+                            .updateChildTransactionOptions();
+                    };
+            }
+        };
+
+    proto._ensureLitigationStageControl =
+        function() {
+            const parentSelect =
+                document.getElementById(
+                    'parentTransactionSelect'
+                );
+
+            if (!parentSelect) {
+                return;
+            }
+
+            let wrapper =
+                document.getElementById(
+                    'litigationStageControl'
+                );
+
+            if (!wrapper) {
+                wrapper =
+                    document.createElement(
+                        'div'
+                    );
+
+                wrapper.id =
+                    'litigationStageControl';
+
+                wrapper.className =
+                    'form-group mb-4';
+
+                const anchor =
+                    parentSelect.closest(
+                        '.form-group'
+                    );
+
+                if (anchor) {
+                    anchor.insertAdjacentElement(
+                        'afterend',
+                        wrapper
+                    );
+                }
+            }
+
+            this
+                ._refreshLitigationStageControl();
+        };
 
     proto._ensureLitigationStatusControl =
         function() {
@@ -382,6 +778,7 @@ if (!proto.__litigationIndexingStage4Patched) {
             deadline.value = 'Görev / son tarih aşaması henüz kapalı';
         }
 
+        this._ensureLitigationStageControl();
         this._ensureLitigationStatusControl();
 
         const registry = document.getElementById('registry-editor-section');
@@ -446,27 +843,44 @@ if (!proto.__litigationIndexingStage4Patched) {
 
             this.currentTransactions = data || [];
 
-            const parents = this.currentTransactions
-                .filter((tx) => {
-                    const hierarchy = String(
-                        tx.transaction_hierarchy || 'parent'
-                    ).toLowerCase();
+            const parents =
+                supportedStageParents(
+                    this.currentTransactions
+                )
+                    .sort(
+                        (a, b) => {
+                            const rankDiff =
+                                judicialStageRank(
+                                    b.transaction_type_id
+                                ) -
+                                judicialStageRank(
+                                    a.transaction_type_id
+                                );
 
-                    const typeId = String(tx.transaction_type_id || '');
+                            if (rankDiff !== 0) {
+                                return rankDiff;
+                            }
 
-                    return (
-                        hierarchy === 'parent' &&
-                        Object.prototype.hasOwnProperty.call(
-                            LITIGATION_PARENT_CHILD_MAP,
-                            typeId
-                        )
+                            const da =
+                                new Date(
+                                    a.transaction_date ||
+                                    a.created_at ||
+                                    0
+                                );
+
+                            const db =
+                                new Date(
+                                    b.transaction_date ||
+                                    b.created_at ||
+                                    0
+                                );
+
+                            return (
+                                db.getTime() -
+                                da.getTime()
+                            );
+                        }
                     );
-                })
-                .sort((a, b) => {
-                    const da = new Date(a.transaction_date || a.created_at || 0);
-                    const db = new Date(b.transaction_date || b.created_at || 0);
-                    return db.getTime() - da.getTime();
-                });
 
             parentSelect.innerHTML =
                 '<option value="">-- Dava Ana İşlemini Seçiniz --</option>';
@@ -480,7 +894,7 @@ if (!proto.__litigationIndexingStage4Patched) {
                 const option = document.createElement('option');
                 option.value = String(tx.id);
                 option.textContent =
-                    `${typeName(this, typeId)}${dateText ? ` (${dateText})` : ''}`;
+                    `${judicialStageLabelFromType(typeId).toUpperCase()} · ${typeName(this, typeId)}${dateText ? ` (${dateText})` : ''}`;
 
                 parentSelect.appendChild(option);
             }
@@ -520,10 +934,25 @@ if (!proto.__litigationIndexingStage4Patched) {
 
             parentSelect.insertAdjacentElement('afterend', help);
 
-            // Tek parent varsa kullanıcı deneyimi için otomatik seç.
-            if (parents.length === 1) {
-                parentSelect.value = String(parents[0].id);
-                this.updateChildTransactionOptions();
+            // Dosyanın en üst yargılama aşamasını aktif parent olarak seç.
+            // 60 > 59 > ilk derece. Böylece kullanıcı mevcut aşamayı doğrudan görür.
+            const activeParent =
+                findHighestJudicialStageParent(
+                    this.currentTransactions
+                );
+
+            if (activeParent) {
+                parentSelect.value =
+                    String(activeParent.id);
+
+                this
+                    ._ensureLitigationStageControl();
+
+                this
+                    .updateChildTransactionOptions();
+            } else {
+                this
+                    ._ensureLitigationStageControl();
             }
 
         } catch (error) {
@@ -559,8 +988,34 @@ if (!proto.__litigationIndexingStage4Patched) {
 
         if (!parentTx) return;
 
-        const parentTypeId = String(parentTx.transaction_type_id || '');
-        const allowedIds = LITIGATION_PARENT_CHILD_MAP[parentTypeId] || [];
+        const parentTypeId =
+            String(
+                parentTx.transaction_type_id ||
+                ''
+            );
+
+        this
+            ._ensureLitigationStageControl();
+
+        const stageAction =
+            document.getElementById(
+                'litigationStageActionSelect'
+            )?.value ||
+            '';
+
+        const stageTargetType =
+            stageActionTargetType(
+                stageAction
+            );
+
+        const effectiveParentTypeId =
+            stageTargetType ||
+            parentTypeId;
+
+        const allowedIds =
+            LITIGATION_PARENT_CHILD_MAP[
+                effectiveParentTypeId
+            ] || [];
 
         const allowedTypes = allowedIds
             .map((id) => typeObject(this, id))
@@ -580,7 +1035,13 @@ if (!proto.__litigationIndexingStage4Patched) {
 
         const deadline = document.getElementById('calculatedDeadlineDisplay');
         if (deadline) {
-            deadline.value = 'Görev / son tarih aşaması henüz kapalı';
+            const stageLabel =
+                judicialStageLabelFromType(
+                    effectiveParentTypeId
+                );
+
+            deadline.value =
+                `Yargılama aşaması: ${stageLabel}`;
         }
     };
 
@@ -600,6 +1061,10 @@ if (!proto.__litigationIndexingStage4Patched) {
         const result = smartRenderHeader.call(this);
 
         if (this.matchedEntityType !== 'suit') {
+            removeElement(
+                'litigationStageControl'
+            );
+
             removeElement(
                 'litigationStatusControl'
             );
@@ -679,6 +1144,11 @@ if (!proto.__litigationIndexingStage4Patched) {
                 'litigationStatusSelect'
             )?.value || '';
 
+        const stageAction =
+            document.getElementById(
+                'litigationStageActionSelect'
+            )?.value || '';
+
         const previousSuitStatus =
             suit?.status || null;
 
@@ -737,9 +1207,87 @@ if (!proto.__litigationIndexingStage4Patched) {
             return;
         }
 
-        const parentTypeId = String(parentTx.transaction_type_id || '');
+        const parentTypeId =
+            String(
+                parentTx.transaction_type_id ||
+                ''
+            );
+
+        let newStageTypeId =
+            null;
+
+        if (stageAction === 'start_appeal') {
+            if (
+                !FIRST_INSTANCE_PARENT_TYPES
+                    .includes(
+                        parentTypeId
+                    )
+            ) {
+                showNotification(
+                    'Yeni İstinaf aşaması yalnız bir İlk Derece parent üzerinden başlatılabilir.',
+                    'error'
+                );
+                return;
+            }
+
+            if (
+                findDirectStageChild(
+                    this.currentTransactions,
+                    parentTx.id,
+                    JUDICIAL_STAGE_TYPES.appeal
+                )
+            ) {
+                showNotification(
+                    'Bu İlk Derece aşaması altında zaten bir İstinaf parent kaydı mevcut.',
+                    'warning'
+                );
+                return;
+            }
+
+            newStageTypeId =
+                JUDICIAL_STAGE_TYPES.appeal;
+
+        } else if (
+            stageAction ===
+            'start_cassation'
+        ) {
+            if (
+                parentTypeId !==
+                JUDICIAL_STAGE_TYPES.appeal
+            ) {
+                showNotification(
+                    'Yeni Yargıtay aşaması yalnız bir İstinaf parent üzerinden başlatılabilir.',
+                    'error'
+                );
+                return;
+            }
+
+            if (
+                findDirectStageChild(
+                    this.currentTransactions,
+                    parentTx.id,
+                    JUDICIAL_STAGE_TYPES.cassation
+                )
+            ) {
+                showNotification(
+                    'Bu İstinaf aşaması altında zaten bir Yargıtay parent kaydı mevcut.',
+                    'warning'
+                );
+                return;
+            }
+
+            newStageTypeId =
+                JUDICIAL_STAGE_TYPES.cassation;
+        }
+
+        const effectiveParentTypeId =
+            newStageTypeId ||
+            parentTypeId;
+
         const allowedChildIds =
-            LITIGATION_PARENT_CHILD_MAP[parentTypeId] || [];
+            LITIGATION_PARENT_CHILD_MAP[
+                effectiveParentTypeId
+            ] || [];
 
         if (!allowedChildIds.includes(String(childTypeId))) {
             showNotification(
@@ -782,7 +1330,11 @@ if (!proto.__litigationIndexingStage4Patched) {
                 '<i class="fas fa-spinner fa-spin mr-2"></i>Dava Evrakı Kaydediliyor...';
         }
 
-        let createdTransactionId = null;
+        let createdTransactionId =
+            null;
+
+        let createdStageParentId =
+            null;
 
         try {
             const childName =
@@ -792,8 +1344,14 @@ if (!proto.__litigationIndexingStage4Patched) {
 
             let systemNote = notes;
 
+            const effectiveStageLabel =
+                judicialStageLabelFromType(
+                    effectiveParentTypeId
+                );
+
             const systemTags = [
-                `[Kaynak İşlem: ${parentTypeId}]`,
+                `[Kaynak İşlem: ${effectiveParentTypeId}]`,
+                `[Yargılama Aşaması: ${effectiveStageLabel}]`,
                 '[Varlık Türü: suit]'
             ];
 
@@ -811,12 +1369,107 @@ if (!proto.__litigationIndexingStage4Patched) {
                 .filter(Boolean)
                 .join('\n');
 
+            let effectiveParentTxId =
+                String(parentTxId);
+
+            if (newStageTypeId) {
+                const stageTypeObj =
+                    typeObject(
+                        this,
+                        newStageTypeId
+                    );
+
+                if (
+                    !stageTypeObj ||
+                    !isSuitTypeObject(
+                        stageTypeObj
+                    )
+                ) {
+                    throw new Error(
+                        `Yeni yargılama aşaması işlem tipi bulunamadı: ${newStageTypeId}`
+                    );
+                }
+
+                const stageLabel =
+                    judicialStageLabelFromType(
+                        newStageTypeId
+                    );
+
+                const stageDescription =
+                    stageTypeObj.alias ||
+                    stageTypeObj.name ||
+                    stageLabel;
+
+                const stageNote = [
+                    `[Yargılama Aşaması Başlatıldı: ${stageLabel}]`,
+                    `[Önceki Aşama: ${judicialStageLabelFromType(parentTypeId)}]`,
+                    `[Önceki Parent: ${parentTxId}]`,
+                    '[Varlık Türü: suit]'
+                ].join('\n');
+
+                const stageResult =
+                    await this
+                        ._addTransaction(
+                            suitId,
+                            {
+                                type:
+                                    String(
+                                        newStageTypeId
+                                    ),
+
+                                transactionHierarchy:
+                                    'parent',
+
+                                // Kritik hiyerarşi:
+                                // İstinaf -> İlk Derece
+                                // Yargıtay -> İstinaf
+                                parentId:
+                                    String(
+                                        parentTxId
+                                    ),
+
+                                description:
+                                    stageDescription,
+
+                                date:
+                                    deliveryIso,
+
+                                taskId:
+                                    null,
+
+                                notes:
+                                    stageNote,
+
+                                documents:
+                                    []
+                            }
+                        );
+
+                if (
+                    !stageResult?.success ||
+                    !stageResult?.id
+                ) {
+                    throw new Error(
+                        stageResult?.error ||
+                        `${stageLabel} parent transaction oluşturulamadı.`
+                    );
+                }
+
+                createdStageParentId =
+                    String(
+                        stageResult.id
+                    );
+
+                effectiveParentTxId =
+                    createdStageParentId;
+            }
+
             // Storage taşıma bu aşamada özellikle yapılmıyor.
             // Böylece incoming_documents update başarısız olursa dosya yolu bozulmuyor.
             const txResult = await this._addTransaction(suitId, {
                 type: String(childTypeId),
                 transactionHierarchy: 'child',
-                parentId: String(parentTxId),
+                parentId: String(effectiveParentTxId),
                 description: childName,
                 date: deliveryIso,
                 taskId: null,
@@ -832,6 +1485,16 @@ if (!proto.__litigationIndexingStage4Patched) {
             });
 
             if (!txResult?.success || !txResult?.id) {
+                if (createdStageParentId) {
+                    await this
+                        ._rollbackLitigationTransaction(
+                            createdStageParentId
+                        );
+
+                    createdStageParentId =
+                        null;
+                }
+
                 throw new Error(
                     txResult?.error ||
                     'Dava child transaction kaydı oluşturulamadı.'
@@ -932,6 +1595,16 @@ if (!proto.__litigationIndexingStage4Patched) {
                 );
                 createdTransactionId = null;
 
+                if (createdStageParentId) {
+                    await this
+                        ._rollbackLitigationTransaction(
+                            createdStageParentId
+                        );
+
+                    createdStageParentId =
+                        null;
+                }
+
                 throw new Error(
                     `Gelen evrak kaydı güncellenemedi: ${incomingError.message}`
                 );
@@ -973,8 +1646,13 @@ if (!proto.__litigationIndexingStage4Patched) {
                     ? ` Dava durumu "${litigationStatusLabel(selectedSuitStatus)}" olarak güncellendi.`
                     : '';
 
+            const stageMessage =
+                createdStageParentId
+                    ? ` Yeni ${judicialStageLabelFromType(newStageTypeId)} aşaması oluşturuldu.`
+                    : '';
+
             showNotification(
-                `${childName} dava dosyasına başarıyla bağlandı.${statusMessage}`,
+                `${childName} dava dosyasına başarıyla bağlandı.${stageMessage}${statusMessage}`,
                 'success'
             );
 
@@ -1004,21 +1682,98 @@ if (!proto.__litigationIndexingStage4Patched) {
                 statusSelect.value = '';
             }
 
+            const newTransactions =
+                [];
+
+            if (
+                createdStageParentId &&
+                newStageTypeId
+            ) {
+                newTransactions.push({
+                    id:
+                        createdStageParentId,
+
+                    ip_record_id:
+                        suitId,
+
+                    transaction_type_id:
+                        String(
+                            newStageTypeId
+                        ),
+
+                    transaction_hierarchy:
+                        'parent',
+
+                    parent_id:
+                        String(
+                            parentTxId
+                        ),
+
+                    description:
+                        typeName(
+                            this,
+                            newStageTypeId
+                        ),
+
+                    note:
+                        `[Yargılama Aşaması Başlatıldı: ${judicialStageLabelFromType(newStageTypeId)}]`,
+
+                    transaction_date:
+                        deliveryIso,
+
+                    task_id:
+                        null,
+
+                    created_at:
+                        new Date()
+                            .toISOString()
+                });
+            }
+
+            newTransactions.push({
+                id:
+                    createdTransactionId,
+
+                ip_record_id:
+                    suitId,
+
+                transaction_type_id:
+                    String(
+                        childTypeId
+                    ),
+
+                transaction_hierarchy:
+                    'child',
+
+                parent_id:
+                    String(
+                        effectiveParentTxId
+                    ),
+
+                description:
+                    childName,
+
+                note:
+                    systemNote,
+
+                transaction_date:
+                    deliveryIso,
+
+                task_id:
+                    null,
+
+                created_at:
+                    new Date()
+                        .toISOString()
+            });
+
             this.currentTransactions = [
                 ...(this.currentTransactions || []),
-                {
-                    id: createdTransactionId,
-                    ip_record_id: suitId,
-                    transaction_type_id: String(childTypeId),
-                    transaction_hierarchy: 'child',
-                    parent_id: String(parentTxId),
-                    description: childName,
-                    note: systemNote,
-                    transaction_date: deliveryIso,
-                    task_id: null,
-                    created_at: new Date().toISOString()
-                }
+                ...newTransactions
             ];
+
+            this
+                ._ensureLitigationStageControl();
 
         } catch (error) {
             console.error('[LITIGATION AŞAMA 4] Save hatası:', error);
@@ -1027,6 +1782,19 @@ if (!proto.__litigationIndexingStage4Patched) {
                 await this._rollbackLitigationTransaction(
                     createdTransactionId
                 );
+
+                createdTransactionId =
+                    null;
+            }
+
+            if (createdStageParentId) {
+                await this
+                    ._rollbackLitigationTransaction(
+                        createdStageParentId
+                    );
+
+                createdStageParentId =
+                    null;
             }
 
             showNotification(

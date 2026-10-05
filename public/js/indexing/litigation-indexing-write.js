@@ -1,5 +1,7 @@
 // public/js/indexing/litigation-indexing-write.js
-// IPGate Dava Yönetimi - AŞAMA 4
+// IPGate Dava Yönetimi - AŞAMA 7
+// Baz: AŞAMA 4 güvenli dava write branch.
+// Ek: indeksleme sırasında kullanıcı kontrollü dava statüsü seçimi.
 //
 // Dava kayıtları için AYRI write branch.
 // Mevcut Marka / Patent / Tasarım handleSave() akışı değiştirilmez.
@@ -13,7 +15,7 @@
 // BİLEREK KAPALI:
 // ❌ Task tetikleme
 // ❌ Son tarih üretme
-// ❌ Dava status güncelleme
+// ✅ Dava status güncelleme yalnız kullanıcının açık seçimiyle yapılır
 // ❌ Mail bildirimi
 //
 // 'litigation_indexed' statüsü geçicidir. Mevcut handle-indexed-document
@@ -23,7 +25,11 @@
 import './smart-record-search.js';
 import { DocumentReviewManager } from './document-review-manager.js';
 import { supabase } from '../../supabase-config.js';
-import { showNotification, formatToTRDate } from '../../utils.js';
+import {
+    showNotification,
+    formatToTRDate,
+    STATUSES
+} from '../../utils.js';
 
 const proto = DocumentReviewManager.prototype;
 
@@ -100,6 +106,42 @@ function isSuitTypeObject(obj) {
     return !ipType || ipType === 'suit';
 }
 
+function litigationStatusOptions() {
+    return Array.isArray(STATUSES?.litigation)
+        ? STATUSES.litigation
+        : [];
+}
+
+function litigationStatusLabel(value) {
+    const raw = String(value || '').trim();
+
+    if (!raw) {
+        return 'Belirtilmemiş';
+    }
+
+    const found = litigationStatusOptions()
+        .find(
+            (item) =>
+                String(item.value) === raw
+        );
+
+    return found?.text || raw;
+}
+
+function isValidLitigationStatus(value) {
+    const raw = String(value || '').trim();
+
+    if (!raw) {
+        return true;
+    }
+
+    return litigationStatusOptions()
+        .some(
+            (item) =>
+                String(item.value) === raw
+        );
+}
+
 function removeElement(id) {
     document.getElementById(id)?.remove();
 }
@@ -149,6 +191,29 @@ function ensureWriteStyles() {
             border-radius: 8px;
             margin-top: 8px;
         }
+
+        #litigationStatusControl {
+            border: 1px solid #d8dee9;
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        #litigationStatusControl .litigation-status-current {
+            font-size: .75rem;
+            color: #667085;
+            margin-top: 6px;
+        }
+
+        #litigationStatusControl .litigation-status-warning {
+            font-size: .72rem;
+            color: #7c5d12;
+            background: #fff8e1;
+            border: 1px solid #f2dc8d;
+            border-radius: 7px;
+            padding: 7px 9px;
+            margin-top: 8px;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -167,6 +232,108 @@ if (!proto.__litigationIndexingStage4Patched) {
     const smartHandleSave = proto.handleSave;
     const normalUpdateChildOptions = proto.updateChildTransactionOptions;
     const normalUpdateDeadline = proto.updateCalculatedDeadline;
+
+    proto._ensureLitigationStatusControl =
+        function() {
+            const childSelect =
+                document.getElementById(
+                    'detectedType'
+                );
+
+            if (!childSelect) {
+                return;
+            }
+
+            let wrapper =
+                document.getElementById(
+                    'litigationStatusControl'
+                );
+
+            if (!wrapper) {
+                wrapper =
+                    document.createElement('div');
+
+                wrapper.id =
+                    'litigationStatusControl';
+
+                wrapper.className =
+                    'form-group mb-4';
+
+                const anchor =
+                    childSelect.closest(
+                        '.form-group'
+                    );
+
+                if (anchor) {
+                    anchor.insertAdjacentElement(
+                        'afterend',
+                        wrapper
+                    );
+                }
+            }
+
+            if (!wrapper) {
+                return;
+            }
+
+            const currentStatus =
+                this.matchedSuit?.status ||
+                '';
+
+            const options =
+                litigationStatusOptions();
+
+            wrapper.innerHTML = `
+                <label class="custom-label">
+                    <i class="fas fa-traffic-light mr-1"></i>
+                    Dava Durumu
+                    <span class="text-muted" style="font-weight:400;">
+                        (Opsiyonel)
+                    </span>
+                </label>
+
+                <select
+                    id="litigationStatusSelect"
+                    class="form-control shadow-sm"
+                >
+                    <option value="">
+                        -- Statüyü Değiştirme --
+                    </option>
+
+                    ${options.map(
+                        (item) => `
+                            <option value="${esc(item.value)}">
+                                ${esc(item.text)}
+                            </option>
+                        `
+                    ).join('')}
+                </select>
+
+                <div class="litigation-status-current">
+                    <strong>Mevcut durum:</strong>
+                    ${esc(
+                        litigationStatusLabel(
+                            currentStatus
+                        )
+                    )}
+                </div>
+
+                <div class="litigation-status-warning">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Sistem dava durumunu evrak içeriğinden tahmin etmez.
+                    Yalnız burada açıkça seçim yaparsanız dava durumu güncellenir.
+                </div>
+            `;
+
+            const select =
+                document.getElementById(
+                    'litigationStatusSelect'
+                );
+
+            if (select) {
+                select.value = '';
+            }
+        };
 
     proto._enableSuitIndexingWriteUi = function() {
         removeElement('litigationReadOnlyNotice');
@@ -214,6 +381,8 @@ if (!proto.__litigationIndexingStage4Patched) {
         if (deadline) {
             deadline.value = 'Görev / son tarih aşaması henüz kapalı';
         }
+
+        this._ensureLitigationStatusControl();
 
         const registry = document.getElementById('registry-editor-section');
         if (registry) registry.style.display = 'none';
@@ -430,6 +599,14 @@ if (!proto.__litigationIndexingStage4Patched) {
     proto.renderHeader = function() {
         const result = smartRenderHeader.call(this);
 
+        if (this.matchedEntityType !== 'suit') {
+            removeElement(
+                'litigationStatusControl'
+            );
+
+            return result;
+        }
+
         if (this.matchedEntityType === 'suit') {
             const badge = document.querySelector(
                 '#matchInfoDisplay .litigation-readonly-badge'
@@ -496,6 +673,27 @@ if (!proto.__litigationIndexingStage4Patched) {
 
         const notes =
             document.getElementById('transactionNotes')?.value?.trim() || '';
+
+        const selectedSuitStatus =
+            document.getElementById(
+                'litigationStatusSelect'
+            )?.value || '';
+
+        const previousSuitStatus =
+            suit?.status || null;
+
+        if (
+            selectedSuitStatus &&
+            !isValidLitigationStatus(
+                selectedSuitStatus
+            )
+        ) {
+            showNotification(
+                'Seçilen dava durumu geçerli değil.',
+                'error'
+            );
+            return;
+        }
 
         if (!suitId) {
             showNotification('Dava kaydı bulunamadı.', 'error');
@@ -599,6 +797,16 @@ if (!proto.__litigationIndexingStage4Patched) {
                 '[Varlık Türü: suit]'
             ];
 
+            if (
+                selectedSuitStatus &&
+                selectedSuitStatus !==
+                    previousSuitStatus
+            ) {
+                systemTags.push(
+                    `[Dava Statüsü: ${previousSuitStatus || '-'} -> ${selectedSuitStatus}]`
+                );
+            }
+
             systemNote = [systemNote, ...systemTags]
                 .filter(Boolean)
                 .join('\n');
@@ -632,6 +840,45 @@ if (!proto.__litigationIndexingStage4Patched) {
 
             createdTransactionId = String(txResult.id);
 
+            let suitStatusChanged =
+                false;
+
+            if (
+                selectedSuitStatus &&
+                selectedSuitStatus !==
+                    previousSuitStatus
+            ) {
+                const {
+                    error: suitStatusError
+                } = await supabase
+                    .from('suits')
+                    .update({
+                        status:
+                            selectedSuitStatus,
+                        updated_at:
+                            new Date()
+                                .toISOString()
+                    })
+                    .eq(
+                        'id',
+                        suitId
+                    );
+
+                if (suitStatusError) {
+                    throw new Error(
+                        `Dava durumu güncellenemedi: ${suitStatusError.message}`
+                    );
+                }
+
+                suitStatusChanged =
+                    true;
+
+                if (this.matchedSuit) {
+                    this.matchedSuit.status =
+                        selectedSuitStatus;
+                }
+            }
+
             const incomingUpdate = {
                 // Geçici ve bilinçli Stage-4 statüsü:
                 // Edge Function status !== indexed olduğu için mail üretmez.
@@ -652,6 +899,34 @@ if (!proto.__litigationIndexingStage4Patched) {
                 .eq('id', String(this.pdfId));
 
             if (incomingError) {
+                if (suitStatusChanged) {
+                    const {
+                        error: statusRollbackError
+                    } = await supabase
+                        .from('suits')
+                        .update({
+                            status:
+                                previousSuitStatus,
+                            updated_at:
+                                new Date()
+                                    .toISOString()
+                        })
+                        .eq(
+                            'id',
+                            suitId
+                        );
+
+                    if (statusRollbackError) {
+                        console.warn(
+                            '[LITIGATION AŞAMA 7] Dava statüsü rollback yapılamadı:',
+                            statusRollbackError
+                        );
+                    } else if (this.matchedSuit) {
+                        this.matchedSuit.status =
+                            previousSuitStatus;
+                    }
+                }
+
                 await this._rollbackLitigationTransaction(
                     createdTransactionId
                 );
@@ -689,13 +964,46 @@ if (!proto.__litigationIndexingStage4Patched) {
                     'Transaction kaydedildi · task/mail henüz kapalı';
             }
 
+            const statusMessage =
+                (
+                    selectedSuitStatus &&
+                    selectedSuitStatus !==
+                        previousSuitStatus
+                )
+                    ? ` Dava durumu "${litigationStatusLabel(selectedSuitStatus)}" olarak güncellendi.`
+                    : '';
+
             showNotification(
-                `${childName} dava dosyasına başarıyla bağlandı. Görev ve mail bu aşamada tetiklenmedi.`,
+                `${childName} dava dosyasına başarıyla bağlandı.${statusMessage}`,
                 'success'
             );
 
             // Dava detay ekranında yeni child işlemin görülebilmesi için
             // currentTransactions'ı lokal olarak da güncelle.
+            const currentStatusInfo =
+                document.querySelector(
+                    '#litigationStatusControl .litigation-status-current'
+                );
+
+            if (currentStatusInfo) {
+                currentStatusInfo.innerHTML =
+                    `<strong>Mevcut durum:</strong> ${esc(
+                        litigationStatusLabel(
+                            this.matchedSuit?.status ||
+                            previousSuitStatus
+                        )
+                    )}`;
+            }
+
+            const statusSelect =
+                document.getElementById(
+                    'litigationStatusSelect'
+                );
+
+            if (statusSelect) {
+                statusSelect.value = '';
+            }
+
             this.currentTransactions = [
                 ...(this.currentTransactions || []),
                 {

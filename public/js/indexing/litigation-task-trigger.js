@@ -10,7 +10,7 @@
 // 3) Süreyi transaction_types.due_period + due_period_unit üzerinden hesaplamak.
 // 4) Aynı source transaction için duplicate task oluşmasını önlemek.
 // 5) Tetiklenen task'a karşılık work transaction oluşturmak.
-// 6) 76 Karar / 78 Kesinleşme Şerhi için deterministic suit.status güncellemek.
+// 6) Dava statüsünü OTOMATİK değiştirmemek; statü yalnız indeksleme ekranındaki kullanıcı seçimiyle güncellenir.
 //
 // Mail hala kapalıdır:
 // incoming_documents.status: litigation_indexed -> task/status automation -> litigation_mail_ready.
@@ -39,10 +39,6 @@ import {
 const proto = DocumentReviewManager.prototype;
 
 
-const SUIT_STATUS_BY_INCOMING_TYPE = Object.freeze({
-    '76': 'decision',
-    '78': 'finalized'
-});
 
 function normRole(value) {
     return String(value || '')
@@ -729,59 +725,6 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
             return result.id;
         };
 
-    proto._applyDeterministicSuitStatus =
-        async function({
-            suitId,
-            incomingTypeId
-        }) {
-            const targetStatus =
-                SUIT_STATUS_BY_INCOMING_TYPE[
-                    String(
-                        incomingTypeId || ''
-                    )
-                ];
-
-            if (!targetStatus) {
-                return false;
-            }
-
-            const {
-                error
-            } = await supabase
-                .from('suits')
-                .update({
-                    status:
-                        targetStatus,
-                    updated_at:
-                        new Date()
-                            .toISOString()
-                })
-                .eq(
-                    'id',
-                    String(suitId)
-                );
-
-            if (error) {
-                console.warn(
-                    '[LITIGATION AŞAMA 5] Suit status güncellenemedi:',
-                    error
-                );
-
-                return false;
-            }
-
-            if (
-                this.matchedSuit &&
-                String(this.matchedSuit.id) ===
-                    String(suitId)
-            ) {
-                this.matchedSuit.status =
-                    targetStatus;
-            }
-
-            return true;
-        };
-
     proto._createLitigationTriggeredTask =
         async function({
             incomingDocument,
@@ -1278,17 +1221,6 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                             )
                     });
 
-            // Deterministic dava durumları task'tan bağımsız.
-            await this
-                ._applyDeterministicSuitStatus({
-                    suitId:
-                        String(suitId),
-
-                    incomingTypeId:
-                        incomingDocument
-                            .transaction_type_id
-                });
-
             const client =
                 await this
                     ._resolveLitigationClient(
@@ -1514,17 +1446,8 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                 );
 
             if (!rule) {
-                if (
-                    SUIT_STATUS_BY_INCOMING_TYPE[
-                        String(childTypeId)
-                    ]
-                ) {
-                    deadlineEl.value =
-                        'Task yok · dava statüsü otomatik güncellenecek';
-                } else {
-                    deadlineEl.value =
-                        'Bu evrak için otomatik task/deadline tanımlı değil';
-                }
+                deadlineEl.value =
+                    'Bu evrak için otomatik task/deadline tanımlı değil';
 
                 return;
             }

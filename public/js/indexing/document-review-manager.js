@@ -439,7 +439,16 @@ export class DocumentReviewManager {
 
     async loadParentTransactions(recordId) {
         const parentSelect = document.getElementById('parentTransactionSelect');
+        const childSelect = document.getElementById('detectedType');
         if (!parentSelect) return;
+
+        // Yeni bir kayıt seçildiğinde önceki kaydın child seçeneklerini temizle.
+        // Özellikle WIPO/ARIPO aile modalında ülke kayıtları arasında geçişte
+        // eski seçimin ekranda kalmasını engeller.
+        if (childSelect) {
+            childSelect.innerHTML = '<option value="">-- Önce Ana İşlem Seçiniz --</option>';
+            childSelect.disabled = true;
+        }
         
         parentSelect.innerHTML = '<option value="">Yükleniyor...</option>';
         
@@ -517,6 +526,16 @@ export class DocumentReviewManager {
                 opt.value = t.id;
                 opt.textContent = `${label} (${dateStr})`;
                 parentSelect.appendChild(opt);
+            }
+
+            // WIPO/ARIPO ulusal kayıtlarında çoğu zaman yalnızca tek ana işlem
+            // (örn. Başvuru) vardır. Aile modalından child kayıt seçildiğinde
+            // select'e kullanıcı kaynaklı bir change olayı gelmediği için
+            // Evrakın Türü alanı disabled kalıyordu. Tek parent varsa mevcut
+            // child-option üreticisini doğrudan çalıştır.
+            if (parentTransactions.length === 1) {
+                parentSelect.value = String(parentTransactions[0].id);
+                this.updateChildTransactionOptions();
             }
         } catch (error) {
             console.error('Transaction yükleme hatası:', error);

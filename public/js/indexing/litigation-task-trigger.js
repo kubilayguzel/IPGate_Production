@@ -6,7 +6,7 @@
 // - 76 -> 93 ve 77(İstinaf) -> 96 karar-sonrası işler
 // - rule bazlı due_period/due_period_unit
 //
-// AŞAMA 4'ün güvenli dava write branch'inin ÜZERİNE eklenir.
+// DB-driven dava indeksleme kuralları litigation-indexing-write.js içinde konsolide edilmiştir.
 // Marka / Patent / Tasarım indeksleme akışına dokunmaz.
 //
 // Amaç:
@@ -21,7 +21,6 @@
 // incoming_documents.status: litigation_indexed -> task/status automation -> litigation_mail_ready.
 
 import './litigation-indexing-write.js';
-import './litigation-8c2-indexing-patch.js';
 
 import {
     DocumentReviewManager

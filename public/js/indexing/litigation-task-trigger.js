@@ -6,7 +6,7 @@
 // - 76 -> 93 ve 77(İstinaf) -> 96 karar-sonrası işler
 // - rule bazlı due_period/due_period_unit
 //
-// DB-driven dava indeksleme kuralları litigation-indexing-write.js içinde konsolide edilmiştir.
+// Konsolide dava indeksleme modülünün automation hook'larını sağlar.
 // Marka / Patent / Tasarım indeksleme akışına dokunmaz.
 //
 // Amaç:
@@ -634,12 +634,6 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
             enumerable: false
         }
     );
-
-    const previousLitigationSave =
-        proto._handleLitigationIndexingSave;
-
-    const stage4UpdateCalculatedDeadline =
-        proto.updateCalculatedDeadline;
 
     proto._loadLitigationAutomationContext =
         async function({
@@ -1579,13 +1573,8 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
 
     // AŞAMA 4 write başarıyla tamamlandıktan sonra task/status otomasyonu.
     // Otomasyon tamamen bittikten sonra mail-ready statüsüne geçilir.
-    proto._handleLitigationIndexingSave =
-        async function(...args) {
-            await previousLitigationSave.apply(
-                this,
-                args
-            );
-
+    proto._afterLitigationIndexingSave =
+        async function() {
             try {
                 const automationResult =
                     await this
@@ -1599,17 +1588,16 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
                         ._markLitigationMailReady();
 
                     console.log(
-                        '[LITIGATION AŞAMA 6B] Task/status otomasyonu tamamlandı; mail-ready tetiklendi.',
+                        '[LITIGATION V2] Task/status otomasyonu tamamlandı; mail-ready tetiklendi.',
                         automationResult
                     );
                 }
 
             } catch (error) {
-                // Transaction ve incoming_document AŞAMA 4'te başarıyla
-                // kaydedilmiş olabilir; task/mail-ready hatası nedeniyle onları rollback etmiyoruz.
-                // Kritik güvenlik: hata halinde status litigation_indexed kalır ve eksik mail üretilmez.
+                // Ana transaction ve incoming_document başarıyla kaydedilmiş olabilir.
+                // Task/mail-ready hatası ana indekslemeyi rollback etmez.
                 console.error(
-                    '[LITIGATION AŞAMA 6B] Post-index / mail-ready otomasyon hatası:',
+                    '[LITIGATION V2] Post-index / mail-ready otomasyon hatası:',
                     error
                 );
 
@@ -1622,16 +1610,8 @@ if (!proto.__litigationTaskAutomationStage5Patched) {
         };
 
     // Dava ekranında kaydetmeden önce task/deadline önizlemesi.
-    proto.updateCalculatedDeadline =
+    proto._updateLitigationAutomationDeadlinePreview =
         function() {
-            if (
-                this.matchedEntityType !==
-                'suit'
-            ) {
-                return stage4UpdateCalculatedDeadline
-                    .call(this);
-            }
-
             const deadlineEl =
                 document.getElementById(
                     'calculatedDeadlineDisplay'

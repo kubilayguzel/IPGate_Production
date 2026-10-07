@@ -32,6 +32,12 @@ class TaskUpdateController {
         this.currentDocuments = [];
         this.uploadedEpatsFile = null;
         this.statusBeforeEpatsUpload = null;
+        this.epatsAutoCompleted = false;
+        this.epatsLifecycleKnown = false;
+        this.epatsAddedThisSession = false;
+        this.epatsRemovedPendingSave = false;
+        this.epatsRestoreStatus = null;
+        this.epatsRemovalInProgress = false;
         this.tempApplicationData = null; 
         this.selectedIpRecordId = null;
         this.selectedPersonId = null;
@@ -187,6 +193,45 @@ class TaskUpdateController {
         return null;
     }
 
+    isInheritedDocument(doc) {
+        return !!(doc?.isInherited || String(doc?.name || '').startsWith('(Ana Görev)'));
+    }
+
+    getOwnDocuments() {
+        return (this.currentDocuments || []).filter(doc => !this.isInheritedDocument(doc));
+    }
+
+    getOwnedEpatsDocument() {
+        return (this.currentDocuments || []).find(doc =>
+            doc?.type === 'epats_document' && !this.isInheritedDocument(doc)
+        ) || null;
+    }
+
+    getStoragePathForDocument(doc) {
+        let path = String(doc?.storagePath || '').trim();
+        if (path.startsWith('documents/')) path = path.substring('documents/'.length);
+        if (path) return decodeURIComponent(path);
+
+        const url = String(doc?.url || doc?.downloadURL || '');
+        const marker = '/documents/';
+        const idx = url.indexOf(marker);
+        if (idx >= 0) return decodeURIComponent(url.substring(idx + marker.length));
+        return '';
+    }
+
+    setSaveButtonBusy(isBusy, title = '') {
+        const saveBtn = document.getElementById('saveTaskChangesBtn');
+        if (!saveBtn) return;
+        saveBtn.disabled = !!isBusy;
+        if (isBusy) {
+            saveBtn.dataset.epatsBusy = '1';
+            saveBtn.title = title || 'EPATS evrak işlemi tamamlanıyor.';
+        } else if (saveBtn.dataset.epatsBusy === '1') {
+            delete saveBtn.dataset.epatsBusy;
+            saveBtn.removeAttribute('title');
+        }
+    }
+
     async refreshTaskData() {
         this.taskData = await this.dataManager.getTaskById(this.taskId);
         this.currentDocuments = this.taskData.documents || [];
@@ -267,7 +312,14 @@ class TaskUpdateController {
             this.uiManager.renderSelectedPerson(p);
         }
 
-        this.statusBeforeEpatsUpload = this.taskData.status_before_epats_upload || null;
+        const epatsDetails = this.getTaskDetails();
+        this.statusBeforeEpatsUpload = epatsDetails.status_before_epats_upload || null;
+        this.epatsLifecycleKnown = Object.prototype.hasOwnProperty.call(epatsDetails, 'completed_by_epats');
+        this.epatsAutoCompleted = epatsDetails.completed_by_epats === true || String(epatsDetails.completed_by_epats) === 'true';
+        this.epatsAddedThisSession = false;
+        this.epatsRemovedPendingSave = false;
+        this.epatsRestoreStatus = null;
+        this.epatsRemovalInProgress = false;
         this.lockFieldsIfApplicationTask();
     }
 
@@ -872,26 +924,48 @@ class TaskUpdateController {
     async removeDocument(id) {
         if (!confirm('Silmek istediğinize emin misiniz?')) return;
         const doc = this.currentDocuments.find(d => String(d.id) === String(id));
-        if (doc?.type === 'petition' && this.getPetitionReviewStatus() === 'in_review') {
+        if (!doc) return;
+
+        if (this.isInheritedDocument(doc)) {
+            return showNotification('Ana göreve ait belge bu alt iş üzerinden silinemez.', 'warning');
+        }
+
+        if (doc.type === 'petition' && this.getPetitionReviewStatus() === 'in_review') {
             return showNotification('Dilekçe şu anda kontrolde. Kontrol sonucu gelmeden bu dilekçe silinemez.', 'warning');
         }
-        const wasPetition = doc?.type === 'petition';
-        
-        if (doc && doc.storagePath) {
-            try { 
-                await supabase.storage.from('documents').remove([doc.storagePath]); 
-                await supabase.from('task_documents').delete().eq('id', id);
-                
-                // YENİ EKLENEN: (Varsa) Transaction kayıtlarından URL'ye göre kökünden temizle
-                if (doc.url) {
-                    await supabase.from('transaction_documents').delete().eq('document_url', doc.url);
-                }
-            } catch(e){}
+
+        const wasPetition = doc.type === 'petition';
+
+        try {
+            const { error: docDeleteError } = await supabase
+                .from('task_documents')
+                .delete()
+                .eq('id', id)
+                .eq('task_id', String(this.taskId));
+            if (docDeleteError) throw docDeleteError;
+
+            if (doc.url) {
+                const { error: txDeleteError } = await supabase
+                    .from('transaction_documents')
+                    .delete()
+                    .eq('document_url', doc.url);
+                if (txDeleteError) console.warn('Transaction belgesi temizlenemedi:', txDeleteError);
+            }
+
+            const storagePath = this.getStoragePathForDocument(doc);
+            if (storagePath) {
+                const { error: storageError } = await supabase.storage.from('documents').remove([storagePath]);
+                if (storageError) console.warn('Storage belgesi temizlenemedi:', storageError);
+            }
+        } catch (e) {
+            console.error('Belge silme hatası:', e);
+            return showNotification('Belge silinemedi: ' + (e.message || e), 'error');
         }
-        
-        this.currentDocuments = this.currentDocuments.filter(d => d.id !== id);
+
+        this.currentDocuments = this.currentDocuments.filter(d => String(d.id) !== String(id));
         this.uiManager.renderDocuments(this.currentDocuments);
-        await this.dataManager.updateTask(this.taskId, { documents: this.currentDocuments });
+
+        await this.dataManager.updateTask(this.taskId, { documents: this.getOwnDocuments() });
         if (wasPetition) {
             try { await this.syncPetitionReviewReadiness(); } catch (err) { showNotification(err.message, 'error'); }
         }
@@ -901,7 +975,7 @@ class TaskUpdateController {
     async uploadEpatsDocument(file) {
         if (!file) return;
         
-        const existingEpats = this.currentDocuments.find(d => d.type === 'epats_document');
+        const existingEpats = this.getOwnedEpatsDocument();
         if (!existingEpats) {
             const statusEl = document.getElementById('taskStatus');
             this.statusBeforeEpatsUpload = statusEl ? statusEl.value : null;
@@ -980,7 +1054,9 @@ class TaskUpdateController {
             }
 
             const epatsDoc = {
-                id, 
+                id,
+                isInherited: false,
+                sourceTaskId: String(this.taskId), 
                 name: file.name,
                 url: uploadRes.url, 
                 downloadURL: uploadRes.url, 
@@ -992,8 +1068,18 @@ class TaskUpdateController {
                 documentDate: extractedDate          
             };
 
-            this.currentDocuments = this.currentDocuments.filter(d => d.type !== 'epats_document');
+            // Yalnız bu işe ait eski EPATS kaydını local state'ten çıkar;
+            // parent task'tan gelen salt-okunur EPATS belgeleri korunur.
+            this.currentDocuments = this.currentDocuments.filter(d =>
+                !(d.type === 'epats_document' && !this.isInheritedDocument(d))
+            );
             this.currentDocuments.push(epatsDoc);
+
+            this.epatsAddedThisSession = true;
+            this.epatsRemovedPendingSave = false;
+            this.epatsRestoreStatus = null;
+            this.epatsAutoCompleted = true;
+            this.epatsLifecycleKnown = true;
 
             this.uiManager.renderDocuments(this.currentDocuments);
 
@@ -1022,28 +1108,85 @@ class TaskUpdateController {
     }
     
     async removeEpatsDocument() {
+        if (this.epatsRemovalInProgress) return;
         if (!confirm('EPATS evrakı silinecek. Emin misiniz?')) return;
-        const epatsDoc = this.currentDocuments.find(d => d.type === 'epats_document');
-        
-        if (epatsDoc?.storagePath) {
-            try { 
-                await supabase.storage.from('documents').remove([epatsDoc.storagePath]); 
-                await supabase.from('task_documents').delete().eq('id', epatsDoc.id);
-                
-                // YENİ EKLENEN: İşlemlerden (Aynı URL ile) temizle
-                if (epatsDoc.url) {
-                    await supabase.from('transaction_documents').delete().eq('document_url', epatsDoc.url);
-                }
-            } catch (e) { }
+
+        const epatsDoc = this.getOwnedEpatsDocument();
+        if (!epatsDoc) {
+            const inheritedEpats = (this.currentDocuments || []).find(d =>
+                d?.type === 'epats_document' && this.isInheritedDocument(d)
+            );
+            return showNotification(
+                inheritedEpats
+                    ? 'Görünen EPATS evrakı ana göreve aittir; bu alt iş üzerinden silinemez.'
+                    : 'Bu işe ait silinebilir bir EPATS evrakı bulunamadı.',
+                'warning'
+            );
         }
-        
-        this.currentDocuments = this.currentDocuments.filter(d => d.type !== 'epats_document');
-        
-        // ORİJİNAL YAPINIZ: Evrak silinince statü dropdown'u 'open' olur
+
         const statusSelect = document.getElementById('taskStatus');
-        if (statusSelect) statusSelect.value = 'open';
-        
+        const currentStatus = statusSelect?.value || this.taskData?.status || 'open';
+        let restoreStatus;
+
+        if (this.epatsAutoCompleted) {
+            restoreStatus = this.statusBeforeEpatsUpload || 'open';
+        } else if (this.epatsLifecycleKnown) {
+            // EPATS varken statü kullanıcı tarafından ayrıca değiştirilmişse mevcut statüyü koru.
+            restoreStatus = currentStatus || 'open';
+        } else {
+            // Eski kayıtlar için lifecycle bilgisi yoktur. Completed + EPATS kombinasyonunda
+            // geçmiş davranışla uyumlu güvenli fallback OPEN'dır.
+            restoreStatus = currentStatus === 'completed' ? 'open' : (currentStatus || 'open');
+        }
+
+        // Yarış durumunu kapat: UI/state değişimini DB/storage await'lerinden ÖNCE yap.
+        this.epatsRemovalInProgress = true;
+        this.epatsRemovedPendingSave = true;
+        this.epatsRestoreStatus = restoreStatus;
+        this.epatsAddedThisSession = false;
+        this.currentDocuments = this.currentDocuments.filter(d => String(d.id) !== String(epatsDoc.id));
+
+        if (statusSelect) {
+            statusSelect.value = restoreStatus;
+            statusSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         this.uiManager.renderDocuments(this.currentDocuments);
+        this.setSaveButtonBusy(true, 'EPATS evrakı siliniyor; işlem bitince kaydedebilirsiniz.');
+
+        try {
+            // DB satırı storagePath var/yok bağımsız olarak mutlaka silinir.
+            const { error: docDeleteError } = await supabase
+                .from('task_documents')
+                .delete()
+                .eq('id', epatsDoc.id)
+                .eq('task_id', String(this.taskId));
+            if (docDeleteError) throw docDeleteError;
+
+            if (epatsDoc.url) {
+                const { error: txDeleteError } = await supabase
+                    .from('transaction_documents')
+                    .delete()
+                    .eq('document_url', epatsDoc.url);
+                if (txDeleteError) console.warn('EPATS transaction belgesi temizlenemedi:', txDeleteError);
+            }
+
+            const storagePath = this.getStoragePathForDocument(epatsDoc);
+            if (storagePath) {
+                const { error: storageError } = await supabase.storage.from('documents').remove([storagePath]);
+                if (storageError) console.warn('EPATS storage temizliği tamamlanamadı:', storageError);
+            }
+
+            showNotification(`EPATS evrakı kaldırıldı. İş durumu ${restoreStatus} olarak kaydedilecek.`, 'info');
+        } catch (e) {
+            console.error('EPATS silme hatası:', e);
+            this.epatsRemovedPendingSave = false;
+            this.epatsRestoreStatus = null;
+            try { await this.refreshTaskData(); } catch (_) {}
+            showNotification('EPATS evrakı silinemedi: ' + (e.message || e), 'error');
+        } finally {
+            this.epatsRemovalInProgress = false;
+            this.setSaveButtonBusy(false);
+        }
     }
 
     isApplicationTask(taskType) { return ['2'].includes(String(taskType)); }
@@ -1148,7 +1291,7 @@ class TaskUpdateController {
 
         const container = document.getElementById('accrualsContainer');
         if (!container) return;
-        
+         
         if (!accruals || accruals.length === 0) {
             container.innerHTML = `<div class="text-center p-3 text-muted border rounded bg-light"><i class="fas fa-receipt mr-2"></i>Kayıt bulunamadı.</div>`;
             return;
@@ -1246,17 +1389,29 @@ class TaskUpdateController {
     }
 
     async saveTaskChanges() {
-        const taskTypeStr = String(this.taskData.taskType || this.taskData.task_type_id);
-        const newStatus = document.getElementById('taskStatus')?.value;
-        const isYidkSuitTask = taskTypeStr === '49';
+        if (this.epatsRemovalInProgress) {
+            return showNotification('EPATS evrakı silme işlemi henüz tamamlanmadı. İşlem tamamlandıktan sonra kaydedin.', 'warning');
+        }
 
-        const epatsDocIndex = this.currentDocuments.findIndex(d => d.type === 'epats_document');
-        let epatsDocumentDateForDB = null; 
-        
-        // YİDK iptal davasında bu alan EPATS evrakı değil,
-        // dava dilekçesi / tevzi formu yükleme alanı olarak kullanılıyor.
-        // Bu nedenle TürkPatent Evrak No ve Evrak Tarihi zorunlu tutulmaz.
-        if (epatsDocIndex !== -1 && !isYidkSuitTask) {
+        const taskTypeStr = String(this.taskData.taskType || this.taskData.task_type_id);
+        const statusSelect = document.getElementById('taskStatus');
+        const isYidkSuitTask = taskTypeStr === '49';
+        const ownedEpatsDoc = this.getOwnedEpatsDocument();
+        const ownDocuments = this.getOwnDocuments();
+
+        let finalStatus = statusSelect?.value || this.taskData.status || 'open';
+        if (this.epatsRemovedPendingSave) {
+            finalStatus = this.epatsRestoreStatus || this.statusBeforeEpatsUpload || 'open';
+        } else if (this.epatsAddedThisSession) {
+            finalStatus = 'completed';
+        }
+        if (statusSelect) statusSelect.value = finalStatus;
+
+        let epatsDocumentDateForDB = null;
+        let epatsDocumentNoForDB = null;
+
+        // YİDK iptal davasında bu alan EPATS evrakı değil, dava dilekçesi / tevzi formudur.
+        if (ownedEpatsDoc && !isYidkSuitTask) {
             const evrakNo = document.getElementById('turkpatentEvrakNo')?.value;
             const evrakDate = document.getElementById('epatsDocumentDate')?.value;
 
@@ -1264,28 +1419,26 @@ class TaskUpdateController {
                 return showNotification('Lütfen EPATS evrak bilgilerini (No ve Tarih) doldurunuz.', 'warning');
             }
 
-            this.currentDocuments[epatsDocIndex].turkpatentEvrakNo = evrakNo;
-            this.currentDocuments[epatsDocIndex].documentDate = evrakDate;
-            epatsDocumentDateForDB = evrakDate; 
+            ownedEpatsDoc.turkpatentEvrakNo = evrakNo;
+            ownedEpatsDoc.documentDate = evrakDate;
+            epatsDocumentDateForDB = evrakDate;
+            epatsDocumentNoForDB = evrakNo;
         }
 
-        if (taskTypeStr === '49' && newStatus === 'completed') {
+        if (taskTypeStr === '49' && finalStatus === 'completed') {
             const courtName = document.getElementById('suitCourtName')?.value;
             const fileNo = document.getElementById('suitFileNo')?.value;
             const openingDate = document.getElementById('suitOpeningDate')?.value;
-            
-            // Tarafları kendi class state'imizden alıyoruz (Hata veren window objesinden değil!)
             const plaintifs = this.suitParties.plaintifs;
             const defendants = this.suitParties.defendants;
-            
+
             if (!courtName || !fileNo || !openingDate || plaintifs.length === 0 || defendants.length === 0) {
                 return showNotification('Lütfen Dava Açılış Bilgilerini (Mahkeme, Esas No, Dava Tarihi, Müvekkil ve Karşı Taraf) eksiksiz doldurunuz.', 'warning');
             }
-            if (epatsDocIndex === -1) {
+            if (!ownedEpatsDoc) {
                 return showNotification('Dava Dilekçesi ve Tevzi Formu (Evrak) yüklenmesi zorunludur.', 'warning');
             }
-            
-            // 🔥 Tarafları birleştirip DataManager'ın beklediği Array formatına çeviriyoruz
+
             const formattedPlaintiffs = plaintifs.map(p => ({ ...p, role: 'davaci' }));
             const formattedDefendants = defendants.map(p => ({ ...p, role: 'davali' }));
             const combinedParties = [...formattedPlaintiffs, ...formattedDefendants];
@@ -1298,10 +1451,10 @@ class TaskUpdateController {
                 suit_type: 'YİDK Kararı İptali',
                 court_name: courtName,
                 file_no: fileNo,
-                title: `YİDK Kararı İptal Davası`,
+                title: 'YİDK Kararı İptal Davası',
                 status: 'continue',
                 opening_date: openingDate,
-                suitParties: combinedParties // 🔥 Array formatında DataManager'a gidiyor
+                suitParties: combinedParties
             };
 
             const suitRes = await this.dataManager.saveSuitRecord(suitPayload);
@@ -1309,7 +1462,6 @@ class TaskUpdateController {
                 return showNotification('Dava dosyası açılamadı: ' + suitRes.error, 'error');
             }
 
-            // Transaction Geçmişine Yaz
             await this.dataManager.logTransaction({
                 ip_record_id: this.selectedIpRecordId,
                 task_id: this.taskId,
@@ -1319,65 +1471,105 @@ class TaskUpdateController {
                 transaction_date: new Date().toISOString()
             });
 
-            // Dilekçeyi Davanın Evraklarına da Ekle
-            const epatsDoc = this.currentDocuments[epatsDocIndex];
-            if (epatsDoc && suitRes.data?.id) {
+            if (suitRes.data?.id) {
                 await supabase.from('suit_documents').insert({
                     suit_id: suitRes.data.id,
-                    document_name: epatsDoc.name,
-                    document_url: epatsDoc.url,
+                    document_name: ownedEpatsDoc.name,
+                    document_url: ownedEpatsDoc.url,
                     document_type: 'dava_dilekcesi'
                 });
             }
         }
-        // 🔥 YİDK KANCASI BİTİŞİ
+
+        // En güncel DB details/status değerini al. EPATS lifecycle metadata'sı buraya merge edilir.
+        let dbTask = null;
+        try {
+            const { data, error } = await supabase
+                .from('tasks')
+                .select('status, details')
+                .eq('id', String(this.taskId))
+                .single();
+            if (error) throw error;
+            dbTask = data;
+        } catch (err) {
+            console.error('Görev lifecycle bilgisi okunamadı:', err);
+            return showNotification('Görev kaydedilemedi: mevcut durum bilgisi okunamadı.', 'error');
+        }
+
+        let currentDetails = {};
+        if (dbTask?.details) {
+            if (typeof dbTask.details === 'string') {
+                try { currentDetails = JSON.parse(dbTask.details); } catch (_) { currentDetails = {}; }
+                if (typeof currentDetails === 'string') {
+                    try { currentDetails = JSON.parse(currentDetails); } catch (_) { currentDetails = {}; }
+                }
+            } else if (typeof dbTask.details === 'object') {
+                currentDetails = { ...dbTask.details };
+            }
+        }
+
+        let detailsChanged = false;
+
+        if (this.epatsRemovedPendingSave) {
+            // Evrak yoksa eski EPATS metadata'sı da kalmamalı.
+            delete currentDetails.epatsDocumentDate;
+            delete currentDetails.epatsDocumentNo;
+            delete currentDetails.epatsDocument;
+            delete currentDetails.status_before_epats_upload;
+            delete currentDetails.completed_by_epats;
+            detailsChanged = true;
+        } else if (ownedEpatsDoc) {
+            if (!isYidkSuitTask) {
+                currentDetails.epatsDocumentDate = epatsDocumentDateForDB;
+                currentDetails.epatsDocumentNo = epatsDocumentNoForDB;
+                detailsChanged = true;
+            }
+
+            if (this.epatsAddedThisSession) {
+                // DB status bu aşamada yükleme öncesi status'tur; local değer yoksa güvenli kaynak odur.
+                const previousStatus = this.statusBeforeEpatsUpload ||
+                    currentDetails.status_before_epats_upload ||
+                    dbTask?.status ||
+                    'open';
+                currentDetails.status_before_epats_upload = previousStatus;
+                currentDetails.completed_by_epats = true;
+                this.statusBeforeEpatsUpload = previousStatus;
+                this.epatsAutoCompleted = true;
+                this.epatsLifecycleKnown = true;
+                detailsChanged = true;
+            } else if (currentDetails.completed_by_epats === true && finalStatus !== 'completed') {
+                // Kullanıcı EPATS dururken statüyü manuel değiştirdiyse artık EPATS'ın otomatik completion'ı sayılmaz.
+                currentDetails.completed_by_epats = false;
+                delete currentDetails.status_before_epats_upload;
+                this.epatsAutoCompleted = false;
+                this.epatsLifecycleKnown = true;
+                detailsChanged = true;
+            }
+        }
+
+        if (detailsChanged) {
+            const { error: detailsError } = await supabase
+                .from('tasks')
+                .update({ details: currentDetails })
+                .eq('id', String(this.taskId));
+            if (detailsError) {
+                console.error('EPATS lifecycle metadata kaydı başarısız:', detailsError);
+                return showNotification('EPATS durum bilgileri kaydedilemedi: ' + detailsError.message, 'error');
+            }
+        }
 
         try {
-            // 🔥 ÖLÜMCÜL HATA ÇÖZÜMÜ: Eski veriyi ezmemek için önce veritabanındaki en güncel JSON'u çekiyoruz
-            if (epatsDocumentDateForDB) {
-                // 1. Veritabanındaki en güncel (arka planda dolmuş olabilen) 'details' verisini çek
-                const { data: dbTask } = await supabase
-                    .from('tasks')
-                    .select('details')
-                    .eq('id', this.taskId)
-                    .single();
-                
-                let currentDetails = {};
-                if (dbTask && dbTask.details) {
-                    if (typeof dbTask.details === 'string') {
-                        try { currentDetails = JSON.parse(dbTask.details); } catch(e) {}
-                        // Çift stringify olmuşsa bir kez daha parse et
-                        if (typeof currentDetails === 'string') { try { currentDetails = JSON.parse(currentDetails); } catch(e) {} }
-                    } else if (typeof dbTask.details === 'object') {
-                        currentDetails = dbTask.details;
-                    }
-                }
-                
-                // 2. Eski veriyi KORUYARAK EPATS bilgilerini içine ekle (Spread Operator ...)
-                const mergedDetails = {
-                    ...currentDetails,
-                    epatsDocumentDate: epatsDocumentDateForDB,
-                    epatsDocumentNo: document.getElementById('turkpatentEvrakNo')?.value
-                };
-                
-                // 3. Harmanlanmış (zengin verisi korunmuş) objeyi veritabanına yaz
-                await supabase.from('tasks').update({ details: mergedDetails }).eq('id', this.taskId);
-            }
-
             if (this.selectedIpRecordId && this.tempRenewalData) {
                 await supabase.from('ip_records').update({ renewal_date: this.tempRenewalData }).eq('id', this.selectedIpRecordId);
-                console.log('Yenileme tarihi veritabanına işlendi:', this.tempRenewalData);
             }
-            
             if (this.selectedIpRecordId && this.tempApplicationData) {
                 await supabase.from('ip_records').update({
                     application_number: this.tempApplicationData.appNo,
                     application_date: this.tempApplicationData.appDate
                 }).eq('id', this.selectedIpRecordId);
-                console.log('Başvuru bilgileri veritabanına işlendi:', this.tempApplicationData);
             }
         } catch (err) {
-            console.error('Kayıtlar güncellenirken hata oluştu:', err);
+            console.error('Bağlı kayıtlar güncellenirken hata oluştu:', err);
         }
 
         let userEmail = 'Bilinmiyor';
@@ -1387,47 +1579,77 @@ class TaskUpdateController {
                 const { data: profile } = await supabase.from('users').select('email').eq('id', session.user.id).single();
                 userEmail = profile?.email || session.user.email;
             }
-        } catch(e) {}
+        } catch (_) {}
 
-        const newHistoryEntry = {
-            action: "Görev güncellendi",
-            timestamp: new Date().toISOString(),
-            userEmail: userEmail
-        };
         const history = this.taskData.history ? [...this.taskData.history] : [];
-        history.push(newHistoryEntry);
+        history.push({
+            action: 'Görev güncellendi',
+            timestamp: new Date().toISOString(),
+            userEmail
+        });
 
         const officialDateVal = document.getElementById('taskDueDate')?.value;
         const operationalDateVal = document.getElementById('deliveryDate')?.value;
 
         const updateData = {
-            status: document.getElementById('taskStatus')?.value,
+            status: finalStatus,
             title: document.getElementById('taskTitle')?.value,
             description: document.getElementById('taskDescription')?.value,
             priority: document.getElementById('taskPriority')?.value,
-            relatedIpRecordId: this.selectedIpRecordId, 
+            relatedIpRecordId: this.selectedIpRecordId,
             relatedPartyId: this.selectedPersonId,
-            // 83 numaralı kontrol işi kaynak görevin belgelerini salt-okunur gösterir.
-            // Bu belgeleri kontrol işinin kendi task_documents kayıtlarına kopyalama.
-            documents: taskTypeStr === PETITION_REVIEW_TASK_TYPE ? undefined : this.currentDocuments,
-            history: history,
+            // Parent task belgelerini child task'a kopyalama. 83 kontrol işi zaten salt okunurdur.
+            documents: taskTypeStr === PETITION_REVIEW_TASK_TYPE ? undefined : ownDocuments,
+            history,
             officialDueDate: officialDateVal ? new Date(officialDateVal).toISOString() : null,
             dueDate: operationalDateVal ? new Date(operationalDateVal).toISOString() : null,
             operationalDueDate: operationalDateVal ? new Date(operationalDateVal).toISOString() : null
         };
 
         const res = await this.dataManager.updateTask(this.taskId, updateData);
-        
-        if (res.success) {
-            showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
-            localStorage.setItem('crossTabUpdatedTaskId', this.taskId);
-            setTimeout(() => { window.location.href = this.returnTarget; }, 1000); 
-        } else {
-            showNotification('Hata: ' + res.error, 'error');
+        if (!res.success) {
+            return showNotification('Hata: ' + res.error, 'error');
         }
+
+        // DB'nin nihai değerini doğrula. Böylece trigger/yarış kaynaklı sessiz status sapmaları görünür olur.
+        const { data: verifiedTask, error: verifyError } = await supabase
+            .from('tasks')
+            .select('status, details')
+            .eq('id', String(this.taskId))
+            .single();
+
+        if (verifyError) {
+            console.error('Kaydetme doğrulama hatası:', verifyError);
+            return showNotification('Görev kaydedildi ancak son durum doğrulanamadı. Lütfen sayfayı yenileyip kontrol edin.', 'warning');
+        }
+
+        if (verifiedTask?.status !== finalStatus) {
+            console.error('[EPATS STATUS VERIFY] İstenen / DB:', finalStatus, verifiedTask?.status);
+            return showNotification(
+                `Durum kaydı doğrulanamadı. İstenen: ${finalStatus}, veritabanındaki: ${verifiedTask?.status || '-'}. Sayfadan ayrılmadan kontrol edin.`,
+                'error'
+            );
+        }
+
+        const { data: epatsRows, error: epatsVerifyError } = await supabase
+            .from('task_documents')
+            .select('id')
+            .eq('task_id', String(this.taskId))
+            .eq('document_type', 'epats_document');
+
+        if (epatsVerifyError) {
+            console.warn('EPATS belge doğrulaması yapılamadı:', epatsVerifyError);
+        } else if (this.epatsRemovedPendingSave && (epatsRows || []).length > 0) {
+            return showNotification('EPATS evrakı silme işlemi doğrulanamadı; görevden ayrılmadan tekrar kontrol edin.', 'error');
+        } else if (ownedEpatsDoc && (epatsRows || []).length === 0) {
+            return showNotification('EPATS evrak kaydı doğrulanamadı; görevden ayrılmadan tekrar kontrol edin.', 'error');
+        }
+
+        showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
+        localStorage.setItem('crossTabUpdatedTaskId', this.taskId);
+        setTimeout(() => { window.location.href = this.returnTarget; }, 1000);
     }
 
-    // ✨ YENİ: WORD OLUŞTURMA VE İNDİRME FONKSİYONU
     async generateAndDownloadWord(geminiItirazMetni, payload) {
         try {
             console.log("Word şablonu indiriliyor...");

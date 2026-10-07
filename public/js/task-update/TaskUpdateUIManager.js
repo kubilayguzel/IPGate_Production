@@ -12,15 +12,12 @@ export class TaskUpdateUIManager {
             assignedDisplay: document.getElementById('assignedToDisplay'),
             dueDate: document.getElementById('taskDueDate'),
             deliveryDate: document.getElementById('deliveryDate'),
-            
             filesContainer: document.getElementById('fileListContainer'),
             epatsContainer: document.getElementById('epatsFileListContainer'),
             accrualsContainer: document.getElementById('accrualsContainer'),
-            
             ipSearch: document.getElementById('relatedIpRecordSearch'),
             ipResults: document.getElementById('relatedIpRecordSearchResults'),
             ipDisplay: document.getElementById('selectedIpRecordDisplay'),
-            
             partySearch: document.getElementById('relatedPartySearch'),
             partyResults: document.getElementById('relatedPartySearchResults'),
             partyDisplay: document.getElementById('selectedRelatedPartyDisplay'),
@@ -30,12 +27,10 @@ export class TaskUpdateUIManager {
     }
 
     fillForm(task, users) {
-        // Temel alanların doldurulması
         this.elements.title.value = task.title || '';
         this.elements.desc.value = task.description || '';
         this.elements.priority.value = task.priority || 'medium';
-        
-        // 🔥 TARİH (DATE PICKER) ÇÖZÜMÜ
+
         const officialFormatted = this.formatDateForInput(task.officialDueDate || task.official_due_date);
         const operationalFormatted = this.formatDateForInput(task.operationalDueDate || task.operational_due_date || task.dueDate || task.due_date);
 
@@ -48,31 +43,25 @@ export class TaskUpdateUIManager {
         if (this.elements.deliveryDate._flatpickr) {
             this.elements.deliveryDate._flatpickr.setDate(operationalFormatted, false);
         }
-        
-        // İş ID gösterimi
+
         this.elements.taskIdDisplay.value = task.id ? `#${task.id}` : '-';
 
-        // Atanan kullanıcı eşleştirmesi
         const user = users.find(u => u.id === task.assignedTo_uid);
         this.elements.assignedDisplay.value = user ? (user.displayName || user.email) : 'Atanmamış';
 
-        // 🔥 İtiraz Sahibi (Opposition Owner) Bilgisini Gösteren Blok
-        // HTML'e eklediğimiz "wrapper" üzerinden kontrol sağlıyoruz
         const oppOwnerWrapper = document.getElementById('oppositionOwnerWrapper');
         const oppOwnerDisplay = document.getElementById('oppositionOwnerDisplay');
 
         if (task.oppositionOwner && oppOwnerWrapper && oppOwnerDisplay) {
             oppOwnerDisplay.textContent = task.oppositionOwner;
-            oppOwnerWrapper.style.display = 'block'; // Tüm alanı görünür yap
+            oppOwnerWrapper.style.display = 'block';
         } else if (oppOwnerWrapper) {
-            oppOwnerWrapper.style.display = 'none'; // Veri yoksa alanı tamamen gizle
+            oppOwnerWrapper.style.display = 'none';
         }
 
-        // Durum dropdown'ını doldur
         this.populateStatusDropdown(task.status);
     }
 
-    // 🔥 GÜNCEL VE NOKTA ATIŞI: Görev Tipi 49 için Dava Açılış Kartı Düzenleyici
     buildYidkSuitForm(task, ipRecord, suitData = null) {
         console.log("🔥 Dava kartı düzenleme ve metin değişimleri tetiklendi!");
         const esc = (val) => String(val ?? '').replace(/[&<>"']/g, (m) => ({
@@ -83,12 +72,12 @@ export class TaskUpdateUIManager {
         const existingFileNo = suitData?.file_no || '';
         const existingOpeningDate = suitData?.opening_date || '';
 
-        // 🔥 YENİ: Veritabanından gelen tarafları Davacı/Davalı olarak ayır
         const existingParties = suitData?.suit_parties || [];
         const initDavaci = JSON.stringify(existingParties.filter(p => p.role === 'davaci').map(p => ({id: 'free_text', name: p.free_text_name})));
         const initDavali = JSON.stringify(existingParties.filter(p => p.role === 'davali').map(p => ({id: 'free_text', name: p.free_text_name})));
+        void initDavaci;
+        void initDavali;
 
-        // 1. Kart Başlığını ve Yükleme Alanı Metnini Değiştir
         const epatsArea = document.getElementById('epatsFileUploadArea');
         if (epatsArea) {
             const epatsCard = epatsArea.closest('.card');
@@ -97,14 +86,11 @@ export class TaskUpdateUIManager {
                 if (header) header.innerHTML = '<i class="fas fa-gavel mr-2"></i>YİDK İptal Davası Açılış Bilgileri';
             }
             const uploadLabel = epatsArea.querySelector('p, span, .upload-text');
-            if (uploadLabel) {
-                uploadLabel.textContent = 'Dava Dilekçesi ve Tevzi Formu';
-            }
+            if (uploadLabel) uploadLabel.textContent = 'Dava Dilekçesi ve Tevzi Formu';
         }
 
         const evrakNoInput = document.getElementById('turkpatentEvrakNo');
         const evrakDateInput = document.getElementById('epatsDocumentDate');
-        
         [evrakNoInput, evrakDateInput].forEach(input => {
             if (input) {
                 const wrapper = input.closest('.form-group, .col-md-6, .col-12') || input.parentElement;
@@ -123,8 +109,6 @@ export class TaskUpdateUIManager {
 
         const brandDisplay = ipRecord ? `${ipRecord.brand_name || ipRecord.brandName || ipRecord.title} (${ipRecord.application_number || ipRecord.applicationNumber || '-'})` : 'Bilinmiyor';
 
-        // 4. Yeni Dava Alanlarını Hazırla
-        // 4. Yeni Dava Alanlarını Hazırla
         const suitFieldsHtml = `
             <div id="yidkSpecificFields" class="mt-3 pt-3 border-top w-100">
                 <div class="row m-0">
@@ -134,9 +118,7 @@ export class TaskUpdateUIManager {
                     </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitCourtName" class="font-weight-bold small">Mahkeme Adı <span class="text-danger">*</span></label>
-                        <select id="suitCourtName" class="form-control select2" required>
-                            ${courtOptions}
-                        </select>
+                        <select id="suitCourtName" class="form-control select2" required>${courtOptions}</select>
                     </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitFileNo" class="font-weight-bold small">Esas Numarası <span class="text-danger">*</span></label>
@@ -147,10 +129,7 @@ export class TaskUpdateUIManager {
                         <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" value="${esc(existingOpeningDate)}" required>
                     </div>
                 </div>
-                
-                <!-- 🔥 ÇOKLU TARAF EKLEME ALANI (HEM DB ARAMA HEM SERBEST METİN) -->
                 <div class="row m-0 mt-2 border-top pt-3">
-                    <!-- DAVACILAR -->
                     <div class="col-md-6 border-right px-2">
                         <label class="font-weight-bold small text-success"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
                         <div class="d-flex mb-2" style="position:relative;">
@@ -162,8 +141,6 @@ export class TaskUpdateUIManager {
                         </div>
                         <div id="selectedSuitPlaintifsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
                     </div>
-
-                    <!-- DAVALILAR -->
                     <div class="col-md-6 px-2">
                         <label class="font-weight-bold small text-danger"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
                         <div class="d-flex mb-2" style="position:relative;">
@@ -176,8 +153,7 @@ export class TaskUpdateUIManager {
                         <div id="selectedSuitDefendantsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
                     </div>
                 </div>
-            </div>
-        `;
+            </div>`;
 
         if (epatsArea && !document.getElementById('yidkSpecificFields')) {
             epatsArea.insertAdjacentHTML('beforebegin', suitFieldsHtml);
@@ -196,8 +172,7 @@ export class TaskUpdateUIManager {
             }
         }, 100);
     }
-    
-    // Zaman dilimi sapmalarını önlemek için güvenli formatlayıcı
+
     formatDateForInput(date) {
         if (!date) return '';
         try {
@@ -225,9 +200,14 @@ export class TaskUpdateUIManager {
         this.petitionReviewEnabled = !!enabled;
     }
 
+    isInheritedDocument(doc) {
+        return !!(doc?.isInherited || String(doc?.name || '').startsWith('(Ana Görev)'));
+    }
+
     renderDocuments(docs) {
-        const epatsDoc = docs.find(d => d.type === 'epats_document');
-        const standardDocs = docs.filter(d => d.type !== 'epats_document');
+        const list = Array.isArray(docs) ? docs : [];
+        const epatsDoc = list.find(d => d.type === 'epats_document' && !this.isInheritedDocument(d));
+        const standardDocs = list.filter(d => d !== epatsDoc);
 
         const container = this.elements.filesContainer;
         if (!standardDocs || standardDocs.length === 0) {
@@ -245,9 +225,8 @@ export class TaskUpdateUIManager {
         const dateInput = document.getElementById('epatsDocumentDate');
 
         if (doc) {
-            if (doc.turkpatentEvrakNo) noInput.value = doc.turkpatentEvrakNo;
-            
-            if (doc.documentDate) {
+            if (doc.turkpatentEvrakNo && noInput) noInput.value = doc.turkpatentEvrakNo;
+            if (doc.documentDate && dateInput) {
                 const formattedDate = this.formatDateForInput(doc.documentDate);
                 dateInput.value = formattedDate;
                 if (dateInput._flatpickr) dateInput._flatpickr.setDate(formattedDate, true);
@@ -266,18 +245,20 @@ export class TaskUpdateUIManager {
     }
 
     _createFileItemHtml(d, isEpats) {
+        const isParentDocument = this.isInheritedDocument(d);
         const removeBtnId = isEpats ? 'id="removeEpatsFileBtn"' : `data-id="${d.id}"`;
         const removeClass = isEpats ? 'btn-danger' : 'btn-outline-danger btn-remove-file';
-        const iconColor = isEpats ? '#d63384' : '#e74c3c';
+        const iconColor = isEpats || d.type === 'epats_document' ? '#d63384' : '#e74c3c';
         const isPetition = !isEpats && d.type === 'petition';
         const isPreviousPetition = !isEpats && d.type === 'petition_previous';
-        const isParentDocument = String(d.name || '').startsWith('(Ana Görev)');
-        const subText = isEpats
-            ? '<span class="badge badge-info ml-2">EPATS</span>'
-            : (isPetition
-                ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
-                : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : ''));
-        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition)
+        const subText = isParentDocument && d.type === 'epats_document'
+            ? '<span class="badge badge-secondary ml-2">Ana Görev · EPATS</span>'
+            : (isEpats
+                ? '<span class="badge badge-info ml-2">EPATS</span>'
+                : (isPetition
+                    ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
+                    : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : '')));
+        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition && d.type !== 'epats_document')
             ? `<div class="custom-control custom-checkbox d-inline-flex align-items-center ml-2" title="Bu belgenin dilekçe olarak kaydedilip kaydedilmediğini gösterir.">
                     <input type="checkbox" class="custom-control-input petition-document-checkbox" id="petitionDoc_${d.id}" data-id="${d.id}" ${isPetition ? 'checked' : ''}>
                     <label class="custom-control-label small font-weight-bold text-primary mb-0" for="petitionDoc_${d.id}">Dilekçe</label>
@@ -308,8 +289,7 @@ export class TaskUpdateUIManager {
                     ${petitionToggle}
                     ${removeButton}
                 </div>
-            </div>
-        `;
+            </div>`;
     }
 
     renderSelectedIpRecord(record) {
@@ -324,8 +304,7 @@ export class TaskUpdateUIManager {
                 <strong>${record.title || record.brandName || record.brand_name}</strong>
                 <br><small>Başvuru: <span id="displayAppNumber">${record.applicationNumber || record.application_number || '-'}</span></small>
             </div>
-            <button type="button" class="btn btn-sm text-danger" id="removeIpRecordBtn">&times;</button>
-        `;
+            <button type="button" class="btn btn-sm text-danger" id="removeIpRecordBtn">&times;</button>`;
         display.style.display = 'flex';
         this.elements.ipSearch.value = '';
         this.elements.ipResults.style.display = 'none';
@@ -343,13 +322,12 @@ export class TaskUpdateUIManager {
                 <strong>${person.name}</strong>
                 <br><small>${person.email || '-'}</small>
             </div>
-            <button type="button" class="btn btn-sm text-danger" id="removeRelatedPartyBtn">&times;</button>
-        `;
+            <button type="button" class="btn btn-sm text-danger" id="removeRelatedPartyBtn">&times;</button>`;
         display.style.display = 'flex';
         this.elements.partySearch.value = '';
         this.elements.partyResults.style.display = 'none';
     }
-    
+
     ensureApplicationDataModal() {
         if (document.getElementById('applicationDataModal')) return;
 
@@ -358,9 +336,7 @@ export class TaskUpdateUIManager {
             <div class="modal-dialog modal-dialog-centered" role="document">
                 <div class="modal-content shadow-sm">
                     <div class="modal-header bg-light text-dark border-bottom">
-                        <h5 class="modal-title font-weight-bold">
-                            <i class="fas fa-file-contract mr-2"></i>Başvuru Bilgileri
-                        </h5>
+                        <h5 class="modal-title font-weight-bold"><i class="fas fa-file-contract mr-2"></i>Başvuru Bilgileri</h5>
                     </div>
                     <div class="modal-body p-4">
                         <div class="alert alert-secondary border-0 mb-4" style="font-size: 0.9em;">
@@ -396,14 +372,11 @@ export class TaskUpdateUIManager {
             <div class="modal-dialog modal-dialog-centered" role="document">
                 <div class="modal-content shadow-sm">
                     <div class="modal-header bg-light text-dark border-bottom">
-                        <h5 class="modal-title font-weight-bold">
-                            <i class="fas fa-redo mr-2"></i>Yenileme Bilgileri
-                        </h5>
+                        <h5 class="modal-title font-weight-bold"><i class="fas fa-redo mr-2"></i>Yenileme Bilgileri</h5>
                     </div>
                     <div class="modal-body p-4">
                         <div id="renewalWarningArea" class="alert alert-warning border-0 mb-4" style="display: none; font-size: 0.9em;">
-                            <i class="fas fa-exclamation-triangle mr-1"></i>
-                            <span id="renewalWarningText"></span>
+                            <i class="fas fa-exclamation-triangle mr-1"></i><span id="renewalWarningText"></span>
                         </div>
                         <div class="form-group mb-0">
                             <label class="font-weight-bold mb-1">Yeni Koruma (Yenileme) Tarihi</label>
@@ -422,7 +395,6 @@ export class TaskUpdateUIManager {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
     }
 
-    // ✨ YENİ: AI Butonu Yükleme Durumu
     setAILoadingState(isLoading) {
         if (!this.elements.aiPetitionBtn) return;
         if (isLoading) {
@@ -434,10 +406,7 @@ export class TaskUpdateUIManager {
         }
     }
 
-    // ✨ YENİ: AI Metnini Ekrana Basma
     setAIPetitionText(text) {
-        if (this.elements.aiPetitionEditor) {
-            this.elements.aiPetitionEditor.value = text;
-        }
+        if (this.elements.aiPetitionEditor) this.elements.aiPetitionEditor.value = text;
     }
 }

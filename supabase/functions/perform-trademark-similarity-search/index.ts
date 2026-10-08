@@ -484,9 +484,19 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     phase2Final = Math.max(phase2Final, substringBonus, anagramScore);
 
-    const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
+    // Tek kelimelik izlenen marka ile çok kelimeli bülten markası karşılaştırmasında
+    // ek kelimeler fonetik skoru yapay olarak düşürmesin. Bu özel senaryoda
+    // yalnızca görsel/core benzerlik skoru kullanılır.
+    const useVisualOnlyForSingleVsMulti = w1.length === 1 && w2.length > 1;
 
-    let finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
+    let finalScore;
+    if (useVisualOnlyForSingleVsMulti) {
+        finalScore = phase2Final;
+    } else {
+        const phonRaw = isPhoneticallySimilar(searchMarkNameOriginal, hitMarkNameOriginal);
+        finalScore = (phase2Final * 0.95) + (phonRaw * 0.05);
+    }
+
     finalScore = Math.max(0.0, Math.min(1.0, finalScore));
 
     return { finalScore, positionalExactMatchScore }; 

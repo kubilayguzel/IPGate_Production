@@ -1456,6 +1456,12 @@ class TaskUpdateController {
         const btnSave = document.getElementById('saveAccrualBtn');
         if (btnSave) {
             btnSave.onclick = async () => {
+                try {
+                    await this.accrualManager.ensureSingleItemRates();
+                } catch (error) {
+                    showNotification('Tek kalem fatura döviz kurları alınamadı: ' + error.message, 'error');
+                    return;
+                }
                 const result = this.accrualManager.getData();
                 if (result.success) {
                     const data = result.data;
@@ -1493,7 +1499,8 @@ class TaskUpdateController {
                     if (editingId) data.id = editingId;
 
                     try {
-                        await this.dataManager.saveAccrual(data, !!editingId);
+                        const accrualSaveResult = await this.dataManager.saveAccrual(data, !!editingId);
+                        if (accrualSaveResult?.success === false) throw new Error(accrualSaveResult.error || 'Tahakkuk kaydedilemedi.');
                         if(window.$) $('#accrualModal').modal('hide');
                         showNotification(`Tahakkuk başarıyla oluşturuldu! (Bağlı İş: #${targetTaskId})`, 'success');
                         

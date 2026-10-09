@@ -1533,10 +1533,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             document.getElementById('saveAccrualChangesBtn').addEventListener('click', async () => {
-                const formResult = this.uiManager.getEditFormData();
-                if (!formResult.success) { showNotification(formResult.error, 'error'); return; }
                 this.uiManager.toggleLoading(true);
                 try {
+                    // Düzenleme verisini okumadan önce tüm dövizleri TCMB kuru ile TL'ye çevir.
+                    await this.uiManager.editFormManager?.ensureSingleItemRates();
+                    const formResult = this.uiManager.getEditFormData();
+                    if (!formResult.success) { showNotification(formResult.error, 'error'); return; }
                     await this.dataManager.updateAccrual(document.getElementById('editAccrualId').value, formResult.data, (formResult.data.files||[])[0]);
                     this.uiManager.closeModal('editAccrualModal');
                     await this.loadData(); // 🔥 YENİ: Veritabanından departman güncellemelerini de tazeleyerek çek
@@ -1671,6 +1673,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 document.getElementById('cancelFreestyleAccrualBtn').addEventListener('click', () => { modalFreestyle.classList.remove('show'); modalFreestyle.style.display = 'none'; });
                 document.getElementById('closeFreestyleAccrualModal').addEventListener('click', () => { modalFreestyle.classList.remove('show'); modalFreestyle.style.display = 'none'; });
                 document.getElementById('saveFreestyleAccrualBtn').addEventListener('click', async () => {
+                    try {
+                        await this.freestyleFormManager.ensureSingleItemRates();
+                    } catch (error) {
+                        showNotification('Tek kalem fatura döviz kurları alınamadı: ' + error.message, 'error');
+                        return;
+                    }
                     const formResult = this.freestyleFormManager.getData();
                     if (!formResult.success) { showNotification(formResult.error, 'error'); return; }
 
@@ -1712,7 +1720,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 period: period,
                                 startDate: startDate,
                                 description: newAccrualData.description,
-                                items: newAccrualData.items // 🔥 Tam kalem detaylarını (KDV, miktar, net fiyat) kaydet
+                                items: newAccrualData.items, // 🔥 Tam kalem detaylarını (KDV, miktar, net fiyat) kaydet
+                                singleItemInvoice: newAccrualData.singleItemInvoice,
+                                singleItemInvoiceAmount: newAccrualData.singleItemInvoiceAmount,
+                                singleItemInvoiceCurrency: newAccrualData.singleItemInvoiceCurrency,
+                                singleItemInvoiceTryAmount: newAccrualData.singleItemInvoiceTryAmount,
+                                singleItemInvoiceRates: newAccrualData.singleItemInvoiceRates,
+                                singleItemInvoiceRateDate: newAccrualData.singleItemInvoiceRateDate
                             };
 
                             if (this.editingRecursiveId) {
@@ -1891,6 +1905,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 type: record.type,
                                 department: record.department || 'EVREKA', // 🔥 DB'den bölümü al
                                 description: record.description,
+                                singleItemInvoice: record.single_item_invoice === true,
+                                singleItemInvoiceAmount: record.single_item_invoice_amount,
+                                singleItemInvoiceCurrency: record.single_item_invoice_currency || 'TRY',
+                                singleItemInvoiceTryAmount: record.single_item_invoice_try_amount,
+                                singleItemInvoiceRates: record.single_item_invoice_rates,
+                                singleItemInvoiceRateDate: record.single_item_invoice_rate_date,
                                 tpInvoiceParty: person,
                                 // 🔥 Kalemleri doğrudan DB'den, kaydedildiği orjinal haliyle yüklüyoruz
                                 items: record.items && record.items.length > 0 ? record.items : [{

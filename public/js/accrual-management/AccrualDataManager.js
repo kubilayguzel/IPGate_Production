@@ -76,6 +76,12 @@ export class AccrualDataManager {
                     advisorSentAt: row.advisor_sent_at || null,
                     subject: row.subject || d.subject || '',
                     requiresInvoice: row.requires_invoice ?? true,
+                    singleItemInvoice: row.single_item_invoice === true,
+                    singleItemInvoiceAmount: row.single_item_invoice_amount,
+                    singleItemInvoiceCurrency: row.single_item_invoice_currency || 'TRY',
+                    singleItemInvoiceTryAmount: row.single_item_invoice_try_amount ?? null,
+                    singleItemInvoiceRates: row.single_item_invoice_rates || null,
+                    singleItemInvoiceRateDate: row.single_item_invoice_rate_date || null,
                     // 🔥 ESKİ 'invoiceId' VE 'invoiceId2' ALANLARI SİLİNDİ, BUNLARIN YERİNE KÖPRÜ TABLOSU KULLANILACAK
 
                     files: [
@@ -623,6 +629,12 @@ export class AccrualDataManager {
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,
+            single_item_invoice: formData.singleItemInvoice === true,
+            single_item_invoice_amount: formData.singleItemInvoice ? formData.singleItemInvoiceAmount : null,
+            single_item_invoice_currency: formData.singleItemInvoiceCurrency || 'TRY',
+            single_item_invoice_try_amount: formData.singleItemInvoice ? formData.singleItemInvoiceTryAmount : null,
+            single_item_invoice_rates: formData.singleItemInvoice ? formData.singleItemInvoiceRates : null,
+            single_item_invoice_rate_date: formData.singleItemInvoice ? formData.singleItemInvoiceRateDate : null,
         };
 
         const { error: accError } = await supabase.from('accruals').insert(finalAccrual);
@@ -687,7 +699,8 @@ export class AccrualDataManager {
                 if (!sumsMap[curr]) sumsMap[curr] = 0;
                 sumsMap[curr] += amt;
             });
-            newTotalArray = Object.entries(sumsMap).map(([c, a]) => ({ amount: a, currency: c }));
+            newTotalArray = formData.singleItemInvoice && formData.totalAmount?.length
+                ? formData.totalAmount : Object.entries(sumsMap).map(([c, a]) => ({ amount: a, currency: c }));
         } else if (formData.totalAmount && formData.totalAmount.length > 0) {
             newTotalArray = formData.totalAmount;
         }
@@ -1166,7 +1179,13 @@ export class AccrualDataManager {
                     next_trigger_date: accrualData.startDate,
                     description: accrualData.description,
                     is_active: true,
-                    items: accrualData.items 
+                    items: accrualData.items,
+                    single_item_invoice: accrualData.singleItemInvoice === true,
+                    single_item_invoice_amount: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceAmount : null,
+                    single_item_invoice_currency: accrualData.singleItemInvoiceCurrency || 'TRY',
+                    single_item_invoice_try_amount: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceTryAmount : null,
+                    single_item_invoice_rates: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceRates : null,
+                    single_item_invoice_rate_date: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceRateDate : null
                 }])
                 .select();
             if (error) throw error;
@@ -1213,7 +1232,13 @@ export class AccrualDataManager {
                     period: accrualData.period,
                     start_date: accrualData.startDate,
                     description: accrualData.description,
-                    items: accrualData.items 
+                    items: accrualData.items,
+                    single_item_invoice: accrualData.singleItemInvoice === true,
+                    single_item_invoice_amount: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceAmount : null,
+                    single_item_invoice_currency: accrualData.singleItemInvoiceCurrency || 'TRY',
+                    single_item_invoice_try_amount: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceTryAmount : null,
+                    single_item_invoice_rates: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceRates : null,
+                    single_item_invoice_rate_date: accrualData.singleItemInvoice ? accrualData.singleItemInvoiceRateDate : null
                 })
                 .eq('id', id)
                 .select();

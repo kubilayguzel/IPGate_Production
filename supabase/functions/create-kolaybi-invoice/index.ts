@@ -65,6 +65,35 @@ serve(async (req) => {
         return accObj?.department || 'EVREKA';
     };
 
+    // EVREKA tek kalem hesaplaması için yalnızca kurları döndürür (fatura oluşturmaz).
+    if (action === 'get_rates') {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError || !authData?.user) throw new Error('Döviz kuru için oturum açmış kullanıcı gereklidir.');
+        const requested = Array.isArray(body.currencies) ? body.currencies : [];
+        if (!requested.length || requested.length > 6) throw new Error('Para birimi listesi geçersiz.');
+        const supported = new Set(['TRY', 'USD', 'EUR', 'GBP', 'CHF']);
+        const currencies = [...new Set(requested.map((value: any) => String(value || '').toUpperCase().replace(/^TL$/, 'TRY')))];
+        if (currencies.some(currency => !supported.has(currency))) throw new Error('Desteklenmeyen para birimi.');
+        const rates: Record<string, number> = { TRY: 1 };
+        let rateDate: string | null = null;
+        if (currencies.some(currency => currency !== 'TRY')) {
+            const response = await fetch('https://www.tcmb.gov.tr/kurlar/today.xml');
+            if (!response.ok) throw new Error('TCMB kuru alınamadı.');
+            const xml = await response.text();
+            rateDate = xml.match(/<Tarih_Date[^>]*Date="([^"]+)"/i)?.[1] || null;
+            for (const currency of currencies) {
+                if (currency === 'TRY') continue;
+                const match = xml.match(new RegExp(`<Currency[^>]*Kod="${currency}"[^>]*>[\\s\\S]*?<ForexSelling>([\\d.]+)<\\/ForexSelling>`, 'i'));
+                const rate = match ? Number(match[1]) : NaN;
+                if (!Number.isFinite(rate) || rate <= 0) throw new Error(`${currency} için TCMB satış kuru bulunamadı.`);
+                rates[currency] = rate;
+            }
+        }
+        return new Response(JSON.stringify({ success: true, rates, rateDate }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+    }
+
     // ==============================================================================
     // İŞLEM 1: FATURA SİLME / İPTAL ETME 
     // ==============================================================================
@@ -373,6 +402,10 @@ serve(async (req) => {
         }
         
         const config = getKolaybiConfig(department);
+        const singleAccruals = accruals.filter((acc: any) => acc.single_item_invoice === true);
+        if (singleAccruals.length && (accruals.length !== 1 || config.isSmm)) {
+            throw new Error('Tek kalem EVREKA faturası sadece tek bir EVREKA tahakkuku için kullanılabilir.');
+        }
 
         const getTcmbRate = async (currencyCode: string) => {
             try {
@@ -387,6 +420,7 @@ serve(async (req) => {
             throw new Error(`Merkez Bankasından ${currencyCode} güncel satış kuru alınamadı.`);
         };
 
+        const singleInvoice = singleAccruals.length === 1 ? singleAccruals[0] : null;
         const uniqueCurrencies = new Set<string>();
         accruals.forEach((acc: any) => {
             if (acc.accrual_items) {
@@ -398,7 +432,7 @@ serve(async (req) => {
             }
         });
 
-        if (uniqueCurrencies.size > 1 && !mergeStrategy) {
+        if (!singleInvoice && uniqueCurrencies.size > 1 && !mergeStrategy) {
             return new Response(JSON.stringify({ 
                 success: false, 
                 requireMergeDecision: true,
@@ -406,7 +440,7 @@ serve(async (req) => {
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        if (mergeStrategy === 'merge_try') {
+        if (!singleInvoice && mergeStrategy === 'merge_try') {
             const rates: Record<string, number> = {};
             for (const acc of accruals) {
                 if (acc.accrual_items) {
@@ -702,7 +736,32 @@ serve(async (req) => {
 
         const groups: Record<string, any[]> = {};
 
-        accruals.forEach((acc: any) => {
+        if (singleInvoice) {
+            if (singleInvoice.requires_invoice === false)
+                throw new Error('Faturaya tabi olmayan tahakkuktan fatura oluşturulamaz.');
+            if (accrualActiveCurrencies[singleInvoice.id]?.size > 0)
+                throw new Error('Bu tahakkuk için aktif fatura bulunmaktadır. Tekrar fatura oluşturulamaz.');
+            const amount = Number(singleInvoice.single_item_invoice_amount);
+            const currency = (singleInvoice.single_item_invoice_currency || 'TRY').toUpperCase();
+            if (!Number.isFinite(amount) || amount <= 0 || !['TRY', 'USD', 'EUR', 'GBP', 'CHF'].includes(currency)) {
+                throw new Error('Tek kalem fatura tutarı/para birimi geçersiz.');
+            }
+            // Tahakkuk kaydı sırasında tüm giderlerle aynı kurlardan hesaplanmış TL matrahı.
+            // Eski kayıtlar için geriye dönük TCMB kuru çözümlemesi devam eder.
+            const savedTryAmount = Number(singleInvoice.single_item_invoice_try_amount);
+            const tryPrice = Number.isFinite(savedTryAmount) && savedTryAmount > 0
+                ? savedTryAmount : Number((amount * (currency === 'TRY' ? 1 : await getTcmbRate(currency))).toFixed(2));
+            if (!Number.isFinite(tryPrice) || tryPrice <= 0) throw new Error('TL karşılığı pozitif olmalıdır.');
+            const oldService = (singleInvoice.accrual_items || []).find((item: any) => item.fee_type === 'Hizmet');
+            const vat = isTevkifatli ? 20 : Number(oldService?.vat_rate ?? 20);
+            if (![0, 1, 10, 20].includes(vat)) throw new Error('Hizmet KDV oranı geçersiz.');
+            const docType = isTevkifatli ? 'TEVKIFAT' : 'SATIS';
+            groups[`TRY_${docType}`] = [{
+                fee_type: 'Hizmet', item_name: 'EVREKA Hizmet Bedeli',
+                qty: 1, price: tryPrice, vat,
+                combinedName: 'EVREKA Hizmet Bedeli', docType, currency: 'TRY'
+            }];
+        } else accruals.forEach((acc: any) => {
             if (acc.accrual_items && acc.accrual_items.length > 0) {
                 acc.accrual_items.forEach((item: any) => {
                     

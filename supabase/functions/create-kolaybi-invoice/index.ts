@@ -67,8 +67,13 @@ serve(async (req) => {
 
     // EVREKA tek kalem hesaplaması için yalnızca kurları döndürür (fatura oluşturmaz).
     if (action === 'get_rates') {
-        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
-        if (authError || !authData?.user) throw new Error('Döviz kuru için oturum açmış kullanıcı gereklidir.');
+        // Explicitly validate the JWT supplied in the function request.
+        // Edge Functions do not have browser session storage for auth.getUser().
+        const bearer = req.headers.get('Authorization') || '';
+        const jwt = bearer.match(/^Bearer\s+(.+)$/i)?.[1];
+        if (!jwt) throw new Error('Döviz kuru sorgusu için kullanıcı oturum tokenı bulunamadı.');
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser(jwt);
+        if (authError || !authData?.user) throw new Error('Döviz kuru için kullanıcı oturumu geçersiz veya süresi dolmuş.');
         const requested = Array.isArray(body.currencies) ? body.currencies : [];
         if (!requested.length || requested.length > 6) throw new Error('Para birimi listesi geçersiz.');
         const supported = new Set(['TRY', 'USD', 'EUR', 'GBP', 'CHF']);
@@ -746,20 +751,15 @@ serve(async (req) => {
             if (!Number.isFinite(amount) || amount <= 0 || !['TRY', 'USD', 'EUR', 'GBP', 'CHF'].includes(currency)) {
                 throw new Error('Tek kalem fatura tutarı/para birimi geçersiz.');
             }
-            // Tahakkuk kaydı sırasında tüm giderlerle aynı kurlardan hesaplanmış TL matrahı.
-            // Eski kayıtlar için geriye dönük TCMB kuru çözümlemesi devam eder.
-            const savedTryAmount = Number(singleInvoice.single_item_invoice_try_amount);
-            const tryPrice = Number.isFinite(savedTryAmount) && savedTryAmount > 0
-                ? savedTryAmount : Number((amount * (currency === 'TRY' ? 1 : await getTcmbRate(currency))).toFixed(2));
-            if (!Number.isFinite(tryPrice) || tryPrice <= 0) throw new Error('TL karşılığı pozitif olmalıdır.');
+            // Fatura seçilen dövizde KDV hariç matrah ve %20 KDV ile kesilir.
+            // TL dönüşümü sadece tahakkuktaki gider-hizmet ayrıştırmasında kullanılır.
             const oldService = (singleInvoice.accrual_items || []).find((item: any) => item.fee_type === 'Hizmet');
-            const vat = isTevkifatli ? 20 : Number(oldService?.vat_rate ?? 20);
-            if (![0, 1, 10, 20].includes(vat)) throw new Error('Hizmet KDV oranı geçersiz.');
+            if (!oldService) throw new Error('Tek kalem fatura için tahakkukta hesaplanmış EVREKA hizmet kalemi bulunamadı.');
             const docType = isTevkifatli ? 'TEVKIFAT' : 'SATIS';
-            groups[`TRY_${docType}`] = [{
+            groups[`${currency}_${docType}`] = [{
                 fee_type: 'Hizmet', item_name: 'EVREKA Hizmet Bedeli',
-                qty: 1, price: tryPrice, vat,
-                combinedName: 'EVREKA Hizmet Bedeli', docType, currency: 'TRY'
+                qty: 1, price: amount, vat: 20,
+                combinedName: 'EVREKA Hizmet Bedeli', docType, currency
             }];
         } else accruals.forEach((acc: any) => {
             if (acc.accrual_items && acc.accrual_items.length > 0) {
@@ -810,7 +810,7 @@ serve(async (req) => {
         });
 
         // 🔥 GÜNCELLENEN BELGE OLUŞTURMA MOTORU (SMM Aritmetiğine Tam Uyumlu + Tevkifat Düzeltmesi)
-        const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string): Promise<any> => {
+        const createDocumentInKolaybi = async (items: any[], docType: string, invoiceCurrency: string, forceScenario?: string, fixedExchangeRate?: number): Promise<any> => {
             if (items.length === 0) return null;
             
             const invoiceParams = new URLSearchParams();
@@ -852,7 +852,9 @@ serve(async (req) => {
             let currentExchangeRate = 1;
 
             if (invoiceCurrency !== 'TRY') {
-                currentExchangeRate = await getTcmbRate(invoiceCurrency);
+                // Tek kalemde tahakkuk sırasında kullanılan kur korunur.
+                currentExchangeRate = Number.isFinite(fixedExchangeRate) && Number(fixedExchangeRate) > 0
+                    ? Number(fixedExchangeRate) : await getTcmbRate(invoiceCurrency);
                 const formattedRate = currentExchangeRate.toFixed(4); 
                 invoiceParams.append("exchange_rate", formattedRate); 
                 localDescription += `\nBelge Kuru: 1 ${invoiceCurrency} = ${formattedRate} TL`;
@@ -973,7 +975,7 @@ serve(async (req) => {
             if (!invoiceReq.ok || invoiceRes.success === false) {
                 const errorMessage = invoiceRes.message || JSON.stringify(invoiceRes);
                 if (!config.isSmm && errorMessage.includes("e-Fatura kullanıcısına e-Arşiv gönderilemez") && (!forceScenario)) {
-                    return await createDocumentInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA");
+                    return await createDocumentInKolaybi(items, docType, invoiceCurrency, "TICARIFATURA", fixedExchangeRate);
                 }
                 const displayType = config.isSmm ? "SMM" : docType;
                 throw new Error(`[${displayType} - ${invoiceCurrency}] Hata: ${errorMessage}`);
@@ -997,7 +999,9 @@ serve(async (req) => {
                 const currency = items[0].currency;
                 const docType = items[0].docType;
 
-                const result = await createDocumentInKolaybi(items, docType, currency);
+                const savedRate = singleInvoice && currency !== 'TRY'
+                    ? Number(singleInvoice.single_item_invoice_rates?.[currency]) : undefined;
+                const result = await createDocumentInKolaybi(items, docType, currency, undefined, savedRate);
                 if (result && result.kolaybiId) {
                     createdKolaybiDocIds.push(String(result.kolaybiId));
                     

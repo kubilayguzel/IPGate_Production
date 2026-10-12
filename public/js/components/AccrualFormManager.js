@@ -112,7 +112,7 @@ export class AccrualFormManager {
                                     <option value="CHF">CHF</option>
                                 </select>
                             </div>
-                            <small class="text-muted">Tüm kalemler TCMB döviz satış kuru ile TL'ye çevrilir. Faturaya yalnızca EVREKA Hizmet Bedeli (TL) gönderilir.</small>
+                            <small class="text-muted">Fatura seçilen dövizde tek EVREKA Hizmet Bedeli kalemiyle %20 KDV eklenerek oluşturulur. Tahakkukta giderler TL’ye çevrilip KDV dâhil toplamdan düşülür.</small>
                             <small id="${p}SingleItemInvoicePreview" class="d-block mt-1 font-weight-bold text-primary"></small>
                         </div>
                     </div>
@@ -257,7 +257,7 @@ export class AccrualFormManager {
         const updateSingleChoice = () => {
             if (singleFields) singleFields.style.display = singleChoice?.checked ? 'block' : 'none';
             if (singleChoice?.checked && notInvoiceable) notInvoiceable.checked = false;
-            this.updateSingleItemInvoicePreview();
+            this.calculateTotal();
         };
         singleChoice?.addEventListener('change', updateSingleChoice);
         notInvoiceable?.addEventListener('change', () => {
@@ -266,11 +266,21 @@ export class AccrualFormManager {
                 updateSingleChoice();
             }
         });
-        document.getElementById(`${p}SingleItemInvoiceAmount`)?.addEventListener('input', () => this.updateSingleItemInvoicePreview());
-        document.getElementById(`${p}SingleItemInvoiceCurrency`)?.addEventListener('change', () => this.updateSingleItemInvoicePreview());
+        document.getElementById(`${p}SingleItemInvoiceAmount`)?.addEventListener('input', () => this.calculateTotal());
+        document.getElementById(`${p}SingleItemInvoiceCurrency`)?.addEventListener('change', () => this.calculateTotal());
         const itemBody = document.getElementById(`${p}LineItemsBody`);
-        itemBody?.addEventListener('input', () => this.updateSingleItemInvoicePreview());
-        itemBody?.addEventListener('change', () => this.updateSingleItemInvoicePreview());
+        itemBody?.addEventListener('input', event => {
+            if (event.target.classList?.contains('single-item-calculated-vat')) {
+                this.singleItemServiceVatRate = Number(event.target.value);
+            }
+            this.updateSingleItemInvoicePreview();
+        });
+        itemBody?.addEventListener('change', event => {
+            if (event.target.classList?.contains('single-item-calculated-vat')) {
+                this.singleItemServiceVatRate = Number(event.target.value);
+            }
+            this.calculateTotal();
+        });
 
         // 🔥 YENİ: Tekrarlayan Tahakkuk Form Dinleyicisi
         if (this.isFreestyle) {
@@ -315,7 +325,11 @@ export class AccrualFormManager {
             if (nameEl) nameEl.textContent = e.target.files[0] ? e.target.files[0].name : '';
         });
 
-        document.getElementById(`${p}AddLineItemBtn`)?.addEventListener('click', () => this.addLineItem());
+        document.getElementById(`${p}AddLineItemBtn`)?.addEventListener('click', () => {
+            const selected = document.getElementById(`${p}SingleItemInvoice`)?.checked === true;
+            // Tek kalemde hizmet otomatik hesaplanır; kullanıcı eklediği diğer kalemleri görüp düzenleyebilmelidir.
+            this.addLineItem(selected ? { fee_type: 'Masraf', quantity: 1, unit_price: 0, vat_rate: 0, currency: 'TRY' } : {});
+        });
         const autoCalcBtn = document.getElementById(`${p}AutoCalcBtn`);
         if (autoCalcBtn) {
             autoCalcBtn.addEventListener('click', () => {
@@ -354,7 +368,7 @@ export class AccrualFormManager {
         const wanted = new Set([document.getElementById(`${p}SingleItemInvoiceCurrency`)?.value || 'TRY']);
         document.querySelectorAll(`#${p}LineItemsBody tr`).forEach(tr => {
             const type = tr.querySelector('.item-type')?.value;
-            if (['TP Harç', 'Harç', 'Yurtdışı Maliyet', 'Yurtdışı Gider'].includes(type)) {
+            if (type && type !== 'Hizmet') {
                 wanted.add(tr.querySelector('.item-currency')?.value || 'TRY');
             }
         });
@@ -367,7 +381,14 @@ export class AccrualFormManager {
             return this.ensureSingleItemRates();
         }
         this.singleItemRatePromise = (async () => {
+            // Edge Function get_rates uses the logged-in user's JWT, not the anon project key.
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            const accessToken = sessionData?.session?.access_token;
+            if (sessionError || !accessToken) {
+                throw new Error('Supabase kullanıcı oturumu bulunamadı. Yeniden giriş yapın.');
+            }
             const { data, error } = await supabase.functions.invoke('create-kolaybi-invoice', {
+                headers: { Authorization: `Bearer ${accessToken}` },
                 body: { action: 'get_rates', currencies: missing }
             });
             if (error || !data?.success || !data?.rates) {
@@ -384,36 +405,131 @@ export class AccrualFormManager {
         finally { this.singleItemRatePromise = null; }
     }
 
+    // Tek bir hesaplama kaynağı: fatura net + %20 KDV = brüt fatura;
+    // diğer tahakkuk kalemlerinin KDV dahil karşılıkları TL'ye dönüştürülüp düşülür.
+    // Kalan tutar hizmetin KDV DAHİL bedelidir; hizmetin net birim fiyatı geriye çözülür.
+    getSingleItemInvoiceCalculation() {
+        const p = this.prefix;
+        if (document.getElementById(`${p}SingleItemInvoice`)?.checked !== true) return null;
+        const raw = document.getElementById(`${p}SingleItemInvoiceAmount`)?.value;
+        const amount = raw === '' ? NaN : Number(raw);
+        if (!Number.isFinite(amount) || amount <= 0) return { error: 'KDV hariç pozitif bir fatura tutarı girin.' };
+        const normalize = code => code === 'TL' ? 'TRY' : (code || 'TRY');
+        const currency = normalize(document.getElementById(`${p}SingleItemInvoiceCurrency`)?.value || 'TRY');
+        const rows = [...document.querySelectorAll(`#${p}LineItemsBody tr:not(.single-item-service-row)`)] || [];
+        // Hizmet türü dışındaki bütün türler indirilecek tahakkuk kalemidir.
+        // Yeni açılmış boş satırlar hesaba katılmaz, fakat tutarı doluysa açıklama zorunludur.
+        const expenses = rows.filter(row => row.querySelector('.item-type')?.value !== 'Hizmet' &&
+            (Number(row.querySelector('.item-price')?.value || 0) > 0 || !!row.querySelector('.item-name')?.value?.trim()));
+        if (expenses.some(row => !row.querySelector('.item-name')?.value?.trim()))
+            return { error: 'Tutar girilen gider/diğer kalemlerin açıklamasını doldurun.' };
+        if (expenses.some(row => !Number.isFinite(Number(row.querySelector('.item-qty')?.value)) ||
+            Number(row.querySelector('.item-qty')?.value) <= 0 ||
+            !Number.isFinite(Number(row.querySelector('.item-price')?.value)) ||
+            Number(row.querySelector('.item-price')?.value) < 0))
+            return { error: 'Gider/diğer kalem miktarı ve tutarı geçerli olmalıdır.' };
+        const requiredCurrencies = [...new Set([currency, ...expenses.map(row => normalize(row.querySelector('.item-currency')?.value))])];
+        const rates = this.singleItemRates || { TRY: 1 };
+        if (requiredCurrencies.some(code => !Number.isFinite(Number(rates[code])) || Number(rates[code]) <= 0))
+            return { missingRates: true, requiredCurrencies };
+        const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
+        const invoiceVatRate = 20; // Kullanıcının belirlediği fatura kuralı.
+        const invoiceGrossCurrency = round(amount * (1 + invoiceVatRate / 100));
+        const invoiceNetTry = round(amount * Number(rates[currency]));
+        const invoiceGrossTry = round(invoiceGrossCurrency * Number(rates[currency]));
+        const expenseNetTry = round(expenses.reduce((sum, row) => {
+            const q = Number(row.querySelector('.item-qty').value);
+            const price = Number(row.querySelector('.item-price').value);
+            return sum + round(q * price) * Number(rates[normalize(row.querySelector('.item-currency').value)]);
+        }, 0));
+        // Her gider kalemi faturadaki bedelden, formdaki kendi KDV durumu dahil edilerek düşülür.
+        // Yeni eklenen giderlerde varsayılan KDV sıfırdır; kullanıcı ihtiyaç varsa değiştirebilir.
+        const expenseGrossTry = round(expenses.reduce((sum, row) => {
+            const q = Number(row.querySelector('.item-qty').value);
+            const price = Number(row.querySelector('.item-price').value);
+            const vat = Number(row.querySelector('.item-vat').value) || 0;
+            return sum + round(q * price * (1 + vat / 100)) * Number(rates[normalize(row.querySelector('.item-currency').value)]);
+        }, 0));
+        const serviceGrossTry = round(invoiceGrossTry - expenseGrossTry);
+        if (serviceGrossTry < 0) return {
+            error: `Diğer kalemlerin TL toplamı (${expenseGrossTry.toFixed(2)} TL), KDV dahil fatura toplamını (${invoiceGrossTry.toFixed(2)} TL) aşıyor.`
+        };
+        const serviceRow = rows.find(row => row.querySelector('.item-type')?.value === 'Hizmet');
+        const vatRate = this.singleItemServiceVatRate ?? Number(serviceRow?.querySelector('.item-vat')?.value ?? 20);
+        if (![0, 1, 10, 20].includes(vatRate)) return { error: 'EVREKA hizmet KDV oranı 0, 1, 10 veya 20 olmalıdır.' };
+        const serviceNetTry = round(serviceGrossTry / (1 + vatRate / 100));
+        return {
+            amount, currency, invoiceVatRate, invoiceGrossCurrency, invoiceNetTry, invoiceGrossTry,
+            expenseNetTry, expenseGrossTry, serviceNetTry, serviceGrossTry, vatRate,
+            totalTry: invoiceGrossTry,
+            netTotalTry: round(expenseNetTry + serviceNetTry), requiredCurrencies, rates,
+            expenseRows: expenses
+        };
+    }
+
     updateSingleItemInvoicePreview() {
         const p = this.prefix;
         const label = document.getElementById(`${p}SingleItemInvoicePreview`);
-        if (!label || !document.getElementById(`${p}SingleItemInvoice`)?.checked) return;
-        const amount = Number(document.getElementById(`${p}SingleItemInvoiceAmount`)?.value);
-        if (!Number.isFinite(amount) || amount <= 0) { label.textContent = 'Pozitif bir KDV hariç tutar girin.'; return; }
-        const currency = document.getElementById(`${p}SingleItemInvoiceCurrency`)?.value || 'TRY';
-        const expenses = [...document.querySelectorAll(`#${p}LineItemsBody tr`)].filter(tr =>
-            ['TP Harç', 'Harç', 'Yurtdışı Maliyet', 'Yurtdışı Gider'].includes(tr.querySelector('.item-type')?.value)
-        );
-        const rates = this.singleItemRates || { TRY: 1 };
-        const requiredCurrencies = [currency, ...expenses.map(tr => tr.querySelector('.item-currency')?.value || 'TRY')];
-        if (requiredCurrencies.some(code => !Number.isFinite(Number(rates[code])) || Number(rates[code]) <= 0)) {
-            label.textContent = 'TCMB döviz kurları yükleniyor...';
-            this.ensureSingleItemRates().then(() => this.updateSingleItemInvoicePreview())
-                .catch(error => { label.textContent = 'Kur alınamadı: ' + error.message; });
+        const body = document.getElementById(`${p}LineItemsBody`);
+        if (!label || !body) return;
+        const enabled = document.getElementById(`${p}SingleItemInvoice`)?.checked === true;
+        let derived = body.querySelector('.single-item-service-row');
+        // Existing manual service rows are preserved for when the option is unchecked.
+        body.querySelectorAll('tr:not(.single-item-service-row)').forEach(row => {
+            const serviceOption = row.querySelector('.item-type option[value="Hizmet"]');
+            if (serviceOption) serviceOption.disabled = enabled;
+            if (row.querySelector('.item-type')?.value === 'Hizmet') {
+                row.style.display = enabled ? 'none' : '';
+            } else {
+                row.style.display = '';
+            }
+        });
+        if (!enabled) {
+            derived?.remove();
+            label.textContent = '';
             return;
         }
-        const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
-        const invoiceTry = round(amount * rates[currency]);
-        const expenseTry = round(expenses.reduce((sum, tr) => sum +
-            Number(tr.querySelector('.item-qty')?.value || 0) * Number(tr.querySelector('.item-price')?.value || 0) *
-            rates[tr.querySelector('.item-currency')?.value || 'TRY'], 0));
-        if (expenseTry > invoiceTry) {
-            label.textContent = `Giderlerin TL karşılığı (${expenseTry.toFixed(2)} TL) fatura matrahını (${invoiceTry.toFixed(2)} TL) aşıyor.`;
+        const calculation = this.getSingleItemInvoiceCalculation();
+        const totalElement = document.getElementById(`${p}TotalValueContent`);
+        const netElement = document.getElementById(`${p}NetTotalValueContent`);
+        const setUnavailable = message => {
+            derived?.remove();
+            label.textContent = message;
+            if (totalElement) totalElement.textContent = 'Hesaplama bekleniyor';
+            if (netElement) netElement.textContent = '—';
+        };
+        if (calculation?.error) { setUnavailable(calculation.error); return; }
+        if (calculation?.missingRates) {
+            setUnavailable('TCMB döviz kurları alınıyor...');
+            this.ensureSingleItemRates().then(() => this.calculateTotal())
+                .catch(error => setUnavailable('Döviz kuru alınamadı: ' + error.message));
             return;
         }
-        const vat = Number([...document.querySelectorAll(`#${p}LineItemsBody tr`)]
-            .find(tr => tr.querySelector('.item-type')?.value === 'Hizmet')?.querySelector('.item-vat')?.value ?? 20);
-        label.textContent = `Fatura matrahı: ${invoiceTry.toFixed(2)} TL | Harç/gider: ${expenseTry.toFixed(2)} TL | EVREKA hizmet: ${(invoiceTry - expenseTry).toFixed(2)} TL + %${vat} KDV`;
+        const format = value => new Intl.NumberFormat('tr-TR', {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+        }).format(value);
+        if (!derived) {
+            derived = document.createElement('tr');
+            derived.className = 'single-item-service-row';
+            derived.style.backgroundColor = '#e7f8ef';
+        }
+        // Yeni kullanıcı satırları her zaman hesaplanan hizmet satırının üstünde kalır.
+        body.appendChild(derived);
+        derived.innerHTML = `
+            <td class="align-middle font-weight-bold text-success">EVREKA Hizmet Bedeli</td>
+            <td class="align-middle">Otomatik hesaplanan hizmet bedeli</td>
+            <td class="align-middle text-center">1</td>
+            <td class="align-middle text-right font-weight-bold">${format(calculation.serviceNetTry)}</td>
+            <td><select class="form-control form-control-sm single-item-calculated-vat" aria-label="Hizmet KDV oranı">
+                ${[0, 1, 10, 20].map(rate => `<option value="${rate}" ${calculation.vatRate === rate ? 'selected' : ''}>${rate}%</option>`).join('')}
+            </select></td>
+            <td class="align-middle text-center">TRY</td>
+            <td class="align-middle text-right font-weight-bold">${format(calculation.serviceGrossTry)}</td>
+            <td class="align-middle text-center" title="Otomatik hesaplanır"><i class="fas fa-lock text-success"></i></td>`;
+        if (this.currentData?.status === 'paid') derived.querySelector('select').disabled = true;
+        label.textContent = `Fatura: ${format(calculation.amount)} ${calculation.currency} + %20 KDV = ${format(calculation.invoiceGrossCurrency)} ${calculation.currency} (${format(calculation.invoiceGrossTry)} TL) | Diğer kalemler: ${format(calculation.expenseGrossTry)} TL | EVREKA hizmet (KDV dahil): ${format(calculation.serviceGrossTry)} TL`;
+        if (totalElement) totalElement.textContent = `${format(calculation.totalTry)} TRY`;
+        if (netElement) netElement.textContent = `${format(calculation.netTotalTry)} TRY`;
     }
 
     updateLineItemTypes(department) {
@@ -494,6 +610,9 @@ export class AccrualFormManager {
 
     addLineItem(item = {}) {
         const tbody = document.getElementById(`${this.prefix}LineItemsBody`);
+        const singleSelected = document.getElementById(`${this.prefix}SingleItemInvoice`)?.checked === true;
+        // Manuel yeni satırın Hizmet olması önceki sürümde satırın otomatik gizlenmesine neden oluyordu.
+        if (singleSelected && !item.fee_type) item = { fee_type: 'Masraf', quantity: 1, vat_rate: 0, ...item };
         const tr = document.createElement('tr');
         
         // 🔥 ÇÖZÜM: Çift tırnak ve tek tırnak işaretlerinin HTML'i bozmasını engelliyoruz (Encode işlemi)
@@ -538,7 +657,11 @@ export class AccrualFormManager {
         `;
         
         tbody.appendChild(tr);
-
+        if (singleSelected) {
+            const option = tr.querySelector('.item-type option[value="Hizmet"]');
+            if (option) option.disabled = true; // Hizmet, tek kalem modunda sadece hesaplanan satırdır.
+        }
+ 
         const updateRowStyle = () => {
             const type = tr.querySelector('.item-type').value;
             if (type === 'Hizmet' || type === 'Hukuk Danışmanlık') {
@@ -732,6 +855,8 @@ export class AccrualFormManager {
                 netValueSpan.innerHTML = netParts.join(' + ');
             }
         }
+        // Genel toplam her değiştiğinde tek kalem TL hesabını da güncelle.
+        this.updateSingleItemInvoicePreview();
     }
 
     setupSearch(baseId, onSelect) {
@@ -898,6 +1023,7 @@ export class AccrualFormManager {
         if (document.getElementById(`${p}ForeignInvoiceFileName`)) document.getElementById(`${p}ForeignInvoiceFileName`).textContent = '';
         if (document.getElementById(`${p}EpatsDocumentContainer`)) document.getElementById(`${p}EpatsDocumentContainer`).style.display = 'none';
         if (document.getElementById(`${p}NotInvoiceable`)) document.getElementById(`${p}NotInvoiceable`).checked = false;
+        this.singleItemServiceVatRate = null;
         const singleChoice = document.getElementById(`${p}SingleItemInvoice`);
         if (singleChoice) {
             singleChoice.checked = false;
@@ -919,6 +1045,7 @@ export class AccrualFormManager {
         if(!data) return;
         
         this.currentData = data;
+        this.singleItemServiceVatRate = null;
         this.singleItemRates = { TRY: 1 };
         this.singleItemRateDate = null;
         this.originalRemainingAmount = data.remainingAmount || null;
@@ -1087,7 +1214,7 @@ export class AccrualFormManager {
         const servicePartyForData = isForeignForData && this.selectedForeignParty ? this.selectedForeignParty : tpPartyForData;
         let isTevkifatliData = servicePartyForData ? (servicePartyForData.has_tevkifat === true) : false;
 
-        document.querySelectorAll(`#${p}LineItemsBody tr`).forEach(tr => {
+        document.querySelectorAll(`#${p}LineItemsBody tr:not(.single-item-service-row)`).forEach(tr => {
             const fee_type = tr.querySelector('.item-type').value;
             const item_name = tr.querySelector('.item-name').value.trim();
             const quantity = parseFloat(tr.querySelector('.item-qty').value) || 0;
@@ -1152,46 +1279,24 @@ export class AccrualFormManager {
             const activeInvoices = (this.currentData?.linkedInvoices || []).filter(inv =>
                 !['cancelled', 'canceled', 'rejected', 'declined', 'failed'].includes(String(inv.status || '').toLowerCase()));
             if (activeInvoices.length) return { success: false, error: 'Faturası oluşturulmuş tahakkukta tek kalem tutarı değiştirilemez.' };
-            if (!Number.isFinite(singleItemInvoiceAmount) || singleItemInvoiceAmount <= 0)
-                return { success: false, error: 'Tek kalem fatura için geçerli, KDV hariç pozitif tutar girin.' };
-            const expenseTypes = ['TP Harç', 'Harç', 'Yurtdışı Maliyet', 'Yurtdışı Gider'];
-            const expenseItems = items.filter(item => expenseTypes.includes(item.fee_type));
-            const otherItems = items.filter(item => !expenseTypes.includes(item.fee_type) && item.fee_type !== 'Hizmet');
-            if (otherItems.some(item => Number(item.unit_price) * Number(item.quantity) > 0))
-                return { success: false, error: 'Tek kalem düzenlemede yalnızca TP Harç, Yurtdışı Maliyet/Gider ve EVREKA Hizmet türleri bulunabilir. Diğer kalemleri düzenleyin.' };
-            if (expenseItems.some(item => !Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) < 0 || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0))
-                return { success: false, error: 'Harç/gider kalemlerinin miktarı ve tutarı geçerli olmalıdır.' };
-            const rates = this.singleItemRates || { TRY: 1 };
-            const requiredCurrencies = [singleItemInvoiceCurrency, ...expenseItems.map(item => item.currency || 'TRY')];
-            if (requiredCurrencies.some(currency => !Number.isFinite(Number(rates[currency])) || rates[currency] <= 0))
+            const calculation = this.getSingleItemInvoiceCalculation();
+            if (calculation?.error) return { success: false, error: calculation.error };
+            if (calculation?.missingRates || !calculation)
                 return { success: false, error: 'TCMB döviz kurları alınamadı; tutarlar TL’ye dönüştürülemedi.' };
-            const toCent = amount => Math.round((amount + Number.EPSILON) * 100) / 100;
-            const invoiceNetTry = toCent(singleItemInvoiceAmount * rates[singleItemInvoiceCurrency]);
-            const expenseNetTry = toCent(expenseItems.reduce((sum, item) =>
-                sum + Number(item.quantity) * Number(item.unit_price) * rates[item.currency || 'TRY'], 0));
-            const serviceNetTry = toCent(invoiceNetTry - expenseNetTry);
-            if (serviceNetTry < 0)
-                return { success: false, error: `Harç/gider (${expenseNetTry.toFixed(2)} TL), KDV hariç fatura matrahını (${invoiceNetTry.toFixed(2)} TL) aşıyor.` };
-            const oldService = items.find(item => item.fee_type === 'Hizmet');
-            const vatRate = isTevkifatliData ? 20 : Number(oldService?.vat_rate ?? 20);
-            if (![0, 1, 10, 20].includes(vatRate)) return { success: false, error: 'EVREKA hizmet KDV oranı 0, 1, 10 veya 20 olmalıdır.' };
+            const expenseItems = items.filter(item => item.fee_type !== 'Hizmet');
             items.splice(0, items.length, ...expenseItems);
-            if (serviceNetTry > 0) items.push({
+            if (calculation.serviceGrossTry >= 0) items.push({
                 fee_type: 'Hizmet', item_name: 'EVREKA Hizmet Bedeli', quantity: 1,
-                unit_price: serviceNetTry, vat_rate: vatRate,
-                total_amount: toCent(serviceNetTry * (1 + vatRate / 100)),
-                currency: 'TRY'
+                unit_price: calculation.serviceNetTry, vat_rate: calculation.vatRate,
+                total_amount: calculation.serviceGrossTry, currency: 'TRY'
             });
             Object.keys(totalsMap).forEach(key => delete totalsMap[key]);
-            // Giderler orijinal döviz ve bedelleriyle saklanır; sadece hesaplamada TL kullanılır.
-            const expenseGrossTry = toCent(expenseItems.reduce((sum, item) =>
-                sum + Number(item.total_amount) * rates[item.currency || 'TRY'], 0));
-            const effectiveVat = isTevkifatliData ? vatRate * 0.1 : vatRate;
-            totalsMap.TRY = toCent(expenseGrossTry + serviceNetTry * (1 + effectiveVat / 100));
-            fallbackOffAmount = expenseNetTry;
-            fallbackSrvAmount = serviceNetTry;
-            this.singleItemInvoiceTryAmount = invoiceNetTry;
-            this.singleItemInvoiceRates = Object.fromEntries(requiredCurrencies.map(currency => [currency, Number(rates[currency])]));
+            totalsMap.TRY = calculation.totalTry;
+            fallbackOffAmount = calculation.expenseGrossTry;
+            fallbackSrvAmount = calculation.serviceNetTry;
+            this.singleItemInvoiceTryAmount = calculation.invoiceNetTry;
+            this.singleItemInvoiceRates = Object.fromEntries(
+                calculation.requiredCurrencies.map(currency => [currency, Number(calculation.rates[currency])]));
         }
         if (items.length === 0) {
             return { success: false, error: 'Fatura oluşturabilmek için en az 1 tane geçerli kalem (satır) girmelisiniz.' };

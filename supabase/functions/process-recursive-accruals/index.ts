@@ -43,7 +43,7 @@ async function getCurrentTryRates(currencies: string[]): Promise<Record<string, 
     return rates;
 }
 const roundTry = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
-const expenseTypes = ['TP Harç', 'Harç', 'Yurtdışı Maliyet', 'Yurtdışı Gider'];
+// EVREKA Hizmet Bedeli dışındaki tüm tahakkuk türleri indirim kalemidir.
 
 serve(async (req) => {
     try {
@@ -79,32 +79,32 @@ serve(async (req) => {
                     const currency = (t.single_item_invoice_currency || 'TRY').toUpperCase();
                     const amount = Number(t.single_item_invoice_amount);
                     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Fatura matrahı geçersiz.');
-                    const expenses = (Array.isArray(t.items) ? t.items : []).filter((i: any) => expenseTypes.includes(i.fee_type));
-                    const other = (Array.isArray(t.items) ? t.items : []).filter((i: any) => !expenseTypes.includes(i.fee_type) && i.fee_type !== 'Hizmet');
-                    if (other.some((i: any) => Number(i.quantity) * Number(i.unit_price) > 0)) throw new Error('Uyumsuz gider/hizmet kalemi.');
+                    const expenses = (Array.isArray(t.items) ? t.items : [])
+                        .filter((i: any) => i.fee_type !== 'Hizmet' && Number(i.quantity) * Number(i.unit_price) > 0);
                     const rates = await getCurrentTryRates([currency, ...expenses.map((i: any) => i.currency || 'TRY')]);
                     const netTry = roundTry(amount * rates[currency]);
-                    const expenseTry = roundTry(expenses.reduce((sum: number, i: any) => sum + Number(i.unit_price) * Number(i.quantity) * rates[(i.currency || 'TRY').toUpperCase()], 0));
-                    const serviceTry = roundTry(netTry - expenseTry);
-                    if (serviceTry < 0) throw new Error('Harç/gider toplamı fatura matrahını aşıyor.');
+                    const invoiceGrossCurrency = roundTry(amount * 1.2); // Dış faturada KDV sabit %20
+                    const invoiceGrossTry = roundTry(invoiceGrossCurrency * rates[currency]);
                     const oldService = (t.items || []).find((i: any) => i.fee_type === 'Hizmet');
                     const vatRate = Number(oldService?.vat_rate ?? 20);
                     if (![0, 1, 10, 20].includes(vatRate)) throw new Error('Hizmet KDV oranı geçersiz.');
-                    const { data: person, error: personError } = await supabase.from('persons').select('has_tevkifat').eq('id', t.person_id).maybeSingle();
-                    if (personError) throw personError;
-                    const effectiveVat = person?.has_tevkifat === true ? vatRate * 0.1 : vatRate;
+                    const expenseTry = roundTry(expenses.reduce((sum: number, i: any) =>
+                        sum + roundTry(Number(i.quantity) * Number(i.unit_price)) * rates[(i.currency || 'TRY').toUpperCase()], 0));
                     const expenseGrossTry = roundTry(expenses.reduce((sum: number, i: any) => {
-                        const quantity = Number(i.quantity), unitPrice = Number(i.unit_price), vat = Number(i.vat_rate || 0);
-                        return sum + (Number.isFinite(Number(i.total_amount)) && i.total_amount != null ? Number(i.total_amount) : roundTry(quantity * unitPrice * (1 + vat / 100))) * rates[(i.currency || 'TRY').toUpperCase()];
+                        const qty = Number(i.quantity), unit = Number(i.unit_price), vat = Number(i.vat_rate || 0);
+                        return sum + roundTry(qty * unit * (1 + vat / 100)) * rates[(i.currency || 'TRY').toUpperCase()];
                     }, 0));
-                    const totalTry = roundTry(expenseGrossTry + serviceTry * (1 + effectiveVat / 100));
+                    const serviceGrossTry = roundTry(invoiceGrossTry - expenseGrossTry);
+                    if (serviceGrossTry < 0) throw new Error('Diğer tahakkuk kalemleri KDV dahil fatura toplamını aşıyor.');
+                    const serviceTry = roundTry(serviceGrossTry / (1 + vatRate / 100));
+                    const totalTry = invoiceGrossTry;
                     generatedItems = expenses.map((i: any) => ({ ...i }));
-                    if (serviceTry > 0) generatedItems.push({
+                    if (serviceGrossTry >= 0) generatedItems.push({
                         fee_type: 'Hizmet', item_name: 'EVREKA Hizmet Bedeli', quantity: 1,
                         unit_price: serviceTry, vat_rate: vatRate,
-                        total_amount: roundTry(serviceTry * (1 + vatRate / 100)), currency: 'TRY'
+                        total_amount: serviceGrossTry, currency: 'TRY'
                     });
-                    singleInfo = { amount, currency, netTry, expenseTry, serviceTry, totalTry, rates };
+                    singleInfo = { amount, currency, netTry, expenseTry: expenseGrossTry, serviceTry, totalTry, rates };
                 } catch (error) {
                     console.error(`Tekrarlayan tek kalem tahakkuk ${t.id} hesaplanamadı:`, error);
                     continue; // Kur hesaplanamadıysa şablonu ileri taşıma; daha sonra tekrar denensin.

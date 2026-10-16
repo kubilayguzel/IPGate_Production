@@ -102,9 +102,9 @@ export class AccrualFormManager {
                         </label>
                         <div id="${p}SingleItemInvoiceFields" class="p-2 mt-2 border border-primary rounded bg-light" style="display:none;">
                             <label for="${p}SingleItemInvoiceAmount" class="small font-weight-bold mb-1">KDV hariç fatura tutarı</label>
-                            <div class="d-flex">
-                                <input id="${p}SingleItemInvoiceAmount" type="number" class="form-control mr-2" min="0.01" step="0.01" placeholder="Tutar">
-                                <select id="${p}SingleItemInvoiceCurrency" class="form-control" style="max-width:90px;">
+                            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:100%; min-width:0;">
+                                <input id="${p}SingleItemInvoiceAmount" type="number" class="form-control" min="0.01" step="0.01" placeholder="Tutar" style="flex:1 1 160px; width:auto; min-width:0;">
+                                <select id="${p}SingleItemInvoiceCurrency" class="form-control" style="flex:0 0 160px !important; width:160px !important; min-width:160px !important; max-width:none !important; height:40px !important; padding:6px 38px 6px 12px !important; box-sizing:border-box; white-space:nowrap;">
                                     <option value="TRY">TL</option>
                                     <option value="USD">USD</option>
                                     <option value="EUR">EUR</option>
@@ -134,7 +134,7 @@ export class AccrualFormManager {
                         </button>
                     </div>
                 </div>
-                <div class="table-responsive" style="overflow-x: visible;">
+                <div class="table-responsive" style="overflow-x:auto;">
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="bg-light text-muted">
                             <tr>
@@ -142,8 +142,8 @@ export class AccrualFormManager {
                                 <th>Kalem Açıklaması</th>
                                 <th style="width: 70px;">Adet</th>
                                 <th style="width: 110px;" id="${p}UnitPriceHeader">Birim Fiyat</th>
-                                <th style="width: 90px;">KDV(%)</th>
-                                <th style="width: 80px;">Birim</th>
+                                <th style="width: 95px; min-width:95px;">KDV(%)</th>
+                                <th style="width: 120px; min-width:120px;">Birim</th>
                                 <th style="width: 140px;" class="text-right">Toplam</th>
                                 <th style="width: 50px;"></th>
                             </tr>
@@ -421,8 +421,9 @@ export class AccrualFormManager {
         // Yeni açılmış boş satırlar hesaba katılmaz, fakat tutarı doluysa açıklama zorunludur.
         const expenses = rows.filter(row => row.querySelector('.item-type')?.value !== 'Hizmet' &&
             (Number(row.querySelector('.item-price')?.value || 0) > 0 || !!row.querySelector('.item-name')?.value?.trim()));
-        if (expenses.some(row => !row.querySelector('.item-name')?.value?.trim()))
-            return { error: 'Tutar girilen gider/diğer kalemlerin açıklamasını doldurun.' };
+        // Açıklama henüz girilmemiş olsa da canlı tutarı hesapla: kullanıcı önce
+        // tutarı yazabilir. Açıklama zorunluluğu yalnızca Kaydet sırasında denetlenir.
+        const missingDescriptions = expenses.some(row => !row.querySelector('.item-name')?.value?.trim());
         if (expenses.some(row => !Number.isFinite(Number(row.querySelector('.item-qty')?.value)) ||
             Number(row.querySelector('.item-qty')?.value) <= 0 ||
             !Number.isFinite(Number(row.querySelector('.item-price')?.value)) ||
@@ -463,7 +464,7 @@ export class AccrualFormManager {
             expenseNetTry, expenseGrossTry, serviceNetTry, serviceGrossTry, vatRate,
             totalTry: invoiceGrossTry,
             netTotalTry: round(expenseNetTry + serviceNetTry), requiredCurrencies, rates,
-            expenseRows: expenses
+            expenseRows: expenses, missingDescriptions
         };
     }
 
@@ -493,7 +494,21 @@ export class AccrualFormManager {
         const totalElement = document.getElementById(`${p}TotalValueContent`);
         const netElement = document.getElementById(`${p}NetTotalValueContent`);
         const setUnavailable = message => {
-            derived?.remove();
+            // Eski kur isteğinin hatası, kullanıcı tek kalem seçimini kapattıktan
+            // sonra hesaplanan satırı yeniden oluşturmamalı.
+            if (document.getElementById(`${p}SingleItemInvoice`)?.checked !== true) return;
+            // Hatalı/eksik girişte veya kur yüklenirken otomatik hizmet satırını
+            // SİLME. Satır yerinde kalır; hesap henüz kesinleşmediyse durum gösterir.
+            if (!derived) {
+                derived = document.createElement('tr');
+                derived.className = 'single-item-service-row';
+                derived.style.backgroundColor = '#e7f8ef';
+            }
+            body.appendChild(derived);
+            derived.innerHTML = `
+                <td class="align-middle font-weight-bold text-success">EVREKA Hizmet Bedeli</td>
+                <td colspan="7" class="align-middle text-muted single-item-service-status"></td>`;
+            derived.querySelector('.single-item-service-status').textContent = message;
             label.textContent = message;
             if (totalElement) totalElement.textContent = 'Hesaplama bekleniyor';
             if (netElement) netElement.textContent = '—';
@@ -527,7 +542,8 @@ export class AccrualFormManager {
             <td class="align-middle text-right font-weight-bold">${format(calculation.serviceGrossTry)}</td>
             <td class="align-middle text-center" title="Otomatik hesaplanır"><i class="fas fa-lock text-success"></i></td>`;
         if (this.currentData?.status === 'paid') derived.querySelector('select').disabled = true;
-        label.textContent = `Fatura: ${format(calculation.amount)} ${calculation.currency} + %20 KDV = ${format(calculation.invoiceGrossCurrency)} ${calculation.currency} (${format(calculation.invoiceGrossTry)} TL) | Diğer kalemler: ${format(calculation.expenseGrossTry)} TL | EVREKA hizmet (KDV dahil): ${format(calculation.serviceGrossTry)} TL`;
+        label.textContent = `Fatura: ${format(calculation.amount)} ${calculation.currency} + %20 KDV = ${format(calculation.invoiceGrossCurrency)} ${calculation.currency} (${format(calculation.invoiceGrossTry)} TL) | Diğer kalemler: ${format(calculation.expenseGrossTry)} TL | EVREKA hizmet (KDV dahil): ${format(calculation.serviceGrossTry)} TL` +
+            (calculation.missingDescriptions ? ' | Kaydetmeden önce gider açıklamasını yazın.' : '');
         if (totalElement) totalElement.textContent = `${format(calculation.totalTry)} TRY`;
         if (netElement) netElement.textContent = `${format(calculation.netTotalTry)} TRY`;
     }
@@ -641,8 +657,8 @@ export class AccrualFormManager {
             <td><input type="number" class="form-control form-control-sm item-qty text-center" value="${item.quantity || 1}" min="0.1" step="0.1"></td>
             <td><input type="number" class="form-control form-control-sm item-price text-right" value="${item.unit_price || 0}" min="0" step="0.01"></td>
             <td><input type="number" class="form-control form-control-sm item-vat text-center" value="${item.vat_rate !== undefined ? item.vat_rate : 20}" min="0" step="1"></td>
-            <td>
-                <select class="form-control form-control-sm item-currency" style="height: 35px !important; padding: 4px 8px !important;">
+            <td style="min-width:120px;">
+                <select class="form-control form-control-sm item-currency" style="width:100%; min-width:106px; height:35px !important; padding:4px 28px 4px 9px !important; box-sizing:border-box;">
                     <option value="TRY" ${item.currency === 'TRY' ? 'selected' : ''}>TRY</option>
                     <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option>
                     <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>
@@ -1281,6 +1297,8 @@ export class AccrualFormManager {
             if (activeInvoices.length) return { success: false, error: 'Faturası oluşturulmuş tahakkukta tek kalem tutarı değiştirilemez.' };
             const calculation = this.getSingleItemInvoiceCalculation();
             if (calculation?.error) return { success: false, error: calculation.error };
+            if (calculation?.missingDescriptions)
+                return { success: false, error: 'Tutar girilen gider/diğer kalemlerin açıklamasını doldurun.' };
             if (calculation?.missingRates || !calculation)
                 return { success: false, error: 'TCMB döviz kurları alınamadı; tutarlar TL’ye dönüştürülemedi.' };
             const expenseItems = items.filter(item => item.fee_type !== 'Hizmet');

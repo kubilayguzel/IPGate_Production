@@ -942,6 +942,14 @@ export class AccrualUIManager {
         const tfn = accrual.tpeInvoiceNo || '-';
         const efn = accrual.evrekaInvoiceNo || '-';
         const description = accrual.description || '-';
+        // Faturaya giden metni sistem içi tahakkuk notundan ayrı göster.
+        const invoiceDescriptionRaw = accrual.invoiceDescription ?? accrual.invoice_description ?? '';
+        const escapeInvoiceDescription = value => String(value).replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[char]);
+        const invoiceDescription = invoiceDescriptionRaw.trim()
+            ? escapeInvoiceDescription(invoiceDescriptionRaw)
+            : '<span class="text-muted">Fatura açıklaması girilmemiş.</span>';
         const orderCode = accrual.orderCode || '-';
         const tpParty = accrual.tpInvoiceParty?.name || '-';
         const foreignParty = accrual.serviceInvoiceParty?.name || '-';
@@ -1023,6 +1031,15 @@ export class AccrualUIManager {
                             </div>
                         </div>
                         
+                        <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
+                            <div class="card-header bg-light font-weight-bold text-primary border-bottom">
+                                <i class="fas fa-file-invoice mr-2"></i>Fatura Açıklaması <small class="text-muted font-weight-normal">(Müşteriye Gider)</small>
+                            </div>
+                            <div class="card-body p-3">
+                                <p class="mb-0 text-dark" style="white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6;">${invoiceDescription}</p>
+                            </div>
+                        </div>
+
                         <div class="card mb-4 shadow-sm border-0" style="border: 1px solid #e0e0e0 !important;">
                             <div class="card-header bg-light font-weight-bold text-dark border-bottom">
                                 <i class="fas fa-folder-open mr-2 text-info"></i>Ekli Belgeler

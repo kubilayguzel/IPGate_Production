@@ -795,10 +795,21 @@ serve(async (req) => {
                     }
 
                     let docType = "SATIS";
-                    // 🔥 GÜNCELLEME: SMM için de Tevkifat tipini serbest bırakıyoruz
-                    if (isTevkifatli && (typeLower === 'hizmet' || config.isSmm)) {
+                    // Kur Farkı, tahakkukun ANA türüdür. Masraf/Diğer adlı kalem de
+                    // KDV oranı sıfırdan büyükse tevkifatlı fatura kalemi olabilir.
+                    const accrualType = String(acc.accrual_type || acc.type || '').trim().toLowerCase();
+                    const isExchangeDifference = accrualType === 'kur farkı' || accrualType === 'kur farki' ||
+                        typeLower === 'kur farkı' || typeLower === 'kur farki';
+                    const nonWithholdingExpense = ['tp harç', 'harç', 'yurtdışı maliyet', 'yurtdışı gider'];
+                    const applyWithholding = typeLower === 'hizmet' ||
+                        typeLower === 'kur farkı' || typeLower === 'kur farki' ||
+                        (isExchangeDifference && !nonWithholdingExpense.includes(typeLower));
+                    // KDV'siz bir kalem için tevkifat hesabı ve withholding parametresi oluşturulmaz.
+                    if (isTevkifatli && vat > 0 && (applyWithholding || config.isSmm)) {
                         docType = "TEVKIFAT";
-                        vat = 20; 
+                        // Kur farkında kullanıcının kalemde seçtiği KDV (%1/%10/%20) aynen korunur.
+                        // Diğer hizmet/SMM fatura türlerinde mevcut %20 KDV kuralı değişmez.
+                        if (!isExchangeDifference) vat = 20;
                     }
 
                     const groupKey = config.isSmm ? itemCurrency : `${itemCurrency}_${docType}`; 
@@ -921,7 +932,12 @@ serve(async (req) => {
                         invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
                         invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
                         
-                        calculatedGrandTotal += (item.qty * item.price) * (1 + (tevkifatRate / 100)); 
+                        // Tahsil edilecek tutar = matrah + KDV - tevkif edilen KDV.
+                        // Yalnızca %20 KDV için çalışan sabit %2/%10 hesabı,
+                        // kur farkında seçilebilen %1 ve %10 KDV için yanlış sonuç veriyordu.
+                        const itemBase = item.qty * item.price;
+                        const itemVatAmount = itemBase * (safeVat / 100);
+                        calculatedGrandTotal += itemBase + itemVatAmount * (1 - Number(withholdingVal) / 100);
                     } else {
                         calculatedGrandTotal += (item.qty * item.price) * (1 + (safeVat / 100));
                     }

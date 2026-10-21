@@ -35,6 +35,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     let teamBalances = new Map();
     let selectedTeamUserId = '';
 
+    // Yıllık izinler için işveren tarafından belirlenen azami avans bakiye.
+    // -10 günün kendisi serbesttir; -10'un altı yeni talep/onay ile oluşamaz.
+    const MIN_ANNUAL_LEAVE_BALANCE = -10;
+    const LEAVE_BALANCE_EPSILON = 0.0001;
+
+    function exceedsAnnualLeaveAdvance(projectedBalance) {
+        return projectedBalance < MIN_ANNUAL_LEAVE_BALANCE - LEAVE_BALANCE_EPSILON;
+    }
+
+    function showAnnualLeaveLimitWarning({ earned, used, pending, requested, projected }) {
+        return Swal.fire({
+            title: 'Yıllık İzin Avans Sınırı Aşılıyor',
+            html: `
+                Toplam hak: <b>${numberOrZero(earned)} gün</b><br>
+                Kullanılan: <b>${numberOrZero(used)} gün</b><br>
+                Onay bekleyen: <b>${numberOrZero(pending)} gün</b><br>
+                Bu işlemdeki süre: <b>${numberOrZero(requested)} gün</b><br>
+                İşlem sonrası hesaplanan bakiye: <b>${numberOrZero(projected).toFixed(1)} gün</b><br><br>
+                İzin bakiyesi <b>-10 günün altına</b> düşemez.
+            `,
+            icon: 'warning',
+            confirmButtonText: 'Tamam'
+        });
+    }
+
     $('#requestLeaveModal').on('show.bs.modal', function (e) {
         if (userRole === 'superadmin') {
             e.preventDefault();
@@ -430,6 +455,35 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!Number.isFinite(parsedNewDays) || parsedNewDays === oldDays) return;
 
                 try {
+                    // Düzenlenen süre mevcut onaylanmış izin günlerinin yerine geçer.
+                    // Eski günleri geri eklemeden yapılacak hesap yanlışlıkla engeller.
+                    const { data: leave, error: leaveError } = await supabase
+                        .from('leave_requests')
+                        .select('user_id, leave_type, requested_days, status')
+                        .eq('id', leaveId)
+                        .single();
+                    if (leaveError) throw leaveError;
+                    if (!leave || leave.status !== 'approved') {
+                        await Swal.fire('Uyarı', 'Bu izin artık onaylı değil. Listeyi yenileyin.', 'warning');
+                        await loadTeamLeaves();
+                        return;
+                    }
+
+                    if (leave.leave_type === 'Yıllık İzin') {
+                        const balance = await getBalanceForUser(leave.user_id);
+                        if (!balance) throw new Error('Personelin izin bakiyesi alınamadı.');
+                        const pendingDays = await getPendingAnnualLeaveDays(leave.user_id);
+                        const originalDays = numberOrZero(leave.requested_days);
+                        const projected = balance.remaining + originalDays - parsedNewDays - pendingDays;
+                        if (exceedsAnnualLeaveAdvance(projected)) {
+                            await showAnnualLeaveLimitWarning({
+                                earned: balance.totalEarned, used: balance.used,
+                                pending: pendingDays, requested: parsedNewDays, projected
+                            });
+                            return;
+                        }
+                    }
+
                     const { error } = await supabase
                         .from('leave_requests')
                         .update({
@@ -522,6 +576,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!confirm(`Bu izin talebini ${actionTexts[newStatus] || 'güncellemek'} istediğinize emin misiniz?`)) return;
 
         try {
+            if (newStatus === 'approved') {
+                // Onay aşamasında da kontrol yapılır; başka bir talep arada
+                // onaylanmışsa başlangıçtaki bakiye yeterli olmayabilir.
+                const { data: leave, error: leaveError } = await supabase
+                    .from('leave_requests')
+                    .select('user_id, leave_type, requested_days, status')
+                    .eq('id', leaveId)
+                    .single();
+                if (leaveError) throw leaveError;
+                if (!leave || leave.status !== 'pending') {
+                    await Swal.fire('Uyarı', 'Talebin durumu değişmiş. Listeyi yenileyin.', 'warning');
+                    await loadTeamLeaves();
+                    return;
+                }
+                if (leave.leave_type === 'Yıllık İzin') {
+                    const balance = await getBalanceForUser(leave.user_id);
+                    if (!balance) throw new Error('Personelin izin bakiyesi alınamadı.');
+                    const pendingDays = await getPendingAnnualLeaveDays(leave.user_id);
+                    // Bekleyen bütün talepler toplamına bu talep de dahildir.
+                    const projected = balance.remaining - pendingDays;
+                    if (exceedsAnnualLeaveAdvance(projected)) {
+                        await showAnnualLeaveLimitWarning({
+                            earned: balance.totalEarned, used: balance.used,
+                            pending: pendingDays, requested: leave.requested_days, projected
+                        });
+                        return;
+                    }
+                }
+            }
+
             const { error } = await supabase
                 .from('leave_requests')
                 .update({
@@ -558,6 +642,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     document.getElementById('btnSubmitLeave')?.addEventListener('click', async () => {
+        const submitButton = document.getElementById('btnSubmitLeave');
+        if (submitButton.disabled) return;
         const type = document.getElementById('leaveType').value;
         const start = document.getElementById('leaveStartDate').value;
         const end = document.getElementById('leaveEndDate').value;
@@ -577,6 +663,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
+        submitButton.disabled = true;
         try {
             if (type === 'Yıllık İzin') {
                 const balance = await getBalanceForUser(user.id);
@@ -591,20 +678,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 const pendingDays = await getPendingAnnualLeaveDays(user.id);
-                const requestableBalance = balance.remaining - pendingDays;
-
-                if (days > requestableBalance + 0.0001) {
-                    Swal.fire({
-                        title: 'Yetersiz İzin Bakiyesi',
-                        html: `
-                            Hak edilen toplam: <b>${balance.totalEarned} gün</b><br>
-                            Kullanılan: <b>${balance.used} gün</b><br>
-                            Onay bekleyen: <b>${pendingDays} gün</b><br>
-                            Yeni talep için kullanılabilir: <b>${Math.max(requestableBalance, 0)} gün</b><br><br>
-                            Talep edilen: <b>${days} gün</b>
-                        `,
-                        icon: 'warning',
-                        confirmButtonText: 'Tamam'
+                // Talep edilen yıllık izin hak edişi aşabilir; toplam
+                // kullanılabilir avans en fazla 10 gün olabilir.
+                const projected = balance.remaining - pendingDays - days;
+                if (exceedsAnnualLeaveAdvance(projected)) {
+                    await showAnnualLeaveLimitWarning({
+                        earned: balance.totalEarned, used: balance.used,
+                        pending: pendingDays, requested: days, projected
                     });
                     return;
                 }
@@ -635,6 +715,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             ]);
         } catch (error) {
             showDbError(error);
+        } finally {
+            submitButton.disabled = false;
         }
     });
 

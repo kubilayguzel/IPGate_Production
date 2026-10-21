@@ -330,30 +330,32 @@ export const FormTemplates = {
                     <div class="form-group"><label for="suitOpeningDate" class="form-label">Dava Tarihi (Açılış)</label><input type="text" class="form-input" id="suitOpeningDate" placeholder="gg.aa.yyyy" data-datepicker required></div>
                 </div>
                 
-                <!-- Dava tarafları: kişiler tablosunda arama veya ortak kişi oluşturma -->
+                <!-- Dava tarafları: persons araması, Enter ile serbest isim ya da ortak kişi oluşturma -->
                 <div class="row mt-4 border-top pt-4" id="suitPartySelector">
                     <div class="col-md-6 border-right mb-3">
                         <label class="form-label text-success font-weight-bold" for="plaintiffInput"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
                         <div class="d-flex align-items-start mb-1" style="gap:8px;">
                             <div class="position-relative" style="flex:1; min-width:0;">
-                                <input type="search" id="plaintiffInput" class="form-control form-control-sm" placeholder="Kayıtlı davacı adıyla arayın..." autocomplete="off" aria-label="Davacı ara">
+                                <input type="search" id="plaintiffInput" class="form-control form-control-sm" placeholder="Davacı ara veya isim yazıp Enter’a bas" autocomplete="off" aria-label="Davacı ara">
                                 <div id="plaintiffSearchResults" class="search-results-list" style="display:none;" role="listbox"></div>
                             </div>
                             <button type="button" class="btn btn-sm btn-success suit-person-create-btn" data-role="davaci" title="Ortak kişi kayıt penceresini aç" aria-label="Yeni davacı kişi oluştur"><i class="fas fa-plus"></i></button>
                         </div>
-                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davaci" style="font-size:12px;">Kişi oluşturmadan serbest isim ekle</button>
+                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davaci" style="font-size:12px;">Yazdığım ismi doğrudan ekle (Enter)</button>
+                        <div class="small text-muted mb-2">Listeden kişi seçin veya adı/unvanı yazıp <strong>Enter</strong> ile doğrudan ekleyin. Kişi kaydı zorunlu değil.</div>
                         <div id="plaintiffsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:180px; overflow-y:auto;"></div>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label text-danger font-weight-bold" for="defendantInput"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
                         <div class="d-flex align-items-start mb-1" style="gap:8px;">
                             <div class="position-relative" style="flex:1; min-width:0;">
-                                <input type="search" id="defendantInput" class="form-control form-control-sm" placeholder="Kayıtlı davalı adıyla arayın..." autocomplete="off" aria-label="Davalı ara">
+                                <input type="search" id="defendantInput" class="form-control form-control-sm" placeholder="Davalı ara veya isim yazıp Enter’a bas" autocomplete="off" aria-label="Davalı ara">
                                 <div id="defendantSearchResults" class="search-results-list" style="display:none;" role="listbox"></div>
                             </div>
                             <button type="button" class="btn btn-sm btn-danger suit-person-create-btn" data-role="davali" title="Ortak kişi kayıt penceresini aç" aria-label="Yeni davalı kişi oluştur"><i class="fas fa-plus"></i></button>
                         </div>
-                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davali" style="font-size:12px;">Kişi oluşturmadan serbest isim ekle</button>
+                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davali" style="font-size:12px;">Yazdığım ismi doğrudan ekle (Enter)</button>
+                        <div class="small text-muted mb-2">Listeden kişi seçin veya adı/unvanı yazıp <strong>Enter</strong> ile doğrudan ekleyin. Kişi kaydı zorunlu değil.</div>
                         <div id="defendantsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:180px; overflow-y:auto;"></div>
                     </div>
                 </div>

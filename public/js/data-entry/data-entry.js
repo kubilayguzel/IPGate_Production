@@ -48,8 +48,17 @@ class SuitPartySelector {
             if (!input) continue;
             input.addEventListener('input', () => this.scheduleSearch(role));
             input.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape') this.hideResults(role);
-                if (event.key === 'Enter') event.preventDefault();
+                if (event.key === 'Escape') {
+                    this.hideResults(role);
+                    return;
+                }
+                // Enter kayıtlı kişiyi zorunlu tutmaz; metin doğrudan dava tarafı olur.
+                // Kayıtlı kişi seçmek için arama sonucuna tıklanmalıdır.
+                if (event.key === 'Enter' && !event.isComposing) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.addFreeText(role);
+                }
             });
             this.renderParties(role);
         }
@@ -189,13 +198,28 @@ class SuitPartySelector {
     }
 
     addFreeText(role) {
-        if (!ROLES[role]) return;
+        if (!ROLES[role]) return false;
         const input = this.getElement(ROLES[role].input);
         const name = normalizeName(input?.value);
-        if (!name) return window.alert('Önce davacı/davalı adını yazınız.');
+        if (!name) {
+            input?.focus();
+            return false;
+        }
+        // 'free_text' person ID değildir: suit_parties.person_id NULL olarak kaydedilir.
         this.addParty(role, { id: 'free_text', name });
         if (input) input.value = '';
         this.hideResults(role);
+        return true;
+    }
+
+    commitPendingNames() {
+        // Kaydet'e basmadan önce Enter'a basılmamış yazıları da kaybetmeyelim.
+        // Bu işlem persons tablosuna HİÇBİR kayıt eklemez.
+        for (const role of Object.keys(ROLES)) {
+            if (normalizeName(this.getElement(ROLES[role].input)?.value)) {
+                this.addFreeText(role);
+            }
+        }
     }
 
     addParty(role, person) {
@@ -597,6 +621,10 @@ class DataEntryModule {
         const strategy = this.strategies[ipType];
 
         if (!strategy) return alert('Geçersiz IP Türü');
+
+        // Dava tarafı girişinde Enter'a basılmamış metin varsa kayıttan önce dahil et.
+        // Kayıtlı kişi seçimleri kişi ID'siyle, serbest girişler yalnız adıyla saklanır.
+        if (ipType === 'suit') this.suitPartySelector.commitPendingNames();
 
         // 1. Stratejiden (Formdan) Spesifik Verileri Topla
         const recordData = strategy.collectData(this) || {};
@@ -1636,11 +1664,9 @@ class DataEntryModule {
                 isComplete = txt && hasApp && (!isInt || this.selectedCountries.length > 0);
             }
         } else if (ipType === 'suit') {
-            if (this.editingRecordId) {
-                isComplete = true; // Dava güncellemesinde de kilidi açıyoruz
-            } else {
-                isComplete = !!this.suitClientPerson && !!this.suitSpecificTaskType;
-            }
+            // Eksik alanları kullanıcıya açıkça söylemek için Kaydet'i kilitleme.
+            // SuitStrategy.validate() gerekli bilgileri ve hangi alanın eksik olduğunu denetler.
+            isComplete = true;
         } else {
             isComplete = !!document.getElementById(`${ipType}Title`)?.value;
         }

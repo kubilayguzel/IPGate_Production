@@ -139,6 +139,7 @@ export class SuitStrategy extends BaseStrategy {
             // Dava portföy kaydının müvekkili ve müvekkilin davadaki rolü artık
             // doğrudan suits tablosunun native alanlarına kaydedilir.
             clientId: ctx.suitClientPerson?.id || null,
+            clientName: ctx.suitClientPerson?.name || '',
             clientRole: getVal('clientRole'),
 
             // Bu alan DAVANIN KONUSU olan marka/patent/tasarım kaydını gösterir.
@@ -157,10 +158,15 @@ export class SuitStrategy extends BaseStrategy {
         };
     }
 
-    validate(data) {
+    validate(data, ctx) {
+        if (!ctx?.editingRecordId && !data.clientId) return 'Müvekkil seçilmedi. Müvekkil Ara alanına adı yazıp arama sonucundaki kişiyi seçiniz. Davacı/davalı serbest isimleri için kişi kaydı gerekli değildir.';
         if (!data.clientRole) return 'Lütfen müvekkil rolünü (Davacı/Davalı) seçiniz.';
-        if (!data.transactionTypeId) return 'Lütfen dava türünü (işlem tipi) seçiniz.';
+        if (!data.transactionTypeId) return 'Lütfen dava türünü (spesifik iş tipini) seçiniz.';
         if (!data.suitDetails.courtName) return 'Lütfen mahkeme bilgisini giriniz/seçiniz.';
+        if (!ctx?.editingRecordId && (!data.suitDetails.openingDate || !/^\d{4}-\d{2}-\d{2}$/.test(data.suitDetails.openingDate) ||
+            Number.isNaN(new Date(data.suitDetails.openingDate).getTime()))) {
+            return 'Dava açılış tarihi zorunludur. Lütfen geçerli bir tarih giriniz (gg.aa.yyyy).';
+        }
         return null;
     }
 
@@ -217,6 +223,7 @@ export class SuitStrategy extends BaseStrategy {
         const newSuitId = generateUUID();
         let initialTransactionId = null;
         let suitCreated = false;
+        let saveStage = 'Dava ana kaydı';
 
         try {
             const openingDate = data.suitDetails.openingDate
@@ -247,18 +254,19 @@ export class SuitStrategy extends BaseStrategy {
                 updated_at: now
             };
 
-            const { data: newSuit, error: suitError } = await supabase
+            // ID'yi biz üretiyoruz; INSERT sonrasında SELECT yetkisi istemeyelim.
+            // SELECT-RLS kapalı olsa dahi yazma izniyle dava oluşturulabilir.
+            const { error: suitError } = await supabase
                 .from('suits')
-                .insert(suitRow)
-                .select('id')
-                .single();
+                .insert(suitRow);
 
             if (suitError) {
-                throw new Error('Dava kaydedilirken hata oluştu: ' + suitError.message);
+                throw new Error('Dava ana kaydı (suits) oluşturulamadı: ' + suitError.message + (suitError.code ? ' [' + suitError.code + ']' : ''));
             }
 
             suitCreated = true;
 
+            saveStage = 'Davacı/davalı kayıtları';
             // Taraflar ayrı tabloda tutulmaya devam eder.
             const partyInserts = [];
             const parties = data.suitParties || { davaci: [], davali: [] };
@@ -284,6 +292,13 @@ export class SuitStrategy extends BaseStrategy {
             (parties.davaci || []).forEach(p => addParty(p, 'davaci'));
             (parties.davali || []).forEach(p => addParty(p, 'davali'));
 
+            // Müvekkil seçildiyse ayrıca taraflar listesine de ekle. Böylece dava
+            // ayrıntıları ve kişi bazlı taraf sorguları müvekkili bulabilir.
+            if (data.clientId && (data.clientRole === 'davaci' || data.clientRole === 'davali')) {
+                const hasClient = partyInserts.some(p => p.role === data.clientRole && p.person_id === String(data.clientId));
+                if (!hasClient) addParty({ id: data.clientId, name: data.clientName || '' }, data.clientRole);
+            }
+
             if (partyInserts.length > 0) {
                 const { error: partyError } = await supabase
                     .from('suit_parties')
@@ -297,6 +312,7 @@ export class SuitStrategy extends BaseStrategy {
             // AŞAMA 1A'NIN ANA KURALI:
             // Dava transaction'ı DAVANIN KENDİ ID'sine bağlanır.
             // suits.ip_record_id ise dava konusu marka/patent/tasarım için korunur.
+            saveStage = 'Dava açılış işlemi';
             initialTransactionId = generateUUID();
 
             const initialTransaction = {
@@ -318,19 +334,20 @@ export class SuitStrategy extends BaseStrategy {
                 throw new Error('Dava açılış işlemi oluşturulurken hata oluştu: ' + txError.message);
             }
 
-            return newSuit.id;
+            return newSuitId;
 
         } catch (error) {
-            console.error('Dava Kayıt Hatası:', error);
+            console.error('Dava Kayıt Hatası (' + saveStage + '):', error);
 
             // Yarım kayıt bırakmamak için yalnızca BU oluşturma denemesinde
             // üretilen kayıtları geri alıyoruz. Mevcut eski kayıtlara dokunulmaz.
             if (initialTransactionId) {
                 try {
-                    await supabase
+                    const { error: txCleanupError } = await supabase
                         .from('transactions')
                         .delete()
                         .eq('id', initialTransactionId);
+                    if (txCleanupError) console.warn('Transaction geri alma başarısız:', txCleanupError);
                 } catch (cleanupTxError) {
                     console.warn('Dava transaction rollback uyarısı:', cleanupTxError);
                 }
@@ -338,16 +355,17 @@ export class SuitStrategy extends BaseStrategy {
 
             if (suitCreated) {
                 try {
-                    await supabase
+                    const { error: suitCleanupError } = await supabase
                         .from('suits')
                         .delete()
                         .eq('id', newSuitId);
+                    if (suitCleanupError) console.warn('Dava geri alma başarısız; yarım kayıt olasılığı:', newSuitId, suitCleanupError);
                 } catch (cleanupSuitError) {
                     console.warn('Dava rollback uyarısı:', cleanupSuitError);
                 }
             }
 
-            throw error;
+            throw new Error(saveStage + ' aşamasında hata: ' + (error?.message || String(error)));
         }
     }
 }

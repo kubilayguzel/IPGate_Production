@@ -24,3 +24,4 @@ supabase/.temp/
 # Operating system / IDE
 .DS_Store
 Thumbs.db
+*.png

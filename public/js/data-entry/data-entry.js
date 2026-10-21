@@ -10,6 +10,243 @@ import { STATUSES, ORIGIN_TYPES } from '../../utils.js';
 import { FormTemplates } from './form-templates.js';
 import { TrademarkStrategy, PatentStrategy, DesignStrategy, SuitStrategy } from './strategies.js';
 
+// Dava tarafı seçimi: sadece bu sayfada kullanıldığı için mevcut modüle dahil edilmiştir.
+// Dava portföy kaydı için davacı / davalı seçimi.
+// Yeni kişi: uygulamanın ortak PersonModalManager bileşeni.
+// Mevcut kişi: Supabase persons tablosunda canlı arama (ilk 1000 kişiyle sınırlı değil).
+// strategies.js'nin kullandığı window.suitPartiesData sözleşmesi korunur.
+
+const ROLES = {
+    davaci: { input: 'plaintiffInput', results: 'plaintiffSearchResults', list: 'plaintiffsContainer' },
+    davali: { input: 'defendantInput', results: 'defendantSearchResults', list: 'defendantsContainer' }
+};
+
+const normalizeName = (name) => String(name || '').trim().replace(/\s+/g, ' ');
+const compareName = (name) => normalizeName(name).toLocaleLowerCase('tr-TR');
+
+class SuitPartySelector {
+    constructor({ supabase, personModal, getCachedPersons, onPersonCreated }) {
+        this.supabase = supabase;
+        this.personModal = personModal;
+        this.getCachedPersons = getCachedPersons || (() => []);
+        this.onPersonCreated = onPersonCreated || (() => {});
+        this.root = null;
+        this.timers = {};
+        this.requestSerial = { davaci: 0, davali: 0 };
+        this.parties = { davaci: [], davali: [] };
+    }
+
+    mount(root) {
+        this.dispose();
+        this.root = root.querySelector('#suitPartySelector');
+        this.parties = { davaci: [], davali: [] };
+        window.suitPartiesData = this.parties;
+        if (!this.root) return;
+
+        for (const role of Object.keys(ROLES)) {
+            const input = this.getElement(ROLES[role].input);
+            if (!input) continue;
+            input.addEventListener('input', () => this.scheduleSearch(role));
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') this.hideResults(role);
+                if (event.key === 'Enter') event.preventDefault();
+            });
+            this.renderParties(role);
+        }
+
+        this.root.addEventListener('click', (event) => {
+            const createBtn = event.target.closest('.suit-person-create-btn');
+            if (createBtn) {
+                this.createPerson(createBtn.dataset.role);
+                return;
+            }
+            const freeBtn = event.target.closest('.suit-free-party-btn');
+            if (freeBtn) {
+                this.addFreeText(freeBtn.dataset.role);
+                return;
+            }
+            const removeBtn = event.target.closest('.suit-party-remove-btn');
+            if (removeBtn) this.removeParty(removeBtn.dataset.role, Number(removeBtn.dataset.index));
+        });
+    }
+
+    getElement(id) {
+        return this.root?.querySelector('#' + id) || null;
+    }
+
+    dispose() {
+        for (const t of Object.values(this.timers)) clearTimeout(t);
+        this.timers = {};
+        this.requestSerial.davaci++;
+        this.requestSerial.davali++;
+        this.root = null;
+    }
+
+    scheduleSearch(role) {
+        if (!ROLES[role]) return;
+        clearTimeout(this.timers[role]);
+        const query = normalizeName(this.getElement(ROLES[role].input)?.value);
+        this.requestSerial[role]++;
+        if (query.length < 2) {
+            this.hideResults(role);
+            return;
+        }
+        const serial = this.requestSerial[role];
+        this.timers[role] = setTimeout(() => this.searchPersons(role, query, serial), 250);
+    }
+
+    async searchPersons(role, query, serial) {
+        const results = this.getElement(ROLES[role].results);
+        if (!results) return;
+        this.showMessage(results, 'Kişiler aranıyor...');
+        try {
+            // Doğrudan sunucu sorgusu: personService.getPersons() listesinin 1000 kayıt sınırını aşar.
+            const term = query.replace(/[\\%_]/g, '\\$&');
+            const { data, error } = await this.supabase
+                .from('persons')
+                .select('id,name,email')
+                .ilike('name', `%${term}%`)
+                .order('name', { ascending: true })
+                .limit(30);
+            if (error) throw error;
+            if (serial !== this.requestSerial[role] || !this.root?.isConnected) return;
+            this.renderResults(role, data || []);
+        } catch (error) {
+            console.error('Dava tarafı kişi arama hatası:', error);
+            if (serial !== this.requestSerial[role] || !this.root?.isConnected) return;
+            // Ağ/izin sorunu olduğunda önceden yüklenen kişilerden de arama denenir.
+            const cached = (this.getCachedPersons() || [])
+                .filter(p => compareName(p.name).includes(compareName(query))).slice(0, 30);
+            if (cached.length) this.renderResults(role, cached);
+            else this.showMessage(results, 'Kişi araması yapılamadı. Lütfen bağlantıyı kontrol edin.');
+        }
+    }
+
+    showMessage(container, message) {
+        container.replaceChildren();
+        const label = document.createElement('div');
+        label.className = 'p-3 small text-muted';
+        label.textContent = message;
+        container.appendChild(label);
+        container.style.display = 'block';
+    }
+
+    renderResults(role, persons) {
+        const results = this.getElement(ROLES[role].results);
+        if (!results) return;
+        results.replaceChildren();
+        if (!persons.length) {
+            this.showMessage(results, 'Eşleşen kayıt bulunamadı. + ile yeni kişi oluşturabilirsiniz.');
+            return;
+        }
+        for (const person of persons) {
+            if (!person?.id || !normalizeName(person.name)) continue;
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'search-result-item d-block w-100 text-left bg-white border-0';
+            item.setAttribute('role', 'option');
+            const name = document.createElement('strong');
+            name.textContent = person.name;
+            item.appendChild(name);
+            if (person.email) {
+                const email = document.createElement('div');
+                email.className = 'small text-muted';
+                email.textContent = person.email;
+                item.appendChild(email);
+            }
+            item.addEventListener('click', () => {
+                this.addParty(role, person);
+                this.getElement(ROLES[role].input).value = '';
+                this.hideResults(role);
+            });
+            results.appendChild(item);
+        }
+        results.style.display = 'block';
+    }
+
+    hideResults(role) {
+        const results = this.getElement(ROLES[role].results);
+        if (results) results.style.display = 'none';
+    }
+
+    async createPerson(role) {
+        if (!ROLES[role] || !this.personModal) return;
+        this.hideResults(role);
+        try {
+            await this.personModal.open(null, person => {
+                if (!person?.id || !normalizeName(person.name)) return;
+                this.onPersonCreated(person);
+                if (this.root?.isConnected) {
+                    this.addParty(role, person);
+                    const input = this.getElement(ROLES[role].input);
+                    if (input) input.value = '';
+                }
+            });
+        } catch (error) {
+            console.error('Ortak kişi oluşturma modalı açılamadı:', error);
+            window.alert('Yeni kişi penceresi açılamadı: ' + (error?.message || 'Bilinmeyen hata'));
+        }
+    }
+
+    addFreeText(role) {
+        if (!ROLES[role]) return;
+        const input = this.getElement(ROLES[role].input);
+        const name = normalizeName(input?.value);
+        if (!name) return window.alert('Önce davacı/davalı adını yazınız.');
+        this.addParty(role, { id: 'free_text', name });
+        if (input) input.value = '';
+        this.hideResults(role);
+    }
+
+    addParty(role, person) {
+        if (!ROLES[role] || !person) return;
+        const id = person.id && person.id !== 'free_text' ? String(person.id) : 'free_text';
+        const name = normalizeName(person.name);
+        if (!name) return;
+        const exists = this.parties[role].some(p => id !== 'free_text'
+            ? String(p.id) === id
+            : (p.id === 'free_text' && compareName(p.name) === compareName(name)));
+        if (exists) return;
+        this.parties[role].push({ id, name });
+        this.renderParties(role);
+    }
+
+    removeParty(role, index) {
+        if (!ROLES[role] || !Number.isInteger(index) || index < 0 || index >= this.parties[role].length) return;
+        this.parties[role].splice(index, 1);
+        this.renderParties(role);
+    }
+
+    renderParties(role) {
+        const container = this.getElement(ROLES[role].list);
+        if (!container) return;
+        container.replaceChildren();
+        if (!this.parties[role].length) {
+            const empty = document.createElement('div');
+            empty.className = 'text-muted small text-center mt-2';
+            empty.textContent = 'Henüz taraf eklenmedi.';
+            container.appendChild(empty);
+            return;
+        }
+        this.parties[role].forEach((person, index) => {
+            const row = document.createElement('div');
+            row.className = 'd-flex justify-content-between align-items-center p-1 mb-1 border-bottom bg-white';
+            const name = document.createElement('span');
+            name.className = 'small font-weight-bold';
+            name.textContent = person.name;
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-xs text-danger border-0 suit-party-remove-btn';
+            remove.dataset.role = role;
+            remove.dataset.index = String(index);
+            remove.setAttribute('aria-label', `${person.name} tarafını kaldır`);
+            remove.textContent = '×';
+            row.append(name, remove);
+            container.appendChild(row);
+        });
+    }
+}
+
 class DataEntryModule {
     
     constructor() {
@@ -35,7 +272,18 @@ class DataEntryModule {
         this.suitSpecificTaskType = null;
         this.suitSubjectAsset = null;
 
-        this.personModal = new PersonModalManager();
+        // Ortak singleton kullanılır: ikinci instance, modal kaydetme dinleyicilerini çift bağlayabilir.
+        this.personModal = window.personModalManager || new PersonModalManager();
+        this.suitPartySelector = new SuitPartySelector({
+            supabase,
+            personModal: this.personModal,
+            getCachedPersons: () => this.allPersons,
+            onPersonCreated: (person) => {
+                if (person?.id && !this.allPersons.some(p => String(p.id) === String(person.id))) {
+                    this.allPersons.push(person);
+                }
+            }
+        });
         
         this.strategies = {
             'trademark': new TrademarkStrategy(),
@@ -266,6 +514,7 @@ class DataEntryModule {
 
         if (this.suitSpecificTaskType && container) {
             container.innerHTML = this.renderSuitFields(this.suitSpecificTaskType.alias || this.suitSpecificTaskType.name);
+            this.suitPartySelector.mount(container);
             this.setupSuitPersonSearchSelectors(); 
             this.setupDynamicFormListeners(); 
             this._populateSuitStatusDropdown(); 

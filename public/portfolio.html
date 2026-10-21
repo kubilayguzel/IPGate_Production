@@ -153,6 +153,76 @@
         /* PDF Linkleri */
         .pdf-link { color: #dc3545; font-size: 1.2em; text-decoration: none; margin-right: 5px; }
         .pdf-link:hover { color: #c82333; transform: scale(1.1); display: inline-block; }
+
+        /* İtiraz dosyaları araştırma araçları, diğer portföy sekmelerini etkilemez. */
+        .opp-panel { display:none; margin-bottom:14px; padding:17px 18px;
+            background:linear-gradient(125deg,#f7faff 0%,#fff 100%);
+            border:1px solid #d7e2f0; border-radius:12px; }
+        .opp-panel-header { color:#1e3c72; display:flex; align-items:center;
+            justify-content:space-between; gap:12px; flex-wrap:wrap; font-weight:700;
+            font-size:.97rem; margin-bottom:14px; }
+        .opp-panel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+        .opp-panel-field { display:flex; flex-direction:column; gap:4px; min-width:0; }
+        .opp-panel-field label { font-size:.8rem; font-weight:600; color:#44546a; margin:0; }
+        .opp-panel-field input,.opp-panel-field select { border:1px solid #cbd8e8;
+            background:#fff; border-radius:8px; height:39px; padding:7px 10px;
+            color:#243b59; width:100%; font-size:.88rem; }
+        .opp-panel-field input:focus,.opp-panel-field select:focus {
+            outline:2px solid #96b7e0; outline-offset:0; }
+        .opp-panel-footer { display:flex; gap:14px; flex-wrap:wrap; margin-top:13px;
+            justify-content:space-between; align-items:center; }
+        .opp-panel-checks { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+        .opp-panel-checks label { display:flex; align-items:center; gap:7px;
+            font-size:.85rem; color:#344054; margin:0; }
+        .opp-panel-reset { border:1px solid #a7bbd4; border-radius:8px;
+            background:white; color:#1e3c72; padding:7px 12px; cursor:pointer; font-weight:600; }
+        .opp-panel-reset:hover { background:#edf4ff; }
+        .opp-panel-tip { font-size:.76rem; color:#64748b; margin-top:9px; }
+        /* İtirazlar: ekrandaki sütunlar birleşik. 2150px zorlaması kaldırıldı. */
+        .portfolio-table-container.opposition-wide { overflow-x:visible; }
+        .portfolio-table-container.opposition-wide .portfolio-table {
+            width:100%; min-width:0; table-layout:fixed;
+        }
+        .portfolio-table-container.opposition-wide .portfolio-table th,
+        .portfolio-table-container.opposition-wide .portfolio-table td {
+            vertical-align:top; white-space:normal; overflow-wrap:anywhere;
+            word-break:normal; text-overflow:clip; padding:11px 9px;
+            font-size:.84rem; line-height:1.42;
+        }
+        .portfolio-table-container.opposition-wide .portfolio-table thead th {
+            white-space:normal; font-size:.79rem; line-height:1.3;
+        }
+        .portfolio-table-container.opposition-wide .portfolio-table td:first-child {
+            text-align:center; padding-left:4px; padding-right:4px;
+        }
+        .opp-cell-title { display:block; font-weight:700; color:#253a57; overflow-wrap:anywhere; }
+        .opp-cell-muted { display:block; margin-top:4px; font-size:.75rem; color:#62758a; }
+        .opp-cell-kicker { color:#61748c; font-size:.7rem; font-weight:700; }
+        .opp-cell-subline { display:block; margin-top:5px; font-size:.77rem; color:#344054; }
+        .opp-doc-actions { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+        .opp-doc-actions .pdf-link { margin:0 3px 0 0; font-size:.89rem; }
+        .opp-detail-button { display:block; width:100%; margin-top:6px; padding:5px 4px;
+            background:#f0f5fc; border:1px solid #c8d9ef; border-radius:6px;
+            color:#1e3c72; font-size:.75rem; font-weight:700; cursor:pointer; }
+        .opp-detail-button:hover,.opp-detail-button:focus { background:#e1ecfa; }
+        .opp-detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 20px; }
+        .opp-detail-field { min-width:0; padding:10px 12px; border:1px solid #e1e8f2;
+            border-radius:8px; background:#f8fbff; overflow-wrap:anywhere; }
+        .opp-detail-label { display:block; color:#697b92; font-size:.75rem; margin-bottom:4px; font-weight:700; }
+        .opp-detail-value { color:#253a57; font-size:.94rem; white-space:pre-wrap; }
+        .opp-detail-documents { margin-top:16px; display:flex; flex-wrap:wrap; gap:9px; }
+        .opp-detail-documents a { padding:7px 10px; border:1px solid #d2dfef; border-radius:8px; background:#fff; }
+        @media (max-width:1000px) {
+            /* Küçük ekranlarda çok dar ve okunamaz hücreler yerine sınırlı kaydırma. */
+            .portfolio-table-container.opposition-wide { overflow-x:auto; }
+            .portfolio-table-container.opposition-wide .portfolio-table { min-width:850px; }
+        }
+        @media (max-width:680px) { .opp-detail-grid { grid-template-columns:1fr; } }
+        .opp-mark { color:#253a57; font-weight:650; }
+        .opp-note { display:block; font-size:.76rem; color:#64748b; margin-top:2px; }
+        .opp-role { display:inline-block; color:#1e3c72; background:#eaf2fc;
+            border-radius:6px; padding:4px 8px; font-size:.77rem; }
+        .opp-role.opp-unknown { background:#fff3cd; color:#856404; }
     </style>
 </head>
 <body>
@@ -185,6 +255,44 @@
                     </button>
                 </div>
 
+                <!-- İtirazlar sekmesine özel, mevcut Durum değerlerini değiştirmeyen filtreler -->
+                <section class="opp-panel" id="oppositionResearchPanel" aria-label="İtiraz ve mesnet karar araştırması">
+                    <div class="opp-panel-header">
+                        <span><i class="fas fa-search mr-2"></i>İtiraz Dosyaları ve Mesnet Karar Araştırması</span>
+                        <small class="text-muted" id="oppositionResultCount" aria-live="polite"></small>
+                    </div>
+                    <div class="opp-panel-grid">
+                        <div class="opp-panel-field"><label for="oppClientMark">Müvekkil markası</label><input id="oppClientMark" type="search" placeholder="Mesnet marka adı"></div>
+                        <div class="opp-panel-field"><label for="oppOpposedMark">Karşı marka / itiraza konu marka</label><input id="oppOpposedMark" type="search" placeholder="Marka adı"></div>
+                        <div class="opp-panel-field"><label for="oppAppNumber">Başvuru numarası</label><input id="oppAppNumber" type="search" placeholder="Başvuru no"></div>
+                        <div class="opp-panel-field"><label for="oppNiceClass">Nice sınıfı</label><input id="oppNiceClass" type="search" inputmode="numeric" placeholder="Örn. 35"></div>
+                        <div class="opp-panel-field"><label for="oppProcessType">İtiraz süreci</label>
+                            <select id="oppProcessType"><option value="">Tüm süreçler</option>
+                                <option value="20">Yayına İtiraz</option>
+                                <option value="19">Yayına İtirazın Yeniden İncelenmesi</option>
+                                <option value="7">Karara İtiraz</option>
+                            </select>
+                        </div>
+                        <div class="opp-panel-field"><label for="oppClientRole">Müvekkilin sıfatı</label>
+                            <select id="oppClientRole"><option value="">Tüm sıfatlar</option>
+                                <option value="Başvuru sahibi">Başvuru sahibi</option>
+                                <option value="İtiraz sahibi">İtiraz sahibi</option>
+                                <option value="Doğrulanamadı">Doğrulanamayan</option>
+                            </select>
+                        </div>
+                        <div class="opp-panel-field"><label for="oppStatus">Durum / karar metni</label>
+                            <select id="oppStatus"><option value="">Tüm durumlar</option></select>
+                        </div>
+                    </div>
+                    <div class="opp-panel-footer">
+                        <div class="opp-panel-checks">
+                            <label><input type="checkbox" id="oppDecisionOnly"> Yalnızca karar işlemi bulunan dosyalar</label>
+                            <label><input type="checkbox" id="oppIncludeArchived"> Pasif/arşiv kayıtlarını da göster</label>
+                        </div>
+                        <button type="button" id="oppClearFilters" class="opp-panel-reset"><i class="fas fa-undo mr-1"></i> Filtreleri temizle</button>
+                    </div>
+                    <div class="opp-panel-tip">Sıfat ve marka alanları yalnızca doğrulanabilen kaynak bağlantılarına göre doldurulur. Durum sütunu aynı bırakılmıştır.</div>
+                </section>
                 <div class="filter-row">
                     <input type="text" id="searchBar" class="search-input" placeholder="Başlık, numara, durum, hak sahibi ara...">
 

@@ -1,5 +1,7 @@
 import { ipRecordsService, transactionTypeService, personService, commonService, suitService, transactionService, supabase } from '../../supabase-config.js';
 import { STATUSES } from '../../utils.js';
+import { fetchObjectionTransactions, fetchObjectionRecordMap, selectRelevantTask,
+    enrichObjectionRow, containsObjectionDecision, addCertainBulletins } from './ObjectionResearchService.js';
 
 export class PortfolioDataManager {
     constructor() {
@@ -252,15 +254,7 @@ export class PortfolioDataManager {
         if (!forceRefresh && this.objectionRows.length > 0) return this.objectionRows;
 
         try {
-            const result = await transactionService.getObjectionData();
-            
-            if (!result.success) {
-                this.objectionRows = [];
-                return [];
-            }
-
-            const parentsData = result.parents || [];
-            const childrenData = result.children || [];
+            const { parents: parentsData, children: childrenData } = await fetchObjectionTransactions();
 
             if (parentsData.length === 0) {
                 this.objectionRows = [];
@@ -278,8 +272,9 @@ export class PortfolioDataManager {
                 }
             });
 
-            const recordsMap = new Map(this.allRecords.map(r => [String(r.id), r]));
-            
+            const recordsMap = await fetchObjectionRecordMap(this.allRecords,
+                [...parentsData, ...childrenData]);
+
             const localRows = parentsData.map(parent => {
                 const recId = String(parent.ip_record_id);
                 let record = recordsMap.get(recId) || { id: recId, isMissing: true };
@@ -287,8 +282,13 @@ export class PortfolioDataManager {
                 const children = childrenMap[String(parent.id)] || [];
                 const typeInfo = this.transactionTypesMap.get(String(parent.transaction_type_id));
 
-                const parentRow = this._createObjectionRowDataFast(record, parent, typeInfo, true, children.length > 0);
+                const task = selectRelevantTask(parent, children);
+                const parentRow = enrichObjectionRow(
+                    this._createObjectionRowDataFast(record, parent, typeInfo, true, children.length > 0),
+                    record, parent, recordsMap, task
+                );
                 parentRow.children = [];
+                parentRow.hasDecision = containsObjectionDecision(children);
 
                 // 🔥 ÇÖZÜM 1: İtirazın asıl durumunu (Kararını) alt işlemlerinden buluyoruz
                 let finalStatus = 'Karar Bekleniyor';
@@ -298,7 +298,10 @@ export class PortfolioDataManager {
 
                 for (const child of sortedChildren) {
                     const childTypeInfo = this.transactionTypesMap.get(String(child.transaction_type_id));
-                    parentRow.children.push(this._createObjectionRowDataFast(record, child, childTypeInfo, false, false, parent.id));
+                    parentRow.children.push(enrichObjectionRow(
+                        this._createObjectionRowDataFast(record, child, childTypeInfo, false, false, parent.id),
+                        record, child, recordsMap, task, parent.transaction_type_id
+                    ));
                     
                     // En son eklenen alt işlemin adını karar olarak alıyoruz
                     if (childTypeInfo) {
@@ -308,6 +311,17 @@ export class PortfolioDataManager {
                     }
                 }
                 
+                // Karşı taraf ana işlemde belirlenir; ana işlemde bilgi yoksa
+                // aynı dosyanın alt işlemlerindeki doğrulanabilir kaynak aranır.
+                // Böylece alt işlem satırlarında farklı/yanlış taraf görünmez.
+                if (!parentRow.opponent && parentRow.objectionProcessType !== '7') {
+                    parentRow.opponent = parentRow.children.find(c => c.opponent)?.opponent || '';
+                }
+                for (const childRow of parentRow.children) {
+                    childRow.opponent = parentRow.opponent;
+                    childRow.partyDirection = parentRow.partyDirection;
+                }
+
                 // Ana itiraz satırının durumunu sicildeki marka durumu ile değil, bu itirazın güncel kararıyla eziyoruz!
                 parentRow.statusText = finalStatus;
 
@@ -316,10 +330,14 @@ export class PortfolioDataManager {
             });
 
             this.objectionRows = localRows.filter(Boolean);
+            await addCertainBulletins(this.objectionRows);
+            this.objectionLoadError = null;
             return this.objectionRows;
 
         } catch (error) {
             console.error("İtirazlar yüklenirken hata:", error);
+            this.objectionLoadError = error.message || 'İtiraz kayıtları okunamadı.';
+            this.objectionRows = [];
             return [];
         }
     }
@@ -359,7 +377,7 @@ export class PortfolioDataManager {
         if (details.oppositionEpatsPetitionFileUrl) addDoc({ name: 'ePATS İtiraz Evrakı', url: details.oppositionEpatsPetitionFileUrl, type: 'epats_document' });
         if (!isParent && details.oppositionPetitionFileUrl) addDoc({ name: 'İtiraz Dilekçesi', url: details.oppositionPetitionFileUrl, type: 'opposition_petition' });
 
-        const isOwnRecord = !(
+        const isOwnRecord = !record.isMissing && !(
             record.portfoyStatus === 'third_party' || record.portfoyStatus === 'published_in_bulletin' ||
             record.recordOwnerType === 'third_party'
         );
@@ -471,7 +489,7 @@ export class PortfolioDataManager {
         return this.countriesMap.get(code) || code || '-';
     }
 
-    filterRecords(typeFilter, searchTerm, columnFilters = {}, subTab = null) {
+    filterRecords(typeFilter, searchTerm, columnFilters = {}, subTab = null, includeArchived = false) {
         const s = searchTerm ? searchTerm.toLowerCase() : null;
         
         const activeFilters = [];
@@ -491,7 +509,8 @@ export class PortfolioDataManager {
         if (typeFilter === 'litigation') {
             sourceData = this.litigationRows.filter(r => r.portfoyStatus !== 'inactive' && r.recordStatus !== 'pasif');
         } else if (typeFilter === 'objections') {
-            sourceData = this.objectionRows.filter(r => r.portfoyStatus !== 'inactive' && r.recordStatus !== 'pasif');
+            sourceData = includeArchived ? [...this.objectionRows] :
+                this.objectionRows.filter(r => r.portfoyStatus !== 'inactive' && r.recordStatus !== 'pasif');
         } else {
             sourceData = this.allRecords.filter(r => {
                 if (r.recordOwnerType === 'third_party') return false;
@@ -518,7 +537,7 @@ export class PortfolioDataManager {
         return sourceData.filter(item => {
             if (s) {
                 if (typeFilter === 'objections') {
-                    const matchParent = ((item.transactionTypeName || '').toLowerCase().includes(s) || (item.title || '').toLowerCase().includes(s) || (item.opponent || '').toLowerCase().includes(s) || String(item.bulletinNo || '').includes(s) || (item.applicantName || '').toLowerCase().includes(s) || String(item.applicationNumber || '').includes(s) || (item.statusText || '').toLowerCase().includes(s));
+                    const matchParent = ((item.transactionTypeName || '').toLowerCase().includes(s) || (item.clientMark || '').toLowerCase().includes(s) || (item.opposedMark || '').toLowerCase().includes(s) || (item.title || '').toLowerCase().includes(s) || (item.opponent || '').toLowerCase().includes(s) || String(item.bulletinNo || '').includes(s) || (item.applicantName || '').toLowerCase().includes(s) || String(item.applicationNumber || '').includes(s) || (item.statusText || '').toLowerCase().includes(s));
                     let matchChild = false;
                     if (item.children && item.children.length > 0) {
                         matchChild = item.children.some(c => (c.transactionTypeName || '').toLowerCase().includes(s) || (c.statusText || '').toLowerCase().includes(s) || (c.opponent || '').toLowerCase().includes(s));

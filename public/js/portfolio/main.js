@@ -4,11 +4,13 @@ import { authService, monitoringService, waitForAuthUser, redirectOnLogout } fro
 import { loadSharedLayout } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 import Pagination from '../pagination.js';
+import { ObjectionResearchPanel } from './ObjectionResearchPanel.js';
 
 class PortfolioController {
     constructor() {
         this.dataManager = new PortfolioDataManager();
         this.renderer = new PortfolioRenderer('portfolioTableBody', this.dataManager);
+        this.oppositionResearch = new ObjectionResearchPanel();
         this.pagination = null;
         this.ITEMS_PER_PAGE = 50;
         
@@ -23,7 +25,42 @@ class PortfolioController {
             updatedRecordId: null // Güncellenen kaydı yeşil yakmak için
         };
         this.filterDebounceTimer = null;
+        this._objectionRequest = null;
         this.init();
+    }
+
+    // İtiraz sorgusu uzun sürse bile yükleme perdesi kilitli kalmaz.
+    // Aynı sorgu ikinci kez başlatılmaz; tamamlanınca sonuçlar otomatik gösterilir.
+    async loadObjectionRowsBounded(forceRefresh = false) {
+        if (!this._objectionRequest) {
+            const request = this.dataManager.loadObjectionRows(forceRefresh);
+            this._objectionRequest = request;
+            request.finally(() => {
+                if (this._objectionRequest === request) this._objectionRequest = null;
+            }).catch(error => console.error('İtiraz yükleme sonlandırma hatası:', error));
+        }
+        const request = this._objectionRequest;
+        let timeout;
+        const completed = await Promise.race([
+            request.then(() => true, () => true),
+            new Promise(resolve => { timeout = setTimeout(() => resolve(false), 12000); })
+        ]);
+        clearTimeout(timeout);
+        if (completed) {
+            this.dataManager.objectionLoading = false;
+            return true;
+        }
+        this.dataManager.objectionLoading = true;
+        // Uzak sorgu devam ederken kullanıcı diğer portföy sekmelerini kullanabilir.
+        request.then(() => {
+            this.dataManager.objectionLoading = false;
+            if (this.state.activeTab === 'objections' && !this.isTabLoading) this.render();
+        }).catch(error => {
+            this.dataManager.objectionLoading = false;
+            this.dataManager.objectionLoadError = error.message || 'İtiraz yüklenemedi.';
+            if (this.state.activeTab === 'objections' && !this.isTabLoading) this.render();
+        });
+        return false;
     }
 
     async init() {
@@ -79,7 +116,7 @@ class PortfolioController {
             if (this.state.activeTab === 'litigation') {
                 await this.dataManager.loadLitigationData();
             } else if (this.state.activeTab === 'objections') {
-                await this.dataManager.loadObjectionRows();
+                await this.loadObjectionRowsBounded();
             }
 
             this.setupPagination();
@@ -87,6 +124,9 @@ class PortfolioController {
                 this.pagination.currentPage = this.state.currentPage;
             }
 
+            if (this.state.activeTab === 'objections' && this.state.sort.column === 'applicationDate') {
+                this.state.sort = { column: 'timestamp', direction: 'desc' };
+            }
             const columns = this.getColumns(this.state.activeTab);
             this.renderer.renderHeaders(columns, this.state.columnFilters);
             this.updateSortIcons(); 
@@ -123,7 +163,7 @@ class PortfolioController {
                     if (this.state.activeTab === 'litigation') {
                         await this.dataManager.loadLitigationData();
                     } else if (this.state.activeTab === 'objections') {
-                        await this.dataManager.loadObjectionRows(true);
+                        await this.loadObjectionRowsBounded(true);
                     } else {
                         await this.dataManager.loadRecords(); 
                     }
@@ -140,6 +180,10 @@ class PortfolioController {
 
             this.setupEventListeners();
             this.setupFilterListeners();
+            this.oppositionResearch.attach(() => {
+                this.state.currentPage = 1;
+                this.render();
+            });
             this.setupImageHover();
 
         } catch (e) {
@@ -291,25 +335,27 @@ class PortfolioController {
                         await this.dataManager.loadLitigationData();
                     } else if (this.state.activeTab === 'objections') {
                         if (this.dataManager.objectionRows.length === 0) {
-                            await this.dataManager.loadObjectionRows();
+                            await this.loadObjectionRowsBounded();
                         }
-                        setTimeout(async () => {
-                            await this.dataManager.loadObjectionRows(true);
-                            if (this.state.activeTab === 'objections') {
-                                this.render();
-                                this.updateSelectAllCheckbox();
-                            }
-                        }, 500); 
+                        // Aynı listeyi 500 ms sonra ikinci kez yeniden yüklemiyoruz.
+                        // Yenile butonu istendiğinde kullanıcı manuel tazeleme yapabilir.
                     }
                 } catch (err) {
                     console.error("Sekme verisi yüklenemedi:", err);
                 } finally {
                     this.isTabLoading = false;
+                    // Arka plan işi sürse bile ekranı kilitleyen örtüyü kaldır.
+                    this.renderer.showLoading(false);
                 }
 
                 this.state.currentPage = 1;
                 this.state.searchQuery = '';
                 this.state.columnFilters = {};
+                if (this.state.activeTab === 'objections' && this.state.sort.column === 'applicationDate') {
+                    this.state.sort = { column: 'timestamp', direction: 'desc' };
+                } else if (this.state.activeTab !== 'objections' && this.state.sort.column === 'timestamp') {
+                    this.state.sort = { column: 'applicationDate', direction: 'desc' };
+                }
                 this.state.selectedRecords.clear();
 
                 const searchInput = document.getElementById('searchInput');
@@ -376,6 +422,13 @@ class PortfolioController {
         if (btnExportAll) btnExportAll.onclick = (e) => { e.preventDefault(); this.exportToExcel('all'); };
         if (exportPdfBtn) exportPdfBtn.onclick = (e) => { e.preventDefault(); this.exportToPdf(); };
 
+        const objectionDetailModal = document.getElementById('recordDetailModal');
+        const objectionDetailClose = document.getElementById('closeRecordDetailModal');
+        if (objectionDetailClose) objectionDetailClose.onclick = () => objectionDetailModal?.classList.remove('show');
+        if (objectionDetailModal) objectionDetailModal.onclick = event => {
+            if (event.target === objectionDetailModal) objectionDetailModal.classList.remove('show');
+        };
+
         const portfolioTableBody = document.getElementById('portfolioTableBody');
         if (portfolioTableBody) {
             portfolioTableBody.addEventListener('change', (e) => {
@@ -391,6 +444,19 @@ class PortfolioController {
             });
 
             portfolioTableBody.addEventListener('click', (e) => {
+                const detailButton = e.target.closest('.opp-detail-button');
+                if (detailButton && this.state.activeTab === 'objections') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const transactionId = detailButton.dataset.id;
+                    const isChild = detailButton.dataset.child === 'true';
+                    const rows = this.dataManager.objectionRows;
+                    const found = isChild
+                        ? rows.flatMap(p => p.children || []).find(r => String(r.id) === transactionId)
+                        : rows.find(r => String(r.id) === transactionId);
+                    if (found) this.showObjectionDetails(found);
+                    return;
+                }
                 const caret = e.target.closest('.row-caret') ||
                     (e.target.closest('tr.group-header') && !e.target.closest('button, a, input, .action-btn'));
 
@@ -555,8 +621,19 @@ class PortfolioController {
         }
     }
 
+    // Araştırma filtresi ortak kaynak: ekran, sayfalama ve dışa aktarımlar aynıdır.
+    getFilteredRecords() {
+        const rows = this.dataManager.filterRecords(
+            this.state.activeTab, this.state.searchQuery,
+            this.state.columnFilters, this.state.subTab,
+            this.state.activeTab === 'objections' && this.oppositionResearch.includeArchived
+        );
+        return this.state.activeTab === 'objections'
+            ? this.oppositionResearch.filter(rows) : rows;
+    }
+
     getCurrentPageRecords() {
-        let filtered = this.dataManager.filterRecords(this.state.activeTab, this.state.searchQuery, this.state.columnFilters,this.state.subTab);
+        let filtered = this.getFilteredRecords();
         filtered = this.dataManager.sortRecords(filtered, this.state.sort.column, this.state.sort.direction);
         return this.pagination ? this.pagination.getCurrentPageData(filtered) : filtered;
     }
@@ -567,6 +644,72 @@ class PortfolioController {
         const pageRecords = this.getCurrentPageRecords();
         if (pageRecords.length === 0) { selectAllCb.checked = false; return; }
         selectAllCb.checked = pageRecords.every(r => this.state.selectedRecords.has(r.id));
+    }
+
+    // Ayrı sütunları tabloya tekrar eklemeden tüm saklı alanları inceleme.
+    // textContent kullanılır: veritabanındaki marka/kişi isimleri HTML olarak yürütülmez.
+    showObjectionDetails(row) {
+        const modal = document.getElementById('recordDetailModal');
+        const body = document.getElementById('modalBody');
+        const heading = document.getElementById('modalRecordTitle');
+        if (!modal || !body) return;
+        if (heading) heading.textContent = `İtiraz Dosyası · ${row.title || '-'}`;
+        body.replaceChildren();
+        const grid = document.createElement('div');
+        grid.className = 'opp-detail-grid';
+        const fields = [
+            ['Marka / Dosya', row.title],
+            ['Başvuru numarası', row.applicationNumber],
+            ['İşlem türü', row.transactionTypeName],
+            ['Müvekkil markası', row.clientMark],
+            ['Müvekkil markası başvuru no', row.clientMarkNumber],
+            ['Müvekkilin sıfatı', row.clientRole],
+            ['Karşı marka', row.opposedMark],
+            ['Nice sınıfları', row.niceClassesText],
+            ['Müvekkil markası sınıfları', row.clientClassesText],
+            ...(!(row.partyDirection === 'outgoing' && row.opponent &&
+                String(row.applicantName || '').trim().toLocaleLowerCase('tr-TR') ===
+                String(row.opponent).trim().toLocaleLowerCase('tr-TR'))
+                ? [['Başvuru sahibi', row.applicantName]] : []),
+            ...(row.objectionProcessType !== '7' && row.opponent
+                ? [[row.partyDirection === 'outgoing' ? 'Karşı taraf (başvuru sahibi)' :
+                    'Karşı taraf (itiraz eden)', row.opponent]] : []),
+            ['Bülten numarası', row.bulletinNo],
+            ['Bülten tarihi', row.bulletinDate],
+            ['İşlem tarihi', row.epatsDate],
+            ['Durum', row.statusText]
+        ];
+        fields.forEach(([label, value]) => {
+            const cell = document.createElement('div');
+            cell.className = 'opp-detail-field';
+            const labelEl = document.createElement('span');
+            labelEl.className = 'opp-detail-label';
+            labelEl.textContent = label;
+            const valueEl = document.createElement('span');
+            valueEl.className = 'opp-detail-value';
+            valueEl.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
+            cell.append(labelEl, valueEl);
+            grid.appendChild(cell);
+        });
+        body.appendChild(grid);
+        const files = document.createElement('div');
+        files.className = 'opp-detail-documents';
+        const links = (row.documents || []).map(d => ({name: d.fileName || 'Evrak', url: d.fileUrl}));
+        if (row.taskId) links.push({name:'Bağlı görevi aç',url:`task-update.html?id=${encodeURIComponent(String(row.taskId))}`});
+        links.forEach(({name,url}) => {
+            const href = String(url || '').trim();
+            // URI'yi açıkça sınırlıyoruz; javascript:, data:, vb. kabul edilmez.
+            if (!/^https?:\/\//i.test(href) &&
+                !(/^[a-z0-9_.\/-]+(?:\?[a-z0-9_.%=&-]+)?$/i.test(href) && !href.startsWith('//'))) return;
+            const a = document.createElement('a');
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = name;
+            files.appendChild(a);
+        });
+        if (files.childElementCount) body.appendChild(files);
+        modal.classList.add('show');
     }
 
     toggleAccordion(target) {
@@ -677,7 +820,7 @@ class PortfolioController {
             if (this.state.activeTab === 'litigation') {
                 await this.dataManager.loadLitigationData();
             } else if (this.state.activeTab === 'objections') {
-                await this.dataManager.loadObjectionRows();
+                await this.loadObjectionRowsBounded();
             } else {
                 await this.dataManager.loadRecords();
             }
@@ -702,25 +845,41 @@ class PortfolioController {
     async render() {
         if (this.isTabLoading) return;
         this.renderer.showLoading(true);
+        try {
         this.renderer.clearTable();
 
-        let filtered = this.dataManager.filterRecords(
-            this.state.activeTab, 
-            this.state.searchQuery, 
-            this.state.columnFilters,
-            this.state.subTab 
-        );
+        let filtered = this.getFilteredRecords();
 
         filtered = this.dataManager.sortRecords(filtered, this.state.sort.column, this.state.sort.direction);
         this.state.filteredData = filtered;
+        this.oppositionResearch.update({
+            active: this.state.activeTab === 'objections',
+            allRows: this.dataManager.objectionRows,
+            filteredCount: filtered.length,
+            loadError: this.dataManager.objectionLoadError
+        });
 
         const totalItems = filtered.length;
         if (this.pagination) {
+            this.pagination.currentPage = this.state.currentPage;
             this.pagination.update(totalItems);
         }
 
         if (totalItems === 0) {
-            this.renderer.renderEmptyState();
+            if (this.state.activeTab === 'objections' && this.dataManager.objectionLoading) {
+                if (this.renderer.tbody) this.renderer.tbody.innerHTML =
+                    '<tr><td colspan="18" class="text-center py-5 text-primary">' +
+                    '<i class="fas fa-spinner fa-spin mr-2"></i>' +
+                    'İtiraz verileri arka planda yükleniyor. Tamamlandığında liste otomatik açılacak.' +
+                    '</td></tr>';
+            } else if (this.state.activeTab === 'objections' && this.dataManager.objectionLoadError) {
+                const message = String(this.dataManager.objectionLoadError).replace(/[&<>"']/g, char =>
+                    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+                if (this.renderer.tbody) this.renderer.tbody.innerHTML =
+                    `<tr><td colspan="7" class="text-center py-5 text-danger">İtiraz verileri alınamadı: ${message}</td></tr>`;
+            } else {
+                this.renderer.renderEmptyState();
+            }
             this.renderer.showLoading(false);
             return;
         }
@@ -795,23 +954,50 @@ class PortfolioController {
             this.highlightUpdatedRow(this.state.updatedRecordId, false);
         }
 
-        this.renderer.showLoading(false);
+        } catch (error) {
+            console.error('Portföy tablo çizim hatası:', error);
+            if (this.renderer.tbody) this.renderer.tbody.textContent = '';
+            showNotification('Tablo çizilemedi. Ayrıntılar tarayıcı konsolunda.', 'error');
+        } finally {
+            this.renderer.showLoading(false);
+        }
+    }
+
+    // Tablodaki kompakt görünüm rapor verilerini azaltmaz.
+    // Eski ayrı sütunlar Excel / PDF raporlarında korunur.
+    getExportColumns(tab) {
+        if (tab !== 'objections') return this.getColumns(tab);
+        return [
+            { key: 'title', label: 'Marka / Dosya' },
+            { key: 'transactionTypeName', label: 'İşlem Tipi' },
+            { key: 'applicationNumber', label: 'Başvuru No' },
+            { key: 'clientMark', label: 'Müvekkil Markası' },
+            { key: 'clientMarkNumber', label: 'Müvekkil Marka Başvuru No' },
+            { key: 'clientRole', label: 'Müvekkilin Sıfatı' },
+            { key: 'opposedMark', label: 'Karşı Marka' },
+            { key: 'niceClassesText', label: 'Nice Sınıfları' },
+            { key: 'clientClassesText', label: 'Müvekkil Marka Sınıfları' },
+            { key: 'applicantName', label: 'Başvuru Sahibi' },
+            { key: 'opponent', label: 'Karşı Taraf' },
+            { key: 'bulletinDate', label: 'Bülten Tarihi' },
+            { key: 'bulletinNo', label: 'Bülten No' },
+            { key: 'epatsDate', label: 'İşlem Tarihi' },
+            { key: 'statusText', label: 'Durum' }
+        ];
     }
 
     getColumns(tab) {
         if (tab === 'objections') {
-             return [
-                { key: 'toggle', width: '40px' },
-                { key: 'title', label: 'Başlık', sortable: true, width: '200px' },
-                { key: 'transactionTypeName', label: 'İşlem Tipi', sortable: true, width: '150px' },
-                { key: 'applicationNumber', label: 'Başvuru No', sortable: true, width: '110px' },
-                { key: 'applicantName', label: 'Başvuru Sahibi', sortable: true, width: '200px' },
-                { key: 'opponent', label: 'Karşı Taraf', sortable: true, width: '200px' },
-                { key: 'bulletinDate', label: 'Bülten Tar.', sortable: true, width: '110px' },
-                { key: 'bulletinNo', label: 'Bülten No', sortable: true, width: '80px' },
-                { key: 'epatsDate', label: 'İşlem Tar.', sortable: true, width: '110px' },
-                { key: 'statusText', label: 'Durum', sortable: true, width: '150px' },
-                { key: 'documents', label: 'Evraklar', width: '80px' }
+            // Masaüstünde tek ekranda görülebilen 7 birleşik sütun.
+            // Ayrı veri alanları Ayrıntılar ekranında ve dışa aktarımlarda korunur.
+            return [
+                { key: 'toggle', width: '3%' },
+                { key: 'title', label: 'Marka / Başvuru', sortable: true, width: '25%' },
+                { key: 'transactionTypeName', label: 'İtiraz / Sıfat', sortable: true, width: '17%' },
+                { key: 'applicantName', label: 'Taraflar / Markalar', sortable: true, width: '23%' },
+                { key: 'epatsDate', label: 'İşlem / Bülten', sortable: true, width: '13%' },
+                { key: 'statusText', label: 'Durum', sortable: true, width: '12%' },
+                { key: 'documents', label: 'Evrak / Detay', width: '7%' }
             ];
         }
         if (tab === 'litigation') {
@@ -897,12 +1083,7 @@ class PortfolioController {
     }
 
     async exportToExcel(type) {
-        let allFilteredData = this.dataManager.filterRecords(
-            this.state.activeTab, 
-            this.state.searchQuery, 
-            this.state.columnFilters,
-            this.state.subTab
-        );
+        let allFilteredData = this.getFilteredRecords();
         allFilteredData = this.dataManager.sortRecords(allFilteredData, this.state.sort.column, this.state.sort.direction);
 
         let dataToExport = [];
@@ -978,7 +1159,7 @@ class PortfolioController {
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Portföy Listesi');
 
-            const screenColumns = this.getColumns(this.state.activeTab);
+            const screenColumns = this.getExportColumns(this.state.activeTab);
             const excludeKeys = ['selection', 'toggle', 'actions', 'documents', 'index']; 
             
             const excelColumns = [];
@@ -1001,13 +1182,23 @@ class PortfolioController {
                 }
             });
 
-            // 🔥 YENİ: Sadece Excel Raporuna Özel "Yenileme Tarihi" Kolonu Ekleme
-            if (['trademark', 'patent', 'design'].includes(this.state.activeTab)) {
-                excelColumns.push({
-                    header: 'Yenileme Tarihi',
-                    key: 'renewalDate',
-                    width: 20
-                });
+            // Portföy Excel çıktılarında tescil ve yenileme tarihlerini koru.
+            // Yurt dışı marka tablosunda yenileme tarihi zaten bulunduğundan ikinci kez ekleme.
+            if (['all', 'trademark', 'patent', 'design'].includes(this.state.activeTab)) {
+                if (!excelColumns.some(col => col.key === 'registrationDate')) {
+                    excelColumns.push({
+                        header: 'Tescil Tarihi',
+                        key: 'registrationDate',
+                        width: 20
+                    });
+                }
+                if (!excelColumns.some(col => ['renewalDate', 'formattedRenewalDate'].includes(col.key))) {
+                    excelColumns.push({
+                        header: 'Yenileme Tarihi',
+                        key: 'renewalDate',
+                        width: 20
+                    });
+                }
             }
 
             worksheet.columns = excelColumns;
@@ -1051,13 +1242,21 @@ class PortfolioController {
                     if (col.key === 'brandImage') {
                         rowData[col.key] = ''; 
                         // 🔥 ÇÖZÜM 3: Excel'de hem formatlı key'i hem ham key'i yakalayıp garantili yazdırıyoruz
-                    } else if (col.key === 'renewalDate' || col.key === 'formattedRenewalDate') {
-                        let val = record.renewalDate || record.renewal_date;
+                    } else if (['registrationDate', 'renewalDate', 'formattedRenewalDate'].includes(col.key)) {
+                        let val = col.key === 'registrationDate'
+                            ? (record.registrationDate || record.registration_date)
+                            : (record.renewalDate || record.renewal_date);
                         if (val && val !== '-') {
-                            try {
-                                const d = new Date(val);
-                                if (!isNaN(d.getTime())) val = d.toLocaleDateString('tr-TR');
-                            } catch(e) {}
+                            // PostgreSQL DATE (YYYY-MM-DD) değerini saat dilimi kayması olmadan biçimlendir.
+                            const iso = typeof val === 'string' ? val.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/) : null;
+                            if (iso) {
+                                val = `${iso[3]}.${iso[2]}.${iso[1]}`;
+                            } else {
+                                try {
+                                    const d = new Date(val);
+                                    if (!isNaN(d.getTime())) val = d.toLocaleDateString('tr-TR');
+                                } catch(e) {}
+                            }
                         }
                         rowData[col.key] = (val === null || val === undefined || val === '') ? '-' : val;
                     } else {
@@ -1219,12 +1418,7 @@ class PortfolioController {
     }
 
     async exportToPdf() {
-        let allFilteredData = this.dataManager.filterRecords(
-            this.state.activeTab, 
-            this.state.searchQuery, 
-            this.state.columnFilters,
-            this.state.subTab
-        );
+        let allFilteredData = this.getFilteredRecords();
         allFilteredData = this.dataManager.sortRecords(allFilteredData, this.state.sort.column, this.state.sort.direction);
 
         let dataToExport = [...allFilteredData];
@@ -1257,7 +1451,7 @@ class PortfolioController {
                 });
             }
 
-            const doc = new window.jsPDF('landscape', 'mm', 'a4'); 
+            const doc = new window.jsPDF('landscape', 'mm', this.state.activeTab === 'objections' ? 'a3' : 'a4'); 
             const delay = ms => new Promise(res => setTimeout(res, ms));
 
             // 2. TÜRKÇE FONT ENTEGRASYONU
@@ -1320,6 +1514,14 @@ class PortfolioController {
                             });
                         }
                     }
+                    if (this.state.activeTab === 'objections' && parent.children) {
+                        parent.children.forEach(child => {
+                            if (!processedIds.has(String(child.id))) {
+                                sortedData.push(child);
+                                processedIds.add(String(child.id));
+                            }
+                        });
+                    }
                 }
             });
 
@@ -1367,7 +1569,7 @@ class PortfolioController {
             }
 
             // 5. Sütun Ayarları ve Sıra No Ekleme
-            const screenColumns = this.getColumns(this.state.activeTab);
+            const screenColumns = this.getExportColumns(this.state.activeTab);
             const excludeKeys = ['selection', 'toggle', 'actions', 'documents', 'index']; 
             if (!includeImages) excludeKeys.push('brandImage'); 
 
@@ -1407,12 +1609,12 @@ class PortfolioController {
             }
             doc.setFontSize(15);
             doc.setTextColor(30, 60, 114);
-            doc.text("FİKRİ MÜLKİYET PORTFÖY RAPORU", 283, 15, { align: 'right' });
+            doc.text("FİKRİ MÜLKİYET PORTFÖY RAPORU", doc.internal.pageSize.getWidth() - 14, 15, { align: 'right' });
             
             doc.setFontSize(9.5);
             doc.setTextColor(100, 116, 139);
             const categoryName = this.state.activeTab === 'trademark' ? `Marka (${this.state.subTab === 'turkpatent' ? 'TÜRKPATENT' : 'Yurtdışı'})` : this.state.activeTab.toUpperCase();
-            doc.text(`Kategori: ${categoryName}  |  Üretim Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 283, 22, { align: 'right' });
+            doc.text(`Kategori: ${categoryName}  |  Üretim Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, doc.internal.pageSize.getWidth() - 14, 22, { align: 'right' });
 
             // 🔥 YENİ: Sütun stili objesi indekslere göre tanımlandı
             const customColumnStyles = {

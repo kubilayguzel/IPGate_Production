@@ -330,23 +330,31 @@ export const FormTemplates = {
                     <div class="form-group"><label for="suitOpeningDate" class="form-label">Dava Tarihi (Açılış)</label><input type="text" class="form-input" id="suitOpeningDate" placeholder="gg.aa.yyyy" data-datepicker required></div>
                 </div>
                 
-                <!-- 🔥 YENİ: ÇOKLU TARAF EKLEME ALANI -->
-                <div class="row mt-4 border-top pt-4">
-                    <div class="col-md-6 border-right">
-                        <label class="form-label text-success font-weight-bold"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
-                        <div class="d-flex mb-2">
-                            <input type="text" id="plaintiffInput" class="form-control form-control-sm" placeholder="İsim yazın ve ekleyin...">
-                            <button type="button" class="btn btn-sm btn-success ml-2" onclick="window.addSuitParty('davaci')"><i class="fas fa-plus"></i></button>
+                <!-- Dava tarafları: kişiler tablosunda arama veya ortak kişi oluşturma -->
+                <div class="row mt-4 border-top pt-4" id="suitPartySelector">
+                    <div class="col-md-6 border-right mb-3">
+                        <label class="form-label text-success font-weight-bold" for="plaintiffInput"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
+                        <div class="d-flex align-items-start mb-1" style="gap:8px;">
+                            <div class="position-relative" style="flex:1; min-width:0;">
+                                <input type="search" id="plaintiffInput" class="form-control form-control-sm" placeholder="Kayıtlı davacı adıyla arayın..." autocomplete="off" aria-label="Davacı ara">
+                                <div id="plaintiffSearchResults" class="search-results-list" style="display:none;" role="listbox"></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-success suit-person-create-btn" data-role="davaci" title="Ortak kişi kayıt penceresini aç" aria-label="Yeni davacı kişi oluştur"><i class="fas fa-plus"></i></button>
                         </div>
-                        <div id="plaintiffsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:150px; overflow-y:auto;"></div>
+                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davaci" style="font-size:12px;">Kişi oluşturmadan serbest isim ekle</button>
+                        <div id="plaintiffsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:180px; overflow-y:auto;"></div>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label text-danger font-weight-bold"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
-                        <div class="d-flex mb-2">
-                            <input type="text" id="defendantInput" class="form-control form-control-sm" placeholder="İsim yazın ve ekleyin...">
-                            <button type="button" class="btn btn-sm btn-danger ml-2" onclick="window.addSuitParty('davali')"><i class="fas fa-plus"></i></button>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-danger font-weight-bold" for="defendantInput"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
+                        <div class="d-flex align-items-start mb-1" style="gap:8px;">
+                            <div class="position-relative" style="flex:1; min-width:0;">
+                                <input type="search" id="defendantInput" class="form-control form-control-sm" placeholder="Kayıtlı davalı adıyla arayın..." autocomplete="off" aria-label="Davalı ara">
+                                <div id="defendantSearchResults" class="search-results-list" style="display:none;" role="listbox"></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-danger suit-person-create-btn" data-role="davali" title="Ortak kişi kayıt penceresini aç" aria-label="Yeni davalı kişi oluştur"><i class="fas fa-plus"></i></button>
                         </div>
-                        <div id="defendantsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:150px; overflow-y:auto;"></div>
+                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 suit-free-party-btn" data-role="davali" style="font-size:12px;">Kişi oluşturmadan serbest isim ekle</button>
+                        <div id="defendantsContainer" class="p-2 bg-light border rounded" style="min-height:80px; max-height:180px; overflow-y:auto;"></div>
                     </div>
                 </div>
 
@@ -357,48 +365,7 @@ export const FormTemplates = {
             </div>
         </div>
         
-        <script>
-            // Arayüz İçi Taraf Ekleme/Silme Fonksiyonları
-            window.suitPartiesData = { davaci: [], davali: [] };
-            
-            window.addSuitParty = function(role) {
-                const inputId = role === 'davaci' ? 'plaintiffInput' : 'defendantInput';
-                const input = document.getElementById(inputId);
-                const name = input.value.trim();
-                if (!name) return;
-                window.suitPartiesData[role].push({ id: 'free_text', name: name });
-                input.value = '';
-                window.renderSuitParties(role);
-            };
-            
-            window.removeSuitParty = function(role, index) {
-                window.suitPartiesData[role].splice(index, 1);
-                window.renderSuitParties(role);
-            };
-            
-            window.renderSuitParties = function(role) {
-                const containerId = role === 'davaci' ? 'plaintiffsContainer' : 'defendantsContainer';
-                const container = document.getElementById(containerId);
-                const list = window.suitPartiesData[role];
-                
-                if (list.length === 0) { 
-                    container.innerHTML = '<div class="text-muted small text-center mt-2">Kayıt Yok.</div>'; 
-                    return; 
-                }
-                
-                container.innerHTML = list.map((p, idx) => \`
-                    <div class="d-flex justify-content-between align-items-center p-1 mb-1 border-bottom bg-white">
-                        <span class="small font-weight-bold">\${p.name}</span>
-                        <button type="button" class="btn btn-xs text-danger border-0" onclick="window.removeSuitParty('\${role}', \${idx})">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>\`).join('');
-            };
-            
-            // Sayfa yüklendiğinde listeleri boş başlat
-            window.renderSuitParties('davaci'); 
-            window.renderSuitParties('davali');
-        </script>`;
+        `;
     },
 
     getClientSection: () => `

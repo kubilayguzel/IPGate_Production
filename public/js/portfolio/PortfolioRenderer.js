@@ -272,6 +272,46 @@ export class PortfolioRenderer {
             tr.style.backgroundColor = '#f8f9fa'; 
         }
 
+        const safeText = value => String(value ?? '').replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const safeHref = value => {
+            const uri = String(value || '').trim();
+            // Sadece web adresleri ve uygulama içi göreli dosya yolları bağlanabilir.
+            if (/^https?:\/\//i.test(uri) || (/^\/?[a-z0-9_.-][a-z0-9_./-]*$/i.test(uri) && !uri.startsWith('//'))) {
+                return safeText(uri);
+            }
+            return null;
+        };
+        // Tekrarlanan marka/kişi bilgilerini yan yana ayrı sütunlar yerine
+        // anlamlı ikincil satırlar halinde gösteriyoruz.
+        const normalizeDisplay = value => String(value || '').trim().toLocaleLowerCase('tr-TR');
+        const distinct = (left, right) => normalizeDisplay(left) &&
+            normalizeDisplay(left) !== normalizeDisplay(right) && String(left) !== '-';
+        const title = safeText(row.title || '-');
+        const appNo = row.applicationNumber && row.applicationNumber !== '-'
+            ? `<span class="opp-cell-muted">Başvuru: ${safeText(row.applicationNumber)}</span>` : '';
+        const nice = row.niceClassesText && row.niceClassesText !== '-'
+            ? `<span class="opp-cell-muted">Nice: ${safeText(row.niceClassesText)}</span>` : '';
+        const clientMark = distinct(row.clientMark, row.title)
+            ? `<span class="opp-cell-subline"><span class="opp-cell-kicker">Müvekkil markası:</span> ${safeText(row.clientMark)}</span>` : '';
+        const opposedMark = distinct(row.opposedMark, row.title) && distinct(row.opposedMark, row.clientMark)
+            ? `<span class="opp-cell-subline"><span class="opp-cell-kicker">Karşı marka:</span> ${safeText(row.opposedMark)}</span>` : '';
+        // Karşı taraf, işlem yönüne göre atanır. Bizim itirazımızda başvuru sahibi
+        // zaten karşı taraftır; iki satırda aynı ismi tekrarlamıyoruz.
+        const applicant = row.applicantName && row.applicantName !== '-' &&
+            !(row.partyDirection === 'outgoing' && row.opponent && !distinct(row.applicantName, row.opponent))
+            ? `<span class="opp-cell-subline"><span class="opp-cell-kicker">Başvuru sahibi:</span> ${safeText(row.applicantName)}</span>` : '';
+        const opponent = row.objectionProcessType !== '7' && row.opponent
+            ? `<span class="opp-cell-subline"><span class="opp-cell-kicker">${row.partyDirection === 'outgoing' ? 'Karşı taraf (başvuru sahibi)' : 'Karşı taraf (itiraz eden)'}:</span> ${safeText(row.opponent)}</span>` : '';
+        const roleText = safeText(row.clientRole || 'Doğrulanamadı');
+        const roleClass = row.clientRole === 'Doğrulanamadı' ? ' opp-unknown' : '';
+        const roleHtml = `<span class="opp-role${roleClass}" title="${safeText(row.roleSource || '')}">${roleText}</span>`;
+        const bulletinText = row.bulletinNo && row.bulletinNo !== '-'
+            ? `Bülten ${safeText(row.bulletinNo)}` : '';
+        const bulletinDate = row.bulletinDate && row.bulletinDate !== '-'
+            ? ` · ${safeText(row.bulletinDate)}` : '';
+        const bulletinLine = bulletinText || bulletinDate
+            ? `<span class="opp-cell-muted">${bulletinText}${bulletinDate}</span>` : '';
         const docsHtml = (row.documents || []).map(doc => {
             let iconClass = 'fa-file-pdf'; 
             let iconColor = '#dc3545'; 
@@ -287,12 +327,15 @@ export class PortfolioRenderer {
                 iconColor = '#fd7e14'; 
             }
 
-            return `
-                <a href="${doc.fileUrl}" target="_blank" class="pdf-link" title="${doc.fileName}" style="text-decoration: none; margin-right: 8px;">
-                    <i class="fas ${iconClass}" style="color: ${iconColor} !important; font-size: 1.3em; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></i>
-                </a>
-            `;
+            const href = safeHref(doc.fileUrl);
+            if (!href) return '';
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="pdf-link" title="${safeText(doc.fileName || 'Evrak')}">
+                <i class="fas ${iconClass}" style="color:${iconColor}; font-size:1.3em;"></i></a>`;
         }).join('');
+
+        const taskLink = row.taskId ? `<a href="task-update.html?id=${encodeURIComponent(String(row.taskId))}"
+            target="_blank" rel="noopener noreferrer" class="pdf-link" title="Bağlı görevi aç">
+            <i class="fas fa-external-link-alt"></i></a>` : '';
 
         const caret = hasChildren ? `<i class="fas fa-chevron-right row-caret" style="cursor:pointer;"></i>` : '';
         const indentation = isChild ? 'style="padding-left: 30px; border-left: 3px solid #f39c12;"' : '';
@@ -309,25 +352,31 @@ export class PortfolioRenderer {
             else if (sText.includes('kısmen')) badgeColor = 'info';
             else badgeColor = 'primary';
             
-            statusDisplay = `<span class="badge badge-${badgeColor} px-2 py-1 shadow-sm">${row.statusText || '-'}</span>`;
+            statusDisplay = `<span class="badge badge-${badgeColor} px-2 py-1 shadow-sm">${safeText(row.statusText || '-')}</span>`;
         }
 
         tr.innerHTML = `
             <td class="toggle-cell text-center">${caret}</td>
-            <td ${indentation} title="${row.title || ''}" style="max-width: 250px; white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">
-                ${isChild ? '↳ ' : ''} <strong>${row.title || '-'}</strong>
+            <td title="${title}" ${indentation}>
+                ${isChild ? '<span aria-hidden="true">↳ </span>' : ''}<span class="opp-cell-title">${title}</span>
+                ${appNo}${nice}
             </td>
-            <td title="${row.transactionTypeName || ''}" style="white-space: normal;">${row.transactionTypeName || '-'}</td>
-            <td title="${row.applicationNumber}">${row.applicationNumber || '-'}</td>
-            <td title="${row.applicantName}" style="max-width: 200px; white-space: normal; word-wrap: break-word;">${row.applicantName || '-'}</td>
-            <td title="${row.opponent}" style="max-width: 200px; white-space: normal; word-wrap: break-word;">${row.opponent || '-'}</td>
-            <td>${row.bulletinDate || '-'}</td>
-            <td>${row.bulletinNo || '-'}</td>
-            <td>${row.epatsDate || '-'}</td>
+            <td><span class="opp-cell-title">${safeText(row.transactionTypeName || '-')}</span>
+                <span class="opp-cell-muted">${roleHtml}</span>
+            </td>
+            <td>${clientMark}${opposedMark}${applicant}${opponent || ''}
+                ${!clientMark && !opposedMark && !applicant && !opponent ? '<span class="opp-cell-muted">—</span>' : ''}
+            </td>
+            <td><span class="opp-cell-title">${safeText(row.epatsDate || '-')}</span>${bulletinLine}</td>
             <td>${statusDisplay}</td>
-            <td>${docsHtml || '-'}</td>
+            <td><div class="opp-doc-actions">${docsHtml || (taskLink ? '' : '—')}${taskLink}</div>
+                <button type="button" class="opp-detail-button" data-id="${safeText(row.id)}"
+                    data-child="${isChild ? 'true' : 'false'}" aria-label="Dosyanın tüm bilgilerini gör">Ayrıntılar</button>
+            </td>
         `;
-        
+        tr.dataset.oppId = String(row.id);
+        tr.dataset.oppChild = String(isChild);
+
         if (hasChildren) tr.dataset.groupId = row.id;
         if (isChild) tr.dataset.parentId = row.parentId;
         return tr;

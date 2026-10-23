@@ -237,6 +237,7 @@ export class PortfolioRenderer {
             <div class="d-flex gap-1 justify-content-end">
                 <button class="action-btn view-btn btn btn-sm btn-info" data-id="${row.id}" title="Görüntüle"><i class="fas fa-eye"></i></button>
                 <button class="action-btn edit-btn btn btn-sm btn-warning" data-id="${row.id}" title="Düzenle"><i class="fas fa-edit"></i></button>
+                ${this.canDeleteSuits ? `<button class="action-btn delete-btn btn btn-sm btn-danger" data-id="${row.id}" title="Davayı ve dava dosyasına ait verileri sil" aria-label="Dava kaydını sil"><i class="fas fa-trash-alt"></i></button>` : ''}
             </div>`;
             
         const statusBadge = this.getStatusBadge(row);

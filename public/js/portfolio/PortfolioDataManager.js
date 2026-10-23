@@ -428,6 +428,102 @@ export class PortfolioDataManager {
         };
     }
 
+    // Dava ana kaydı ile sadece davaya özgü bağlantıları SQL içinde tek
+    // transaksiyonda siler. Dava konusu IP portföy kaydına dokunmaz.
+    async deleteSuitRecord(suitId) {
+        const { data, error } = await supabase.rpc('delete_suit_portfolio_cascade', {
+            p_suit_id: String(suitId)
+        });
+        if (error) {
+            const missingRpc = /PGRST202|Could not find the function/i.test(`${error.code || ''} ${error.message || ''}`);
+            throw new Error(missingRpc
+                ? 'Dava silme SQL fonksiyonu kurulu değil. ZIP içindeki SIL_DAVA_KAYDI_SQL.sql dosyasını önce Supabase SQL Editor üzerinde çalıştırın.'
+                : (error.message || 'Dava silme işlemi başarısız.'));
+        }
+        if (!data?.success) throw new Error('Dava silme işlemi veritabanı tarafından doğrulanmadı.');
+
+        // PostgreSQL verilerini sildikten sonra, projenin documents bucket'ında
+        // kayıtlı fiziksel dosyaları temizle. Harici bağlantı/Supabase dışı URL
+        // veya başka bucket yollarına kesinlikle dokunma.
+        const refs = Array.isArray(data.document_refs) ? data.document_refs : [];
+        const paths = [...new Set(refs.map(value => this._getSuitDocumentBucketPath(value, suitId)).filter(Boolean))];
+        const unrecognized = refs.filter(value => !this._getSuitDocumentBucketPath(value, suitId));
+        const failed = [];
+        for (let i = 0; i < paths.length; i += 80) {
+            const batch = paths.slice(i, i + 80);
+            try {
+                const { error: storageError } = await supabase.storage.from('documents').remove(batch);
+                if (storageError) {
+                    console.warn('Dava fiziksel belge silme hatası:', storageError);
+                    failed.push(...batch);
+                }
+            } catch (e) {
+                console.warn('Dava dosyası Storage temizleme hatası:', e);
+                failed.push(...batch);
+            }
+        }
+        if (failed.length) {
+            // DB kaydı artık mevcut değil. Kalan dosya yollarını sonraki oturumda
+            // yeniden deneyebilmek için sakla. Veritabanı silme işlemi tekrarlanmaz.
+            try {
+                const key = 'ipgateSuitPendingStorageCleanup';
+                const previous = JSON.parse(localStorage.getItem(key) || '[]');
+                localStorage.setItem(key, JSON.stringify([...new Set([...(Array.isArray(previous) ? previous : []), ...failed])]));
+            } catch (e) { console.warn('Dava Storage temizleme bilgisi kaydedilemedi:', e); }
+        }
+        if (unrecognized.length) {
+            console.warn('Dava silindi; Storage nesnesi olduğu doğrulanamayan dosya referansları (dokunulmadı):', unrecognized);
+        }
+        return { ...data, failedStoragePaths: failed, skippedExternalRefs: unrecognized.length };
+    }
+
+    _getSuitDocumentBucketPath(input, suitId) {
+        if (typeof input !== 'string') return null;
+        const value = input.trim();
+        if (!value) return null;
+        let path = null;
+        if (/^https?:\/\//i.test(value)) {
+            try {
+                const url = new URL(value);
+                const projectOrigin = new URL(supabase.supabaseUrl).origin;
+                if (url.origin !== projectOrigin) return null;
+                const match = url.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/documents\/(.+)$/i);
+                if (!match) return null;
+                path = decodeURIComponent(match[1]);
+            } catch { return null; }
+        } else if (value.startsWith('documents/')) {
+            path = value.slice('documents/'.length);
+        } else if (value.startsWith(`suits/${suitId}/`) || value.startsWith(`litigation/${suitId}/`)) {
+            path = value;
+        } else {
+            // Görevlere ait veritabanı dosyalarında ham storagePath da bulunabilir.
+            // Davaya ait olduğu anlaşılmayan çıplak yolu otomatik silme.
+            return null;
+        }
+        if (!path || path.startsWith('/') || path.includes('\\') || path.split('/').includes('..') || /[\x00-\x1f]/.test(path)) return null;
+        return path;
+    }
+
+    async retryPendingSuitStorageCleanup() {
+        const key = 'ipgateSuitPendingStorageCleanup';
+        let pending;
+        try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch { return; }
+        if (!Array.isArray(pending) || !pending.length) return;
+        const remain = [];
+        for (let i = 0; i < pending.length; i += 80) {
+            const batch = pending.slice(i, i + 80);
+            try {
+                const { error } = await supabase.storage.from('documents').remove(batch);
+                if (error) remain.push(...batch);
+            } catch { remain.push(...batch); }
+        }
+        try {
+            if (remain.length) localStorage.setItem(key, JSON.stringify(remain));
+            else localStorage.removeItem(key);
+        } catch (_) {}
+        return remain.length;
+    }
+
     async deleteRecord(id) { 
         return await ipRecordsService.deleteParentWithChildren(id); 
     }

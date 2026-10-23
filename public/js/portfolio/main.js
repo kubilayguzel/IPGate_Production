@@ -1,6 +1,6 @@
 import { PortfolioDataManager } from './PortfolioDataManager.js';
 import { PortfolioRenderer } from './PortfolioRenderer.js';
-import { authService, monitoringService, waitForAuthUser, redirectOnLogout } from '../../supabase-config.js';
+import { authService, monitoringService, waitForAuthUser, redirectOnLogout, supabase } from '../../supabase-config.js';
 import { loadSharedLayout } from '../layout-loader.js';
 import { showNotification } from '../../utils.js';
 import Pagination from '../pagination.js';
@@ -68,6 +68,19 @@ class PortfolioController {
         if (!user) return; 
 
         redirectOnLogout('index.html', 1200);
+
+        // Silme düğmesi sadece yetkili rollere gösterilir; SQL RPC de ayrıca
+        // auth.uid() üzerinden admin/superadmin kontrolü yapar.
+        try {
+            const { data } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle();
+            this.renderer.canDeleteSuits = ['admin', 'superadmin'].includes(data?.role);
+            if (this.renderer.canDeleteSuits) {
+                this.dataManager.retryPendingSuitStorageCleanup().catch(console.warn);
+            }
+        } catch (e) {
+            this.renderer.canDeleteSuits = false;
+            console.warn('Dava silme yetkisi okunamadı:', e);
+        }
 
         await loadSharedLayout({ activeMenuLink: 'portfolio.html' });
         this.renderer.showLoading(true);
@@ -810,6 +823,44 @@ class PortfolioController {
     }
 
     async handleDelete(id) {
+        if (this.state.activeTab === 'litigation') {
+            const suit = this.dataManager.litigationRows.find(row => String(row.id) === String(id));
+            if (!suit || !this.renderer.canDeleteSuits) {
+                showNotification('Dava kaydı bulunamadı veya silme yetkiniz yok.', 'error');
+                return;
+            }
+            const fileNumber = suit.caseNo && suit.caseNo !== '-' ? suit.caseNo : '(Esas no yok)';
+            const label = `${suit.title || 'Dava Dosyası'} · ${fileNumber}`;
+            const approved = confirm(
+                `${label}\n\nBu dava kaydı; dava tarafları, sadece bu davaya ait işler, işlemler ve bağlı belgelerle birlikte kalıcı olarak silinecek.\n` +
+                `Dava konusu marka/patent/tasarım kaydı ve ona ait bağımsız işler KORUNACAK.\n` +
+                `Faturalandırılmış tahakkuk bulunursa silme engellenecek.\n\nDevam edilsin mi?`
+            );
+            if (!approved) return;
+            const phrase = prompt('Geri alınamaz silme işlemini onaylamak için SİL yazın:');
+            if (phrase !== 'SİL') return;
+            try {
+                this.renderer.showLoading(true);
+                const result = await this.dataManager.deleteSuitRecord(id);
+                this.state.selectedRecords.delete(String(id));
+                this.dataManager.clearCache();
+                await this.dataManager.loadLitigationData();
+                this.render();
+                if (result.failedStoragePaths?.length) {
+                    showNotification(`Dava veritabanından silindi ancak ${result.failedStoragePaths.length} dosya Storage'dan kaldırılamadı. Yeniden girişte otomatik tekrar denenecek.`, 'warning');
+                } else if (result.skippedExternalRefs) {
+                    showNotification(`Dava kaydı silindi. ${result.skippedExternalRefs} harici veya doğrulanamayan dosya referansına güvenlik nedeniyle dokunulmadı.`, 'warning');
+                } else {
+                    showNotification('Dava, dava tarafları, ilgili işlemler, işler ve kayıtlı belgeleri silindi.', 'success');
+                }
+            } catch (e) {
+                console.error('Dava silme hatası:', e);
+                showNotification(`Dava silinemedi: ${e.message}`, 'error');
+            } finally {
+                this.renderer.showLoading(false);
+            }
+            return;
+        }
         if (!confirm('Bu kaydı silmek istediğinize emin misiniz?')) return;
         try {
             this.renderer.showLoading(true);

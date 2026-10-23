@@ -7,6 +7,12 @@ export class CustomReportManager {
         this.assignedReports = [];
         this.bulletinList = [];
         this.currentData = [];
+        this.visibleReports = [];
+        this.linkedClientIds = new Set();
+        this.selectedClientId = 'ALL';
+        this.scopeVersion = 0;
+        this.requestVersion = 0;
+        this.reportResultContext = null;
     }
 
     async init() {
@@ -22,39 +28,119 @@ export class CustomReportManager {
         const exportBtn = document.getElementById('btnExportCustomReportExcel');
 
         reportSelector.addEventListener('change', async (e) => {
+            this.clearReportResults();
             const selectedReportId = e.target.value;
-            const selectedReport = this.assignedReports.find(r => r.id === selectedReportId);
-            
-            // Eğer seçilen raporun tipi bülten sorgusu ise, bülten dropdown'ını ekranda göster
+            // Yalnızca seçili şirkette görüntülenmesine izin verilen raporlar kullanılabilir.
+            const selectedReport = this.visibleReports.find(r => r.id === selectedReportId);
+
             if (selectedReport && selectedReport.report_type === 'bulletin_search') {
                 $(bulletinContainer).slideDown(200);
-                
-                if (this.bulletinList.length === 0) {
-                    await this.loadBulletinList();
-                }
-                runBtn.disabled = !bulletinSelector.value;
+                if (this.bulletinList.length === 0) await this.loadBulletinList();
             } else {
-                // Başka bir rapor türü seçildiyse bülten alanını gizle
                 $(bulletinContainer).slideUp(200);
-                bulletinSelector.value = "";
-                runBtn.disabled = false;
+                bulletinSelector.value = '';
             }
+            this.updateRunButtonState();
         });
 
-        bulletinSelector.addEventListener('change', (e) => {
-            runBtn.disabled = !e.target.value;
+        bulletinSelector.addEventListener('change', () => {
+            this.clearReportResults();
+            this.updateRunButtonState();
         });
 
         runBtn.addEventListener('click', () => this.runReport());
-        
-        if (exportBtn) {
-            exportBtn.addEventListener('click', () => this.exportToExcel());
+        if (exportBtn) exportBtn.addEventListener('click', () => this.exportToExcel());
+    }
+
+    // Bir rapor yalnızca hem oturum kullanıcısına atanmışsa, hem de seçili/bağlı
+    // müvekkilin ID'si criteria.target_portal_clients içinde varsa görünür.
+    static parseTargetClientIds(criteria) {
+        let parsed = criteria;
+        if (typeof parsed === 'string') {
+            try { parsed = JSON.parse(parsed); } catch (_) { return []; }
         }
+        let ids = parsed?.target_portal_clients;
+        if (typeof ids === 'string') {
+            try { ids = JSON.parse(ids); } catch (_) { ids = ids.split(','); }
+        }
+        return Array.isArray(ids) ? ids.map(x => String(x || '').trim()).filter(Boolean) : [];
+    }
+
+    getVisibleReports() {
+        return this.visibleReports.slice();
+    }
+
+    setClientScope(clientId, linkedClients = []) {
+        this.selectedClientId = String(clientId ?? 'ALL').trim();
+        this.linkedClientIds = new Set((linkedClients || []).map(c => String(c.id || '').trim()).filter(Boolean));
+        this.scopeVersion++;
+        this.renderAssignedReports();
+        return this.getVisibleReports();
+    }
+
+    clearReportResults() {
+        this.requestVersion++;
+        this.currentData = [];
+        this.reportResultContext = null;
+        const card = document.getElementById('customReportResultsCard');
+        const tbody = document.getElementById('customReportTableBody');
+        if (card) card.style.display = 'none';
+        if (tbody) tbody.innerHTML = '';
+    }
+
+    updateRunButtonState() {
+        const selector = document.getElementById('customReportSelector');
+        const bulletin = document.getElementById('bulletinSelector');
+        const button = document.getElementById('btnRunCustomReport');
+        if (!button) return;
+        const selected = this.visibleReports.find(r => String(r.id) === String(selector?.value));
+        button.disabled = !selected || (selected.report_type === 'bulletin_search' && !bulletin?.value);
+    }
+
+    renderAssignedReports(message = '') {
+        const selector = document.getElementById('customReportSelector');
+        if (!selector) return;
+
+        const allowedIds = this.linkedClientIds;
+        const currentId = this.selectedClientId;
+        this.visibleReports = this.assignedReports.filter(report => {
+            const targets = report.targetClientIds || [];
+            if (currentId === 'ALL') return targets.some(id => allowedIds.has(id));
+            return allowedIds.has(currentId) && targets.includes(currentId);
+        });
+
+        // Şirket değiştirildiğinde önceki şirketin seçimi ve sorgu sonucu kalmamalı.
+        selector.replaceChildren();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = message || (this.visibleReports.length
+            ? 'Bir rapor seçiniz...'
+            : currentId === 'ALL'
+                ? 'Yetkili olduğunuz şirketler için özel rapor bulunmamaktadır.'
+                : 'Bu firma için tanımlı özel rapor bulunmamaktadır.');
+        selector.appendChild(placeholder);
+
+        this.visibleReports.forEach(report => {
+            const option = document.createElement('option');
+            option.value = report.id;
+            option.textContent = report.name || 'Özel Rapor';
+            selector.appendChild(option);
+        });
+        selector.disabled = !this.visibleReports.length;
+        const bulletin = document.getElementById('bulletinSelector');
+        if (bulletin) bulletin.value = '';
+        const container = document.getElementById('dynamicBulletinContainer');
+        if (container) $(container).hide();
+        this.clearReportResults();
+        this.updateRunButtonState();
     }
 
     async loadAssignedReports() {
-        const selector = document.getElementById('customReportSelector');
         try {
+            const userId = this.authManager.user?.id;
+            if (!userId) throw new Error('Raporları yüklemek için kullanıcı oturumu bulunamadı.');
             const { data, error } = await supabase
                 .from('client_report_assignments')
                 .select(`
@@ -63,30 +149,30 @@ export class CustomReportManager {
                     client_report_configs (
                         id,
                         name,
-                        report_type
+                        report_type,
+                        criteria
                     )
-                `);
-
+                `)
+                .eq('user_id', userId);
             if (error) throw error;
 
-            this.assignedReports = (data || [])
-                .map(item => item.client_report_configs)
-                .filter(report => report !== null);
-
-            selector.innerHTML = '<option value="" disabled selected>Bir rapor seçiniz...</option>';
-            
-            if (this.assignedReports.length === 0) {
-                selector.innerHTML = '<option value="" disabled selected>Size atanmış özel rapor bulunmuyor.</option>';
-                return;
-            }
-
-            this.assignedReports.forEach(report => {
-                selector.innerHTML += `<option value="${report.id}">${report.name}</option>`;
+            const unique = new Map();
+            (data || []).forEach(item => {
+                const report = item.client_report_configs;
+                if (!report?.id || String(item.user_id) !== String(userId)) return;
+                unique.set(String(report.id), {
+                    id: String(report.id),
+                    name: report.name,
+                    report_type: report.report_type,
+                    targetClientIds: CustomReportManager.parseTargetClientIds(report.criteria)
+                });
             });
-
+            this.assignedReports = [...unique.values()];
+            this.renderAssignedReports();
         } catch (error) {
-            console.error('Raporlar yüklenemedi:', error);
-            selector.innerHTML = '<option value="" disabled selected>Raporlar yüklenirken hata oluştu!</option>';
+            console.error('Özel raporlar yüklenemedi:', error);
+            this.assignedReports = [];
+            this.renderAssignedReports('Raporlar yüklenirken hata oluştu.');
         }
     }
 
@@ -142,30 +228,39 @@ export class CustomReportManager {
         const reportId = document.getElementById('customReportSelector').value;
         const bulletinId = document.getElementById('bulletinSelector').value;
         const btn = document.getElementById('btnRunCustomReport');
+        const selected = this.visibleReports.find(r => r.id === reportId);
+        if (!selected || (selected.report_type === 'bulletin_search' && !bulletinId)) return;
 
-        if (!reportId || !bulletinId) return;
-
+        const scopeAtStart = this.scopeVersion;
+        const btnOriginal = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Taranıyor...';
         btn.disabled = true;
-        document.getElementById('customReportResultsCard').style.display = 'none';
+        this.clearReportResults();
+        const requestAtStart = this.requestVersion;
 
         try {
             const { data, error } = await supabase.rpc('get_client_bulletin_report', {
                 p_report_id: reportId,
                 p_bulletin_id: bulletinId
             });
-
+            // Yükleme sürerken firma/rapor değiştirilmişse eski sonuca asla dönme.
+            if (scopeAtStart !== this.scopeVersion
+                || requestAtStart !== this.requestVersion
+                || document.getElementById('customReportSelector').value !== reportId
+                || !this.visibleReports.some(r => r.id === reportId)) return;
             if (error) throw error;
 
             this.currentData = data || [];
+            this.reportResultContext = { scope: scopeAtStart, reportId };
             this.renderTable();
-
         } catch (error) {
-            console.error('Rapor sorgu hatası:', error);
-            alert('Rapor oluşturulurken bir hata oluştu: ' + error.message);
+            if (scopeAtStart === this.scopeVersion && requestAtStart === this.requestVersion) {
+                console.error('Rapor sorgu hatası:', error);
+                alert('Rapor oluşturulurken bir hata oluştu: ' + error.message);
+            }
         } finally {
-            btn.innerHTML = '<i class="fas fa-play mr-2"></i> Raporla';
-            btn.disabled = false;
+            btn.innerHTML = btnOriginal;
+            this.updateRunButtonState();
         }
     }
 
@@ -217,7 +312,15 @@ export class CustomReportManager {
     }
 
     async exportToExcel() {
-        if (this.currentData.length === 0) return alert('Dışa aktarılacak veri yok.');
+        const context = this.reportResultContext;
+        if (!context || context.scope !== this.scopeVersion
+            || !this.visibleReports.some(r => r.id === context.reportId)
+            || document.getElementById('customReportSelector').value !== context.reportId
+            || this.currentData.length === 0) {
+            return alert('Dışa aktarılacak geçerli rapor bulunmuyor.');
+        }
+        const exportData = this.currentData.slice();
+        const selectedReportName = this.visibleReports.find(r => r.id === context.reportId)?.name || 'Rapor';
 
         const btn = document.getElementById('btnExportCustomReportExcel');
         const originalBtnHtml = btn.innerHTML;
@@ -280,8 +383,8 @@ export class CustomReportManager {
             });
 
             // 4. Verileri Doldurma ve Resimleri Ekleme
-            for (let i = 0; i < this.currentData.length; i++) {
-                const rowData = this.currentData[i];
+            for (let i = 0; i < exportData.length; i++) {
+                const rowData = exportData[i];
                 
                 // Sahip Formatı
                 let applicantDisplay = '-';
@@ -344,9 +447,10 @@ export class CustomReportManager {
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             
             // Seçili Raporun Adını Dosya Adı Yapalım
-            const reportName = document.getElementById('customReportSelector').options[document.getElementById('customReportSelector').selectedIndex].text;
-            const cleanName = reportName.replace(/[^a-z0-9]/gi, '_');
-            
+            // Dışa aktarma sırasında şirket değişmişse önceki şirketin raporunu indirme.
+            if (context.scope !== this.scopeVersion) return;
+            const cleanName = selectedReportName.replace(/[^a-z0-9]/gi, '_');
+
             window.saveAs(blob, `${cleanName}_${new Date().toISOString().slice(0,10)}.xlsx`);
 
         } catch (error) {

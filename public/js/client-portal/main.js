@@ -56,6 +56,7 @@ class ClientPortalController {
         this.initTheme();
         this.setupEventListeners();
         await this.customReportManager.init();
+        this.checkSpecialReportsAvailability();
 
         await this.loadAllData();
     }
@@ -233,105 +234,36 @@ class ClientPortalController {
     }
 
     // --- ÖZEL RAPOR KONTROL MEKANİZMASI ---
-    async checkSpecialReportsAvailability() {
-        try {
-            const currentUser = await supabase.auth.getUser();
-            const currentUserId = currentUser.data?.user?.id;
-            if (!currentUserId) return;
-
-            // SADECE GİRİŞ YAPAN KULLANICIYA ATANMIŞ raporları JOIN ile çek
-            const { data: assignments, error } = await supabase
-                .from('client_report_assignments')
-                .select(`
-                    report_id,
-                    client_report_configs ( criteria )
-                `)
-                .eq('user_id', currentUserId);
-
-            if (error) throw error;
-
-            this.state.clientsWithReports = new Set();
-
-            if (assignments) {
-                assignments.forEach(assignment => {
-                    const config = assignment.client_report_configs;
-                    if (!config) return;
-
-                    let criteriaObj = config.criteria;
-                    // Eğer veritabanından string olarak geldiyse objeye çevir
-                    if (typeof criteriaObj === 'string') {
-                        try { criteriaObj = JSON.parse(criteriaObj); } catch (e) { criteriaObj = {}; }
-                    }
-
-                    // 🔥 YENİ: target_portal_clients dizisini güvenle al ve Set'e ekle
-                    const targetClients = criteriaObj?.target_portal_clients || [];
-                    
-                    if (Array.isArray(targetClients)) {
-                        targetClients.forEach(id => {
-                            if (id) this.state.clientsWithReports.add(String(id).trim());
-                        });
-                    }
-                });
-            }
-
-            // Geliştirici konsoluna (F12) raporu olan firmaların ID'sini yazdır
-            console.log("✅ [RAPOR KONTROL] Raporu Olan Müşteri ID'leri:", Array.from(this.state.clientsWithReports));
-            
-            this.toggleReportMenuState();
-        } catch (err) {
-            console.error("Rapor kontrolü sırasında hata:", err);
-        }
+    checkSpecialReportsAvailability() {
+        // Açılır rapor listesi ve sekmenin aktifliği aynı filtrelenmiş veriyi esas alır.
+        // Önceki sürümde sekme şirket bazlıydı, açılır rapor listesi ise değildi.
+        this.customReportManager.setClientScope(this.state.selectedClientId, this.state.linkedClients);
+        this.toggleReportMenuState();
     }
 
     toggleReportMenuState() {
-        // HTML dosyanızdaki gerçek href değeri olan #rep-custom'ı buraya ekledik
         const specialReportsTab = document.querySelector('a[href="#rep-custom"]');
+        if (!specialReportsTab) return;
 
-        if (!specialReportsTab) {
-            console.warn("⚠️ [RAPOR KONTROL] Özel raporlar sekmesi (tab) DOM'da bulunamadı! Lütfen HTML'deki sekme href değerini kontrol edin.");
-            return;
-        }
-
-        let shouldBeActive = false;
-        const currentId = String(this.state.selectedClientId).trim();
-
-        console.log(`🔍 [RAPOR KONTROL] Şu An Portalda Seçili Olan Müşteri ID: "${currentId}"`);
-
-        // Eğer Tüm Müşteriler seçiliyse veya sistem ilk kez açılıyorsa
-        if (currentId === 'ALL' || currentId === '' || currentId === 'undefined' || currentId === 'null') {
-            const authorizedIds = (this.state.linkedClients || []).map(c => String(c.id).trim());
-            shouldBeActive = authorizedIds.some(id => this.state.clientsWithReports.has(id));
-            console.log(`🔍 [RAPOR KONTROL] Durum: TÜMÜ Seçili. Yetkili Müşterilerden en az birinin raporu var mı? -> ${shouldBeActive}`);
-        } else {
-            // Belli bir müşteri seçiliyse: Bu ID bizim "Raporu Olan Müşteriler" listemizde var mı?
-            shouldBeActive = this.state.clientsWithReports.has(currentId);
-            console.log(`🔍 [RAPOR KONTROL] Durum: TEK MÜŞTERİ Seçili. Bu müşterinin rapor listesinde yetkisi var mı? -> ${shouldBeActive}`);
-        }
-
-        if (shouldBeActive) {
-            // 🔥 SEKMEYİ AKTİF ET
+        const hasReports = this.customReportManager.getVisibleReports().length > 0;
+        if (hasReports) {
             specialReportsTab.classList.remove('disabled-menu-item', 'disabled', 'text-muted');
-            specialReportsTab.style.opacity = "1";
-            specialReportsTab.style.pointerEvents = "auto";
-            specialReportsTab.style.cursor = "pointer";
+            specialReportsTab.style.opacity = '1';
+            specialReportsTab.style.pointerEvents = 'auto';
+            specialReportsTab.style.cursor = 'pointer';
             specialReportsTab.removeAttribute('title');
-            if (!specialReportsTab.hasAttribute('data-toggle')) {
-                specialReportsTab.setAttribute('data-toggle', 'tab');
-            }
+            specialReportsTab.setAttribute('data-toggle', 'pill');
         } else {
-            // 🔥 SEKMEYİ PASİF ET
             specialReportsTab.classList.add('disabled-menu-item', 'disabled', 'text-muted');
-            specialReportsTab.style.opacity = "0.4";
-            specialReportsTab.style.pointerEvents = "none";
-            specialReportsTab.style.cursor = "not-allowed";
-            specialReportsTab.setAttribute('title', "Bu firma için tanımlı özel rapor bulunmamaktadır.");
-            specialReportsTab.removeAttribute('data-toggle'); // Tıklanabilirliği (Bootstrap seviyesinde) tamamen keser
-            
-            // Eğer müşteri değiştirdiğinde sekme açık kalmışsa, zorla Dashboard sekmesine at
+            specialReportsTab.style.opacity = '0.4';
+            specialReportsTab.style.pointerEvents = 'none';
+            specialReportsTab.style.cursor = 'not-allowed';
+            specialReportsTab.setAttribute('title', 'Bu firma için tanımlı özel rapor bulunmamaktadır.');
+            specialReportsTab.removeAttribute('data-toggle');
+
             if (specialReportsTab.classList.contains('active')) {
-                specialReportsTab.classList.remove('active');
-                const defaultTab = document.querySelector('a[href="#reports-dashboard"]'); // Dashboard sekmesinin href'i
-                if(defaultTab) defaultTab.click();
+                const dashboardTab = document.querySelector('a[href="#rep-dashboard"]');
+                if (dashboardTab) $(dashboardTab).tab('show');
             }
         }
     }
@@ -3036,6 +2968,8 @@ PDF raporuna marka görselleri de eklensin mi?
             this.state.selectedClientId = clientId;
             sessionStorage.setItem('selectedClientSession', clientId);
             this.updateClientNameDisplay();
+            // Raporları yeniden veri çekme bitmeden hemen şirket bazında temizle.
+            this.checkSpecialReportsAvailability();
             this.loadAllData();
         };
         window.initReports = () => this.renderReports();

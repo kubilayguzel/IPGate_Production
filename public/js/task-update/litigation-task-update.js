@@ -817,13 +817,16 @@ class LitigationTaskUpdateView {
                 );
         }
 
-        if (petitionPanel) {
-            petitionPanel.style
-                .setProperty(
-                    'display',
-                    'none',
-                    'important'
-                );
+        // Davaya ait dilekçe işlerinde, marka/itiraz ekranındaki aynı
+        // dilekçe kontrol kartını ve dosya satırındaki Dilekçe işaretini kullan.
+        // Önceki kod kartı !important ile her durumda gizliyordu.
+        const petitionReviewTypes = new Set([
+            '61', '62', '63', '64', '65', '91', '93', '94', '96', '97'
+        ]);
+        if (petitionPanel && !petitionReviewTypes.has(String(this.task?.task_type_id || ''))) {
+            petitionPanel.style.setProperty('display', 'none', 'important');
+        } else if (petitionPanel) {
+            petitionPanel.style.removeProperty('display');
         }
     }
 
@@ -1064,7 +1067,7 @@ class LitigationTaskUpdateView {
 
         if (uploadSubtext) {
             uploadSubtext.textContent =
-                'PDF, Word veya ek dosyaları seçmek için tıklayın';
+                'Word taslağını dilekçe olarak işaretleyip kontrole gönderin; mahkemeye sunulan PDF yüklendiğinde iş otomatik tamamlanır.';
         }
 
         const legacyDocs =

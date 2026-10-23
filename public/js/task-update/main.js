@@ -17,7 +17,12 @@ import PizZip from 'https://cdn.jsdelivr.net/npm/pizzip@3.1.7/+esm';
 import Docxtemplater from 'https://cdn.jsdelivr.net/npm/docxtemplater@3.55.8/+esm';
 import saveAs from 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/+esm';
 
-const PETITION_REVIEW_SOURCE_TYPES = new Set(['1', '7', '19', '20', '37', '38', '39']);
+// Mevcut 83 / Dilekçe Kontrol akışına dava dilekçesi işleri de dahildir.
+// 49: YİDK iptal dava açılışı; diğerleri mevcut dava dosyasındaki work görevleri.
+const PETITION_REVIEW_SOURCE_TYPES = new Set([
+    '1', '7', '19', '20', '37', '38', '39',
+    '49', '61', '62', '63', '64', '65', '91', '93', '94', '96', '97'
+]);
 const PETITION_REVIEW_TASK_TYPE = '83';
 
 class TaskUpdateController {
@@ -1016,6 +1021,15 @@ class TaskUpdateController {
             return;
         }
 
+        // 83 / Dilekçe Kontrol taslak Word dilekçeleri üzerinden yürür.
+        // Mahkemeye sunulmuş PDF, kontrol kuyruğuna yanlışlıkla alınmasın.
+        const sourceType = String(this.taskData?.taskType || this.taskData?.task_type_id || '');
+        const litigationPetitionTypes = new Set(['49','61','62','63','64','65','91','93','94','96','97']);
+        if (litigationPetitionTypes.has(sourceType) && shouldBePetition && /\.pdf$/i.test(doc.name || '')) {
+            if (checkboxEl) checkboxEl.checked = false;
+            return showNotification('Dilekçe kontrolü için Word taslağını seçin. Mahkemeye sunulan PDF işin tamamlanması içindir.', 'warning');
+        }
+
         const newType = shouldBePetition === null
             ? (doc.type === 'petition' ? 'task_document' : 'petition')
             : (shouldBePetition ? 'petition' : 'task_document');
@@ -1107,6 +1121,12 @@ class TaskUpdateController {
         const txId = this.taskData.transaction_id || this.taskData.transactionId || this.taskData.details?.transactionId || this.taskData.details?.associated_transaction_id;
         const documentType = 'task_document';
         let successCount = 0;
+        let filedCourtPdfUploaded = false;
+        const sourceTaskType = String(this.taskData?.taskType || this.taskData?.task_type_id || '');
+        const courtDocumentWorkTypes = new Set(['61', '62', '63', '64', '65', '91', '93', '94', '96', '97']);
+        // Dava dışı (aynı işlem numarasını taşıyan) kayıtları etkilemeyelim.
+        const isSuitWork = courtDocumentWorkTypes.has(sourceTaskType) &&
+            document.body.classList.contains('litigation-task-mode');
 
         for (const file of files) {
             const id = this.generateUUID();
@@ -1147,6 +1167,9 @@ class TaskUpdateController {
                     uploadedAt: new Date().toISOString()
                 });
                 successCount++;
+                if (isSuitWork && (String(file.type || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+                    filedCourtPdfUploaded = true;
+                }
             } catch (e) {
                 console.error(e);
                 showNotification('Dosya yüklenemedi: ' + e.message, 'error');
@@ -1155,8 +1178,31 @@ class TaskUpdateController {
 
         this.uiManager.renderDocuments(this.currentDocuments);
         await this.refreshTaskData();
-        if (successCount > 0 && this.isPetitionReviewSourceTask() && this.getPetitionReviewStatus() !== 'in_review') {
-            showNotification('Dosya yüklendi. Bu belge dilekçeyse belge satırındaki Dilekçe kutusunu işaretleyin.', 'info');
+
+        // Bu alan mahkemeye SUNULMUŞ dilekçe PDF'leri içindir. Word dosyası
+        // yüklenmesi veya Dilekçe kontrolüne gönderilmesi işi kapatmaz.
+        // Tüm dosyaların yüklenmesi bittiğinde status'u gerçekten DB'ye kaydet.
+        if (filedCourtPdfUploaded && this.taskData?.status !== 'completed') {
+            const reviewState = this.getPetitionReviewStatus();
+            if (reviewState === 'in_review' || reviewState === 'revision_requested') {
+                showNotification(
+                    'PDF yüklendi fakat dilekçe kontrolü henüz tamamlanmadığından iş kapatılmadı. Kontrol sonucu sonrasında işi tamamlayın.',
+                    'warning'
+                );
+            } else {
+                const statusEl = document.getElementById('taskStatus');
+                if (statusEl) {
+                    statusEl.value = 'completed';
+                    const completed = await this.saveTaskChanges();
+                    if (!completed) {
+                        showNotification('PDF kaydedildi; iş otomatik kapanmadı. Uyarıyı kontrol edip kaydı yeniden deneyin.', 'warning');
+                    }
+                } else {
+                    showNotification('PDF yüklendi, ancak görev durumu alanı bulunamadı; iş otomatik kapatılamadı.', 'warning');
+                }
+            }
+        } else if (successCount > 0 && this.isPetitionReviewSourceTask() && this.getPetitionReviewStatus() !== 'in_review') {
+            showNotification('Belge yüklendi. Word dilekçe taslağını Dilekçe olarak işaretleyip İşlerim ekranından kontrole gönderebilirsiniz.', 'info');
         }
     }
 
@@ -1272,13 +1318,16 @@ class TaskUpdateController {
             const uploadRes = await storageService.uploadFile('documents', path, file);
             if (!uploadRes.success) throw new Error(uploadRes.error);
 
-            await supabase.from('task_documents').insert({
+            const { error: filedPdfRecordError } = await supabase.from('task_documents').insert({
                 id: id,
                 task_id: String(this.taskId),
                 document_name: file.name,
                 document_url: uploadRes.url,
                 document_type: 'epats_document'
             });
+            if (filedPdfRecordError) {
+                throw new Error('Mahkemeye sunulan belge görev kaydına eklenemedi: ' + filedPdfRecordError.message);
+            }
 
             if (txId) {
                 await supabase.from('transaction_documents').insert({
@@ -1330,7 +1379,21 @@ class TaskUpdateController {
             }
 
             if (taskType === '49') {
-                showNotification('Dava dilekçesi / tevzi formu yüklendi. İş durumu Tamamlandı olarak ayarlandı.', 'success');
+                // YİDK iptal açılışında normal dava işleri gibi doğrudan kapatma
+                // yapılamaz: mahkeme, esas no, tarih ve taraflar zorunludur.
+                // Hepsi girilmişse mevcut saveTaskChanges() dava ana kaydını da açar.
+                const suitOpeningReady = [
+                    document.getElementById('suitCourtName')?.value,
+                    document.getElementById('suitFileNo')?.value,
+                    document.getElementById('suitOpeningDate')?.value
+                ].every(Boolean) && this.suitParties.plaintifs.length > 0 && this.suitParties.defendants.length > 0;
+                const reviewState = this.getPetitionReviewStatus();
+                if (suitOpeningReady && reviewState !== 'in_review' && reviewState !== 'revision_requested') {
+                    const completed = await this.saveTaskChanges();
+                    if (!completed) showNotification('Dilekçe yüklendi fakat iş kapanmadı; dava açılış alanlarını ve hata bildirimlerini kontrol edin.', 'warning');
+                } else {
+                    showNotification('Dava dilekçesi / tevzi formu yüklendi. İş durumu Tamamlandı seçildi; eksik dava açılış bilgilerini ve varsa dilekçe kontrolünü tamamlayıp Kaydet düğmesine basın.', 'info');
+                }
             } else {
                 showNotification('EPATS evrakı başarıyla yüklendi.', 'success');
             }
@@ -1893,6 +1956,7 @@ class TaskUpdateController {
         showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
         localStorage.setItem('crossTabUpdatedTaskId', this.taskId);
         setTimeout(() => { window.location.href = this.returnTarget; }, 1000);
+        return true;
     }
 
     async generateAndDownloadWord(geminiItirazMetni, payload) {

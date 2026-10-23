@@ -8,7 +8,12 @@ import Pagination from '../pagination.js';
 import { TaskDetailManager } from '../components/TaskDetailManager.js';
 import { AccrualFormManager } from '../components/AccrualFormManager.js';
 
-const PETITION_REVIEW_SOURCE_TYPES = new Set(['1', '7', '19', '20', '37', '38', '39']);
+// Mevcut 83 / Dilekçe Kontrol akışına dava dilekçesi işleri de dahildir.
+// 49: YİDK iptal dava açılışı; diğerleri mevcut dava dosyasındaki work görevleri.
+const PETITION_REVIEW_SOURCE_TYPES = new Set([
+    '1', '7', '19', '20', '37', '38', '39',
+    '49', '61', '62', '63', '64', '65', '91', '93', '94', '96', '97'
+]);
 const PETITION_REVIEW_TASK_TYPE = '83';
 
 document.addEventListener('DOMContentLoaded', async () => {

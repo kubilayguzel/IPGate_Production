@@ -321,10 +321,10 @@ const attachEventListeners = () => {
 };
 
 // --- 4. DATA LOADER ---
-const refreshTriggeredStatus = async (bulletinNo) => {
+const refreshTriggeredStatus = async (bulletinNo, isActive = () => true) => {
     try {
-        taskTriggeredStatus.clear();
-        if (!bulletinNo) return;
+        if (!isActive()) return;
+        if (!bulletinNo) { taskTriggeredStatus.clear(); return; }
         
         // 🔥 DÜZELTME 1: Yayına itiraz görev tipi '20' olarak değiştirildi.
         const { data: tasks, error } = await supabase.from('tasks')
@@ -333,6 +333,8 @@ const refreshTriggeredStatus = async (bulletinNo) => {
             .in('status', ['open', 'awaiting_client_approval', 'completed']);
             
         if (error) throw error;
+        if (!isActive()) return;
+        taskTriggeredStatus.clear();
         if (!tasks || tasks.length === 0) return;
         
         tasks.forEach(t => {
@@ -347,10 +349,10 @@ const refreshTriggeredStatus = async (bulletinNo) => {
 };
 
 // 🔥 YENİ: Mail Bildirim Durumunu Supabase'den Çeken Fonksiyon
-const refreshNotificationStatus = async (bulletinNo) => {
+const refreshNotificationStatus = async (bulletinNo, isActive = () => true) => {
     try {
-        notificationStatus.clear();
-        if (!bulletinNo) return;
+        if (!isActive()) return;
+        if (!bulletinNo) { notificationStatus.clear(); return; }
 
         // 'bulletin_watch_system' kaynağından oluşturulan mailleri çekiyoruz
         const { data: mails, error } = await supabase.from('mail_notifications')
@@ -358,6 +360,8 @@ const refreshNotificationStatus = async (bulletinNo) => {
             .eq('source', 'bulletin_watch_system');
 
         if (error) throw error;
+        if (!isActive()) return;
+        notificationStatus.clear();
         if (!mails || mails.length === 0) return;
 
         mails.forEach(m => {
@@ -933,18 +937,35 @@ const applyMonitoringListFilters = () => {
     if (pagination) { pagination.goToPage(1); renderCurrentPageOfResults(); }
 };
 
+// Supabase/PostgREST tek istekte varsayılan 1.000 satır döndürebilir.
+// İZLEME LİSTESİNİN TAMAMI arama motoruna gitmeden önce küçük ve sıralı sayfalarda çekilir.
+const fetchAllMonitoringRows = async (table, columns = '*') => {
+    const pageSize = 500;
+    const results = [];
+    let offset = 0;
+    for (let page = 0; page < 10000; page++) {
+        const { data, error } = await supabase.from(table)
+            .select(columns)
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+        if (error) throw new Error(`${table} verilerinin ${page + 1}. sayfası yüklenemedi: ${error.message}`);
+        if (!Array.isArray(data)) throw new Error(`${table} yanıtı geçersiz; eksik listeyle arama başlatılmayacak.`);
+        results.push(...data);
+        offset += data.length;
+        if (data.length < pageSize) return results;
+    }
+    throw new Error(`${table} sayfalaması güvenlik sınırına ulaştı; eksik listeyle arama başlatılmayacak.`);
+};
+
 const loadInitialData = async () => {
     await loadSharedLayout({ activeMenuLink: 'trademark-similarity-search.html' });
-    
-    const { data: personsResult } = await supabase.from('persons').select('*');
-    if (personsResult) allPersons = personsResult;
-    
+
+    // Müvekkil eşleştirmesi de 1.000 kişi sınırına takılmamalı.
+    allPersons = await fetchAllMonitoringRows('persons');
     await loadBulletinOptions();
 
-    // 1. Yurtiçi (TÜRKPATENT) Markalarını Çekiyoruz
-    const { data: monitoringData, error } = await supabase
-        .from('monitoring_trademarks')
-        .select(`
+    // İzlenen marka kayıtları artık TAMAMEN yükleniyor (2.150+ marka).
+    const monitoringData = await fetchAllMonitoringRows('monitoring_trademarks', `
             id, ip_record_id, search_mark_name, brand_text_search, nice_class_search, criteria_version,
             ip_records (
                 application_number, application_date,
@@ -954,13 +975,10 @@ const loadInitialData = async () => {
             )
         `);
 
-    // 🔥 YENİ: 2. Yurtdışı İzlenen Markaları (Manuel/Serbest Girişler için) Çekiyoruz
-    const { data: intlData, error: intlError } = await supabase
-        .from('international_monitoring')
-        .select('*');
-
-    if (error) console.error("❌ Yurtiçi Markalar Çekilirken Hata:", error.message);
-    if (intlError) console.error("❌ Yurtdışı Markalar Çekilirken Hata:", intlError.message);
+    const intlData = await fetchAllMonitoringRows('international_monitoring');
+    console.info('[İzleme] İzlenen marka listesi eksiksiz yüklendi', {
+        domestic: monitoringData.length, international: intlData.length
+    });
 
     const ensureArray = (val) => {
         if (!val) return [];
@@ -1097,7 +1115,8 @@ const formatCacheData = (r) => ({
     isSimilar: r.is_similar, holders: r.holders, note: r.note, bs: r.bs_value, imagePath: r.image_path, source: 'cache'
 });
 
-const loadDataFromCache = async (realBulletinId) => {
+// isActive: kullanıcının bülten seçimi değişmişse geç kalan sorgu eski veriyi ekrana yazmaz.
+const loadDataFromCache = async (realBulletinId, isActive = () => true) => {
     const noRecordsMessage = document.getElementById('noRecordsMessage');
     const infoMessageContainer = document.getElementById('infoMessageContainer');
     
@@ -1110,8 +1129,9 @@ const loadDataFromCache = async (realBulletinId) => {
             SimpleLoading.update('Veriler Yükleniyor...', 'Çok sayıda sonuç tespit edildi, parça parça indiriliyor...');
         }
 
-        // 🔥 ÇÖZÜM: Supabase 100.000 sınırını aşmak için Döngü (Pagination)
+        // Supabase'in proje satır sınırından küçük yanıtlar dönebilir; ofseti gerçek uzunluk kadar artır.
         while (true) {
+            if (!isActive()) return false;
             let req = supabase
                 .from('monitoring_trademark_records')
                 .select(`
@@ -1130,6 +1150,7 @@ const loadDataFromCache = async (realBulletinId) => {
             }
 
             const { data, error } = await req;
+            if (!isActive()) return false;
             if (error) throw error;
             
             if (!data || data.length === 0) {
@@ -1137,6 +1158,10 @@ const loadDataFromCache = async (realBulletinId) => {
             }
 
             allCachedData.push(...data);
+            if (typeof SimpleLoading !== 'undefined' && isActive()) {
+                SimpleLoading.update('Veriler Yükleniyor...',
+                    `${allCachedData.length.toLocaleString('tr-TR')} kayıt yüklendi; bülten sonuçları getiriliyor...`);
+            }
 
             // API/PostgREST proje limitinden dolayı istenenden daha az satır döndürebilir.
             // Bu yüzden istenen pencere kadar değil, GERÇEKTEN gelen satır kadar ilerliyoruz.
@@ -1186,6 +1211,7 @@ const loadDataFromCache = async (realBulletinId) => {
             });
         }
 
+        if (!isActive()) return false;
         allSimilarResults = cachedResults;
         
         if (infoMessageContainer) {
@@ -1204,86 +1230,104 @@ const loadDataFromCache = async (realBulletinId) => {
         }
         
         renderCurrentPageOfResults();
-        
+        return true;
     } catch (error) {
-        console.error("Önbellekten veri yüklenirken hata:", error);
+        if (isActive()) console.error('Bülten sonuçları yüklenemedi:', error);
+        throw error; // Hata, çağıran ekranda da görünmeli; boş sonuç gibi gösterilmemeli.
     }
 };
 
+let bulletinCacheRequestSerial = 0;
 const checkCacheAndToggleButtonStates = async () => {
     const bulletinSelect = document.getElementById('bulletinSelect');
+    if (!bulletinSelect) return;
     const bulletinKey = bulletinSelect.value;
-    
-    // 🔥 ÇÖZÜM 1: Seçim Yurtdışı/Manuel ise parçalama (split) yapma!
-    const isManualList = (bulletinKey === MANUAL_COLLECTION_ID);
-    const currentBNo = isManualList ? MANUAL_COLLECTION_ID : (bulletinKey ? bulletinKey.split('_')[0] : null);
-    
-    if (currentBNo && currentBNo !== MANUAL_COLLECTION_ID) {
-        await refreshTriggeredStatus(currentBNo);
-        await refreshNotificationStatus(currentBNo);
-    } else {
-        taskTriggeredStatus.clear();
-        notificationStatus.clear();
-    }
-    renderMonitoringList();
+    const requestSerial = ++bulletinCacheRequestSerial;
+    const isActive = () => requestSerial === bulletinCacheRequestSerial && bulletinSelect.value === bulletinKey;
+    const isManualList = bulletinKey === MANUAL_COLLECTION_ID;
+    const realBulletinId = isManualList ? MANUAL_COLLECTION_ID : (bulletinKey ? String(bulletinKey).split('_')[0] : null);
 
     const startSearchBtn = document.getElementById('startSearchBtn');
     const researchBtn = document.getElementById('researchBtn');
     const btnGenerateReportAndNotifyGlobal = document.getElementById('btnGenerateReportAndNotifyGlobal');
     const infoMessageContainer = document.getElementById('infoMessageContainer');
 
+    // Bülten seçilmediğinde sonuçları temizle ve önceki sorguların çıktısını geçersiz kıl.
     if (!bulletinKey || filteredMonitoringTrademarks.length === 0) {
+        taskTriggeredStatus.clear();
+        notificationStatus.clear();
+        allSimilarResults = [];
+        if (pagination) pagination.update(0);
+        renderCurrentPageOfResults();
+        renderMonitoringList();
         if (startSearchBtn) startSearchBtn.disabled = true;
         if (researchBtn) researchBtn.disabled = true;
-        if (infoMessageContainer) infoMessageContainer.innerHTML = '';
         if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
+        if (infoMessageContainer) infoMessageContainer.innerHTML = '';
+        if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
         return;
     }
 
+    // GÖSTERGEYİ geciken görev/mail sorgularını BEKLEMEDEN aç.
     if (typeof SimpleLoading !== 'undefined') {
-        SimpleLoading.show('Kontrol Ediliyor', 'Önbellekteki veriler aranıyor...');
+        SimpleLoading.show('Veriler Yükleniyor...', `${realBulletinId}. bültene ait kayıtlar kontrol ediliyor...`);
     }
+    if (startSearchBtn) startSearchBtn.disabled = true;
+    if (researchBtn) researchBtn.disabled = true;
+    if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
 
     try {
-        const selectedOption = bulletinSelect.options[bulletinSelect.selectedIndex];
-        const hasOriginalBulletin = selectedOption?.dataset?.hasOriginalBulletin === 'true';
-        
-        const realBulletinId = isManualList ? MANUAL_COLLECTION_ID : String(bulletinKey).split('_')[0];
-        
-        let hasCache = false;
-
-        // 🔥 ÇÖZÜM 2: Manuel liste seçildiyse source='manual' kolonunda ara
+        let probe;
         if (isManualList) {
-            const { data } = await supabase
-                .from('monitoring_trademark_records')
-                .select('id')
-                .eq('source', 'manual')
-                .limit(1);
-            hasCache = data && data.length > 0;
+            probe = await supabase.from('monitoring_trademark_records')
+                .select('id').eq('source', 'manual').limit(1);
         } else {
-            const { data } = await supabase
-                .from('monitoring_trademark_records')
+            probe = await supabase.from('monitoring_trademark_records')
                 .select('id, trademark_bulletin_records!inner(bulletin_id)')
-                .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
-                .limit(1);
-            hasCache = data && data.length > 0;
+                .in('trademark_bulletin_records.bulletin_id',
+                    [String(realBulletinId), `bulletin_main_${realBulletinId}`]).limit(1);
         }
+        if (!isActive()) return;
+        if (probe.error) throw probe.error; // Sessizce "sonuç yok" kabul etme.
 
-        if (hasCache) {
-            await loadDataFromCache(realBulletinId);
+        if (Array.isArray(probe.data) && probe.data.length > 0) {
+            await loadDataFromCache(realBulletinId, isActive);
         } else {
             allSimilarResults = [];
             if (pagination) pagination.update(0);
             renderCurrentPageOfResults();
         }
-        
+        if (!isActive()) return;
         updateSearchButtonsState();
 
-    } catch (error) {
-        console.error('Cache check error:', error);
-        if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> Veriler kontrol edilirken bir hata oluştu.</div>`;
-    } finally {
+        // Bu iki sorgu, sonuçları görmeyi geciktirmemeli.
         if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
+        if (!isManualList) {
+            await Promise.all([
+                refreshTriggeredStatus(realBulletinId, isActive),
+                refreshNotificationStatus(realBulletinId, isActive)
+            ]);
+        } else {
+            taskTriggeredStatus.clear();
+            notificationStatus.clear();
+        }
+        if (isActive()) renderMonitoringList();
+    } catch (error) {
+        if (!isActive()) return;
+        console.error('[İzleme] Kayıtlı bülten sonuçları yüklenemedi:', error);
+        allSimilarResults = [];
+        if (pagination) pagination.update(0);
+        renderCurrentPageOfResults();
+        if (infoMessageContainer) {
+            infoMessageContainer.innerHTML = '';
+            const message = document.createElement('div');
+            message.className = 'info-message error';
+            message.textContent = `Bülten sonuçları yüklenemedi: ${error.message || String(error)}. Kayıtlar silinmedi; bülteni yeniden seçerek deneyebilirsiniz.`;
+            infoMessageContainer.appendChild(message);
+        }
+    } finally {
+        // Yeni bültenin göstergesini eski sorgu kapatmasın.
+        if (isActive() && typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
     }
 };
 
@@ -1317,6 +1361,7 @@ const performSearch = async () => {
     resultsTableBody.innerHTML = '';
     allSimilarResults = [];
     
+    console.info('[İzleme] Taramaya gönderilecek marka sayısı:', filteredMonitoringTrademarks.length);
     const monitoredMarksPayload = filteredMonitoringTrademarks.map(tm => {
         let appDate = tm.ipRecord?.applicationDate || tm.applicationDate || null;
         let formattedDate = null;
@@ -1466,61 +1511,12 @@ const performResearch = async () => {
         SimpleLoading.show('Hazırlanıyor...', 'Veritabanındaki eski sonuçlar tamamen temizleniyor...');
     }
     
-    try {
-        const realBulletinId = String(bulletinKey).split('_')[0];
-        const filteredIds = filteredMonitoringTrademarks.map(tm => tm.id);
-        
-        // 🔥 SİHİRLİ DÖNGÜ: Supabase 1000 limitini aşmak için silinecek TÜM ID'leri parça parça çek!
-        let allIdsToDelete = [];
-        let from = 0;
-        const limitSize = 10000;
-        
-        while (true) {
-            const { data, error } = await supabase
-                .from('monitoring_trademark_records')
-                .select('id, monitored_trademark_id, is_similar, success_chance, note, trademark_bulletin_records!inner(bulletin_id)')
-                .in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`])
-                .order('id', { ascending: true })
-                .range(from, from + limitSize - 1);
+    // Yeniden arama eski eşleşmeleri/uzman notlarını ÖNCE silmez.
+    // Edge Function id üzerinde upsert yapar; eski kriter sürümleri zaten sonuç ekranında filtrelenir.
+    // Başarısız aramada önceki değerlendirmeler veritabanında korunur.
+    console.info('[İzleme] Güvenli yeniden arama: mevcut kayıtlar silinmeden güncelleniyor.');
 
-            if (error) throw error;
-            if (!data || data.length === 0) break;
-
-            const filteredRows = data.filter(d => filteredIds.includes(d.monitored_trademark_id));
-
-            // Kriter değişikliği nedeniyle ekranda gizlenmiş eski cache satırlarında da kullanıcı değerlendirmesi olabilir.
-            // Silmeden önce DB'den de yedekleyerek Benzer / Başarı Şansı / Not alanlarını koru.
-            filteredRows.forEach(d => {
-                if (d.is_similar || (d.success_chance && d.success_chance !== '') || (d.note && d.note !== '')) {
-                    if (!window._tempSearchBackup.has(d.id)) {
-                        window._tempSearchBackup.set(d.id, {
-                            isSimilar: d.is_similar === true,
-                            bs: d.success_chance || '',
-                            note: d.note || ''
-                        });
-                    }
-                }
-            });
-
-            const chunkIds = filteredRows.map(d => d.id);
-                
-            allIdsToDelete.push(...chunkIds);
-            
-            // API'nin fiilen döndürdüğü satır kadar ilerle; proje max-row limiti ne olursa olsun devam et.
-            from += data.length;
-        }
-        
-        // 🔥 TOPLANAN TÜM ID'leri 500'erli paketler halinde GERÇEKTEN sil (Zombilere son!)
-        if (allIdsToDelete.length > 0) {
-            for (let i = 0; i < allIdsToDelete.length; i += 500) {
-                await supabase.from('monitoring_trademark_records').delete().in('id', allIdsToDelete.slice(i, i + 500));
-            }
-        }
-    } catch(e) {
-        console.error("Önbellek temizlenirken hata:", e);
-    }
-    
-    await performSearch(); // Silme bitince yeni, temiz aramayı başlat
+    await performSearch(); // Silme yapılmaz; idempotent upsert
 };
 
 const groupAndSortResults = async () => {
@@ -2517,16 +2513,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bulletinSelect = document.getElementById('bulletinSelect');
     
     initializePagination();
-    await loadInitialData();
+    // Liste sayfalar halinde yüklenirken kullanıcı bülten seçerse henüz bağlanmamış change olayı kaybolabiliyordu.
+    if (bulletinSelect) bulletinSelect.disabled = true;
+    try {
+        await loadInitialData();
+    } catch (error) {
+        console.error('[İzleme] Tüm markalar yüklenemedi:', error);
+        if (startSearchBtn) startSearchBtn.disabled = true;
+        if (researchBtn) researchBtn.disabled = true;
+        const info = document.getElementById('infoMessageContainer');
+        if (info) {
+            info.textContent = `İzleme listesi tam yüklenemedi: ${error.message}. Eksik marka listesiyle tarama yapılmayacak.`;
+            info.style.display = 'block';
+        }
+        showNotification('İzleme listesi yüklenemedi. Arama başlatılmadı.', 'error');
+        return;
+    }
     tssShowResumeBannerIfAny();
+    if (bulletinSelect) bulletinSelect.disabled = false;
 
     startSearchBtn?.addEventListener('click', performSearch);
     researchBtn?.addEventListener('click', performResearch);
     bulletinSelect?.addEventListener('change', checkCacheAndToggleButtonStates);
+    // Tarayıcı önceki seçimi geri yüklediyse event tetiklenmeyebilir.
+    if (bulletinSelect?.value) checkCacheAndToggleButtonStates();
     
     clearFiltersBtn?.addEventListener('click', () => {
         ['ownerSearch', 'niceClassSearch', 'brandNameSearch', 'appNoSearch'].forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = ''; });
-        bulletinSelect.selectedIndex = 0; applyMonitoringListFilters(); showNotification('Filtreler temizlendi.', 'info');
+        bulletinSelect.selectedIndex = 0;
+        checkCacheAndToggleButtonStates();
+        applyMonitoringListFilters();
+        showNotification('Filtreler temizlendi.', 'info');
     });
 
     ['ownerSearch', 'niceClassSearch', 'brandNameSearch', 'appNoSearch'].forEach(id => { document.getElementById(id)?.addEventListener('input', debounce(applyMonitoringListFilters, 400)); });

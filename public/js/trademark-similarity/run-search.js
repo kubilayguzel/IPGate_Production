@@ -19,8 +19,12 @@ export async function runTrademarkSearch(monitoredMarks, selectedBulletinId, onP
             throw new Error('Job başlatılamadı veya jobId dönmedi.');
         }
 
+        // Sunucunun aldığı marka sayısını da doğrula: veri kaybı sessiz kalmasın.
+        if (Number(data.monitoredMarkCount) !== monitoredMarks.length) {
+            throw new Error(`Eksik marka gönderildi: ${monitoredMarks.length} yerine ${data.monitoredMarkCount} kayıt alındı.`);
+        }
         const jobId = data.jobId;
-        console.log(`✅ İş başlatıldı, Job ID: ${jobId}`);
+        console.info(`✅ İş başlatıldı, Job ID: ${jobId}, Marka: ${data.monitoredMarkCount}, Worker: ${data.workerCount}`);
 
         return await monitorSearchProgress(jobId, onProgress);
 

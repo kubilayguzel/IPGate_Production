@@ -1011,7 +1011,7 @@ class LitigationTaskUpdateView {
         if (headerSpan) {
             headerSpan.innerHTML = `
                 <i class="fas fa-file-signature mr-2 text-primary"></i>
-                ${esc(config.title)}
+                Dilekçe Kontrolü · Taslak ve Ekler
                 <small
                     class="text-muted ml-2"
                     style="font-size:.7em;font-weight:500;"
@@ -1062,12 +1062,63 @@ class LitigationTaskUpdateView {
 
         if (uploadText) {
             uploadText.textContent =
-                config.upload;
+                'Dilekçe Taslağı ve Kontrol Eklerini Yükle';
         }
 
         if (uploadSubtext) {
             uploadSubtext.textContent =
-                'Word taslağını dilekçe olarak işaretleyip kontrole gönderin; mahkemeye sunulan PDF yüklendiğinde iş otomatik tamamlanır.';
+                'Word dilekçesini buraya ekleyip Dilekçe olarak işaretleyin. Buradaki PDF ekleri dahil hiçbir belge işi kapatmaz.';
+        }
+        const input = document.getElementById('fileInput');
+        if (input) input.setAttribute('aria-label', 'Dilekçe taslağı ve kontrol belgeleri');
+
+        // İtirazlarda olduğu gibi bitirici evrak AYRI karta yüklenir.
+        // Genel belgeler bölümüne yüklenen herhangi bir PDF artık tamamlanma tetiklemez.
+        const workType = String(this.task?.task_type_id || '');
+        const petitionWorkTypes = new Set(['61','62','63','64','65','91','93','94','96','97']);
+        if (petitionWorkTypes.has(workType) && !document.getElementById('courtFiledPdfCard')) {
+            const filedCard = document.createElement('div');
+            filedCard.id = 'courtFiledPdfCard';
+            filedCard.className = 'premium-card section-card';
+            filedCard.style.borderLeft = '5px solid #15803d';
+            filedCard.innerHTML = `
+                <div class="card-header-custom section-title" style="color:#166534">
+                    <span><i class="fas fa-gavel mr-2"></i> Mahkemeye Sunulan PDF · İşi Tamamla</span>
+                </div>
+                <div class="card-body-custom">
+                    <div class="alert alert-success small mb-3">
+                        Bu alana yalnız <strong>mahkemeye sunulmuş nihai PDF</strong> yükleyin.
+                        <strong>Dilekçe Kontrolü Onaylandı</strong> durumunda yükleme işi tamamlar.
+                        Üstteki taslak ve ek belge alanı işi kapatmaz.
+                    </div>
+                    <div id="courtFiledPdfList" class="mb-3 small text-muted">Henüz mahkemeye sunulmuş PDF yüklenmedi.</div>
+                    <div class="file-upload-area" id="courtFiledPdfUploadArea" style="border-color:#86efac;background:#f0fdf4;cursor:pointer">
+                        <i class="fas fa-file-pdf upload-icon" style="color:#15803d"></i>
+                        <div class="upload-text">Mahkemeye Sunulan PDF Yükle</div>
+                        <div class="upload-subtext">PDF yüklemek, onaylı dava işini otomatik tamamlar</div>
+                        <input type="file" id="courtFiledPdfInput" accept=".pdf,application/pdf" style="display:none">
+                    </div>
+                </div>`;
+            card.insertAdjacentElement('afterend', filedCard);
+            const area = filedCard.querySelector('#courtFiledPdfUploadArea');
+            const filedInput = filedCard.querySelector('#courtFiledPdfInput');
+            const send = f => {
+                if (f) window.dispatchEvent(new CustomEvent('ipgate:upload-court-filed-pdf', { detail: {file:f} }));
+            };
+            area?.addEventListener('click', () => filedInput?.click());
+            for (const evt of ['dragenter','dragover','dragleave','drop']) {
+                area?.addEventListener(evt, event => {
+                    event.preventDefault(); event.stopPropagation();
+                    if (evt === 'drop') send(event.dataTransfer?.files?.[0]);
+                });
+            }
+            filedInput?.addEventListener('change', () => send(filedInput.files?.[0]));
+            // İlk açılışta mevcut mahkemeye sunulan evrak listesi gösterilsin.
+            const docs = this.taskDocuments.filter(d => String(d.document_type || '') === 'court_filed_pdf');
+            if (docs.length) {
+                const list = filedCard.querySelector('#courtFiledPdfList');
+                list.innerHTML = docs.map(d => `<div class="mb-2"><a href="${esc(d.document_url)}" target="_blank" rel="noopener noreferrer"><i class="fas fa-file-pdf mr-1"></i>${esc(d.document_name || 'Mahkemeye sunulan PDF')}</a></div>`).join('');
+            }
         }
 
         const legacyDocs =

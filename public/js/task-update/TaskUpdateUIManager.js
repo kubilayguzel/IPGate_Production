@@ -207,7 +207,7 @@ export class TaskUpdateUIManager {
     renderDocuments(docs) {
         const list = Array.isArray(docs) ? docs : [];
         const epatsDoc = list.find(d => d.type === 'epats_document' && !this.isInheritedDocument(d));
-        const standardDocs = list.filter(d => d !== epatsDoc);
+        const standardDocs = list.filter(d => d !== epatsDoc && d.type !== 'court_filed_pdf');
 
         const container = this.elements.filesContainer;
         if (!standardDocs || standardDocs.length === 0) {
@@ -217,6 +217,13 @@ export class TaskUpdateUIManager {
         }
 
         this.renderEpatsDocument(epatsDoc || null);
+        const courtFiledList = document.getElementById('courtFiledPdfList');
+        if (courtFiledList) {
+            const courtDocs = list.filter(d => d.type === 'court_filed_pdf');
+            courtFiledList.innerHTML = courtDocs.length
+                ? courtDocs.map(d => this._createFileItemHtml(d, false)).join('')
+                : '<div class="small text-muted">Henüz mahkemeye sunulmuş PDF yüklenmedi.</div>';
+        }
     }
 
     renderEpatsDocument(doc) {
@@ -258,7 +265,7 @@ export class TaskUpdateUIManager {
                 : (isPetition
                     ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
                     : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : '')));
-        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition && d.type !== 'epats_document')
+        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition && d.type !== 'epats_document' && d.type !== 'court_filed_pdf')
             ? `<div class="custom-control custom-checkbox d-inline-flex align-items-center ml-2" title="Bu belgenin dilekçe olarak kaydedilip kaydedilmediğini gösterir.">
                     <input type="checkbox" class="custom-control-input petition-document-checkbox" id="petitionDoc_${d.id}" data-id="${d.id}" ${isPetition ? 'checked' : ''}>
                     <label class="custom-control-label small font-weight-bold text-primary mb-0" for="petitionDoc_${d.id}">Dilekçe</label>

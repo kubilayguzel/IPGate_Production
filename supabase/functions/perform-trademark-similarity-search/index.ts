@@ -503,12 +503,22 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 }
 
 async function markWorkerStatus(supabase: any, jobId: string, workerId: string | number, status: 'completed' | 'failed') {
-    await supabase.from('search_progress_workers').update({ status }).eq('id', `${jobId}_w${workerId}`);
-    
-    const { data: activeWorkers } = await supabase.from('search_progress_workers').select('id').eq('job_id', jobId).eq('status', 'processing');
-    if (!activeWorkers || activeWorkers.length === 0) {
-        await supabase.from('search_progress').update({ status: 'completed' }).eq('id', jobId);
-    }
+    const { error: updateError } = await supabase.from('search_progress_workers')
+        .update({ status }).eq('id', `${jobId}_w${workerId}`);
+    if (updateError) throw updateError;
+
+    // Tamamlanma ancak BÜTÜN worker'lar başarılıysa mümkündür.
+    // Tek bir worker başarısızsa ana iş de başarısız raporlanır.
+    const { data: allWorkers, error: workersError } = await supabase
+        .from('search_progress_workers').select('status').eq('job_id', jobId);
+    if (workersError) throw workersError;
+    if (!allWorkers || allWorkers.length === 0) throw new Error('Worker durumları okunamadı.');
+    const remaining = allWorkers.some((w: any) => w.status === 'processing');
+    if (remaining) return;
+    const failed = allWorkers.some((w: any) => w.status !== 'completed');
+    const { error: jobError } = await supabase.from('search_progress')
+        .update({ status: failed ? 'failed' : 'completed' }).eq('id', jobId);
+    if (jobError) throw jobError;
 }
 
 serve(async (req) => {
@@ -772,20 +782,29 @@ serve(async (req) => {
                     const CHUNK_SIZE = 1000;
                     
                     for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
-                        await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
+                        const { error: uiInsertError } = await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
+                        if (uiInsertError) throw new Error(`Arama sonuçları yazılamadı: ${uiInsertError.message}`);
                     }
                     
                     for (let i = 0; i < permanentRecords.length; i += CHUNK_SIZE) {
-                        await supabase.from('monitoring_trademark_records').upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
+                        const { error: upsertError } = await supabase.from('monitoring_trademark_records')
+                            .upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
+                        if (upsertError) throw new Error(`İzleme eşleşmeleri kaydedilemedi: ${upsertError.message}`);
                     }
 
-                    const { data: jobData } = await supabase.from('search_progress').select('current_results').eq('id', jobId).single();
-                    await supabase.from('search_progress').update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
+                    const { data: jobData, error: progressReadError } = await supabase.from('search_progress')
+                        .select('current_results').eq('id', jobId).single();
+                    if (progressReadError) throw progressReadError;
+                    const { error: progressWriteError } = await supabase.from('search_progress')
+                        .update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
+                    if (progressWriteError) throw progressWriteError;
                 }
 
                 const newProcessedCount = processedCount + actualProcessedCount;
                 const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
-                await supabase.from('search_progress_workers').upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
+                const { error: progressWorkerError } = await supabase.from('search_progress_workers')
+                    .upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
+                if (progressWorkerError) throw progressWorkerError;
 
                 const nextOffset = currentOffset + BATCH_SIZE;
 
@@ -824,7 +843,12 @@ serve(async (req) => {
         }
 
         const { monitoredMarks, selectedBulletinId } = body;
-        if (!monitoredMarks || !selectedBulletinId) throw new Error("Eksik parametre.");
+        if (!Array.isArray(monitoredMarks) || monitoredMarks.length === 0 || !selectedBulletinId) {
+            throw new Error('Arama için marka listesi veya bülten numarası eksik.');
+        }
+        if (monitoredMarks.some((m: any) => !m || !m.id)) {
+            throw new Error('İzleme listesinde kimliksiz kayıt var; eksik tarama başlatılmaz.');
+        }
 
         const jobId = `job_${Date.now()}`;
         const rawBulletinNumber = String(selectedBulletinId).split('_')[0];
@@ -836,8 +860,11 @@ serve(async (req) => {
         
         if (countError) throw countError;
 
-        const totalRecords = count || 1;
-        await supabase.from('search_progress').insert({ id: jobId, status: 'processing', current_results: 0, total_records: totalRecords });
+        if (!count) throw new Error('Seçilen bültende taranacak kayıt bulunamadı.');
+        const totalRecords = count;
+        const { error: createJobError } = await supabase.from('search_progress')
+            .insert({ id: jobId, status: 'processing', current_results: 0, total_records: totalRecords });
+        if (createJobError) throw createJobError;
         
         const WORKER_COUNT = Math.min(10, monitoredMarks.length);
         const chunkSize = Math.ceil(monitoredMarks.length / WORKER_COUNT);
@@ -856,21 +883,28 @@ serve(async (req) => {
         }
 
         if (workerRecords.length > 0) {
-            await supabase.from('search_progress_workers').insert(workerRecords);
+            const { error: initWorkersError } = await supabase.from('search_progress_workers').insert(workerRecords);
+            if (initWorkersError) throw initWorkersError;
         }
 
         for (const item of activeChunks) {
             EdgeRuntime.waitUntil(
-                supabase.functions.invoke('perform-trademark-similarity-search', {
-                    body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
-                    headers: { Authorization: `Bearer ${supabaseKey}` }
-                }).catch(async (err) => {
-                    await markWorkerStatus(supabase, jobId, item.workerId, 'failed');
-                })
+                (async () => {
+                    try {
+                        const { error: startWorkerError } = await supabase.functions.invoke('perform-trademark-similarity-search', {
+                            body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
+                            headers: { Authorization: `Bearer ${supabaseKey}` }
+                        });
+                        if (startWorkerError) throw startWorkerError;
+                    } catch (err) {
+                        console.error(`Worker ${item.workerId} başlatılamadı:`, err);
+                        await markWorkerStatus(supabase, jobId, item.workerId, 'failed');
+                    }
+                })()
             );
         }
 
-        return new Response(JSON.stringify({ success: true, jobId }), {
+        return new Response(JSON.stringify({ success: true, jobId, monitoredMarkCount: monitoredMarks.length, workerCount: activeChunks.length }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
 

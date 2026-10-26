@@ -284,14 +284,17 @@ export class PersonModalManager {
 
                                                 <div class="col-lg-6 mb-4">
                                                     <div class="h-100 bg-light p-4 rounded border">
-                                                        <label class="small font-weight-bold text-muted mb-2" for="person-petition-controller">
-                                                            <i class="fas fa-user-check mr-1"></i> KONTROL GÖREVLİSİ
+                                                        <label class="small font-weight-bold text-muted mb-2">
+                                                            <i class="fas fa-user-check mr-1"></i> DİLEKÇE KONTROL SORUMLULARI
                                                         </label>
-                                                        <select id="person-petition-controller" class="form-control rounded-lg border-2">
-                                                            <option value="">Atanmadı</option>
-                                                        </select>
+                                                        <div id="person-petition-controllers" class="mb-2" aria-label="Müvekkile özel dilekçe kontrol sorumluları"></div>
+                                                        <button type="button" id="add-person-petition-controller" class="btn btn-sm btn-outline-primary">
+                                                            <i class="fas fa-plus mr-1"></i> Kontrol Sorumlusu Ekle
+                                                        </button>
                                                         <small class="form-text text-muted mt-2">
-                                                            Dilekçe kontrol işlerinin atanacağı kullanıcıdır. Yeni müvekkillerde varsayılan Muhammed Özcan'dır.
+                                                            <strong>İdari:</strong> marka itirazları ve dava dışı dilekçeler.
+                                                            <strong>Yargı:</strong> dava dilekçeleri. Her alanda bir sorumlu seçilir;
+                                                            aynı kişi iki alan için de atanabilir. Yeni müvekkilde İdari varsayılan Muhammed Özcan, Yargı atanmaz.
                                                         </small>
                                                     </div>
                                                 </div>
@@ -406,6 +409,7 @@ export class PersonModalManager {
         if(el('cancelRelatedBtn')) el('cancelRelatedBtn').onclick = () => this.resetRelatedForm();
         if(el('addDocBtn')) el('addDocBtn').onclick = () => this.addDocumentHandler();
         if(el('savePersonBtn')) el('savePersonBtn').onclick = (e) => this.handleSave(e);
+        if(el('add-person-petition-controller')) el('add-person-petition-controller').onclick = () => this.addPetitionControllerRow();
 
         this.addPhoneListeners('personPhone');
         this.addPhoneListeners('relatedPhone');
@@ -526,6 +530,8 @@ export class PersonModalManager {
         this.tempCallback = callback; 
         this.originalPersonData = null; // 🔥 GÜVENLİK 1: Önceki açılıştan kalan verileri temizle
         this.resetForm();
+        this.petitionAssignmentsLoadError = null;
+        this.petitionControllerOptionsError = null;
 
         // IPGATE_CLIENT_SETTINGS_TABS_V1: Modal her açıldığında Genel Bilgiler sekmesinden başla.
         const generalTabLink = document.querySelector('#personModalTabs a[href="#personGeneralTab"]');
@@ -632,15 +638,21 @@ export class PersonModalManager {
                 });
             }
 
-            const petitionControllerUserId = document.getElementById('person-petition-controller')?.value || null;
-            if (petitionControllerUserId) {
-                const controllerResult = await portfolioManagerService.getUserById(petitionControllerUserId);
-                const controller = controllerResult.data;
-                if (!controllerResult.success || !controller) throw new Error('Seçilen kontrol görevlisi bulunamadı.');
-                if (controller.role === 'client') throw new Error('Client rolündeki kullanıcı kontrol görevlisi olarak atanamaz.');
-                if (controller.disabled === true) throw new Error('Pasif kullanıcı kontrol görevlisi olarak atanamaz.');
+            const petitionAssignments = this.getPetitionControllerAssignments();
+            for (const assignment of petitionAssignments) {
+                const controllerResult = await portfolioManagerService.getUserById(assignment.user_id);
+                const user = controllerResult.data;
+                if (!controllerResult.success || !user) throw new Error('Seçilen kontrol sorumlusu bulunamadı.');
+                if (user.role === 'client' || user.disabled === true) {
+                    throw new Error('Pasif veya müvekkil rolündeki kullanıcı kontrol sorumlusu olamaz.');
+                }
             }
-            
+            // Diğer kayıt servisleri eski alanı kullanmaya devam ediyor. SQL RPC atama
+            // başarıyla sonuçlandığında bu alanı İdari sorumluyla eşitliyor.
+            const petitionControllerUserId = this.isEdit
+                ? (this.originalPersonData?.petitionControllerUserId || null)
+                : (petitionAssignments.find(x => x.is_administrative)?.user_id || null);
+
             const personData = {
                 ...(this.isEdit && this.originalPersonData ? this.originalPersonData : {}),
                 id: this.currentPersonId,
@@ -699,6 +711,12 @@ export class PersonModalManager {
             if (!portfolioManagerResult.success) {
                 throw new Error('Portföy yöneticisi kaydedilemedi: ' + portfolioManagerResult.error);
             }
+
+            const { error: reviewAssignmentsError } = await supabase.rpc('set_client_petition_controllers', {
+                p_person_id: String(savedId),
+                p_assignments: petitionAssignments
+            });
+            if (reviewAssignmentsError) throw new Error('Kontrol sorumlusu atamaları kaydedilemedi: ' + reviewAssignmentsError.message);
 
             await this.saveRelatedToDb(savedId);
 
@@ -1108,59 +1126,140 @@ export class PersonModalManager {
         select.disabled = false;
     }
 
+    // Dilekçe kontrol sorumlularında her satır bir kullanıcı + iki yetkiyi temsil eder.
+    // Veritabanında client_petition_controller_assignments tablosu RPC üzerinden yönetilir.
     async loadPetitionControllers() {
-        const select = document.getElementById('person-petition-controller');
-        if (!select) return;
-
-        select.disabled = true;
-        select.innerHTML = '<option value="">Yükleniyor...</option>';
-
         const result = await portfolioManagerService.getAssignableUsers();
         if (!result.success) {
-            console.error('Kontrol görevlileri yüklenemedi:', result.error);
-            select.innerHTML = '<option value="">Kullanıcı listesi yüklenemedi</option>';
-            select.disabled = false;
+            this.petitionControllerOptions = [];
+            this.petitionControllerOptionsError = result.error || 'Kullanıcı listesi alınamadı.';
+            this.renderPetitionControllerRows([]);
             return;
         }
-
-        select.innerHTML = '<option value="">Atanmadı</option>';
-
-        result.data.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.id;
-            option.textContent = (user.display_name || user.email || user.id) + (user.role ? ` (${user.role})` : '');
-            select.appendChild(option);
-        });
-
-        const defaultOptionExists = Array.from(select.options)
-            .some(option => option.value === DEFAULT_PETITION_CONTROLLER_USER_ID);
-        select.value = defaultOptionExists ? DEFAULT_PETITION_CONTROLLER_USER_ID : '';
-        select.disabled = false;
+        this.petitionControllerOptionsError = null;
+        this.petitionControllerOptions = result.data || [];
+        this.renderPetitionControllerRows([{
+            user_id: this.petitionControllerOptions.some(u => String(u.id) === DEFAULT_PETITION_CONTROLLER_USER_ID)
+                ? DEFAULT_PETITION_CONTROLLER_USER_ID : '',
+            is_administrative: true,
+            is_judicial: false
+        }]);
     }
 
-    async loadAssignedPetitionController(controllerUserId) {
-        const select = document.getElementById('person-petition-controller');
-        if (!select) return;
-
-        if (!controllerUserId) {
-            select.value = '';
+    // Eski kayıtların idari ataması SQL geçişinde aynen korunur.
+    // RPC hatasında eski kayıtları sıfırlamak yerine kaydı durdururuz.
+    async loadAssignedPetitionController(legacyControllerId) {
+        if (!this.isEdit) return;
+        const { data, error } = await supabase.rpc('get_client_petition_controllers', {
+            p_person_id: String(this.currentPersonId)
+        });
+        if (error) {
+            this.petitionAssignmentsLoadError = error.message;
+            this.renderPetitionControllerRows([{user_id: legacyControllerId || '', is_administrative: true, is_judicial: false}]);
+            showNotification('Dilekçe kontrol sorumluları okunamadı. Önce SQL güncellemesini çalıştırın: ' + error.message, 'error');
             return;
         }
+        this.petitionAssignmentsLoadError = null;
+        let records = Array.isArray(data) ? data : [];
+        // Geçiş SQL'i henüz mevcut kişiye atama taşımamışsa eski idari alanı koru.
+        if (!records.length && legacyControllerId) {
+            records = [{user_id: legacyControllerId, is_administrative: true, is_judicial: false}];
+        }
+        await Promise.all(records.map(async row => {
+            if (!this.petitionControllerOptions?.some(u => String(u.id) === String(row.user_id))) {
+                const found = await portfolioManagerService.getUserById(row.user_id);
+                if (found.success && found.data) this.petitionControllerOptions.push(found.data);
+            }
+        }));
+        this.renderPetitionControllerRows(records);
+    }
 
-        let optionExists = Array.from(select.options).some(option => option.value === controllerUserId);
-        if (!optionExists) {
-            const userResult = await portfolioManagerService.getUserById(controllerUserId);
-            if (userResult.success && userResult.data) {
-                const user = userResult.data;
-                const option = document.createElement('option');
-                option.value = user.id;
-                option.textContent = (user.display_name || user.email || user.id) + ' (mevcut / pasif olabilir)';
-                select.appendChild(option);
-                optionExists = true;
+    renderPetitionControllerRows(rows) {
+        const container = document.getElementById('person-petition-controllers');
+        if (!container) return;
+        container.replaceChildren();
+        (rows || []).forEach(row => this.addPetitionControllerRow(row));
+        if (!(rows || []).length) {
+            const help = document.createElement('div');
+            help.className = 'text-muted small mb-2';
+            help.textContent = 'Henüz kontrol sorumlusu atanmadı. Yargı dilekçeleri atama yapılana kadar kontrole gönderilemez.';
+            container.appendChild(help);
+        }
+    }
+
+    addPetitionControllerRow({user_id = '', is_administrative = false, is_judicial = false} = {}) {
+        const container = document.getElementById('person-petition-controllers');
+        if (!container) return;
+        // Bilgilendirme metni varsa yeni satır eklerken kaldır.
+        container.querySelectorAll('.text-muted.small.mb-2').forEach(n => n.remove());
+        const row = document.createElement('div');
+        row.className = 'petition-controller-row border rounded p-2 mb-2 bg-white';
+        const top = document.createElement('div');
+        top.className = 'd-flex flex-wrap align-items-center';
+        const select = document.createElement('select');
+        select.className = 'form-control form-control-sm flex-grow-1 mr-2 mb-2 petition-controller-user';
+        select.style.minWidth = '190px';
+        const placeholder = new Option('Kullanıcı seçiniz', '');
+        select.appendChild(placeholder);
+        (this.petitionControllerOptions || []).forEach(user => {
+            select.appendChild(new Option(
+                (user.display_name || user.email || user.id) + (user.disabled ? ' (pasif)' : ''),
+                String(user.id)
+            ));
+        });
+        select.value = String(user_id || '');
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn btn-outline-danger btn-sm mb-2';
+        remove.title = 'Bu sorumluyu kaldır';
+        remove.textContent = 'Kaldır';
+        remove.onclick = () => {
+            row.remove();
+            if (!container.querySelector('.petition-controller-row')) this.renderPetitionControllerRows([]);
+        };
+        top.append(select,remove);
+        const options = document.createElement('div');
+        options.className = 'd-flex flex-wrap align-items-center';
+        const addCheck = (cls,label,checked) => {
+            const wrapper = document.createElement('label');
+            wrapper.className = 'mr-4 mb-0 small font-weight-bold';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = cls;
+            checkbox.checked = !!checked;
+            wrapper.append(checkbox,document.createTextNode(' ' + label));
+            options.appendChild(wrapper);
+        };
+        addCheck('petition-controller-administrative','İdari',is_administrative);
+        addCheck('petition-controller-judicial','Yargı',is_judicial);
+        row.append(top,options);
+        container.appendChild(row);
+    }
+
+    getPetitionControllerAssignments() {
+        if (this.petitionControllerOptionsError) throw new Error(this.petitionControllerOptionsError);
+        if (this.petitionAssignmentsLoadError) throw new Error('Kontrol görevlisi atamaları yüklenemedi; kaydetme durduruldu: ' + this.petitionAssignmentsLoadError);
+        const rows = [...document.querySelectorAll('#person-petition-controllers .petition-controller-row')];
+        const assignments = rows.map(row => ({
+            user_id: row.querySelector('.petition-controller-user')?.value || '',
+            is_administrative: !!row.querySelector('.petition-controller-administrative')?.checked,
+            is_judicial: !!row.querySelector('.petition-controller-judicial')?.checked
+        }));
+        if (assignments.some(x => !x.user_id || (!x.is_administrative && !x.is_judicial))) {
+            throw new Error('Her kontrol sorumlusu için kullanıcı ve en az bir yetki (İdari/Yargı) seçiniz.');
+        }
+        if (new Set(assignments.map(x => x.user_id)).size !== assignments.length) {
+            throw new Error('Aynı kullanıcıyı birden fazla satıra eklemeyin; iki yetkiyi aynı satırdan seçebilirsiniz.');
+        }
+        for (const [key, label] of [['is_administrative','İdari'],['is_judicial','Yargı']]) {
+            if (assignments.filter(x => x[key]).length > 1) {
+                throw new Error('Bir müvekkilde ' + label + ' kontrolü için yalnız bir kişi atanabilir.');
             }
         }
-
-        select.value = optionExists ? controllerUserId : '';
+        if (assignments.filter(x => x.is_administrative).length !== 1) {
+            throw new Error('Her müvekkil için bir İdari dilekçe kontrol sorumlusu seçilmelidir. Yargı kontrol sorumlusu ayrıca tanımlanabilir.');
+        }
+        return assignments;
     }
 
     // IPGATE_PORTFOLIO_MANAGER_V1: Düzenlenen müvekkilin mevcut portföy yöneticisini seçili getir

@@ -1171,23 +1171,13 @@ const loadDataFromCache = async (realBulletinId, isActive = () => true) => {
         let cachedResults = [];
 
         if (allCachedData && allCachedData.length > 0) {
-            const criteriaVersionByMarkId = new Map(
-                monitoringTrademarks.map(tm => [String(tm.id), Number(tm.criteriaVersion || 1)])
-            );
-
-            const validCachedData = realBulletinId === MANUAL_COLLECTION_ID
-                ? allCachedData
-                : allCachedData.filter(item => {
-                    // Manuel eklenen sonuçlar kriter değişikliğinden etkilenmez.
-                    if ((item.source || '').toLowerCase() === 'manual') return true;
-
-                    const currentVersion = criteriaVersionByMarkId.get(String(item.monitored_trademark_id));
-                    if (currentVersion == null) return true;
-
-                    return Number(item.criteria_version || 1) === currentVersion;
-                });
-
-            cachedResults = validCachedData.map(item => {
+            // KRİTİK: Bülten kaydı daha önce aramada bulunup değerlendirilmişse,
+            // izleme kriterleri sonradan değişti diye sonucu gizleme.
+            // criteria_version yeni aramaların izlenmesi için kalır; sonuç ve kullanıcı
+            // tarafından kaydedilen "Benzer"/başarı şansı/not görünürlüğünü etkilemez.
+            // Rapor + Bildir aynı listeyi kullandığından burada filtreleme veri kaybı
+            // görüntüsüne ve eksik müvekkil raporlarına neden oluyordu.
+            cachedResults = allCachedData.map(item => {
                 let bRec = item.trademark_bulletin_records || {};
                 if (Array.isArray(bRec)) bRec = bRec[0] || {};
 
@@ -1527,6 +1517,11 @@ const groupAndSortResults = async () => {
         if (!uniqueMap.has(uniqueKey)) uniqueMap.set(uniqueKey, { ...result });
         else {
             const existing = uniqueMap.get(uniqueKey);
+            // Aynı başvuru numarası birden çok kaynak satırına denk gelse bile
+            // kullanıcının olumlu uzman değerlendirmesi kaybolmamalı.
+            if (result.isSimilar === true) existing.isSimilar = true;
+            if (!existing.bs && result.bs) existing.bs = result.bs;
+            if (!existing.note && result.note) existing.note = result.note;
             if ((result.similarityScore || 0) > (existing.similarityScore || 0)) existing.similarityScore = result.similarityScore;
             const c1 = String(existing.niceClasses || '').split(/[,\s]+/).filter(Boolean);
             const c2 = String(result.niceClasses || '').split(/[,\s]+/).filter(Boolean);
@@ -1878,7 +1873,9 @@ const handleReportGeneration = async (event, options = {}) => {
             filteredResults = allSimilarResults.filter(r => (String(r.id) === String(singleResultId) || String(r.objectID) === String(singleResultId)) && r.isSimilar === true);
         } 
         else if (isGlobal) {
-            filteredResults = allSimilarResults.filter(r => r.isSimilar === true && r?.monitoredTrademarkId && r?.applicationNo && r?.markName);
+            // Önce tüm "Benzer" değerlendirmelerini al. Eksik alanlı kayıtları
+            // sessizce atmak müvekkile eksik rapor gönderilmesine yol açıyordu.
+            filteredResults = allSimilarResults.filter(r => r.isSimilar === true);
         } else {
             const ownerMonitoredIds = monitoringTrademarks
                 .filter(tm => tm.ownerInfo && tm.ownerInfo.id === ownerId)
@@ -1891,6 +1888,47 @@ const handleReportGeneration = async (event, options = {}) => {
             showNotification(`${ownerName || 'Seçili liste'} için 'Benzer' (Yeşil) sonuç bulunamadı.`, 'warning'); 
             return;
         }
+
+        // Toplu raporun tamamını durdurma: yalnızca raporda tanımlanamayan
+        // BENZER satırlarını ayır. Kalan müvekkiller kesintisiz işlenir.
+        // Tamamlanmamış müvekkillerin mail taslakları gönderim onayına açılmaz.
+        const reportIssues = [];
+        const incompleteOwnerKeys = new Set();
+        const watchedById = new Map(monitoringTrademarks.map(tm => [String(tm.id), tm]));
+        const resolveReportOwnerKey = (tm) => {
+            let key = tm?.ownerInfo?.id || 'sanal_veya_bilinmeyen';
+            if (!key || String(key).startsWith('owner_')) {
+                key = `sanal_${tm?.ownerName || 'bilinmeyen'}`;
+            }
+            return String(key);
+        };
+        const validReportResults = [];
+        for (const r of filteredResults) {
+            const tm = watchedById.get(String(r?.monitoredTrademarkId || ''));
+            const missing = [];
+            if (!tm || !r?.monitoredTrademarkId) missing.push('İzlenen marka/portföy bağlantısı bulunamadı');
+            if (!r?.applicationNo || String(r.applicationNo).trim() === '-') missing.push('Benzer markanın başvuru numarası eksik');
+            if (!r?.markName || String(r.markName).trim() === '-') missing.push('Benzer markanın adı eksik');
+            if (missing.length > 0) {
+                const ownerKey = resolveReportOwnerKey(tm);
+                incompleteOwnerKeys.add(ownerKey);
+                reportIssues.push({
+                    owner: tm?.ownerName || 'Sahip belirlenemedi',
+                    monitoredMark: tm?.title || tm?.markName || '-',
+                    monitoredId: String(r?.monitoredTrademarkId || '-'),
+                    resultId: String(r?.id || r?.objectID || '-'),
+                    similarMark: String(r?.markName || '-'),
+                    applicationNo: String(r?.applicationNo || '-'),
+                    reason: missing.join('; ')
+                });
+                continue;
+            }
+            validReportResults.push(r);
+        }
+        if (reportIssues.length > 0) {
+            console.warn(`[RAPOR KONTROL] ${reportIssues.length} eksik BENZER satırı ayrı incelemeye alındı. Diğer müvekkillerin raporları durdurulmayacak.`, reportIssues);
+        }
+        filteredResults = validReportResults;
 
         let createdTaskCount = 0;
         if (createTasks) {
@@ -1924,8 +1962,11 @@ const handleReportGeneration = async (event, options = {}) => {
         const authHeader = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
 
         let reportCount = 0;
+        let mailDraftCount = 0;
+        let failedOwnerCount = 0;
 
         for (const [cId, clientData] of Object.entries(resultsByClient)) {
+            try {
             console.log(`⚙️ [RAPOR & MAİL] ${clientData.ownerName} için süreç başlıyor... (${clientData.results.length} marka)`);
             
             const reportData = await buildReportData(clientData.results);
@@ -1938,8 +1979,16 @@ const handleReportGeneration = async (event, options = {}) => {
             });
 
             if (error || !response?.success) {
-                console.error(`   ❌ ${clientData.ownerName} için rapor üretilemedi:`, error || response?.error);
-                continue; 
+                failedOwnerCount++;
+                const detail = error?.message || response?.error || 'Rapor servisi başarısız yanıt verdi';
+                console.error(`   ❌ ${clientData.ownerName} için rapor üretilemedi:`, detail);
+                reportIssues.push({
+                    owner: clientData.ownerName,
+                    monitoredMark: '-', monitoredId: '-', resultId: '-',
+                    similarMark: '-', applicationNo: '-',
+                    reason: `Müvekkil raporu üretilemedi: ${detail}`
+                });
+                continue;
             }
 
             console.log(`   ✅ [RAPOR BAŞARILI] ${clientData.ownerName} raporu indiriliyor!`);
@@ -1969,10 +2018,11 @@ const handleReportGeneration = async (event, options = {}) => {
                     }
                     // 🔥 EKLENEN KISIM: Mükerrer (Bekleyen) Mail Kontrolü
                     let mailAlreadyExists = false;
+                    let existingPendingMail = null;
                     if (finalClientId) {
                         // Sadece bu müvekkile ait, bülten modülünden çıkan ve gönderilmeyi bekleyen mailleri çekiyoruz
                         const { data: existingMails } = await supabase.from('mail_notifications')
-                            .select('id, status, dynamic_parent_context')
+                            .select('id, status, missing_fields, dynamic_parent_context')
                             .eq('client_id', finalClientId)
                             .eq('source', 'bulletin_watch_system')
                             .eq('template_id', 'tmpl_watchnotice')
@@ -1987,6 +2037,7 @@ const handleReportGeneration = async (event, options = {}) => {
                                     // Bülten numarası eşleşiyorsa, bu müvekkil için zaten bir taslak oluşmuş demektir
                                     if (String(ctx.bulletin_no) === String(bulletinNo)) {
                                         mailAlreadyExists = true;
+                                        existingPendingMail = m;
                                         break;
                                     }
                                 } catch (err) {}
@@ -1995,8 +2046,28 @@ const handleReportGeneration = async (event, options = {}) => {
                     }
 
                     if (mailAlreadyExists) {
+                        // Bu sahibin raporunda eksik BENZER satırı varsa mevcut
+                        // gönderilmeyi bekleyen mail de manuel kontrole düşmeli.
+                        if (incompleteOwnerKeys.has(cId) && existingPendingMail?.id) {
+                            const missingFields = Array.isArray(existingPendingMail.missing_fields)
+                                ? [...existingPendingMail.missing_fields]
+                                : [];
+                            if (!missingFields.includes('watch_report_incomplete')) missingFields.push('watch_report_incomplete');
+                            const { error: markPendingError } = await supabase.from('mail_notifications')
+                                .update({ status: 'missing_info', is_draft: true, missing_fields: missingFields })
+                                .eq('id', existingPendingMail.id);
+                            if (markPendingError) {
+                                console.error('[RAPOR KONTROL] Eski mail taslağı incelemeye alınamadı:', markPendingError);
+                                reportIssues.push({
+                                    owner: clientData.ownerName,
+                                    monitoredMark: '-', monitoredId: '-', resultId: '-',
+                                    similarMark: '-', applicationNo: '-',
+                                    reason: `Mevcut mail taslağı (${existingPendingMail.id}) incelemeye alınamadı: ${markPendingError.message}`
+                                });
+                            }
+                        }
                         console.log(`⚠️ [MAİL ATLANDI] ${clientData.ownerName} için zaten gönderilmeyi bekleyen ${bulletinNo} nolu bülten mail taslağı mevcut.`);
-                        continue; // Mail oluşturma adımlarını (ve gereksiz mailService çağrısını) tamamen atla!
+                        continue; // Mükerrer mail üretme; sonraki sahibin raporuna geç.
                     }
                     // 🔥 EKLENEN KISIM BİTİŞİ
 
@@ -2057,14 +2128,20 @@ const handleReportGeneration = async (event, options = {}) => {
                         template_id: "tmpl_watchnotice",
                         to_list: finalTo, 
                         cc_list: finalCc, 
-                        status: finalTo.length === 0 ? "missing_info" : "awaiting_client_approval", 
-                        missing_fields: finalTo.length === 0 ? ['to_list'] : [], 
+                        // İlgili müvekkilin BENZER satırlarından biri eksikse
+                        // mail taslağı manuel kontrole bırakılır; diğer sahipler etkilenmez.
+                        status: (finalTo.length === 0 || incompleteOwnerKeys.has(cId)) ? "missing_info" : "awaiting_client_approval", 
+                        missing_fields: [
+                            ...(finalTo.length === 0 ? ['to_list'] : []),
+                            ...(incompleteOwnerKeys.has(cId) ? ['watch_report_incomplete'] : [])
+                        ],
                         notification_type: "marka",
                         source: "bulletin_watch_system",
-                        is_draft: finalTo.length === 0 
+                        is_draft: finalTo.length === 0 || incompleteOwnerKeys.has(cId)
                     }).select('id').single();
 
                     if (mailError) throw mailError;
+                    if (insertedMail?.id) mailDraftCount++;
 
                     if (insertedMail && insertedMail.id) {
                         try {
@@ -2092,14 +2169,72 @@ const handleReportGeneration = async (event, options = {}) => {
                     }
                     console.log(`   📧 [MAİL BAŞARILI] ${clientData.ownerName} için mail taslağı oluşturuldu!`);
                 } catch (e) { 
-                    console.error(`   ❌ Mail oluşturma hatası (${clientData.ownerName}):`, e); 
+                    console.error(`   ❌ Mail oluşturma hatası (${clientData.ownerName}):`, e);
+                    reportIssues.push({
+                        owner: clientData.ownerName,
+                        monitoredMark: '-', monitoredId: '-', resultId: '-',
+                        similarMark: '-', applicationNo: '-',
+                        reason: `Mail taslağı oluşturulamadı: ${e?.message || String(e)}`
+                    });
                 }
             } else if (createTasks && !clientData.clientId) {
                 console.log(`   ⚠️ ${clientData.ownerName} sistemde kayıtlı olmadığı için mail taslağı atlandı.`);
+                reportIssues.push({
+                    owner: clientData.ownerName,
+                    monitoredMark: '-', monitoredId: '-', resultId: '-',
+                    similarMark: '-', applicationNo: '-',
+                    reason: 'Sistem tanımlı müvekkil ID bulunmadığından mail taslağı oluşturulamadı'
+                });
+            }
+            } catch (ownerError) {
+                // Bir müvekkilde rapor üretimi başarısız olsa bile sonraki sahibin
+                // raporu işlemeye devam eder; sessizce yok sayılmaz.
+                failedOwnerCount++;
+                console.error(`[RAPOR SAHİP HATASI] ${clientData.ownerName}:`, ownerError);
+                reportIssues.push({
+                    owner: clientData.ownerName,
+                    monitoredMark: '-', monitoredId: '-', resultId: '-',
+                    similarMark: '-', applicationNo: '-',
+                    reason: `Müvekkil raporu üretilemedi: ${ownerError?.message || String(ownerError)}`
+                });
             }
         }
 
-        showNotification(createTasks ? `${reportCount} adet Rapor ve İlgili Mail Taslakları başarıyla oluşturuldu.` : `${reportCount} adet Rapor oluşturuldu.`, 'success');
+        if (reportIssues.length > 0) {
+            // Tek bir CSV hata dökümü: bütün DOCX'ler tamamlandıktan sonra indirilir.
+            // Kullanıcıya hangi sahibin hangi BENZER kaydının eksik kaldığı gösterilir.
+            const cell = (value) => {
+                let text = String(value ?? '');
+                // Excel / CSV formül enjeksiyonundan koru.
+                if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+                return '"' + text.replace(/"/g, '""') + '"';
+            };
+            const head = ['Müvekkil', 'İzlenen marka', 'İzleme ID', 'Benzer kayıt ID', 'Benzer marka', 'Başvuru no', 'Sorun'];
+            const rows = reportIssues.map(issue => [
+                issue.owner, issue.monitoredMark, issue.monitoredId,
+                issue.resultId, issue.similarMark, issue.applicationNo, issue.reason
+            ]);
+            const csv = '\uFEFF' + [head, ...rows].map(row => row.map(cell).join(';')).join('\r\n');
+            try {
+                const issueBlob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                const issueUrl = URL.createObjectURL(issueBlob);
+                const issueLink = document.createElement('a');
+                issueLink.href = issueUrl;
+                issueLink.download = `Izleme_Raporu_Kontrol_Gerekenler_Bulten_${bulletinNo}.csv`;
+                document.body.appendChild(issueLink);
+                issueLink.click();
+                issueLink.remove();
+                setTimeout(() => URL.revokeObjectURL(issueUrl), 1000);
+            } catch (csvError) {
+                console.error('Kontrol CSV dosyası indirilemedi:', csvError, reportIssues);
+            }
+        }
+
+        const summary = `${reportCount} rapor oluşturuldu` +
+            (createTasks ? `, ${mailDraftCount} mail taslağı hazırlandı` : '') +
+            (reportIssues.length > 0 ? `; ${reportIssues.length} sorun kontrol CSV'sine yazıldı` : '') +
+            (failedOwnerCount > 0 ? `; ${failedOwnerCount} müvekkil raporu üretilemedi` : '');
+        showNotification(summary + '.', reportIssues.length > 0 ? 'warning' : 'success');
         
         if (createTasks) {
             await refreshTriggeredStatus(bulletinNo);
@@ -2573,12 +2708,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         monitoringTrademarks[tmIndex].criteriaVersion = Number(updatedData.criteriaVersion || monitoringTrademarks[tmIndex].criteriaVersion || 1);
                         monitoringTrademarks[tmIndex]._searchNice = _uniqNice(monitoringTrademarks[tmIndex]).toLowerCase();
 
-                        // Yeni kriter kaydedildiği anda bu markanın eski otomatik sonuçlarını RAM'den çıkar.
-                        // Manuel eklenmiş sonuçlar kriter değişikliğinden bağımsızdır ve korunur.
-                        allSimilarResults = allSimilarResults.filter(r =>
-                            String(r.monitoredTrademarkId) !== String(updatedData.id) ||
-                            String(r.source || '').toLowerCase() === 'manual'
-                        );
+                        // KRİTİK: Kriterlerin değiştirilmesi, aynı bültenin daha önce
+                        // bulunan ve kullanıcı tarafından incelenen sonuçlarını silemez.
+                        // Arama kriterleri yalnızca sonraki taramanın girdisini etkiler.
+                        // Ekrandaki "Benzer", başarı şansı ve not seçimleri korunur.
                         if (pagination) pagination.update(allSimilarResults.length);
                         renderCurrentPageOfResults();
                     }

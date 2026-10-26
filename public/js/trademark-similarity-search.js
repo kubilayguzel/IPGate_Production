@@ -716,6 +716,15 @@ const createResultRow = (hit, rowIndex) => {
 
     const highlightedMarkName = highlightMatchingSubstrings(searchKeywords, hit.markName || '-');
 
+    // Kaydedilmiş değerin seçenekler arasında olmaması onu gizlememeli.
+    const storedChance = normalizeExpertChance(hit.bs);
+    const chanceOptions = ['%0', '%20', '%30', '%40', '%45', '%50', '%55', '%60', '%70', '%80'];
+    if (storedChance && !chanceOptions.includes(storedChance)) chanceOptions.push(storedChance);
+    const chanceOptionsHtml = chanceOptions.map(val =>
+        `<option value="${escapeExpertHtml(val)}" ${storedChance === val ? 'selected' : ''}>${escapeExpertHtml(val)}</option>`
+    ).join('');
+    const storedNote = normalizeExpertNote(hit.note);
+
     row.innerHTML = `
         <td>${rowIndex}</td>
         <td style="white-space: nowrap;">
@@ -729,8 +738,8 @@ const createResultRow = (hit, rowIndex) => {
         <td>${niceClassHtml}</td>
         <td style="white-space: nowrap;">${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>
         <td style="white-space: nowrap;">${hit.similarityScore ? `${(hit.similarityScore * 100).toFixed(0)}%` : '-'}</td>
-        <td style="white-space: nowrap;"><select class="bs-select" data-result-id="${hit.id || hit.applicationNo}"><option value="">B.Ş</option>${['%0', '%20', '%30', '%40', '%45', '%50', '%55', '%60', '%70', '%80'].map(val => `<option value="${val}" ${hit.bs === val ? 'selected' : ''}>${val}</option>`).join('')}</select></td>
-        <td class="note-cell" data-result-id="${hit.id || hit.applicationNo}"><div class="note-cell-content"><span class="note-icon">📝</span>${hit.note ? `<span class="note-text">${hit.note}</span>` : `<span class="note-placeholder">Not ekle</span>`}</div></td>
+        <td style="white-space: nowrap;"><select class="bs-select" data-result-id="${hit.id || hit.applicationNo}"><option value="">B.Ş</option>${chanceOptionsHtml}</select></td>
+        <td class="note-cell" data-result-id="${hit.id || hit.applicationNo}"><div class="note-cell-content"><span class="note-icon">📝</span>${storedNote ? `<span class="note-text" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(storedNote)}</span>` : `<span class="note-placeholder">Not ekle</span>`}</div></td>
     `;
     const imgContainer = row.querySelector('.lazy-load-container');
     if (imgContainer) imageObserver.observe(imgContainer);
@@ -743,9 +752,9 @@ const renderCurrentPageOfResults = () => {
     if (!pagination || !resultsTableBody) return;
     
     resultsTableBody.innerHTML = '';
-    const visibleMonitoredIds = new Set(filteredMonitoringTrademarks.map(tm => tm.id));
-    let filteredResults = allSimilarResults.filter(r => visibleMonitoredIds.has(r.monitoredTrademarkId));
-    if (selectedMonitoredTrademarkId) filteredResults = filteredResults.filter(r => r.monitoredTrademarkId === selectedMonitoredTrademarkId);
+    const visibleMonitoredIds = new Set(filteredMonitoringTrademarks.map(tm => String(tm.id)));
+    let filteredResults = allSimilarResults.filter(r => visibleMonitoredIds.has(String(r.monitoredTrademarkId)));
+    if (selectedMonitoredTrademarkId) filteredResults = filteredResults.filter(r => String(r.monitoredTrademarkId) === String(selectedMonitoredTrademarkId));
     if (similarityFilter === 'similar') filteredResults = filteredResults.filter(r => r.isSimilar === true);
     else if (similarityFilter === 'not-similar') filteredResults = filteredResults.filter(r => r.isSimilar !== true);
 
@@ -1109,10 +1118,23 @@ const loadBulletinOptions = async () => {
     }
 };
 
+// Supabase'e kaydedilmiş uzman görüşlerini farklı veri biçimlerinde de aynı göster.
+const normalizeExpertChance = (value) => {
+    if (value === null || value === undefined) return '';
+    const raw = String(value).trim();
+    if (!raw || raw.toLowerCase() === 'null') return '';
+    const number = raw.replace(/^%/, '').trim().replace(',', '.');
+    return /^\d+(?:\.\d+)?$/.test(number) ? `%${number}` : raw;
+};
+const normalizeExpertNote = (value) => (value === null || value === undefined) ? '' : String(value);
+const escapeExpertHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[ch]));
+
 const formatCacheData = (r) => ({
     id: r.id, objectID: r.id, applicationNo: r.similar_application_no, markName: r.similar_mark_name,
     monitoredTrademarkId: r.monitored_trademark_id, niceClasses: r.nice_classes, similarityScore: parseFloat(r.similarity_score || 0),
-    isSimilar: r.is_similar, holders: r.holders, note: r.note, bs: r.bs_value, imagePath: r.image_path, source: 'cache'
+    isSimilar: r.is_similar, holders: r.holders, note: normalizeExpertNote(r.note), bs: normalizeExpertChance(r.success_chance ?? r.bs_value), imagePath: r.image_path, source: 'cache'
 });
 
 // isActive: kullanıcının bülten seçimi değişmişse geç kalan sorgu eski veriyi ekrana yazmaz.
@@ -1194,8 +1216,8 @@ const loadDataFromCache = async (realBulletinId, isActive = () => true) => {
                     imagePath: bRec.image_url,
                     bulletinId: bRec.bulletin_id,
                     isSimilar: item.is_similar === true, 
-                    bs: item.success_chance || '', 
-                    note: item.note || '',   
+                    bs: normalizeExpertChance(item.success_chance), 
+                    note: normalizeExpertNote(item.note),   
                     source: item.source || 'cache'
                 };
             });
@@ -1512,20 +1534,40 @@ const performResearch = async () => {
 const groupAndSortResults = async () => {
     if (!allSimilarResults || allSimilarResults.length === 0) return;
     const uniqueMap = new Map();
+    const expertRank = (result) =>
+        (normalizeExpertNote(result.note).trim() ? 4 : 0) +
+        (normalizeExpertChance(result.bs) ? 2 : 0) +
+        (result.isSimilar === true ? 1 : 0);
     allSimilarResults.forEach(result => {
-        const uniqueKey = `${result.monitoredTrademarkId}_${result.applicationNo || result.objectID || 'unknown'}`;
-        if (!uniqueMap.has(uniqueKey)) uniqueMap.set(uniqueKey, { ...result });
-        else {
-            const existing = uniqueMap.get(uniqueKey);
-            // Aynı başvuru numarası birden çok kaynak satırına denk gelse bile
-            // kullanıcının olumlu uzman değerlendirmesi kaybolmamalı.
-            if (result.isSimilar === true) existing.isSimilar = true;
-            if (!existing.bs && result.bs) existing.bs = result.bs;
-            if (!existing.note && result.note) existing.note = result.note;
-            if ((result.similarityScore || 0) > (existing.similarityScore || 0)) existing.similarityScore = result.similarityScore;
-            const c1 = String(existing.niceClasses || '').split(/[,\s]+/).filter(Boolean);
-            const c2 = String(result.niceClasses || '').split(/[,\s]+/).filter(Boolean);
-            existing.niceClasses = [...new Set([...c1, ...c2])].join(', ');
+        const uniqueKey = `${String(result.monitoredTrademarkId)}_${String(result.applicationNo || result.objectID || 'unknown').trim().toUpperCase()}`;
+        if (!uniqueMap.has(uniqueKey)) {
+            uniqueMap.set(uniqueKey, { ...result, bs: normalizeExpertChance(result.bs), note: normalizeExpertNote(result.note) });
+        } else {
+            let existing = uniqueMap.get(uniqueKey);
+            // Aynı marka için birden çok sonuç kaydı varsa uzman değerlendirmesi
+            // kaydedilen ASIL satırı temel al. Aksi halde doğru not görünse bile
+            // yeni değişiklik boş olan başka kayıt kimliğine yazılabiliyor.
+            if (expertRank(result) > expertRank(existing)) {
+                const previous = existing;
+                existing = { ...result, bs: normalizeExpertChance(result.bs), note: normalizeExpertNote(result.note) };
+                uniqueMap.set(uniqueKey, existing);
+                if (!existing.bs) existing.bs = normalizeExpertChance(previous.bs);
+                if (!existing.note) existing.note = normalizeExpertNote(previous.note);
+                if (previous.isSimilar === true) existing.isSimilar = true;
+                if ((previous.similarityScore || 0) > (existing.similarityScore || 0)) existing.similarityScore = previous.similarityScore;
+                existing.niceClasses = [...new Set([
+                    ...String(existing.niceClasses || '').split(/[,\s]+/).filter(Boolean),
+                    ...String(previous.niceClasses || '').split(/[,\s]+/).filter(Boolean)
+                ])].join(', ');
+            } else {
+                if (result.isSimilar === true) existing.isSimilar = true;
+                if (!existing.bs && result.bs) existing.bs = normalizeExpertChance(result.bs);
+                if (!existing.note && result.note) existing.note = normalizeExpertNote(result.note);
+                if ((result.similarityScore || 0) > (existing.similarityScore || 0)) existing.similarityScore = result.similarityScore;
+                const c1 = String(existing.niceClasses || '').split(/[,\s]+/).filter(Boolean);
+                const c2 = String(result.niceClasses || '').split(/[,\s]+/).filter(Boolean);
+                existing.niceClasses = [...new Set([...c1, ...c2])].join(', ');
+            }
         }
     });
     allSimilarResults = Array.from(uniqueMap.values());
@@ -1604,6 +1646,7 @@ const handleBsChange = async (event) => {
     
     if (error) {
         if (hit) hit.bs = oldBs; // Hata varsa RAM'i geri al
+        event.target.value = normalizeExpertChance(oldBs);
         console.error("BS güncellenemedi:", error);
         showNotification('Başarı şansı güncellenemedi', 'error');
     }
@@ -1622,14 +1665,14 @@ const handleNoteCellClick = (cell) => {
 
         // 🚀 ÇÖZÜM (OPTIMISTIC UPDATE): RAM'i ve ekranı anında güncelle, rapor alırken güncel görünsün
         if (hit) hit.note = noteInput.value;
-        cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${noteInput.value ? 'note-text' : 'note-placeholder'}">${noteInput.value || 'Not ekle'}</span>`;
+        cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${noteInput.value ? 'note-text' : 'note-placeholder'}" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(noteInput.value || 'Not ekle')}</span>`;
         modal.classList.remove('show');
 
         const { error } = await supabase.from('monitoring_trademark_records').update({ note: noteInput.value }).eq('id', resultId);
         
         if (error) {
             if (hit) hit.note = oldNote; // Hata varsa geri al
-            cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${oldNote ? 'note-text' : 'note-placeholder'}">${oldNote || 'Not ekle'}</span>`;
+            cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${oldNote ? 'note-text' : 'note-placeholder'}" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(oldNote || 'Not ekle')}</span>`;
             alert('Hata oluştu'); 
         }
     };

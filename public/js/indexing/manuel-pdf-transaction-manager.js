@@ -90,11 +90,13 @@ export class ManuelPdfTransactionManager {
         
         document.getElementById('specificManualTransactionType')?.addEventListener('change', () => {
             this.updateManualChildOptions();
+            this.updateCancellationNoticeFields();
             this.checkFormCompleteness();
         });
 
         document.getElementById('manualChildTransactionType')?.addEventListener('change', () => {
             this.updateManualParentOptions();
+            this.updateCancellationNoticeFields();
             this.checkFormCompleteness();
         });
 
@@ -585,6 +587,12 @@ export class ManuelPdfTransactionManager {
         }
     }
 
+    updateCancellationNoticeFields() {
+        const typeId = document.getElementById('manualChildTransactionType')?.value;
+        const section = document.getElementById('manualCancellationNoticeSection');
+        if (section) section.style.display = String(typeId) === '99' ? 'block' : 'none';
+    }
+
     updateManualParentOptions() {
         const parentTypeSelect = document.getElementById('specificManualTransactionType');
         const childTypeSelect = document.getElementById('manualChildTransactionType');
@@ -865,6 +873,22 @@ export class ManuelPdfTransactionManager {
             if (String(targetTypeId) === '27' && filesToUpload.length === 0) {
                 throw new Error('İşlemi tamamlamak için lütfen dosya ekleme alanına "İtiraz Dilekçesi" belgesini yükleyin.');
             }
+            const isCancellationNotice = String(targetTypeId) === '99';
+            const cancellationApplicant = document.getElementById('manualCancellationApplicant')?.value?.trim() || '';
+            // İzin verilen parent-child ilişkisini veritabanındaki index_manuel belirler.
+            if (isChild && ['98', '99'].includes(String(targetTypeId))) {
+                const parentConfig = this.allTransactionTypes.find(t => String(t.id) === String(parentTypeId));
+                const allowed = (Array.isArray(parentConfig?.index_manuel) && parentConfig.index_manuel.length
+                    ? parentConfig.index_manuel : (Array.isArray(parentConfig?.allowed_child_types) ? parentConfig.allowed_child_types : []))
+                    .map(String);
+                if (!allowed.includes(String(targetTypeId))) {
+                    throw new Error('Bu alt işlem seçilen ana işlem için transaction_types.index_manuel alanında yetkili değildir.');
+                }
+            }
+            if (isCancellationNotice) {
+                if (!cancellationApplicant) throw new Error('İptal talebinde bulunan kişi/kurumu belirtiniz.');
+                if (!filesToUpload.length) throw new Error('İptal talebi dilekçesi PDF dosyasını ekleyiniz.');
+            }
 
             const uploadedDocuments = [];
 
@@ -883,6 +907,7 @@ export class ManuelPdfTransactionManager {
                 let designation = null;
                 if (String(targetTypeId) === '48') designation = 'Kullanım İspatı Talep Dilekçesi';
                 else if (String(targetTypeId) === '27') designation = 'İtiraz Dilekçesi';
+                else if (isCancellationNotice) designation = 'İptal Talebi Dilekçesi';
 
                 uploadedDocuments.push({ 
                     id: generateUUID(), 
@@ -901,6 +926,20 @@ export class ManuelPdfTransactionManager {
                 const pResult = await this._addTransaction(this.selectedRecordManual.id, {
                     type: parentTypeId, transactionHierarchy: 'parent', description: parentTypeObj ? parentTypeObj.name : 'Ana İşlem'
                 });
+                finalParentId = pResult.id;
+            }
+
+            // 99 bildirimini doğrudan Başvuru parent'ının altına koymayız:
+            // İtiraz Bildirimi gibi ayrı bir idari uyuşmazlık parent'ı (68) açılır.
+            if (isCancellationNotice && String(parentTypeId) === '2') {
+                const pResult = await this._addTransaction(this.selectedRecordManual.id, {
+                    type: '68',
+                    transactionHierarchy: 'parent',
+                    description: 'Marka İptal Talebi (Otomatik)',
+                    oppositionOwner: cancellationApplicant,
+                    documents: uploadedDocuments.map(d => ({ name: d.name, url: d.url, documentDesignation: d.documentDesignation }))
+                });
+                if (!pResult?.success || !pResult.id) throw new Error('Marka İptal Talebi (68) ana işlemi oluşturulamadı.');
                 finalParentId = pResult.id;
             }
 
@@ -1078,11 +1117,22 @@ export class ManuelPdfTransactionManager {
             if (tasksToCreate.length > 0) {
                 if (!taskOwnerId) {
                     console.error("❌ DİKKAT: task_owner_id (Müvekkil) bulunamadı! Görev tabloya yazılamayacak.");
+                    if (isCancellationNotice) throw new Error('39 – Kullanım İspatı işinin oluşturulması için müvekkil belirlenmelidir.');
                     showNotification("Bu evrak bir müvekkile bağlı değil. Görev oluşturulamadı!", "error");
                 } else {
                     const baseDate = deliveryDateStr ? new Date(deliveryDateStr) : new Date();
                     const duePeriod = typeObj.due_period ? Number(typeObj.due_period) : 60;
-                    baseDate.setDate(baseDate.getDate() + duePeriod);
+                    // 99: tıpkı İtiraz Bildirimi gibi resmi süre = 1 ay.
+                    // Diğer mevcut manuel indeksleme süre kuralları korunur.
+                    if (isCancellationNotice && typeObj.due_period_unit === 'months') {
+                        const initialDay = baseDate.getDate();
+                        baseDate.setDate(1);
+                        baseDate.setMonth(baseDate.getMonth() + duePeriod);
+                        const lastDayOfTargetMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate();
+                        baseDate.setDate(Math.min(initialDay, lastDayOfTargetMonth));
+                    } else {
+                        baseDate.setDate(baseDate.getDate() + duePeriod);
+                    }
 
                     for (const tType of tasksToCreate) {
                         console.log(`⏳ [SİSTEM] ${tType} numaralı görev oluşturuluyor...`);
@@ -1134,6 +1184,7 @@ export class ManuelPdfTransactionManager {
                             official_due_date: taskOfficialDueDate.toISOString(),
                             ...(String(tType) === "66" ? { operational_due_date: taskOperationalDueDate.toISOString() } : {}),
                             details: {
+                                ...(isCancellationNotice ? { cancellation_applicant: cancellationApplicant, parent_transaction_type_id: '68' } : {}),
                                 // portfolio_manager modunda nihai e-posta da DB trigger tarafından senkronize edilir.
                                 assigned_to_email: isPortfolioManagerAssignment ? null : (this.currentUser?.email || 'sistem@evrekagroup.com'),
                                 ...(isPortfolioManagerAssignment ? { assignment_mode: 'portfolio_manager' } : {}),
@@ -1159,6 +1210,9 @@ export class ManuelPdfTransactionManager {
                             console.log(`✅ ${tType} Görevi BAŞARIYLA oluşturuldu! Task ID: ${taskResult.data.id}`);
                         } else {
                             console.error(`❌ ${tType} GÖREVİ YAZILAMADI! HATA:`, taskResult.error);
+                            if (isCancellationNotice && String(tType) === '39') {
+                                throw new Error('39 – Kullanım İspatı Delili Sunma işi oluşturulamadı: ' + (taskResult.error?.message || taskResult.error || 'Bilinmeyen hata'));
+                            }
                         }
                     }
                 }
@@ -1174,13 +1228,24 @@ export class ManuelPdfTransactionManager {
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : null,
                 description: typeObj ? typeObj.name : notes,
                 notes: notes,
+                ...(isCancellationNotice ? { oppositionOwner: cancellationApplicant } : {}),
                 taskId: createdTaskId, // 🔥 SADECE ANA GÖREV ID'Sİ GİDER (66 GİTMEZ)
                 documents: uploadedDocuments
             });
 
+            if (isCancellationNotice && (!txResult?.success || !txResult.id)) {
+                throw new Error('İptal Talebi Bildirimi alt işlemi kaydedilemedi: ' + (txResult?.error || 'Bilinmeyen hata'));
+            }
             if (txResult && txResult.success) {
                 const newTransactionId = txResult.id;
-                
+                if (isCancellationNotice && createdTaskId) {
+                    // Tetiklenen 39 işi, 99 bildirimine bağla (68 parent'ına değil).
+                    const { error: linkError } = await supabase.from('tasks')
+                        .update({ transaction_id: String(newTransactionId) })
+                        .eq('id', String(createdTaskId));
+                    if (linkError) throw new Error('Kullanım İspatı işinin bildirim bağlantısı güncellenemedi: ' + linkError.message);
+                }
+
                 // Sadece GERÇEK bir dosya yüklendiyse evrak tablosuna ekle
                 if (uploadedDocuments.length > 0) {
                     for (const doc of uploadedDocuments) {
@@ -1225,12 +1290,14 @@ export class ManuelPdfTransactionManager {
     }
 
     resetForm() {
-        ['recordSearchInputManual', 'manualTransactionDeliveryDate', 'manualTransactionNotes'].forEach(id => {
+        ['recordSearchInputManual', 'manualTransactionDeliveryDate', 'manualTransactionNotes', 'manualCancellationApplicant'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
         const select = document.getElementById('specificManualTransactionType');
         if (select) select.selectedIndex = 0;
+        const cancelSection = document.getElementById('manualCancellationNoticeSection');
+        if (cancelSection) cancelSection.style.display = 'none';
         this.clearSelectedRecordManual();
         this.uploadedFilesMap.set('manual-indexing-pane', []);
         this.renderUploadedFilesList('manual-indexing-pane');

@@ -595,7 +595,16 @@ export class DocumentReviewManager {
 
         const oppositionSection = document.getElementById('oppositionSection');
         if (oppositionSection) {
-            oppositionSection.style.display = (childTypeId === '27') ? 'block' : 'none';
+            const isNoticeWithPetition = ['27', '99'].includes(childTypeId);
+            oppositionSection.style.display = isNoticeWithPetition ? 'block' : 'none';
+            const noticeHeading = document.getElementById('oppositionSectionHeading');
+            if (noticeHeading) noticeHeading.innerHTML = childTypeId === '99'
+                ? '<i class="fas fa-file-contract mr-1"></i> İptal Talebi Bildirimi Verileri'
+                : '<i class="fas fa-gavel mr-1"></i> İtiraz Verileri';
+            const noticeOwnerLabel = document.getElementById('oppositionOwnerLabel');
+            if (noticeOwnerLabel) noticeOwnerLabel.textContent = childTypeId === '99' ? 'İptal Talebinde Bulunan Kişi/Kurum' : 'İtiraz Eden Kişi/Kurum';
+            const noticeFileLabel = document.getElementById('oppositionPetitionLabel');
+            if (noticeFileLabel) noticeFileLabel.textContent = childTypeId === '99' ? 'Karşı Taraf İptal Talebi Dilekçesi' : 'Karşı Taraf İtiraz Dilekçesi';
         }
 
         // 🔥 YENİ: 48 Seçilirse Formu Göster
@@ -984,6 +993,16 @@ export class DocumentReviewManager {
             const childTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(childTypeId));
             const parentTx = this.currentTransactions.find(t => String(t.id) === String(parentTxId));
             const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTx?.transaction_type_id || parentTx?.type));
+            // 98 ve 99 için parent-child yetkisini yalnız transaction_types belirler.
+            // İşlem türü listeleri JS içinde tekrar tanımlanmaz.
+            if (['98', '99'].includes(childTypeId)) {
+                const allowedChildren = (Array.isArray(parentTypeObj?.index_file) && parentTypeObj.index_file.length
+                    ? parentTypeObj.index_file : (Array.isArray(parentTypeObj?.allowed_child_types) ? parentTypeObj.allowed_child_types : []))
+                    .map(String);
+                if (!allowedChildren.includes(childTypeId)) {
+                    throw new Error('Bu alt işlem seçilen ana işlem için transaction_types.index_file alanında yetkili değildir.');
+                }
+            }
 
             let newParentTxId = null;
             let oppositionFileUrl = null;
@@ -1009,11 +1028,11 @@ export class DocumentReviewManager {
                 proofOfUseFileName = proofFileInput.name;
             }
 
-            if (String(childTypeId) === '27') {
+            if (['27', '99'].includes(String(childTypeId))) {
                 const ownerInput = document.getElementById('oppositionOwnerInput').value;
                 const fileInput = document.getElementById('oppositionPetitionFile').files[0];
                 const epatsFileInput = document.getElementById('oppositionEpatsPetitionFile')?.files?.[0] || null;
-                if (!ownerInput || !fileInput) throw new Error('İtiraz Sahibi ve PDF zorunludur.');
+                if (!ownerInput?.trim() || !fileInput) throw new Error(childTypeId === '99' ? 'İptal talebinde bulunan kişi/kurum ve dilekçe PDF zorunludur.' : 'İtiraz Sahibi ve PDF zorunludur.');
 
                 const storagePath = `incoming_documents/${this.matchedRecord.id}/${Date.now()}_${fileInput.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
                 const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, fileInput);
@@ -1030,11 +1049,14 @@ export class DocumentReviewManager {
                     oppositionEpatsFileName = epatsFileInput.name;
                 }
 
-                let newParentTypeId = '20'; 
-                let newParentDesc = 'Yayına İtiraz (Otomatik)';
+                // İptal talebi bildirimi (99), itiraz bildirimi (27) ile aynı
+                // özel evrak akışını kullanır; ancak parent daima 68'dir.
+                // Kullanıcı mevcut 68 parent'ı seçmişse mükerrer parent oluşturulmaz.
+                let newParentTypeId = childTypeId === '99' ? '68' : '20';
+                let newParentDesc = childTypeId === '99' ? 'Marka İptal Talebi (Otomatik)' : 'Yayına İtiraz (Otomatik)';
                 const parentAlias = parentTypeObj?.alias || parentTypeObj?.name || '';
-                if (parentAlias.includes('İtiraz') || String(parentTypeObj?.id) === '20') {
-                    newParentTypeId = '19'; 
+                if (childTypeId === '27' && (parentAlias.includes('İtiraz') || String(parentTypeObj?.id) === '20')) {
+                    newParentTypeId = '19';
                     newParentDesc = 'Yayına İtirazın Yeniden İncelenmesi (Otomatik)';
                 }
 
@@ -1042,7 +1064,7 @@ export class DocumentReviewManager {
                     {
                         name: oppositionFileName,
                         url: oppositionFileUrl,
-                        documentDesignation: 'İtiraz Dilekçesi'
+                        documentDesignation: childTypeId === '99' ? 'İptal Talebi Dilekçesi' : 'İtiraz Dilekçesi'
                     }
                 ];
 
@@ -1063,11 +1085,19 @@ export class DocumentReviewManager {
                     timestamp: new Date().toISOString()
                 };
                 
-                const newParentResult = await this._addTransaction(this.matchedRecord.id, newParentData);
-                if (newParentResult.success) newParentTxId = newParentResult.id;
+                if (childTypeId === '99' && String(parentTypeObj?.id) === '68') {
+                    // Aynı marka iptal talebi dosyasında yeni bir 68 parent'ı açma.
+                    newParentTxId = parentTxId;
+                } else {
+                    const newParentResult = await this._addTransaction(this.matchedRecord.id, newParentData);
+                    if (!newParentResult?.success || !newParentResult.id) {
+                        throw new Error('Otomatik ana işlem oluşturulamadı. Bildirim indekslenmedi.');
+                    }
+                    newParentTxId = newParentResult.id;
+                }
             }
 
-            // 🔥 1. YAPI KORUNDU: Evrak her zaman otomatik oluşan 20'ye (varsa) bağlanır.
+            // Bildirim evrakı, otomatik oluşturulan veya mevcut ilgili parent'a bağlanır.
             const finalParentId = newParentTxId || parentTxId;
 
             let finalPdfUrl = this.pdfData.fileUrl || this.pdfData.download_url;
@@ -1112,10 +1142,11 @@ export class DocumentReviewManager {
                 date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString(),
                 taskId: typeof overrideTaskId !== 'undefined' ? overrideTaskId : null,
                 notes: systemNote, // 🔥 Arayüzdeki seçim Mail Motoru için not olarak eklendi!
+                ...(childTypeId === '99' ? { oppositionOwner: document.getElementById('oppositionOwnerInput')?.value.trim() || null } : {}),
                 documents: [{
                     name: this.pdfData.fileName || 'Resmi Yazı.pdf',
                     url: finalPdfUrl,
-                    documentDesignation: 'Resmi Yazı'
+                    documentDesignation: childTypeId === '99' ? 'İptal Talebi Bildirimi' : 'Resmi Yazı'
                 }]
             };
 
@@ -1129,6 +1160,9 @@ export class DocumentReviewManager {
             }
 
             const txResult = await this._addTransaction(this.matchedRecord.id, transactionData);
+            if (!txResult?.success || !txResult.id) {
+                throw new Error('Alt işlem kaydedilemedi: ' + (txResult?.error || 'Bilinmeyen hata'));
+            }
             const childTransactionId = txResult.id;
 
             // 🔥 YENİ: Kullanıcı tarihi güncellemeyi onayladıysa ana portföy kaydını güncelle
@@ -1489,6 +1523,8 @@ export class DocumentReviewManager {
                             
                             await this._addTransaction(this.matchedRecord.id, triggeredTransactionData);
                         }
+                    } else if (childTypeId === '99' && String(tType) === '39') {
+                        throw new Error('İptal Talebi Bildirimi kaydedildi, ancak 39 – Kullanım İspatı görevi oluşturulamadı. Kayıtları kontrol edin: ' + (taskResult.error?.message || taskResult.error || 'Bilinmeyen hata'));
                     }
                 }
             }

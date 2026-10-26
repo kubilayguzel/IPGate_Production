@@ -105,7 +105,7 @@ serve(async (req: Request) => {
                 oppositionOwner = txData.opposition_owner;
             }
 
-            if (['38', '27'].includes(txTypeId) && txData.parent_id) {
+            if (['38', '27', '99'].includes(txTypeId) && txData.parent_id) {
                 currentTxId = txData.parent_id;
             } else {
                 break;

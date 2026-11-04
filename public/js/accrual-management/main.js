@@ -1395,8 +1395,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         .map(id => this.dataManager.allAccruals.find(a => a.id === id))
                         .filter(a => {
                             if (!a || !a.isForeignTransaction || !a.files || a.files.length === 0) return false;
-                            // Sadece gerçek tipi application/pdf olan belge var mı kontrol et
-                            return a.files.some(f => f.type === 'application/pdf');
+                            // Eski PDF (application/pdf) ve gelen partner faturasi
+                            // (foreign_invoice) muhasebe belgesi olarak kabul edilir.
+                            return a.files.some(f =>
+                                ['application/pdf', 'foreign_invoice'].includes(
+                                    String(f?.type || '').trim().toLowerCase()
+                                )
+                            );
                         });
 
                     if (selectedAccruals.length === 0) {
@@ -1423,8 +1428,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         // 3. Dosyaları Fetch ile Çek ve ZIP'e Ekle
                         for (const acc of selectedAccruals) {
-                            // Sadece tipi kesin olarak application/pdf olanları al
-                            const pdfFiles = acc.files.filter(f => f.type === 'application/pdf');
+                            // Yeni gelen partner faturasini oncelikle indir;
+                            // yoksa eski application/pdf belgesine geri don.
+                            const incomingDocs = acc.files.filter(f =>
+                                String(f?.type || '').trim().toLowerCase() === 'foreign_invoice'
+                            );
+                            const legacyPdfDocs = acc.files.filter(f =>
+                                String(f?.type || '').trim().toLowerCase() === 'application/pdf'
+                            );
+                            const pdfFiles = incomingDocs.length ? incomingDocs : legacyPdfDocs;
                             const file = pdfFiles[pdfFiles.length - 1];
                             const url = file.url || file.content;
                             
@@ -1533,6 +1545,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             document.getElementById('saveAccrualChangesBtn').addEventListener('click', async () => {
+                const accrualId = document.getElementById('editAccrualId')?.value;
+                const selectedForeignPdf = document.getElementById('editForeignInvoiceFile')?.files?.[0] || null;
+                const editingAccrual = this.dataManager.allAccruals.find(a => String(a.id) === String(accrualId));
+                const activeInvoices = (editingAccrual?.linkedInvoices || []).filter(inv =>
+                    !['cancelled', 'canceled', 'rejected', 'declined', 'failed']
+                        .includes(String(inv.status || '').toLowerCase()));
+
+                // Faturası düzenlenmiş veya ödenmiş tahakkukta yurtdışı faturası eklemek,
+                // kesilmiş faturayı ve tahakkuk kalemlerini yeniden hesaplamamalıdır.
+                // Belgeyi ayrı kaydediyoruz; mali alanlar ve diğer form değişiklikleri korunur.
+                if (selectedForeignPdf && (activeInvoices.length > 0 || editingAccrual?.status === 'paid')) {
+                    if (!window.confirm('Yalnızca seçilen yurtdışı fatura PDF’i eklenecek. Tahakkuk tutarları ve bu formdaki diğer değişiklikler kaydedilmeyecek. Devam edilsin mi?')) return;
+                    this.uiManager.toggleLoading(true);
+                    try {
+                        await this.dataManager.addForeignInvoiceDocument(accrualId, selectedForeignPdf);
+                        this.uiManager.closeModal('editAccrualModal');
+                        await this.loadData();
+                        showNotification('Yurtdışı faturası eklendi; tahakkuk ve kesilmiş fatura tutarları değiştirilmedi.', 'success');
+                    } catch (e) {
+                        showNotification('Yurtdışı faturası eklenemedi: ' + e.message, 'error');
+                    } finally {
+                        this.uiManager.toggleLoading(false);
+                    }
+                    return;
+                }
+
                 this.uiManager.toggleLoading(true);
                 try {
                     // Düzenleme verisini okumadan önce tüm dövizleri TCMB kuru ile TL'ye çevir.

@@ -2205,7 +2205,7 @@ export const accrualService = {
                 single_item_invoice_rates: updateData.singleItemInvoice === undefined ? undefined : (updateData.singleItemInvoice ? updateData.singleItemInvoiceRates : null),
                 single_item_invoice_rate_date: updateData.singleItemInvoice === undefined ? undefined : (updateData.singleItemInvoice ? updateData.singleItemInvoiceRateDate : null),
                 description: updateData.description,
-                invoice_description: updateData.invoiceDescription || updateData.invoice_description || null,
+                invoice_description: updateData.invoiceDescription === undefined ? updateData.invoice_description : updateData.invoiceDescription,
                 foreign_status: updateData.foreign_status,
                 updated_at: new Date().toISOString()
             };

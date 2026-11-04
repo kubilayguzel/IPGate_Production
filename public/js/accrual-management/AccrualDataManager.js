@@ -475,7 +475,13 @@ export class AccrualDataManager {
             // 🔥 YENİ: Yurtdışı Ödeme Belgesi (PDF var/yok) Filtresi
             if (filters.foreignReceipt && filters.foreignReceipt !== 'all') {
                 data = data.filter(item => {
-                    const hasPdf = item.files && item.files.some(f => f.type === 'application/pdf');
+                    // Yeni gelen partner faturasi foreign_invoice olarak kaydedilir.
+                    // Eski belgelerdeki application/pdf tipi de desteklenir.
+                    const hasPdf = item.files && item.files.some(f =>
+                        ['application/pdf', 'foreign_invoice'].includes(
+                            String(f?.type || '').trim().toLowerCase()
+                        )
+                    );
                     return filters.foreignReceipt === 'yes' ? hasPdf : !hasPdf;
                 });
             }
@@ -685,6 +691,46 @@ export class AccrualDataManager {
         await this.fetchAllData(); 
     }
 
+    // Kesilmiş faturası/ödemesi bulunan tahakkuka sadece gelen yurtdışı faturasını ekler.
+    // Accrual tutarlarını, kalemlerini veya kesilmiş fatura ilişkilerini güncellemez.
+    async addForeignInvoiceDocument(accrualId, file) {
+        const accrual = this.allAccruals.find(a => String(a.id) === String(accrualId));
+        if (!accrual) throw new Error('Tahakkuk bulunamadı.');
+        if (!file || typeof file.name !== 'string' || !/\.pdf$/i.test(file.name)) {
+            throw new Error('Lütfen PDF formatında bir yurtdışı faturası seçin.');
+        }
+        if (file.size === 0) throw new Error('Seçilen PDF dosyası boş.');
+
+        const cleanName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        const unique = generateUUID();
+        const filePath = `accruals/${accrualId}/${Date.now()}_${unique}_${cleanName}`;
+        const storage = supabase.storage.from('documents');
+        const { error: uploadError } = await storage.upload(filePath, file, {
+            contentType: 'application/pdf', upsert: false
+        });
+        if (uploadError) throw new Error('PDF yüklenemedi: ' + uploadError.message);
+
+        const { data: urlData } = storage.getPublicUrl(filePath);
+        if (!urlData?.publicUrl) {
+            await storage.remove([filePath]).catch(err => console.warn('PDF temizlik hatası:', err));
+            throw new Error('Yüklenen PDF bağlantısı oluşturulamadı.');
+        }
+
+        const { error: insertError } = await supabase.from('accrual_documents').insert({
+            accrual_id: String(accrualId),
+            document_name: file.name,
+            document_url: urlData.publicUrl,
+            document_type: 'foreign_invoice'
+        });
+        if (insertError) {
+            const { error: cleanupError } = await storage.remove([filePath]);
+            if (cleanupError) console.warn('Belge temizlenemedi:', cleanupError);
+            throw new Error('Yurtdışı faturası tahakkuka eklenemedi: ' + insertError.message);
+        }
+        // Tam veri yeniden yüklenmesi çağıran controller tarafından yapılır.
+        return { success: true };
+    }
+
     async updateAccrual(accrualId, formData, fileToUpload) {
         const currentAccrual = this.allAccruals.find(a => a.id === accrualId);
         if (!currentAccrual) throw new Error("Tahakkuk bulunamadı.");
@@ -708,7 +754,7 @@ export class AccrualDataManager {
         const payload = {
             ...formData,
             description: formData.description || null, 
-            invoice_description: formData.invoice_description || formData.invoiceDescription || null,
+            invoice_description: formData.invoice_description === undefined ? formData.invoiceDescription : formData.invoice_description,
             tpe_invoice_no: formData.tpeInvoiceNo || null,
             evreka_invoice_no: formData.evrekaInvoiceNo || null,
             order_code: formData.orderCode || null,

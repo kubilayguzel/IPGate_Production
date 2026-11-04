@@ -739,7 +739,7 @@ const createResultRow = (hit, rowIndex) => {
         <td style="white-space: nowrap;">${hit.applicationNo ? `<a href="#" class="tp-appno-link" onclick="event.preventDefault(); window.queryApplicationNumberWithExtension('${hit.applicationNo}');">${hit.applicationNo}</a>` : '-'}</td>
         <td style="white-space: nowrap;">${hit.similarityScore ? `${(hit.similarityScore * 100).toFixed(0)}%` : '-'}</td>
         <td style="white-space: nowrap;"><select class="bs-select" data-result-id="${hit.id || hit.applicationNo}"><option value="">B.Ş</option>${chanceOptionsHtml}</select></td>
-        <td class="note-cell" data-result-id="${hit.id || hit.applicationNo}"><div class="note-cell-content"><span class="note-icon">📝</span>${storedNote ? `<span class="note-text" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(storedNote)}</span>` : `<span class="note-placeholder">Not ekle</span>`}</div></td>
+        <td class="note-cell" data-result-id="${escapeExpertHtml(hit.id || hit.applicationNo)}">${renderNotePreview(storedNote)}</td>
     `;
     const imgContainer = row.querySelector('.lazy-load-container');
     if (imgContainer) imageObserver.observe(imgContainer);
@@ -1652,32 +1652,214 @@ const handleBsChange = async (event) => {
     }
 };
 
+// NOT YÖNETİMİ — kayıtlı notlar kırpılmadan korunur; tabloda yalnızca kısa özet gösterilir.
+const renderNotePreview = (note) => {
+    const full = normalizeExpertNote(note);
+    const summary = full.replace(/\s+/g, ' ').trim();
+    const hasNote = Boolean(summary);
+    const preview = summary.length > 90 ? `${summary.slice(0, 89)}…` : summary;
+    return `<button type="button" class="note-preview-button ${hasNote ? 'has-note' : 'is-empty'}" title="${hasNote ? 'Notu görüntüle / düzenle' : 'Not ekle'}" aria-label="${hasNote ? 'Kaydedilmiş notu görüntüle veya düzenle' : 'Bu marka için not ekle'}">
+        <span class="note-preview-icon" aria-hidden="true"><i class="${hasNote ? 'far fa-file-alt' : 'fas fa-plus'}"></i></span>
+        <span class="note-preview-body">${hasNote ? `<span class="note-preview-text">${escapeExpertHtml(preview)}</span><span class="note-preview-hint">Notu aç</span>` : '<span class="note-preview-empty">Not ekle</span>'}</span>
+    </button>`;
+};
+
+let activeNoteEditor = null;
+let noteEditorRestoreFocus = null;
+let noteEditorPreviousScroll = '';
+let noteEditorSaving = false;
+
+const setNoteEditorMessage = (message = '', isError = false) => {
+    const el = document.getElementById('noteEditorMessage');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('is-error', isError);
+};
+
+const closeNoteEditor = () => {
+    const modal = document.getElementById('noteModal');
+    if (!modal || !modal.classList.contains('show')) return;
+    // Hem Bootstrap hem ortak CSS kurallarından bağımsız olarak gizle.
+    modal.classList.remove('show');
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = noteEditorPreviousScroll;
+    activeNoteEditor = null;
+    const focusTarget = noteEditorRestoreFocus;
+    noteEditorRestoreFocus = null;
+    if (focusTarget && focusTarget.isConnected && typeof focusTarget.focus === 'function') focusTarget.focus();
+};
+
+const saveNoteEditor = async () => {
+    if (noteEditorSaving || !activeNoteEditor) return;
+    const { resultId, noteCell } = activeNoteEditor;
+    const input = document.getElementById('noteInputModal');
+    const saveBtn = document.getElementById('saveNoteBtn');
+    if (!input || !saveBtn) return;
+    const nextNote = input.value;
+    const originalButtonHtml = saveBtn.innerHTML;
+    noteEditorSaving = true;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Kaydediliyor...';
+    setNoteEditorMessage('Not kaydediliyor...');
+    try {
+        // .select ile etkilenmiş satırı kontrol et: RLS nedeniyle sessiz başarısızlık olmasın.
+        const { data, error } = await supabase.from('monitoring_trademark_records')
+            .update({ note: nextNote }).eq('id', resultId).select('id, note');
+        if (error) throw error;
+        if (!Array.isArray(data) || data.length !== 1) {
+            throw new Error('Not kaydı doğrulanamadı. Erişim yetkisini veya ilgili kayıt kimliğini kontrol edin.');
+        }
+        const savedNote = normalizeExpertNote(data[0].note);
+        const hit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
+        if (hit) hit.note = savedNote;
+        // Satır o sırada hâlâ görünürse önizlemeyi anında güncelle.
+        if (noteCell && noteCell.isConnected) noteCell.innerHTML = renderNotePreview(savedNote);
+        setNoteEditorMessage();
+        closeNoteEditor();
+        showNotification('Değerlendirme notu kaydedildi.', 'success');
+    } catch (error) {
+        console.error('Marka izleme notu kaydedilemedi:', error);
+        setNoteEditorMessage(`Not kaydedilemedi: ${error.message || String(error)}`, true);
+        // Hata durumunda kullanıcı metni kaybetmez; modal açık kalır.
+    } finally {
+        noteEditorSaving = false;
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalButtonHtml;
+    }
+};
+
+const initializeNoteEditor = () => {
+    const modal = document.getElementById('noteModal');
+    if (!modal || modal.dataset.ipgateNoteEditor === 'ready') return;
+    modal.dataset.ipgateNoteEditor = 'ready';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('aria-labelledby', 'noteEditorTitle');
+    modal.style.display = 'none';
+    // Eski geniş modalın HTML'si, sadece JS dosyası değiştirilerek güncellenir.
+    modal.innerHTML = `
+        <div class="modal-dialog note-editor-dialog" role="document">
+            <div class="modal-content note-editor-panel">
+                <div class="note-editor-header">
+                    <div class="note-editor-heading">
+                        <div class="note-editor-heading-icon"><i class="far fa-edit" aria-hidden="true"></i></div>
+                        <div><div class="note-editor-eyebrow">MARKA BÜLTEN İZLEME</div><h3 id="noteEditorTitle">Değerlendirme notu</h3></div>
+                    </div>
+                    <button id="closeNoteModal" type="button" class="note-editor-close" aria-label="Not penceresini kapat" title="Kapat"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+                <div class="note-editor-main">
+                    <div class="note-editor-record">
+                        <div class="note-editor-record-info"><span class="note-editor-kicker">İLGİLİ MARKA</span><strong id="noteEditorMark">—</strong></div>
+                        <div class="note-editor-record-info"><span class="note-editor-kicker">BAŞVURU NO</span><strong id="noteEditorApplication">—</strong></div>
+                    </div>
+                    <label class="note-editor-label" for="noteInputModal">Uzman değerlendirmesi</label>
+                    <textarea id="noteInputModal" class="form-control note-editor-textarea" rows="8" placeholder="Benzerlik değerlendirmesi, örtüşen mal ve hizmetler, itiraz gerekçeleri veya önerilen aksiyonlar..."></textarea>
+                    <div class="note-editor-assistance"><span><i class="far fa-lightbulb" aria-hidden="true"></i> Notun tamamı kayıt altında tutulur. <span class="note-editor-shortcut">Ctrl + Enter ile kaydet</span></span><span id="noteEditorCharCount">0 karakter</span></div>
+                    <div id="noteEditorMessage" class="note-editor-message" role="status" aria-live="polite"></div>
+                </div>
+                <div class="note-editor-footer">
+                    <button type="button" id="cancelNoteBtn" class="note-editor-cancel">Vazgeç</button>
+                    <button type="button" id="saveNoteBtn" class="note-editor-save"><i class="far fa-save" aria-hidden="true"></i> Notu kaydet</button>
+                </div>
+            </div>
+        </div>`;
+
+    if (!document.getElementById('ipgate-note-editor-css')) {
+        const style = document.createElement('style');
+        style.id = 'ipgate-note-editor-css';
+        style.textContent = `
+            /* Not hücresini daima kısa tut; uzun notlar tablo satırını uzatmasın. */
+            #resultsTableBody td.note-cell { padding: 8px 6px !important; vertical-align: middle; min-width: 110px; max-width: 170px; }
+            #resultsTableBody .note-preview-button { width: 100%; min-height: 42px; display: flex; align-items: center; text-align: left; gap: 7px; cursor: pointer; border-radius: 9px; border: 1px solid #d7e1ee; padding: 7px 8px; background: #f8fafc; color: #344256; font-size: 12px; line-height: 1.35; transition: background .16s, border-color .16s, box-shadow .16s; }
+            #resultsTableBody .note-preview-button:hover, #resultsTableBody .note-preview-button:focus-visible { background: #eaf2ff; border-color: #9bbbea; box-shadow: 0 0 0 2px rgba(37,99,235,.09); outline: none; }
+            #resultsTableBody .note-preview-button.is-empty { color: #32649d; background: #f1f6fe; border-style: dashed; border-color: #b9cdec; }
+            #resultsTableBody .note-preview-icon { color: #3b6fad; flex: 0 0 14px; font-size: 12px; }
+            #resultsTableBody .note-preview-body { display: block; min-width: 0; flex: 1; }
+            #resultsTableBody .note-preview-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; max-height: 2.7em; font-weight: 500; }
+            #resultsTableBody .note-preview-hint { display: block; margin-top: 3px; font-size: 10px; color: #6685a9; font-weight: 600; }
+            #resultsTableBody .note-preview-empty { font-weight: 600; }
+            #noteModal:not(.show) { display: none !important; }
+            #noteModal.show { display: flex !important; align-items: center !important; justify-content: center !important; padding: 18px !important; background: rgba(9, 25, 49, .53) !important; z-index: 1200 !important; backdrop-filter: blur(2px); }
+            #noteModal .note-editor-dialog { max-width: 740px !important; width: 100% !important; margin: auto !important; pointer-events: auto !important; }
+            #noteModal .note-editor-panel { max-width: 740px !important; max-height: calc(100vh - 36px) !important; width: 100% !important; padding: 0 !important; border: 1px solid #e2e8f0 !important; border-radius: 16px !important; box-shadow: 0 24px 75px rgba(10,24,50,.23) !important; overflow-y: auto !important; transform: none !important; background: #fff !important; }
+            #noteModal .note-editor-header { padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border-bottom: 1px solid #e8edf4; }
+            #noteModal .note-editor-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
+            #noteModal .note-editor-heading-icon { flex: 0 0 42px; width: 42px; height: 42px; border-radius: 12px; background: #eef4ff; color: #235aab; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+            #noteModal .note-editor-eyebrow { color: #6f82a1; letter-spacing: .09em; font-size: 10px; font-weight: 800; margin-bottom: 4px; }
+            #noteModal #noteEditorTitle { margin: 0; font-size: 20px; line-height: 1.3; color: #172b49; font-weight: 700; }
+            #noteModal .note-editor-close { flex: 0 0 34px; width: 34px; height: 34px; border: 1px solid #e3eaf4; background: #f8fafc; color: #6b778b; border-radius: 9px; cursor: pointer; font-size: 15px; }
+            #noteModal .note-editor-close:hover { color: #1b355f; background: #eef4ff; }
+            #noteModal .note-editor-main { padding: 22px 24px 14px; }
+            #noteModal .note-editor-record { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; background: #f7f9fd; border: 1px solid #e8edf5; border-radius: 11px; padding: 13px 15px; margin-bottom: 20px; }
+            #noteModal .note-editor-record-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+            #noteModal .note-editor-kicker { font-size: 10px; color: #7a8ca5; font-weight: 800; letter-spacing: .07em; }
+            #noteModal .note-editor-record strong { color: #223650; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+            #noteModal .note-editor-label { display: block; margin-bottom: 10px; color: #273955; font-size: 13px; font-weight: 700; }
+            #noteModal .note-editor-textarea { display: block; width: 100%; min-height: 210px; max-height: 49vh; padding: 14px 15px; border-radius: 10px; border: 1px solid #cbd6e6; background: #fff; color: #26374b; resize: vertical; line-height: 1.65; font-size: 13px; box-shadow: inset 0 1px 2px rgba(25,53,90,.02); }
+            #noteModal .note-editor-textarea:focus { border-color: #4479ca; outline: none; box-shadow: 0 0 0 3px rgba(65,115,193,.12); }
+            #noteModal .note-editor-assistance { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-top: 10px; font-size: 11px; color: #7b8ca1; }
+            #noteModal .note-editor-shortcut { white-space: nowrap; }
+            #noteModal .note-editor-message { min-height: 15px; font-size: 12px; margin-top: 8px; color: #52709b; }
+            #noteModal .note-editor-message.is-error { color: #ad3043; }
+            #noteModal .note-editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 16px 24px 20px; border-top: 1px solid #e8edf4; background: #fff; }
+            #noteModal .note-editor-cancel, #noteModal .note-editor-save { min-height: 39px; padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 700; }
+            #noteModal .note-editor-cancel { background: #fff; color: #52647d; border: 1px solid #cdd7e5; }
+            #noteModal .note-editor-cancel:hover { background: #f5f8fc; }
+            #noteModal .note-editor-save { background: #2154a4; color: #fff; border: 1px solid #2154a4; display: inline-flex; align-items: center; gap: 8px; }
+            #noteModal .note-editor-save:hover:not(:disabled) { background: #163e80; }
+            #noteModal .note-editor-save:disabled { opacity: .7; cursor: wait; }
+            @media(max-width: 600px) { #noteModal.show { padding: 10px !important; } #noteModal .note-editor-panel { max-height: calc(100vh - 20px) !important; } #noteModal .note-editor-header { padding: 17px; } #noteModal .note-editor-main { padding: 17px 17px 10px; } #noteModal .note-editor-footer { padding: 14px 17px 17px; } #noteModal .note-editor-record { grid-template-columns: 1fr; gap: 10px; } #noteModal #noteEditorTitle { font-size: 18px; } #noteModal .note-editor-assistance { flex-direction: column; gap: 4px; } }
+        `;
+        document.head.appendChild(style);
+    }
+
+    document.getElementById('closeNoteModal').addEventListener('click', closeNoteEditor);
+    document.getElementById('cancelNoteBtn').addEventListener('click', closeNoteEditor);
+    document.getElementById('saveNoteBtn').addEventListener('click', saveNoteEditor);
+    modal.addEventListener('click', (event) => { if (event.target === modal) closeNoteEditor(); });
+    const input = document.getElementById('noteInputModal');
+    input.addEventListener('input', () => {
+        document.getElementById('noteEditorCharCount').textContent = `${input.value.length.toLocaleString('tr-TR')} karakter`;
+        setNoteEditorMessage();
+    });
+    modal.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') { event.preventDefault(); closeNoteEditor(); }
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); saveNoteEditor(); }
+        if (event.key === 'Tab') {
+            const visibleFocusable = Array.from(modal.querySelectorAll('button:not(:disabled), textarea:not(:disabled)'));
+            if (visibleFocusable.length === 0) return;
+            const first = visibleFocusable[0], last = visibleFocusable[visibleFocusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+    });
+};
+
 const handleNoteCellClick = (cell) => {
+    initializeNoteEditor();
     const { resultId } = cell.dataset;
-    const currentNote = cell.querySelector('.note-text')?.textContent || '';
+    const hit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
+    if (!hit) {
+        showNotification('İlgili sonuç bulunamadı. Listeyi yenileyip tekrar deneyin.', 'error');
+        return;
+    }
     const modal = document.getElementById('noteModal');
     const noteInput = document.getElementById('noteInputModal');
-    noteInput.value = currentNote;
-    
-    document.getElementById('saveNoteBtn').onclick = async () => {
-        const hit = allSimilarResults.find(r => String(r.objectID) === String(resultId) || String(r.id) === String(resultId));
-        let oldNote = hit ? hit.note : '';
-
-        // 🚀 ÇÖZÜM (OPTIMISTIC UPDATE): RAM'i ve ekranı anında güncelle, rapor alırken güncel görünsün
-        if (hit) hit.note = noteInput.value;
-        cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${noteInput.value ? 'note-text' : 'note-placeholder'}" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(noteInput.value || 'Not ekle')}</span>`;
-        modal.classList.remove('show');
-
-        const { error } = await supabase.from('monitoring_trademark_records').update({ note: noteInput.value }).eq('id', resultId);
-        
-        if (error) {
-            if (hit) hit.note = oldNote; // Hata varsa geri al
-            cell.querySelector('.note-cell-content').innerHTML = `<span class="note-icon">📝</span><span class="${oldNote ? 'note-text' : 'note-placeholder'}" style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeExpertHtml(oldNote || 'Not ekle')}</span>`;
-            alert('Hata oluştu'); 
-        }
-    };
-    
+    if (!modal || !noteInput) return;
+    activeNoteEditor = { resultId, noteCell: cell };
+    noteEditorRestoreFocus = cell.querySelector('.note-preview-button');
+    noteInput.value = normalizeExpertNote(hit.note); // Kırpılmış tablo önizlemesini DEĞİL, tam DB notunu oku.
+    document.getElementById('noteEditorMark').textContent = hit.markName || '—';
+    document.getElementById('noteEditorApplication').textContent = hit.applicationNo || '—';
+    document.getElementById('noteEditorCharCount').textContent = `${noteInput.value.length.toLocaleString('tr-TR')} karakter`;
+    setNoteEditorMessage();
+    noteEditorPreviousScroll = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    modal.style.display = 'flex';
     modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
     noteInput.focus();
 };
 
@@ -2691,6 +2873,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bulletinSelect = document.getElementById('bulletinSelect');
     
     initializePagination();
+    initializeNoteEditor();
     // Liste sayfalar halinde yüklenirken kullanıcı bülten seçerse henüz bağlanmamış change olayı kaybolabiliyordu.
     if (bulletinSelect) bulletinSelect.disabled = true;
     try {

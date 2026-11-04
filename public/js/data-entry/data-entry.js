@@ -1206,7 +1206,9 @@ class DataEntryModule {
                 ip_record_id: String(recordId),
                 transaction_type_id: String(TX_IDS[ipType] || '2'),
                 description: hierarchy === 'child' ? 'Ülke başvurusu işlemi.' : 'Başvuru işlemi.',
-                transaction_hierarchy: hierarchy,
+                // WIPO/ARIPO ülke kaydı child olabilir; ülkenin ilk Başvuru
+                // transaction'ı ise kendisine bağlanacak işlemler için parent olmalıdır.
+                transaction_hierarchy: 'parent',
                 transaction_date: new Date().toISOString(), // 🔥 ÇÖZÜM: Zorunlu işlem tarihi eklendi
                 created_at: new Date().toISOString()
             };

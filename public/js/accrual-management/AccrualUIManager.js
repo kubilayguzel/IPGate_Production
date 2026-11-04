@@ -464,10 +464,11 @@ export class AccrualUIManager {
                 // 🔥 YENİ: Debit Note ve Masraf Dekontu Tespiti ve Tıklanabilir Rozeti
                 let debitNoteHtml = '';
                 if (acc.files && acc.files.length > 0) {
-                    // 1. Debit Note Bul
-                    const debitDoc = acc.files.find(f => 
-                        (f.type && f.type.toLowerCase().includes('debit')) || 
-                        (f.name && f.name.toLowerCase().includes('debit'))
+                    // 1. Debit Note: sadece IPGate'in duzenledigi giden belgeyi goster.
+                    // Partnerin bize gonderdigi fatura/debit, dosya adi 'debit' icerse bile
+                    // sistemimizin olusturdugu debit_note belgesi sayilmamalidir.
+                    const debitDoc = acc.files.find(f =>
+                        String(f?.type ?? '').trim().toLowerCase() === 'debit_note'
                     );
                     if (debitDoc) {
                         const docUrl = debitDoc.url || debitDoc.content;
@@ -683,9 +684,18 @@ export class AccrualUIManager {
                     let paymentParty = acc.serviceInvoiceParty?.name || '-';
                     let documentHtml = '-';
                     if (acc.files && acc.files.length > 0) {
-                        // Sadece PDF dosyalarını filtrele
-                        const pdfFiles = acc.files.filter(f => f.type === 'application/pdf');
-                        
+                        // Eski PDF belgelerinin tipi application/pdf, yeni gelen partner
+                        // faturasinin tipi foreign_invoice'dir. Debit_note (bizim
+                        // duzenledigimiz giden belge) burada yansitma belgesi degildir.
+                        // Gelen partner faturasini diger PDF'lere tercih et.
+                        const incomingDocs = acc.files.filter(f =>
+                            String(f?.type || '').trim().toLowerCase() === 'foreign_invoice'
+                        );
+                        const legacyPdfDocs = acc.files.filter(f =>
+                            String(f?.type || '').trim().toLowerCase() === 'application/pdf'
+                        );
+                        const pdfFiles = incomingDocs.length ? incomingDocs : legacyPdfDocs;
+
                         if (pdfFiles.length > 0) {
                             const lastPdf = pdfFiles[pdfFiles.length - 1];
                             const link = lastPdf.url || lastPdf.content;

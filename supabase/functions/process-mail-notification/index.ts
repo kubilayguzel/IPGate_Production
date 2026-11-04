@@ -29,21 +29,108 @@ serve(async (req: Request) => {
 
     if (fetchErr || !notification) throw new Error("Bildirim bulunamadı.");
 
-    // 🔥 ÇÖZÜM: Veritabanındaki 'mail_attachments' tablosundan bu maile ait ekleri buluyoruz
-    const { data: dbAttachments } = await supabaseClient
-      .from('mail_attachments')
-      .select('file_name, url')
-      .eq('notification_id', notificationId);
+    // DAVA ISI GUVENLIGI: Bildirim arayuzu, genel gorev eklerini de
+    // iletebilir. Kullanici girdisi ve mail_attachments listesi dava isi
+    // bildirimleri icin yetkili bir belge kaynagi OLAMAZ.
+    const litigationTaskTypes = new Set([
+      '49', '54', '55', '56', '57', '58', '59', '60',
+      '61', '62', '63', '64', '65', '91', '93', '94', '96', '97'
+    ]);
+    let task: {task_type_id?: string | number | null} | null = null;
+    // Generic mail, dava ozel motoru donusturmeden once goruntulenirse
+    // bile is turune bakarak yanlis ekleri engelle.
+    if (notification.associated_task_id &&
+        (notification.source === 'litigation_task_completion' ||
+         notification.source === 'task_completion')) {
+      const { data: taskData, error: taskError } = await supabaseClient
+        .from('tasks')
+        .select('task_type_id')
+        .eq('id', String(notification.associated_task_id))
+        .maybeSingle();
+      if (taskError || !taskData) {
+        throw new Error('Tamamlanan isin turu dogrulanamadi; bildirim gonderimi durduruldu.');
+      }
+      task = taskData;
+    }
+    const isLitigationCompletion =
+      notification.source === 'litigation_task_completion' ||
+      (notification.source === 'task_completion' &&
+       litigationTaskTypes.has(String(task?.task_type_id || '')));
 
-    // Arayüzden gelen ekler (varsa) ile veritabanındaki ekleri birleştiriyoruz
-    // Arayüzden gelen ekler (varsa) ile veritabanındaki ekleri birleştiriyoruz
-    let rawAttachments = attachments || [];
-    if (dbAttachments && dbAttachments.length > 0) {
-        const mappedDbAttachments = dbAttachments.map(dbAtt => ({
-            name: dbAtt.file_name,
-            url: dbAtt.url
+    let rawAttachments: Array<{name: string; url: string}> = [];
+    if (isLitigationCompletion) {
+      const taskId = notification.associated_task_id;
+      if (!taskId || !task) {
+        throw new Error('Dava bildiriminde bagli is bulunamadigi icin ekler dogrulanamadi.');
+      }
+
+      // Tip 49 dava acilisi: Mahkemeye Sunulan Dava Dilekcesi / Tevzi PDF
+      // (epats_document). Diger dava work isleri: mahkemeye sunulmus
+      // resmi PDF (court_filed_pdf). Belgeler & Dosyalar: task_document,
+      // petition, petition_previous vb. ASLA mail eki olamaz.
+      const taskType = String(task.task_type_id || '');
+      const officialType = taskType === '49'
+        ? 'epats_document'
+        : 'court_filed_pdf';
+
+      const { data: filedDocs, error: filedError } = await supabaseClient
+        .from('task_documents')
+        .select('document_name, document_url, document_type')
+        .eq('task_id', String(taskId))
+        .eq('document_type', officialType);
+      if (filedError) {
+        throw new Error('Mahkemeye sunulan resmi PDF kaydi okunamadi; bildirim gonderilmedi.');
+      }
+
+      // Yalnizca yukaridaki ayrilmis resmi evrak alanindan kaydedilen
+      // dosyalari kabul ediyoruz. Daha onceden yanlis eklenmis kayitlar,
+      // arayuzden gelen URL'ler ve transaction_documents dahil DEGIL.
+      rawAttachments = (filedDocs || [])
+        .filter((doc: any) => Boolean(doc.document_url))
+        .map((doc: any) => ({
+          name: doc.document_name || 'Mahkemeye_Sunulan_PDF.pdf',
+          url: doc.document_url
         }));
-        rawAttachments = [...rawAttachments, ...mappedDbAttachments];
+
+      // Eski (henuz gonderilmemis) bildirimlerde kalan yanlis
+      // mail_attachments iliskilerini de temizle. Kaynak task_documents
+      // veya Supabase Storage dosyalarina DOKUNULMAZ.
+      const allowedUrls = new Set(rawAttachments.map(doc => doc.url));
+      const { data: existing, error: existingError } = await supabaseClient
+        .from('mail_attachments')
+        .select('id, url')
+        .eq('notification_id', notificationId);
+      if (existingError) {
+        throw new Error('Dava bildiriminin mevcut ekleri denetlenemedi; gonderim durduruldu.');
+      }
+      const staleIds = (existing || [])
+        .filter((doc: any) => !allowedUrls.has(doc.url))
+        .map((doc: any) => doc.id);
+      if (staleIds.length > 0) {
+        const { error: cleanupError } = await supabaseClient
+          .from('mail_attachments')
+          .delete()
+          .eq('notification_id', notificationId)
+          .in('id', staleIds);
+        if (cleanupError) {
+          throw new Error('Dava bildiriminin izinsiz ekleri temizlenemedi; gonderim durduruldu.');
+        }
+      }
+      console.log(`[LITIGATION_MAIL] task=${taskId}, tip=${taskType}, izinli_pdf=${rawAttachments.length}, temizlenen_ek=${staleIds.length}`);
+    } else {
+      // Dava olmayan tum bildirimlerin eski davranisi aynen korunur.
+      const { data: dbAttachments, error: dbError } = await supabaseClient
+        .from('mail_attachments')
+        .select('file_name, url')
+        .eq('notification_id', notificationId);
+      if (dbError) throw new Error('Bildirim ekleri okunamadi: ' + dbError.message);
+      rawAttachments = Array.isArray(attachments) ? [...attachments] : [];
+      if (dbAttachments?.length) {
+        rawAttachments.push(...dbAttachments.map((doc: any) => ({
+          name: doc.file_name,
+          url: doc.url
+        })));
+      }
     }
 
     // 🔥 ÇÖZÜM: Mükerrer ek sorununu önlemek için URL bazlı tekilleştirme (Deduplication) yapıyoruz
@@ -99,6 +186,9 @@ serve(async (req: Request) => {
                 }
             } catch (err) {
                 console.error(`❌ Evrak yükleme hatası (${file.name}):`, err);
+                if (isLitigationCompletion) {
+                    throw new Error('Mahkemeye sunulan PDF eklenemedi; eksik evrakla bildirim gonderilmedi.');
+                }
             }
         }
     }

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="tr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dava kaydı düzenleme</title></head>
+<body><p>Dava kaydı düzenleme ekranına yönlendiriliyorsunuz…</p>
+<script>
+(function () {
+  var id = new URLSearchParams(location.search).get('id');
+  if (id && /^[a-f0-9-]{36}$/i.test(id)) location.replace('data-entry.html?editSuit=' + encodeURIComponent(id));
+  else location.replace('portfolio.html?activeTab=litigation');
+}());
+</script></body></html>

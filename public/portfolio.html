@@ -262,6 +262,7 @@
                         <small class="text-muted" id="oppositionResultCount" aria-live="polite"></small>
                     </div>
                     <div class="opp-panel-grid">
+                        <div class="opp-panel-field"><label for="oppClientName">Müvekkil / itiraz sahibi unvanı</label><input id="oppClientName" type="search" placeholder="Örn. HACI ÖMER SABANCI" autocomplete="off"></div>
                         <div class="opp-panel-field"><label for="oppClientMark">Müvekkil markası</label><input id="oppClientMark" type="search" placeholder="Mesnet marka adı"></div>
                         <div class="opp-panel-field"><label for="oppOpposedMark">Karşı marka / itiraza konu marka</label><input id="oppOpposedMark" type="search" placeholder="Marka adı"></div>
                         <div class="opp-panel-field"><label for="oppAppNumber">Başvuru numarası</label><input id="oppAppNumber" type="search" placeholder="Başvuru no"></div>
@@ -380,6 +381,7 @@
     <script type="module">
         await import('./js/portfolio/litigation-ux-fixes.js');
         await import('./js/portfolio/litigation-hierarchy-patch.js');
+        await import('./js/portfolio/opposition-client-search-fix.js?v=20261106_approval');
         await import('./js/portfolio/main.js');
     </script>
 </body>

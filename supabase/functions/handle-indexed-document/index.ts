@@ -130,19 +130,23 @@ serve(async (req: Request) => {
         tebligDate = new Date(Number(y), Number(m) - 1, Number(d));
     }
 
-    async function getRecipients(viewData: any, currentTaskId: any, currentTaskType: string) {
+    async function getRecipients(viewData: any, currentTaskId: any, currentTaskType: string, explicitPersonIds: string[] | null = null) {
         const to: string[] = [];
         const cc: string[] = [];
-        let personIds: string[] = [];
+        // explicitPersonIds=[] is an intentional fail-closed choice: never fall back
+        // to the owner of a third-party trademark when cancellation case ownership is unknown.
+        let personIds: string[] = Array.isArray(explicitPersonIds)
+            ? [...new Set(explicitPersonIds.map(String).filter(Boolean))]
+            : [];
 
         const ipType = viewData?.ip_type || 'trademark';
 
-        if (currentTaskId) {
+        if (!Array.isArray(explicitPersonIds) && currentTaskId) {
             const { data: taskData } = await supabaseAdmin.from('tasks').select('task_owner_id').eq('id', currentTaskId).maybeSingle();
             if (taskData && taskData.task_owner_id) personIds.push(String(taskData.task_owner_id));
         }
 
-        if (personIds.length === 0 && viewData?.applicants_json) {
+        if (!Array.isArray(explicitPersonIds) && personIds.length === 0 && viewData?.applicants_json) {
             let parsedApplicants = [];
             try { parsedApplicants = typeof viewData.applicants_json === 'string' ? JSON.parse(viewData.applicants_json) : viewData.applicants_json; } catch(e) {}
             if (Array.isArray(parsedApplicants)) personIds = parsedApplicants.map((a: any) => String(a.id)).filter(Boolean);
@@ -200,7 +204,7 @@ serve(async (req: Request) => {
         };
     }
 
-    const { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskId, txTypeId);
+    let { to: finalTo, cc: finalCc, primaryClientId } = await getRecipients(viewData, taskId, txTypeId);
 
     // 🔥 GÖREVLERİ (TASKS) DAHA ERKEN ÇEKİYORUZ Kİ TARİHLERİ KULLANABİLELİM
     const evalTasksRes = await supabaseAdmin.from('tasks').select('id, official_due_date').eq('transaction_id', transactionId).eq('task_type_id', '66').limit(1);
@@ -371,13 +375,104 @@ serve(async (req: Request) => {
         }
     }
 
-    // 🔥 2. KURALI DOĞRUDAN ALT İŞLEME (27) GÖRE BUL (Genel Taslağı Çek)
-    const { data: rule } = await supabaseAdmin.from('template_rules')
-        .select('template_id')
+    // İptal talebine ilişkin third_party marka kaydının applicants_json alanı
+    // üçüncü kişi MARKA SAHİPLERİNİ içerir. Bu kişiler müvekkil alıcısı değildir.
+    // 68 parent'ına bağlı tasks.task_owner_id üzerinden tekil, teyitli bir
+    // müvekkil bulunamazsa e-posta eksik bilgi kuyruğunda tutulur.
+    if (parentTaskTypeId === '68' && !isPortfolio) {
+        const cancellationParentId = transactionData?.parent_id
+            ? String(transactionData.parent_id)
+            : null;
+        let caseOwners: string[] = [];
+        if (cancellationParentId) {
+            const [caseChildrenResult, caseParentResult] = await Promise.all([
+                supabaseAdmin.from('transactions')
+                    .select('id, task_id')
+                    .eq('parent_id', cancellationParentId),
+                supabaseAdmin.from('transactions')
+                    .select('id, task_id')
+                    .eq('id', cancellationParentId)
+                    .maybeSingle()
+            ]);
+            if (caseChildrenResult.error || caseParentResult.error) {
+                throw new Error('İptal dosyası müvekkil doğrulaması sırasında transaction okunamadı.');
+            }
+            const caseRows = [
+                ...(caseParentResult.data ? [caseParentResult.data] : []),
+                ...(caseChildrenResult.data || [])
+            ];
+            const caseTxIds = [...new Set(caseRows.map((tx: any) => String(tx.id)).filter(Boolean))];
+            const taskRefIds = [...new Set(caseRows.map((tx: any) => tx.task_id).filter(Boolean).map(String))];
+            const ownerTasks: any[] = [];
+            if (caseTxIds.length) {
+                const { data, error } = await supabaseAdmin.from('tasks')
+                    .select('task_owner_id').in('transaction_id', caseTxIds)
+                    .not('task_owner_id', 'is', null);
+                if (error) throw new Error('İptal dosyası müvekkil görevleri okunamadı.');
+                ownerTasks.push(...(data || []));
+            }
+            if (taskRefIds.length) {
+                const { data, error } = await supabaseAdmin.from('tasks')
+                    .select('task_owner_id').in('id', taskRefIds)
+                    .not('task_owner_id', 'is', null);
+                if (error) throw new Error('İptal dosyası bağlı görevleri okunamadı.');
+                ownerTasks.push(...(data || []));
+            }
+            caseOwners = [...new Set(ownerTasks.map((t: any) => String(t.task_owner_id)).filter(Boolean))];
+        }
+        const verifiedOwners = caseOwners.length === 1 ? caseOwners : [];
+        const recipients = await getRecipients(viewData, null, txTypeId, verifiedOwners);
+        finalTo = recipients.to;
+        finalCc = recipients.cc;
+        primaryClientId = recipients.primaryClientId;
+        if (verifiedOwners.length !== 1) {
+            console.warn('[CANCELLATION 68] Alıcı teyit edilemedi veya birden fazla müvekkil var; bildirim missing_info statüsünde kalacak.');
+        }
+    }
+
+    // Parent'e özel template_rules satırı önceliklidir. Örn 68/40, 68/43, 68/100.
+    // Aksi halde 'marka', 'trademark' vb. genel şablonlar aynen kullanılır.
+    const { data: candidateRules, error: templateRuleError } = await supabaseAdmin
+        .from('template_rules')
+        .select('template_id, main_process_type')
         .eq('source_type', 'document')
-        .eq('sub_process_type', txTypeId)
-        .limit(1)
-        .maybeSingle();
+        .eq('sub_process_type', txTypeId);
+    if (templateRuleError) throw new Error(`Şablon kuralları okunamadı: ${templateRuleError.message}`);
+    const eligibleRules = (candidateRules || []).filter((r: any) => r.template_id);
+    const contextualRule = parentTaskTypeId
+        ? eligibleRules.find((r: any) => String(r.main_process_type || '') === String(parentTaskTypeId))
+        : null;
+    const genericRule = eligibleRules.find((r: any) =>
+        ['marka', 'trademark', 'general', '', 'suit'].includes(String(r.main_process_type || '')));
+    const rule = contextualRule || genericRule || null;
+    if (parentTaskTypeId === '68' && ['40', '43', '100'].includes(txTypeId) && !contextualRule) {
+        throw new Error(`68/${txTypeId} Marka İptal Talebi mail şablonu yok: önce SQL migrasyonunu çalıştırınız.`);
+    }
+    // İlk derece iptal kararı henüz YİDK'nin nihai kararı değildir.
+    if (parentTaskTypeId === '68' && ['40', '43', '100'].includes(txTypeId)) {
+        decisionAnalysis.isLawsuitRequired = false;
+        davaSonTarihi = '-';
+        const ownAppealRelevant =
+            (txTypeId === '40' && isPortfolio) ||
+            (txTypeId === '100') ||
+            (txTypeId === '43' && !isPortfolio);
+        // 40 is used by unrelated processes with due_period=0. If appeal task 7
+        // could not be found, the generic fallback would incorrectly say TODAY.
+        // For cancellation decisions use the statutory 2-month appeal period.
+        if (ownAppealRelevant && !taskOfficialDueDate) {
+            const appealDate = new Date(tebligDate);
+            const dayOfMonth = appealDate.getDate();
+            appealDate.setDate(1);
+            appealDate.setMonth(appealDate.getMonth() + 2);
+            const lastDay = new Date(appealDate.getFullYear(), appealDate.getMonth() + 1, 0).getDate();
+            appealDate.setDate(Math.min(dayOfMonth, lastDay));
+            let guards = 0;
+            while ((isWeekend(appealDate) || isHoliday(appealDate)) && guards++ < 30) {
+                appealDate.setDate(appealDate.getDate() + 1);
+            }
+            genelSonTarih = formatTR(appealDate);
+        }
+    }
 
     if (rule && rule.template_id) {
         templateId = rule.template_id;
@@ -429,6 +524,14 @@ serve(async (req: Request) => {
                 console.log(`[HANDLE_INDEXED_VARIANT] ℹ️ Eşleşen varyant bulunamadı, ana gövde kullanılacak.`);
             }
 
+            // 68 için yanlışlıkla genel kabul/ret metni kullanılmasını engelle.
+            if (parentTaskTypeId === '68' && ['40', '43', '100'].includes(txTypeId)) {
+                const expectedCondition = `parent_68_${recordOwnerType}`;
+                if (!variants?.some((v: any) => v.condition_key === expectedCondition)) {
+                    throw new Error(`68/${txTypeId} e-posta varyantı eksik: ${expectedCondition}`);
+                }
+            }
+
             const placeholders: Record<string, string> = {
                 "{{applicationNo}}": appNo,
                 "{{markName}}": brandName,
@@ -471,7 +574,12 @@ serve(async (req: Request) => {
     const mailId = crypto.randomUUID();
 
     // 🔥 TARİH PARÇALAMA (Veritabanı Hatasını Önlemek İçin ISO'ya Çevirme)
-    const rawDeadline = davaSonTarihi !== "-" ? davaSonTarihi : (genelSonTarih !== "-" ? genelSonTarih : null);
+    const cancellationDecisionNoOwnAppeal = parentTaskTypeId === '68' && (
+        (txTypeId === '40' && !isPortfolio) || (txTypeId === '43' && isPortfolio)
+    );
+    const rawDeadline = cancellationDecisionNoOwnAppeal
+        ? null
+        : (davaSonTarihi !== "-" ? davaSonTarihi : (genelSonTarih !== "-" ? genelSonTarih : null));
     let parsedObjectionDeadline = null;
     if (rawDeadline) {
         try {

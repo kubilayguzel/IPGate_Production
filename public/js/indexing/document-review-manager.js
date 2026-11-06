@@ -30,6 +30,60 @@ const STORAGE_BUCKET = 'documents';
 const SELCAN_UID = '788e10fb-f137-4a78-b03d-840b14a14b87'; 
 const SELCAN_EMAIL = 'selcanakoglu@evrekapatent.com';
 
+/**
+ * Marka karar görevini DB'deki parent/owner koşuluna göre belirler.
+ * 19/20 için mevcut taskTriggerMatrix davranışı ayrıca korunur.
+ *
+ * transaction_types.task_triggered_rules örneği:
+ * { id:'68-self-40', parent_type_ids:['68'], record_owner_types:['self'],
+ *   task_type_id:'7', due_period:2, due_period_unit:'months' }
+ *
+ * action:'suppress': bu kombinasyonda genel task_triggered alanını bastırır.
+ * null dönüş: bu bağlama özel kural yok, eski matrise/scalar'a dön.
+ */
+export function resolveTrademarkContextualTaskRule(typeObj, parentTypeId, recordOwnerType) {
+    if (String(typeObj?.ip_type || typeObj?.ipType || '') !== 'trademark') return null;
+    let rules = typeObj.task_triggered_rules ?? typeObj.taskTriggeredRules ?? [];
+    if (typeof rules === 'string') {
+        try { rules = JSON.parse(rules); }
+        catch (e) { console.warn('[INDEXING] Geçersiz task_triggered_rules JSON:', e); return null; }
+    }
+    if (!Array.isArray(rules)) return null;
+
+    const toStrings = (value) => {
+        if (value == null || value === '') return [];
+        return (Array.isArray(value) ? value : [value])
+            .map(x => String(x).trim()).filter(Boolean);
+    };
+    const parent = String(parentTypeId ?? '').trim();
+    const owner = String(recordOwnerType ?? '').toLowerCase().trim();
+    const prioritized = rules.filter(r => r && r.enabled !== false)
+        .sort((a,b) => Number(a.priority ?? 100) - Number(b.priority ?? 100));
+
+    for (const rule of prioritized) {
+        const parents = toStrings(rule.parent_type_ids ?? rule.parentTypeIds ?? rule.parent_transaction_type_ids);
+        const owners = toStrings(rule.record_owner_types ?? rule.recordOwnerTypes ?? rule.record_owner_type)
+            .map(x => x.toLowerCase());
+        if (parents.length && !parents.includes(parent)) continue;
+        if (owners.length && !owners.includes(owner)) continue;
+
+        const suppress = String(rule.action || '').toLowerCase() === 'suppress'
+            || rule.suppress_trigger === true;
+        const task = rule.task_type_id ?? rule.taskTypeId ?? rule.target_task_type_id ?? rule.targetTaskTypeId;
+        if (!suppress && !task) continue;
+        const rawPeriod = rule.due_period ?? rule.duePeriod;
+        const period = rawPeriod === undefined || rawPeriod === null ? null : Number(rawPeriod);
+        return {
+            taskTypeId: suppress ? null : String(task),
+            suppress,
+            ruleId: String(rule.id || rule.rule_id || 'unnamed'),
+            duePeriod: Number.isFinite(period) && period >= 0 ? period : null,
+            duePeriodUnit: rule.due_period_unit ?? rule.duePeriodUnit ?? null
+        };
+    }
+    return null;
+}
+
 export class DocumentReviewManager {
     constructor() {
         this.pdfId = new URLSearchParams(window.location.search).get('pdfId');
@@ -993,6 +1047,21 @@ export class DocumentReviewManager {
             const childTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(childTypeId));
             const parentTx = this.currentTransactions.find(t => String(t.id) === String(parentTxId));
             const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTx?.transaction_type_id || parentTx?.type));
+
+            // Marka İptal Talebi (68) kararlarının görev sonucu, tıpkı 19/20'de olduğu gibi
+            // ana işlem + self/third_party + child kombinasyonuna bağlıdır.
+            // Bu üç kararın 68/self kuralları DB'de bulunmuyorsa güvenli biçimde DUR:
+            // aksi halde 43'ün genel scalar'ı haksız Karara İtiraz işi oluşturabilir.
+            const selectedParentTypeId = String(parentTx?.transaction_type_id || parentTx?.type || '');
+            const selectedOwnerType = String(this.matchedRecord.recordOwnerType || this.matchedRecord.record_owner_type || '').toLowerCase().trim();
+            const cancellationDecisionContext = selectedParentTypeId === '68' && ['40', '43', '100'].includes(String(childTypeId));
+            const cancellationDecisionRule = cancellationDecisionContext
+                ? resolveTrademarkContextualTaskRule(childTypeObj, selectedParentTypeId, selectedOwnerType)
+                : null;
+            if (cancellationDecisionContext && selectedOwnerType === 'self' && !cancellationDecisionRule) {
+                throw new Error('Marka İptal Talebi kararına ait koşullu görev kuralı veritabanında bulunamadı. Önce 68/self karar kuralları SQL migrasyonunu uygulayın; indeksleme kaydedilmedi.');
+            }
+
             // 98 ve 99 için parent-child yetkisini yalnız transaction_types belirler.
             // İşlem türü listeleri JS içinde tekrar tanımlanmaz.
             if (['98', '99'].includes(childTypeId)) {
@@ -1198,6 +1267,15 @@ export class DocumentReviewManager {
                 }
             }
 
+            // DB'de parent/owner/child için eşleşen kural, eski 19/20 matrisine ve
+            // genel task_triggered scalar'ına göre önceliklidir.
+            // 68+self+43: suppress; 68+self+40/100: task_type_id 7.
+            if (cancellationDecisionRule) {
+                shouldTriggerTask = Boolean(cancellationDecisionRule.taskTypeId);
+                skipFallback = true;
+                console.info('[INDEXING] Marka iptal kararı görevi:', cancellationDecisionRule.ruleId,
+                    cancellationDecisionRule.taskTypeId || 'suppress');
+            }
             if (!shouldTriggerTask && !skipFallback) {
                 if (childTypeObj.taskTriggered || childTypeObj.task_triggered) shouldTriggerTask = true;
             }
@@ -1266,7 +1344,10 @@ export class DocumentReviewManager {
 
             if (shouldTriggerTask) {
                 const deliveryDate = new Date(deliveryDateStr);
-                let duePeriod = Number(childTypeObj.duePeriod || childTypeObj.due_period || 0);
+                // Kabul (40) işlem türü yenilemede de kullanılıyor (22).
+                // 68/self için DB kuralındaki iki ay esas alınır; global type 40 değişmez.
+                let duePeriod = cancellationDecisionRule?.duePeriod
+                    ?? Number(childTypeObj.duePeriod || childTypeObj.due_period || 0);
                 
                 let officialDueDate = addMonthsToDate(deliveryDate, duePeriod);
                 officialDueDate = findNextWorkingDay(officialDueDate, TURKEY_HOLIDAYS);
@@ -1277,7 +1358,11 @@ export class DocumentReviewManager {
                 }
 
                 let tasksToCreate = [];
-                if (childTypeObj.taskTriggered || childTypeObj.task_triggered) tasksToCreate.push(String(childTypeObj.taskTriggered || childTypeObj.task_triggered));
+                if (cancellationDecisionRule) {
+                    if (cancellationDecisionRule.taskTypeId) tasksToCreate.push(cancellationDecisionRule.taskTypeId);
+                } else if (childTypeObj.taskTriggered || childTypeObj.task_triggered) {
+                    tasksToCreate.push(String(childTypeObj.taskTriggered || childTypeObj.task_triggered));
+                }
 
                 const currentChildIdStr = String(childTypeId);
                 const recOwnerType = this.matchedRecord.recordOwnerType;

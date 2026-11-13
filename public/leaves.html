@@ -53,10 +53,10 @@
             <section class="page-header d-flex justify-content-between align-items-center">
                 <div>
                     <h1 class="page-title">İzin Yönetimi</h1>
-                    <p class="text-muted mb-0">Yıllık izinlerinizi, mazeret izinlerinizi ve bakiyelerinizi buradan yönetebilirsiniz.</p>
+                    <p class="text-muted mb-0" id="leavesPageDescription">Yıllık izinlerinizi, mazeret izinlerinizi ve bakiyelerinizi buradan yönetebilirsiniz.</p>
                 </div>
                 <div>
-                    <button class="btn btn-primary font-weight-bold shadow-sm px-4 py-2" data-toggle="modal" data-target="#requestLeaveModal">
+                    <button id="newLeaveRequestBtn" class="btn btn-primary font-weight-bold shadow-sm px-4 py-2" data-toggle="modal" data-target="#requestLeaveModal">
                         <i class="fas fa-calendar-plus mr-2"></i>Yeni İzin Talebi
                     </button>
                 </div>
@@ -95,7 +95,7 @@
 
             <div class="content-container">
                 <ul class="nav nav-tabs border-bottom-0 mb-3" id="leaveTabs" role="tablist">
-                    <li class="nav-item">
+                    <li class="nav-item" id="myLeavesTabItem">
                         <a class="nav-link active font-weight-bold" id="my-leaves-tab" data-toggle="tab" href="#myLeaves" role="tab"><i class="fas fa-user mr-2"></i>Benim İzinlerim</a>
                     </li>
                     <li class="nav-item" id="teamLeavesTabItem" style="display: none;">
@@ -126,6 +126,24 @@
                     </div>
 
                     <div class="tab-pane fade" id="teamLeaves" role="tabpanel">
+                        <section id="staffBalanceDashboard" class="mb-4" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
+                                <div>
+                                    <h5 class="font-weight-bold mb-1"><i class="fas fa-users text-primary mr-2"></i>Çalışanların Yıllık İzin Durumu</h5>
+                                    <div class="small text-muted">Hak edilen, kullanılan, kalan ve bekleyen günler. Bir çalışana tıklayarak izin taleplerini filtreleyebilirsiniz.</div>
+                                </div>
+                                <button id="staffBalanceRefresh" class="btn btn-sm btn-outline-primary" type="button"><i class="fas fa-sync-alt mr-1"></i>Yenile</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-bordered bg-white" id="staffBalanceTable">
+                                    <thead class="thead-light"><tr>
+                                        <th>Çalışan</th><th>İşe Giriş</th><th class="text-right">Hak Edilen</th><th class="text-right">Kullanılan</th><th class="text-right">Kalan</th><th class="text-right">Onay Bekleyen</th>
+                                    </tr></thead>
+                                    <tbody id="staffBalanceTableBody"><tr><td colspan="6" class="text-center text-muted py-3">Personel bilgileri yükleniyor...</td></tr></tbody>
+                                </table>
+                            </div>
+                            <div id="staffBalanceInfo" class="text-muted small mb-3"></div>
+                        </section>
                         <div class="team-filter-box">
                             <div class="row align-items-center">
                                 <div class="col-md-4 mb-2 mb-md-0">
@@ -221,6 +239,6 @@
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script type="module" src="./js/leaves-manager.js?v=20261021-negatif10"></script>
+    <script type="module" src="./js/leaves-manager.js?v=20261109-superadmin-ekip-izinleri"></script>
 </body>
 </html>

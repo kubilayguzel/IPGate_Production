@@ -43,6 +43,8 @@ class NotificationsManager {
         this.currentEditNotification = null;
         this.currentTo = [];
         this.currentCc = [];
+        this.currentAttachmentContext = null;
+        this.currentAttachmentLoadError = null;
     }
 
     async init() {
@@ -459,30 +461,13 @@ class NotificationsManager {
             const { data: { session } } = await supabase.auth.getSession();
             const senderEmail = session?.user?.email || null;
 
-            let activeTaskId = notification.associated_task_id;
-            if (!activeTaskId) {
-                const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notification.id).single();
-                if (data) activeTaskId = data.associated_task_id;
-            }
-
-            // 🔥 MÜKEMMEL ÇÖZÜM 1: Gönder butonuna basıldığında ekleri doğrudan YENİ tablodan (mail_attachments) al!
-            let attachments = [];
-            try {
-                const { data: mailAtts } = await supabase.from('mail_attachments').select('file_name, url').eq('notification_id', notification.id);
-                if (mailAtts && mailAtts.length > 0) {
-                    attachments = mailAtts.map(a => ({ name: a.file_name, url: a.url }));
-                }
-            } catch(e) { console.error("Gönderim öncesi ekler çekilemedi:", e); }
-
-            // Eğer özel bir ek yoksa (manuel oluşturulan mailler vs) eski yönteme (fallback) geç
-            if (attachments.length === 0) {
-                // Kısıtlama yapmadan TÜM id'leri servise gönderiyoruz. Servis hepsini toplayıp tekilleştirecek!
-                attachments = await attachmentService.resolveAttachments(
-                    notification.associated_transaction_id, 
-                    notification.source_document_id, 
-                    activeTaskId
-                );
-            }
+            // Liste, düzenleme penceresi ve gönderim aynı kaynak / seçimi kullanır.
+            // Dava işleri için Genel Belgeler'den gelen dosyalar hiçbir zaman
+            // gönderilecek ekler listesine dahil edilmez.
+            const attachmentContext = await this.getNotificationAttachmentContext(notification);
+            const attachments = attachmentContext.attachments
+                .filter(file => !attachmentContext.excludedUrls.has(file.url))
+                .map(file => ({ name: file.name, url: file.url }));
 
             const payload = { 
                 notificationId: notification.id,
@@ -503,6 +488,164 @@ class NotificationsManager {
         } finally { 
             this.hideOverlay(); 
             btn.disabled = false; 
+        }
+    }
+
+    // Sunucudaki gönderim kuralı ile aynı: dava işi yalnızca özel alana
+    // yüklenmiş resmî PDF'yi kullanır. Diğer bildirimlerin davranışı korunur.
+    async getNotificationAttachmentContext(notification) {
+        const { data: mail, error: mailError } = await supabase
+            .from('mail_notifications')
+            .select('source, associated_task_id, excluded_attachment_urls')
+            .eq('id', notification.id)
+            .single();
+        if (mailError || !mail) {
+            throw new Error('Bildirim ek tercihleri okunamadı: ' + (mailError?.message || 'Kayıt bulunamadı'));
+        }
+
+        const litigationTypes = new Set([
+            '49', '54', '55', '56', '57', '58', '59', '60',
+            '61', '62', '63', '64', '65', '91', '93', '94', '96', '97'
+        ]);
+        const taskId = mail.associated_task_id || notification.associated_task_id;
+        let taskType = '';
+        if (taskId && ['litigation_task_completion', 'task_completion'].includes(mail.source)) {
+            const { data: task, error: taskError } = await supabase
+                .from('tasks')
+                .select('task_type_id')
+                .eq('id', String(taskId))
+                .maybeSingle();
+            if (taskError || !task) {
+                throw new Error('İşe ait ekler doğrulanamadı: ' + (taskError?.message || 'İş bulunamadı'));
+            }
+            taskType = String(task.task_type_id || '');
+        }
+        const isLitigation = mail.source === 'litigation_task_completion' ||
+            (mail.source === 'task_completion' && litigationTypes.has(taskType));
+        const excludedUrls = new Set(Array.isArray(mail.excluded_attachment_urls)
+            ? mail.excluded_attachment_urls.filter(url => typeof url === 'string') : []);
+        let attachments = [];
+
+        if (isLitigation) {
+            if (!taskId || !taskType) {
+                throw new Error('Dava işi ve resmî PDF alanı doğrulanamadı. Ekler gösterilmedi.');
+            }
+            const officialType = taskType === '49' ? 'epats_document' : 'court_filed_pdf';
+            // Aynı alanın eski yükleme kayıtları farklı URL taşıyabilir.
+            // Mailde birden fazla resmî PDF görünmemesi için en son
+            // yüklenen kaydı tek yetkili ek olarak kabul et.
+            const { data, error } = await supabase
+                .from('task_documents')
+                .select('document_name, document_url, uploaded_at, id')
+                .eq('task_id', String(taskId))
+                .eq('document_type', officialType)
+                .not('document_url', 'is', null)
+                .neq('document_url', '')
+                .order('uploaded_at', { ascending: false, nullsFirst: false })
+                .order('id', { ascending: false })
+                .limit(1);
+            if (error) throw new Error('Mahkemeye sunulan PDF okunamadı: ' + error.message);
+            attachments = (data || []).map(doc => ({
+                name: doc.document_name || 'Mahkemeye_Sunulan_PDF.pdf',
+                url: doc.document_url
+            }));
+        } else {
+            const { data, error } = await supabase
+                .from('mail_attachments')
+                .select('file_name, url')
+                .eq('notification_id', notification.id);
+            if (error) throw new Error('Bildirim ekleri okunamadı: ' + error.message);
+            if (data?.length) {
+                attachments = data.map(doc => ({ name: doc.file_name || 'Ek', url: doc.url }));
+            } else {
+                // Sadece dava dışı ve eski bildirimler için mevcut fallback.
+                const resolved = await attachmentService.resolveAttachments(
+                    notification.associated_transaction_id,
+                    notification.source_document_id,
+                    taskId
+                );
+                attachments = (resolved || []).map(doc => ({ name: doc.name || 'Ek', url: doc.url }));
+            }
+        }
+        const seen = new Set();
+        attachments = attachments.filter(doc => {
+            if (!doc.url || seen.has(doc.url)) return false;
+            seen.add(doc.url);
+            return true;
+        });
+        return { attachments, excludedUrls, isLitigation };
+    }
+
+    // Kaydedilene kadar seçim yalnızca modal durumundadır. Kaydet ile
+    // mail_notifications.excluded_attachment_urls alanına yazılır.
+    async renderEditableAttachments(notification) {
+        let block = document.getElementById('modal-attachments-block');
+        if (!block) {
+            block = document.createElement('section');
+            block.id = 'modal-attachments-block';
+            block.className = 'mt-3 mb-2 p-3 rounded border bg-light';
+            const modalBody = this.elements.editModal?.querySelector('.modal-body');
+            if (!modalBody) throw new Error('Bildirim düzenleme penceresi bulunamadı.');
+            modalBody.prepend(block);
+        }
+        block.replaceChildren();
+        const heading = document.createElement('h6');
+        heading.className = 'font-weight-bold mb-2';
+        heading.textContent = '📎 E-posta Ekleri';
+        block.appendChild(heading);
+        const help = document.createElement('p');
+        help.className = 'small text-muted mb-2';
+        help.textContent = 'İşareti kaldırdığınız dosya bu bildirime eklenmez. Dava dosyasındaki asıl belge silinmez.';
+        block.appendChild(help);
+        this.currentAttachmentLoadError = null;
+        this.currentAttachmentContext = null;
+        try {
+            const context = await this.getNotificationAttachmentContext(notification);
+            // Önceki modalın gecikmiş yanıtı yeni bildirime yazılmasın.
+            if (this.currentEditNotification?.id !== notification.id) return;
+            this.currentAttachmentContext = context;
+            if (context.isLitigation) {
+                const note = document.createElement('p');
+                note.className = 'small text-primary mb-2';
+                note.textContent = 'Dava işleri: Yalnızca “Mahkemeye Sunulan Dava Dilekçesi / Tevzi PDF” alanının resmî PDF ekleri listelenir.';
+                block.appendChild(note);
+            }
+            if (!context.attachments.length) {
+                const empty = document.createElement('div');
+                empty.className = 'text-muted small';
+                empty.textContent = 'Gönderilebilir ek bulunmuyor.';
+                block.appendChild(empty);
+            }
+            for (const doc of context.attachments) {
+                const row = document.createElement('div');
+                row.className = 'd-flex align-items-center py-2 border-top';
+                row.style.gap = '10px';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'notification-attachment-checkbox';
+                checkbox.value = doc.url;
+                checkbox.checked = !context.excludedUrls.has(doc.url);
+                checkbox.disabled = notification.status === 'sent';
+                checkbox.setAttribute('aria-label', doc.name + ' gönderilsin');
+                row.appendChild(checkbox);
+                const link = document.createElement('a');
+                link.className = 'text-break';
+                link.textContent = doc.name;
+                if (/^https?:\/\//i.test(doc.url)) {
+                    link.href = doc.url;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                }
+                row.appendChild(link);
+                block.appendChild(row);
+            }
+        } catch (error) {
+            if (this.currentEditNotification?.id !== notification.id) return;
+            this.currentAttachmentLoadError = error;
+            const warning = document.createElement('div');
+            warning.className = 'text-danger small';
+            warning.textContent = 'Ekler alınamadı: ' + error.message + '. Bu bildirim ek tercihi doğrulanmadan kaydedilemez.';
+            block.appendChild(warning);
         }
     }
 
@@ -541,11 +684,14 @@ class NotificationsManager {
         this.currentCc = [...ccList];
         
         this.renderChips();
+        await this.renderEditableAttachments(notification);
     }
 
     closeEditModal() {
         this.elements.editModal.style.display = "none";
         this.currentEditNotification = null;
+        this.currentAttachmentContext = null;
+        this.currentAttachmentLoadError = null;
     }
 
     addEmailToChip(inputEl, targetArray) {
@@ -590,6 +736,9 @@ class NotificationsManager {
         try {
             this.showOverlay('Kaydediliyor...');
             
+            if (this.currentAttachmentLoadError || !this.currentAttachmentContext) {
+                throw this.currentAttachmentLoadError || new Error('Ekler henüz yüklenmedi.');
+            }
             // Eğer kullanıcı inputa bir şey yazıp Enter'a basmadan "Kaydet"e bastıysa onları da yakala
             if (this.elements.toInput.value.trim()) this.addEmailToChip(this.elements.toInput, this.currentTo);
             if (this.elements.ccInput.value.trim()) this.addEmailToChip(this.elements.ccInput, this.currentCc);
@@ -614,6 +763,12 @@ class NotificationsManager {
                 missing_fields: missing,
                 is_draft: missing.length > 0
             };
+            if (this.currentEditNotification.status !== 'sent') {
+                // Hiçbiri işaretli değilse tümü çıkarılır; kaynak belgeler silinmez.
+                updatePayload.excluded_attachment_urls = Array.from(
+                    document.querySelectorAll('#modal-attachments-block .notification-attachment-checkbox')
+                ).filter(input => !input.checked).map(input => input.value);
+            }
 
             const { error } = await supabase.from("mail_notifications").update(updatePayload).eq('id', this.currentEditNotification.id);
             if (error) throw error;
@@ -741,59 +896,49 @@ class NotificationsManager {
 
     loadAttachmentsForCells() {
         const cells = document.querySelectorAll('.attachment-cell:not(.loaded)');
-        
         cells.forEach(async (cell) => {
-            cell.classList.add('loaded'); 
-            const txId = cell.dataset.txId;
-            const docId = cell.dataset.docId;
-            let taskId = cell.dataset.taskId; 
-            
-            const notifId = cell.closest('tr')?.querySelector('.hold-checkbox')?.dataset?.id;
-
-            // 🔥 MÜKEMMEL ÇÖZÜM 2: Ekrana çizerken önce doğrudan 'mail_attachments' tablosuna bak!
-            if (notifId) {
-                try {
-                    const { data: mailAtts } = await supabase.from('mail_attachments').select('file_name, url').eq('notification_id', notifId);
-                    if (mailAtts && mailAtts.length > 0) {
-                        cell.innerHTML = mailAtts.map(a => 
-                            `<a class="link text-truncate d-inline-block" style="max-width: 200px;" href="${a.url}" target="_blank" title="${a.file_name}">
-                                <i class="fas fa-paperclip"></i> ${a.file_name}
-                            </a>`
-                        ).join('<br>');
-                        return; // Ekler tabloya çizildiyse işlemi burada kes, aşağı (eski koda) inme.
-                    }
-                } catch(e) { console.error("Mail ekleri çekilirken hata:", e); }
-            }
-
-            // ... Eğer mail_attachments boşsa (Manuel mail) eski yöntemlere başvur
-            if (!taskId && notifId) {
-                try {
-                    const { data } = await supabase.from('mail_notifications').select('associated_task_id').eq('id', notifId).single();
-                    if (data && data.associated_task_id) taskId = data.associated_task_id;
-                } catch(e) {}
-            }
-
-            if (!txId && !docId && !taskId) {
-                cell.innerHTML = '-';
+            cell.classList.add('loaded');
+            const notificationId = cell.closest('tr')?.querySelector('.hold-checkbox')?.dataset?.id;
+            const notification = this.allNotifications.find(row => row.id === notificationId);
+            if (!notification) {
+                cell.textContent = '-';
                 return;
             }
-
-            // Filtreleme yapmadan tüm verileri doğrudan servise gönder!
-            attachmentService.resolveAttachments(txId, docId, taskId)
-                .then(attachments => {
-                    if (attachments && attachments.length > 0) {
-                        cell.innerHTML = attachments.map(a => 
-                            `<a class="link text-truncate d-inline-block" style="max-width: 200px;" href="${a.url}" target="_blank" title="${a.name}">
-                                <i class="fas fa-paperclip"></i> ${a.name}
-                            </a>`
-                        ).join('<br>');
-                    } else {
-                        cell.innerHTML = '-';
-                    }
-                })
-                .catch(err => {
-                    cell.innerHTML = '<i class="fas fa-exclamation-triangle text-warning" title="Yüklenemedi"></i>';
-                });
+            try {
+                // Liste ile gerçek gönderim aynı filtreyi kullanır.
+                const context = await this.getNotificationAttachmentContext(notification);
+                const selected = context.attachments.filter(doc => !context.excludedUrls.has(doc.url));
+                cell.replaceChildren();
+                if (!selected.length) {
+                    cell.textContent = '-';
+                } else {
+                    selected.forEach((doc, index) => {
+                        if (index) cell.appendChild(document.createElement('br'));
+                        const link = document.createElement('a');
+                        link.className = 'link text-truncate d-inline-block';
+                        link.style.maxWidth = '200px';
+                        link.title = doc.name;
+                        link.textContent = '📎 ' + doc.name;
+                        if (/^https?:\/\//i.test(doc.url)) {
+                            link.href = doc.url;
+                            link.target = '_blank';
+                            link.rel = 'noopener noreferrer';
+                        }
+                        cell.appendChild(link);
+                    });
+                }
+                const omittedCount = context.attachments.length - selected.length;
+                if (omittedCount) {
+                    const note = document.createElement('div');
+                    note.className = 'small text-muted';
+                    note.textContent = omittedCount + ' ek gönderimden çıkarıldı';
+                    cell.appendChild(note);
+                }
+            } catch (error) {
+                cell.textContent = 'Ekler doğrulanamadı';
+                cell.title = error.message;
+                cell.classList.add('text-danger');
+            }
         });
     }
     

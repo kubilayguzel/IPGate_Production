@@ -1118,193 +1118,103 @@ async function syncAttachments(
     taskId,
     workTransactionId
 ) {
-    const {
-        data: existing
-    } = await supabaseAdmin
-        .from('mail_attachments')
-        .select('id, url')
-        .eq(
-            'notification_id',
-            String(notificationId)
-        )
+    // Dava bildirimi icin Genel Belgeler ve islem belgeleri ASLA
+    // mail_attachments'a eklenmez. Yanlis olusturulmus eski baglar
+    // da yalnizca bu bildirimden temizlenir; asil belgeler korunur.
+    const { data: task, error: taskError } = await supabaseAdmin
+        .from('tasks')
+        .select('task_type_id')
+        .eq('id', String(taskId))
+        .single()
 
-    const known =
-        new Set(
-            (existing || [])
-                .map(
-                    (item) =>
-                        clean(
-                            item.url,
-                            ''
-                        )
-                )
-                .filter(Boolean)
-        )
-
-    const attachments = []
-
-    const {
-        data: taskDocs,
-        error: taskDocsError
-    } = await supabaseAdmin
-        .from('task_documents')
-        .select(`
-            id,
-            document_name,
-            document_url,
-            document_type,
-            uploaded_at
-        `)
-        .eq(
-            'task_id',
-            String(taskId)
-        )
-
-    if (taskDocsError) {
-        console.warn(
-            '[LITIGATION_TASK_MAIL] task_documents okunamadı:',
-            taskDocsError
-        )
+    if (taskError || !task) {
+        throw new Error('Dava isinin belge tipi dogrulanamadi: ' + (taskError?.message || 'Is bulunamadi'))
     }
 
-    for (
-        const doc of
-        taskDocs || []
-    ) {
-        const url =
-            clean(
-                doc.document_url,
-                ''
-            )
+    // Gonderim fonksiyonuyla birebir ayni resmi belge sinifi.
+    const officialType = String(task.task_type_id) === '49'
+        ? 'epats_document'
+        : 'court_filed_pdf'
 
-        if (
-            !url ||
-            known.has(url)
-        ) {
-            continue
+    const { data: taskDocs, error: taskDocsError } = await supabaseAdmin
+        .from('task_documents')
+        .select('id, document_name, document_url, document_type, uploaded_at')
+        .eq('task_id', String(taskId))
+        .eq('document_type', officialType)
+        .not('document_url', 'is', null)
+        .neq('document_url', '')
+        .order('uploaded_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .limit(1)
+
+    if (taskDocsError) {
+        throw new Error('Resmi dava PDF kayitlari okunamadi: ' + taskDocsError.message)
+    }
+
+    const allowedByUrl = new Map()
+    for (const doc of taskDocs || []) {
+        const url = clean(doc.document_url, '')
+        if (url && !allowedByUrl.has(url)) allowedByUrl.set(url, doc)
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
+        .from('mail_attachments')
+        .select('id, url')
+        .eq('notification_id', String(notificationId))
+
+    if (existingError) {
+        throw new Error('Mevcut mail ekleri okunamadi: ' + existingError.message)
+    }
+
+    // Eski genel belgeler, eski sürümler ve mükerrer bağlantılar
+    // sadece bu bildirimden çıkarılır. Kaynak belge asla silinmez.
+    const retained = new Set()
+    const staleIds = (existing || [])
+        .filter(item => {
+            const url = clean(item.url, '')
+            if (!allowedByUrl.has(url) || retained.has(url)) return true
+            retained.add(url)
+            return false
+        })
+        .map(item => item.id)
+
+    if (staleIds.length) {
+        const { error: removeError } = await supabaseAdmin
+            .from('mail_attachments')
+            .delete()
+            .eq('notification_id', String(notificationId))
+            .in('id', staleIds)
+        if (removeError) {
+            throw new Error('Genel belge mail eklerinden kaldirilamadi: ' + removeError.message)
         }
+    }
 
-        known.add(url)
+    const knownUrls = retained
 
+    const attachments = []
+    for (const [url, doc] of allowedByUrl.entries()) {
+        if (knownUrls.has(url)) continue
         attachments.push({
-            id:
-                crypto.randomUUID(),
-
-            notification_id:
-                String(
-                    notificationId
-                ),
-
-            file_name:
-                clean(
-                    doc.document_name,
-                    'Dava_Evraki'
-                ),
-
-            storage_path:
-                doc.document_url ||
-                null,
-
+            id: crypto.randomUUID(),
+            notification_id: String(notificationId),
+            file_name: clean(doc.document_name, 'Mahkemeye_Sunulan_PDF.pdf'),
+            storage_path: doc.document_url || null,
             url
         })
     }
 
-    if (
-        workTransactionId
-    ) {
-        const {
-            data: txDocs,
-            error: txDocsError
-        } = await supabaseAdmin
-            .from(
-                'transaction_documents'
-            )
-            .select(`
-                document_name,
-                document_url
-            `)
-            .eq(
-                'transaction_id',
-                String(
-                    workTransactionId
-                )
-            )
-
-        if (txDocsError) {
-            console.warn(
-                '[LITIGATION_TASK_MAIL] transaction_documents okunamadı:',
-                txDocsError
-            )
-        }
-
-        for (
-            const doc of
-            txDocs || []
-        ) {
-            const url =
-                clean(
-                    doc.document_url,
-                    ''
-                )
-
-            if (
-                !url ||
-                known.has(url)
-            ) {
-                continue
-            }
-
-            known.add(url)
-
-            attachments.push({
-                id:
-                    crypto.randomUUID(),
-
-                notification_id:
-                    String(
-                        notificationId
-                    ),
-
-                file_name:
-                    clean(
-                        doc.document_name,
-                        'Dava_Evraki'
-                    ),
-
-                storage_path:
-                    doc.document_url ||
-                    null,
-
-                url
-            })
-        }
-    }
-
-    if (
-        attachments.length > 0
-    ) {
-        const {
-            error
-        } = await supabaseAdmin
+    if (attachments.length) {
+        const { error: insertError } = await supabaseAdmin
             .from('mail_attachments')
-            .insert(
-                attachments
-            )
-
-        if (error) {
-            console.warn(
-                '[LITIGATION_TASK_MAIL] Attachment insert uyarısı:',
-                error
-            )
+            .insert(attachments)
+        if (insertError) {
+            throw new Error('Resmi PDF mail ekine baglanamadi: ' + insertError.message)
         }
     }
 
     return {
-        taskDocs:
-            taskDocs || [],
-
-        addedCount:
-            attachments.length
+        taskDocs: taskDocs || [],
+        addedCount: attachments.length
     }
 }
 

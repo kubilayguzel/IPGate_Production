@@ -27,7 +27,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const isManager = userRole === 'superadmin';
     const teamTabItem = document.getElementById('teamLeavesTabItem');
-    if (isManager && teamTabItem) teamTabItem.style.display = 'block';
+    if (isManager && teamTabItem) {
+        teamTabItem.style.display = 'block';
+        const myTab = document.getElementById('myLeavesTabItem');
+        if (myTab) myTab.style.display = 'none';
+        document.getElementById('newLeaveRequestBtn')?.classList.add('d-none');
+        const description = document.getElementById('leavesPageDescription');
+        if (description) description.textContent = 'Çalışanların izin bakiyelerini, izin geçmişini ve onay bekleyen taleplerini yönetin.';
+        document.getElementById('staffBalanceDashboard')?.style.setProperty('display', 'block');
+        $('#team-leaves-tab').tab('show');
+    }
 
     let currentUserBalance = null;
     let teamUsers = [];
@@ -299,6 +308,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function renderStaffBalanceDashboard() {
+        if (!isManager) return;
+        const tbody = document.getElementById('staffBalanceTableBody');
+        if (!tbody) return;
+        const fmt = n => Number(numberOrZero(n).toFixed(2)).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+        let totalEarned = 0;
+        let totalUsed = 0;
+        let countWithBalance = 0;
+        const pendingByUser = new Map();
+        teamLeaves.forEach(leave => {
+            if (leave.status !== 'pending' || leave.leave_type !== 'Yıllık İzin') return;
+            pendingByUser.set(leave.user_id, (pendingByUser.get(leave.user_id) || 0) + numberOrZero(leave.requested_days));
+        });
+        // Veritabanında bakiye kaydı bulunmayan personele sıfır bakiye atfetmeyiz.
+        tbody.innerHTML = teamUsers.map(person => {
+            const balance = teamBalances.get(person.id);
+            const name = escapeHtml(person.display_name || person.email || person.id);
+            const pending = pendingByUser.get(person.id) || 0;
+            if (!balance) return `<tr data-staff-id="${escapeHtml(person.id)}" style="cursor:pointer"><td><strong>${name}</strong></td><td colspan="4" class="text-warning">İzin bakiyesi / işe giriş tarihi tanımlanmamış</td><td class="text-right">${fmt(pending)}</td></tr>`;
+            const earned = numberOrZero(balance.totalEarned);
+            const used = numberOrZero(balance.used);
+            const remaining = earned - used;
+            totalEarned += earned;
+            totalUsed += used;
+            countWithBalance += 1;
+            return `<tr data-staff-id="${escapeHtml(person.id)}" style="cursor:pointer">
+                <td><strong>${name}</strong></td><td>${formatDateTR(balance.hireDate)}</td>
+                <td class="text-right">${fmt(earned)}</td><td class="text-right">${fmt(used)}</td>
+                <td class="text-right font-weight-bold ${remaining < 0 ? 'text-danger' : 'text-success'}">${fmt(remaining)}</td>
+                <td class="text-right">${fmt(pending)}</td></tr>`;
+        }).join('') || '<tr><td colspan="6" class="text-center text-muted py-3">Aktif çalışan bulunamadı.</td></tr>';
+
+        const info = document.getElementById('staffBalanceInfo');
+        if (info) info.textContent = `${countWithBalance} / ${teamUsers.length} aktif çalışanın bakiyesi tanımlı. Bekleyen günler kalan bakiyeden henüz düşülmemiştir.`;
+        if (!selectedTeamUserId) {
+            paintBalance({totalEarned, used: totalUsed, hireDate: null}, 'Çalışanların Toplam İzin Bakiyesi');
+            const hireText = document.getElementById('hireDateText');
+            if (hireText) hireText.textContent = `${countWithBalance} çalışan için toplam`;
+        }
+        tbody.querySelectorAll('tr[data-staff-id]').forEach(row => {
+            row.addEventListener('click', async () => {
+                selectedTeamUserId = row.getAttribute('data-staff-id') || '';
+                const filter = document.getElementById('teamUserFilter');
+                if (filter) filter.value = selectedTeamUserId;
+                renderTeamLeaves();
+                await refreshSelectedTeamBalanceSummary();
+            });
+        });
+    }
+
     function buildTeamUserOptions() {
         const filter = document.getElementById('teamUserFilter');
         if (!filter) return;
@@ -328,7 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (!selectedTeamUserId) {
             summary.innerHTML = '<span class="text-muted">Bir personel seçerseniz hak edilen, kullanılan ve kalan yıllık izin burada gösterilir.</span>';
-            paintBalance(currentUserBalance, 'Benim Bakiyem', user.id);
+            renderStaffBalanceDashboard();
             return;
         }
 
@@ -353,6 +412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         paintBalance(balance, `${personName} - Bakiye`, selectedTeamUserId);
+        renderStaffBalanceDashboard();
 
         const remaining = numberOrZero(balance.totalEarned) - numberOrZero(balance.used);
         const remainingClass = remaining < 0 ? 'text-danger' : 'text-success';
@@ -542,6 +602,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             buildTeamUserOptions();
             renderTeamLeaves();
+            renderStaffBalanceDashboard();
             await refreshSelectedTeamBalanceSummary();
         } catch (error) {
             console.error('Ekip izinleri yükleme hatası:', error);
@@ -551,6 +612,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     }
+
+    document.getElementById('staffBalanceRefresh')?.addEventListener('click', () => loadTeamLeaves());
 
     document.getElementById('teamUserFilter')?.addEventListener('change', async e => {
         selectedTeamUserId = e.target.value || '';
@@ -619,11 +682,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             await Swal.fire('Başarılı!', 'İşlem başarıyla gerçekleştirildi.', 'success');
 
-            await Promise.all([
-                loadTeamLeaves(),
-                loadLeaveBalance(),
-                loadMyLeaves()
-            ]);
+            await loadTeamLeaves();
         } catch (error) {
             showDbError(error);
         }
@@ -747,12 +806,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replaceAll("'", '&#039;');
     }
 
-    await Promise.all([
-        loadLeaveBalance(),
-        loadMyLeaves()
-    ]);
-
     if (isManager) {
         await loadTeamLeaves();
+    } else {
+        await Promise.all([loadLeaveBalance(), loadMyLeaves()]);
     }
 });

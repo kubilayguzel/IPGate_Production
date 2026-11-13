@@ -73,11 +73,18 @@ serve(async (req: Request) => {
         ? 'epats_document'
         : 'court_filed_pdf';
 
+      // Bir işte aynı alana ait eski/mükerrer kayıtlar bulunsa da
+      // yalnız en güncel resmî PDF gönderilir (tek belge).
       const { data: filedDocs, error: filedError } = await supabaseClient
         .from('task_documents')
-        .select('document_name, document_url, document_type')
+        .select('id, document_name, document_url, document_type, uploaded_at')
         .eq('task_id', String(taskId))
-        .eq('document_type', officialType);
+        .eq('document_type', officialType)
+        .not('document_url', 'is', null)
+        .neq('document_url', '')
+        .order('uploaded_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .limit(1);
       if (filedError) {
         throw new Error('Mahkemeye sunulan resmi PDF kaydi okunamadi; bildirim gonderilmedi.');
       }
@@ -103,8 +110,15 @@ serve(async (req: Request) => {
       if (existingError) {
         throw new Error('Dava bildiriminin mevcut ekleri denetlenemedi; gonderim durduruldu.');
       }
+      // Önceki iki kayıt aynı URL'yi kullansa bile tek ilişkisi kalsın.
+      // Asıl görev/dava PDF'sine, storage'a veya diğer maillere dokunulmaz.
+      const keptUrls = new Set<string>();
       const staleIds = (existing || [])
-        .filter((doc: any) => !allowedUrls.has(doc.url))
+        .filter((doc: any) => {
+          if (!allowedUrls.has(doc.url) || keptUrls.has(doc.url)) return true;
+          keptUrls.add(doc.url);
+          return false;
+        })
         .map((doc: any) => doc.id);
       if (staleIds.length > 0) {
         const { error: cleanupError } = await supabaseClient
@@ -133,12 +147,21 @@ serve(async (req: Request) => {
       }
     }
 
+    // Düzenleme ekranında bu bildirim için çıkarılan ekler, resmî PDF
+    // güvenlik filtresinden SONRA uygulanır. İstemci isteği buradaki
+    // seçimleri değiştiremez; karar doğrudan veritabanından okunur.
+    const excludedAttachmentUrls = new Set<string>(
+      Array.isArray(notification.excluded_attachment_urls)
+        ? notification.excluded_attachment_urls.filter((url: unknown): url is string => typeof url === 'string')
+        : []
+    );
+
     // 🔥 ÇÖZÜM: Mükerrer ek sorununu önlemek için URL bazlı tekilleştirme (Deduplication) yapıyoruz
     const allAttachments: any[] = [];
     const seenUrls = new Set();
 
     for (const att of rawAttachments) {
-        if (att.url && !seenUrls.has(att.url)) {
+        if (att.url && !excludedAttachmentUrls.has(att.url) && !seenUrls.has(att.url)) {
             seenUrls.add(att.url);
             allAttachments.push(att);
         }

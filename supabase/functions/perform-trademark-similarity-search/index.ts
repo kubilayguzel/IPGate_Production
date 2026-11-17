@@ -501,416 +501,519 @@ function calculateSimilarityScoreInternal(searchMarkNameOriginal: string, hitMar
 
     return { finalScore, positionalExactMatchScore }; 
 }
+// -----------------------------------------------------------------------------
+// IPGate 2026-11-13: Kalıcı checkpoint'li, tarayıcı tarafından sürülen güvenilir
+// worker yapısı. Önceki marka temizleme / Nice / benzerlik fonksiyonları aynen
+// korunmuştur (bu dosyanın üst bölümünde).
+// -----------------------------------------------------------------------------
 
-async function markWorkerStatus(supabase: any, jobId: string, workerId: string | number, status: 'completed' | 'failed') {
-    const { error: updateError } = await supabase.from('search_progress_workers')
-        .update({ status }).eq('id', `${jobId}_w${workerId}`);
-    if (updateError) throw updateError;
+type SearchMark = Record<string, any> & { id: string; monitoringType: 'domestic' | 'international' };
+type PreparedMark = SearchMark & {
+    primaryName: string;
+    searchTerms: { term: string; cleanedSearchName: string }[];
+    parsedAppDate: Date | null;
+    greenSet: Set<string>;
+    orangeSet: Set<string>;
+    blueSet: Set<string>;
+    bypassClassFilter: boolean;
+    protectedWords: string[];
+};
 
-    // Tamamlanma ancak BÜTÜN worker'lar başarılıysa mümkündür.
-    // Tek bir worker başarısızsa ana iş de başarısız raporlanır.
-    const { data: allWorkers, error: workersError } = await supabase
-        .from('search_progress_workers').select('status').eq('job_id', jobId);
-    if (workersError) throw workersError;
-    if (!allWorkers || allWorkers.length === 0) throw new Error('Worker durumları okunamadı.');
-    const remaining = allWorkers.some((w: any) => w.status === 'processing');
-    if (remaining) return;
-    const failed = allWorkers.some((w: any) => w.status !== 'completed');
-    const { error: jobError } = await supabase.from('search_progress')
-        .update({ status: failed ? 'failed' : 'completed' }).eq('id', jobId);
-    if (jobError) throw jobError;
+const MAX_WORKERS = 10;
+const MAX_LEASE_ATTEMPTS = 8;
+const LEASE_SECONDS = 75;
+const PERMANENT_RESULT_CHUNK_SIZE = 500;
+const BULLETIN_SELECT = 'id, application_number, application_date, brand_name, nice_classes, holders, image_url';
+
+// Yalnızca işçi yürütme verimliliği: Hazırlanan marka verisini aynı Edge
+// isolate tekrar kullanırsa hesaplamadan alır. Isolate değişirse özgün
+// prepareMarks() tekrar çalışır; eşleşme/eleme/skor koduna dokunulmaz.
+// Job ve worker kimlikleri yeni bir aramada benzersizdir.
+const WORKER_LIGHT_COLUMNS = [
+    'id', 'job_id', 'status', 'progress', 'results_count', 'last_error',
+    'expected_mark_count', 'last_record_id', 'processed_records',
+    'lease_token', 'lease_until', 'attempts', 'updated_at'
+].join(', ');
+const MAX_PREPARED_CACHE_WORKERS = 32;
+const preparedWorkerCache = new Map<string, {
+    jobId: string;
+    marks: SearchMark[];
+    prepared: PreparedMark[];
+}>();
+function rememberPreparedWorker(workerId: string, item: {
+    jobId: string; marks: SearchMark[]; prepared: PreparedMark[]
+}) {
+    preparedWorkerCache.delete(workerId);
+    preparedWorkerCache.set(workerId, item);
+    if (preparedWorkerCache.size > MAX_PREPARED_CACHE_WORKERS) {
+        const oldest = preparedWorkerCache.keys().next().value;
+        if (oldest) preparedWorkerCache.delete(oldest);
+    }
+}
+
+// Supabase Edge Function aktif CPU sınırı nedeniyle uyarlanabilir paketleme KAPALI.
+// Her worker, izlediği marka sayısından bağımsız olarak en fazla 35 bülten
+// kaydı işler. İş kapsamı, eleme, skorlar ve kalıcı sonuçlar değişmez.
+const FIXED_WORKER_BATCH_SIZE = 35;
+
+const reply = (payload: Record<string, any>, status = 200) =>
+    new Response(JSON.stringify(payload), {
+        status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+    });
+
+const searchBulletinIds = (bulletinKey: string) => {
+    const number = String(bulletinKey).split('_')[0];
+    return [number, `bulletin_main_${number}`];
+};
+
+const assertDatabase = (error: any, message: string) => {
+    if (error) throw new Error(`${message}: ${error.message || String(error)}`);
+};
+
+const toClasses = (value: any): string[] => {
+    if (value == null || value === '') return [];
+    if (Array.isArray(value)) return value.flatMap(toClasses);
+    if (typeof value === 'string') return value.split(/[^\d]+/).filter(Boolean);
+    return [String(value)];
+};
+const canonicalClass = (value: any) => {
+    const number = parseInt(String(value).replace(/\D/g, ''), 10);
+    return Number.isFinite(number) ? String(number) : '';
+};
+
+function prepareMarks(monitoredMarks: SearchMark[]): PreparedMark[] {
+    return monitoredMarks.map((mark: SearchMark) => {
+        const primaryName = String(mark.searchMarkName || '').trim() ||
+            String(mark.markName || mark.title || mark.trademarkName || '').trim();
+        if (!primaryName || primaryName === 'BELİRSİZ_MARKA' || primaryName === 'İsimsiz Marka') {
+            throw new Error(`İzlenen marka ${mark.id} için geçerli bir marka adı yok; sessizce atlanmayacak.`);
+        }
+        const rawAlternatives = mark.brandTextSearch || mark.brand_text_search;
+        let alternatives: string[] = Array.isArray(rawAlternatives) ? [...rawAlternatives] : [];
+        const validSearchMarkName = Boolean(String(mark.searchMarkName || '').trim());
+        if (validSearchMarkName && mark.markName) {
+            const exact = String(mark.markName).trim().toLowerCase();
+            alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exact);
+        }
+        const conceptualName = convertNumbersAndSymbolsToText(primaryName);
+        if (conceptualName !== primaryName) alternatives.push(conceptualName);
+        const primaryCleaned = cleanMarkName(primaryName, true);
+        const words = primaryCleaned.split(' ').filter(w => w.trim().length > 0);
+        if (words.length > 1) {
+            const sortedName = [...words].sort().join(' ');
+            if (sortedName !== primaryCleaned) alternatives.push(sortedName);
+        }
+        const rawWords = primaryName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ')
+            .split(/\s+/).filter(Boolean);
+        if (rawWords.length > 1) {
+            for (const word of rawWords) {
+                const stemmed = removeTurkishSuffixes(word);
+                if (word.length >= 3 && !GENERIC_WORDS.includes(word) &&
+                    !GENERIC_WORDS.includes(stemmed) && !alternatives.includes(word) && primaryName !== word) {
+                    alternatives.push(word);
+                }
+            }
+        }
+        const protectedWords: string[] = [];
+        for (const phrase of [primaryName, ...alternatives]) {
+            if (!phrase) continue;
+            const tokens = String(phrase).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ')
+                .split(/\s+/).filter(Boolean);
+            protectedWords.push(...tokens);
+            for (const token of tokens) protectedWords.push(removeTurkishSuffixes(token));
+        }
+        const uniqueProtectedWords = [...new Set(protectedWords)];
+        // Aynı alternatif terimleri iki kez karşılaştırmayız; sonuç kriteri değişmez.
+        const searchTerms = [...new Set([primaryName, ...alternatives]
+            .filter(t => t && String(t).trim() && String(t) !== 'undefined').map(t => String(t)))]
+            .map(term => ({
+                term,
+                cleanedSearchName: cleanMarkName(term, term.trim().split(/\s+/).length > 1, uniqueProtectedWords)
+            }));
+        const goodsByClass = Array.isArray(mark.goodsAndServicesByClass) ? mark.goodsAndServicesByClass : [];
+        const originalClasses = goodsByClass.length > 0
+            ? toClasses(goodsByClass.map((item: any) => item.classNo || item))
+            : toClasses(mark.niceClasses || mark.nice_classes);
+        const watchedClasses = toClasses(mark.niceClassSearch || mark.nice_class_search);
+        const greenSet = new Set(originalClasses.map(canonicalClass).filter(Boolean));
+        const orangeSet = new Set(watchedClasses.map(canonicalClass).filter(Boolean));
+        const blueSet = new Set<string>();
+        greenSet.forEach(cls => {
+            if (RELATED_CLASSES_MAP[cls]) RELATED_CLASSES_MAP[cls].forEach(related => blueSet.add(related));
+        });
+        const applicationDate = mark.applicationDate || mark.application_date || null;
+        return {
+            ...mark, primaryName, searchTerms, greenSet, orangeSet, blueSet,
+            bypassClassFilter: greenSet.size === 0 && orangeSet.size === 0,
+            protectedWords: uniqueProtectedWords,
+            parsedAppDate: parseDateForValidation(applicationDate)
+        };
+    });
+}
+
+function matchBulletinBatch(jobId: string, preparedMarks: PreparedMark[], bulletinHits: any[]) {
+    const permanentRecords: any[] = [];
+    for (const hit of bulletinHits) {
+        const parsedHitDate = parseDateForValidation(hit.application_date);
+        const hitClasses = toClasses(hit.nice_classes).map(canonicalClass).filter(Boolean);
+        const rawHitName = String(hit.brand_name || '');
+        const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim()
+            .split(/\s+/).length > 1;
+        for (const mark of preparedMarks) {
+            if (parsedHitDate && mark.parsedAppDate &&
+                !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime()) &&
+                parsedHitDate < mark.parsedAppDate) continue;
+
+            let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord, mark.protectedWords);
+            if (isHitMultiWord) cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
+            let hasPoolMatch = mark.bypassClassFilter;
+            for (const cls of hitClasses) {
+                if (mark.greenSet.has(cls) || mark.orangeSet.has(cls) || mark.blueSet.has(cls)) {
+                    hasPoolMatch = true; break;
+                }
+            }
+            for (const searchItem of mark.searchTerms) {
+                const term = searchItem.cleanedSearchName;
+                let exactPrefixSuffix = false;
+                if (term.length >= 3) exactPrefixSuffix = cleanedHitName.includes(term);
+                else if (term.length === 2) exactPrefixSuffix = cleanedHitName.split(' ').some(w => w.endsWith(term));
+                if (!hasPoolMatch && !exactPrefixSuffix) continue;
+                const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
+                    searchItem.term, rawHitName, term, cleanedHitName
+                );
+                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !exactPrefixSuffix) continue;
+                permanentRecords.push({
+                    id: `${mark.id}_${hit.id}`,
+                    monitored_trademark_id: mark.id,
+                    bulletin_record_id: hit.id,
+                    similarity_score: finalScore,
+                    is_earlier: false,
+                    matched_term: searchItem.term,
+                    source: 'auto',
+                    monitoring_type: mark.monitoringType,
+                    criteria_version: Number(mark.criteriaVersion || mark.criteria_version || 1)
+                });
+                break;
+            }
+        }
+    }
+    return permanentRecords;
+}
+
+async function resolveMonitoringTypes(supabase: any, marks: any[]): Promise<SearchMark[]> {
+    const domesticIds = new Set<string>();
+    const intlIds = new Set<string>();
+    for (let i = 0; i < marks.length; i += 175) {
+        const ids = marks.slice(i, i + 175).map(m => String(m.id));
+        const { data, error } = await supabase.from('monitoring_trademarks').select('id').in('id', ids);
+        assertDatabase(error, 'Yurtiçi izleme kaydı doğrulaması başarısız');
+        for (const row of data || []) domesticIds.add(String(row.id));
+    }
+    const others = marks.map(m => String(m.id)).filter(id => !domesticIds.has(id));
+    // international_monitoring.id uuid: geçersiz kimliği sorguya göndermeyiz.
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (others.some(id => !uuidPattern.test(id))) {
+        throw new Error(`İzlenen markalarda bulunmayan kimlik(ler) var: ${others.filter(id => !uuidPattern.test(id)).slice(0, 5).join(', ')}`);
+    }
+    for (let i = 0; i < others.length; i += 175) {
+        const { data, error } = await supabase.from('international_monitoring')
+            .select('id').in('id', others.slice(i, i + 175));
+        assertDatabase(error, 'Uluslararası izleme kaydı doğrulaması başarısız');
+        for (const row of data || []) intlIds.add(String(row.id));
+    }
+    const unknown = others.filter(id => !intlIds.has(id));
+    if (unknown.length) throw new Error(`İzleme kayıtlarında bulunmayan marka kimlikleri: ${unknown.slice(0, 5).join(', ')}`);
+    return marks.map(mark => ({
+        ...mark,
+        id: String(mark.id),
+        monitoringType: domesticIds.has(String(mark.id)) ? 'domestic' : 'international'
+    }));
+}
+
+async function reconcileJob(supabase: any, jobId: string) {
+    const { data: job, error: jobError } = await supabase.from('search_progress')
+        .select('id, status, total_records, monitored_count, current_results').eq('id', jobId).single();
+    assertDatabase(jobError, 'Arama işi okunamadı');
+    const { data: workers, error: workerError } = await supabase.from('search_progress_workers')
+        .select('id, status, processed_records, expected_mark_count, progress, results_count, last_error')
+        .eq('job_id', jobId);
+    assertDatabase(workerError, 'Worker durumları okunamadı');
+    if (!workers?.length) throw new Error('Arama işinin worker kayıtları bulunamadı.');
+    const failed = workers.filter((w: any) => w.status === 'failed');
+    const allCompleted = workers.every((w: any) => w.status === 'completed');
+    const completeCoverage = allCompleted && workers.every((w: any) =>
+        Number(w.processed_records) === Number(job.total_records)) &&
+        workers.reduce((sum: number, w: any) => sum + Number(w.expected_mark_count || 0), 0) ===
+            Number(job.monitored_count);
+    const totalResultCount = workers.reduce((sum: number, w: any) => sum + Number(w.results_count || 0), 0);
+    let state = job.status;
+    if (failed.length || (allCompleted && !completeCoverage)) {
+        state = 'failed';
+        const reason = failed.length
+            ? failed.map((w: any) => `${w.id}: ${w.last_error || 'Worker başarısız'}`).join(' | ').slice(0, 3500)
+            : 'Tüm worker tamamlandı ancak bülten veya marka kapsamı doğrulanamadı.';
+        const { error } = await supabase.from('search_progress').update({
+            status: 'failed', error_message: reason, current_results: totalResultCount
+        }).eq('id', jobId);
+        assertDatabase(error, 'Başarısız iş durumu kaydedilemedi');
+    } else if (completeCoverage) {
+        state = 'completed';
+        const { error } = await supabase.from('search_progress').update({
+            status: 'completed', error_message: null, current_results: totalResultCount,
+            completed_at: new Date().toISOString()
+        }).eq('id', jobId);
+        assertDatabase(error, 'Tamamlanma doğrulaması kaydedilemedi');
+    }
+    return {
+        status: state,
+        currentResults: totalResultCount,
+        totalWorkers: workers.length,
+        completedWorkers: workers.filter((w: any) => w.status === 'completed').length,
+        workers: workers.map((w: any) => ({
+            id: w.id, status: w.status, progress: w.progress, resultsCount: w.results_count,
+            error: w.last_error
+        }))
+    };
+}
+
+async function createJob(supabase: any, monitoredMarks: any[], selectedBulletinId: string) {
+    if (!Array.isArray(monitoredMarks) || !monitoredMarks.length || !selectedBulletinId) {
+        throw new Error('İzleme listesi veya bülten numarası eksik.');
+    }
+    if (monitoredMarks.some(m => !m?.id)) throw new Error('Kimliksiz izleme kaydı var; eksik arama başlatılmayacak.');
+    if (new Set(monitoredMarks.map(m => String(m.id))).size !== monitoredMarks.length) {
+        throw new Error('İzleme listesindeki kimlikler tekrarlanıyor; eksik arama başlatılmayacak.');
+    }
+    const { count, error: countError } = await supabase.from('trademark_bulletin_records')
+        .select('*', { count: 'exact', head: true }).in('bulletin_id', searchBulletinIds(selectedBulletinId));
+    assertDatabase(countError, 'Bülten kayıtları sayılamadı');
+    if (!count) throw new Error('Seçilen bültende taranacak kayıt bulunamadı.');
+
+    // Tür bilgisini gönderen eski arayüz sürümlerine bağımlı olmadan DB'den doğrula.
+    // Eşleşme kaydı yanlışlıkla domestic türüyle yazılırsa trigger kaydı reddediyordu.
+    const marksWithType = await resolveMonitoringTypes(supabase, monitoredMarks);
+    const workerCount = Math.min(MAX_WORKERS, marksWithType.length);
+    const chunkSize = Math.ceil(marksWithType.length / workerCount);
+    const jobId = `job_${crypto.randomUUID()}`;
+    const { error: jobError } = await supabase.from('search_progress').insert({
+        id: jobId, status: 'processing', current_results: 0, total_records: count,
+        bulletin_key: selectedBulletinId, monitored_count: marksWithType.length
+    });
+    assertDatabase(jobError, 'Arama işi oluşturulamadı');
+    const workerRecords = [];
+    for (let i = 0; i < workerCount; i++) {
+        const chunk = marksWithType.slice(i * chunkSize, (i + 1) * chunkSize);
+        if (!chunk.length) continue;
+        workerRecords.push({
+            id: `${jobId}_w${i + 1}`, job_id: jobId, status: 'pending', progress: 0,
+            mark_payload: chunk, expected_mark_count: chunk.length, last_record_id: null,
+            processed_records: 0, results_count: 0, attempts: 0,
+            updated_at: new Date().toISOString()
+        });
+    }
+    const { error: workerError } = await supabase.from('search_progress_workers').insert(workerRecords);
+    if (workerError) {
+        await supabase.from('search_progress').update({ status: 'failed', error_message: workerError.message }).eq('id', jobId);
+        throw new Error(`Worker kayıtları oluşturulamadı: ${workerError.message}`);
+    }
+    return {
+        success: true, jobId, monitoredMarkCount: marksWithType.length,
+        workerCount: workerRecords.length, workerIds: workerRecords.map(w => w.id),
+        totalBulletinRecords: count, resumed: false
+    };
+}
+
+async function claimWorker(supabase: any, jobId: string, workerId: string) {
+    const { data: job, error: jobError } = await supabase.from('search_progress')
+        .select('id, status, bulletin_key, total_records').eq('id', jobId).single();
+    assertDatabase(jobError, 'Arama işi bulunamadı');
+    if (job.status === 'failed') throw new Error('Arama işi başarısız. Eksik sonuçlarla tamamlandı sayılmayacak.');
+    const cachedPrepared = preparedWorkerCache.get(workerId);
+    const hasCache = cachedPrepared?.jobId === jobId;
+    const workerColumns = hasCache ? WORKER_LIGHT_COLUMNS : '*';
+    const { data: row, error } = await supabase.from('search_progress_workers')
+        .select(workerColumns).eq('job_id', jobId).eq('id', workerId).single();
+    assertDatabase(error, 'Worker kaydı okunamadı');
+    if (row.status === 'completed') return { job, worker: row, state: 'completed', leaseToken: null, cachedPrepared };
+    if (row.status === 'failed') throw new Error(row.last_error || 'Worker başarısız.');
+    const now = new Date();
+    if (row.status === 'processing' && (!row.lease_until || new Date(row.lease_until) > now)) {
+        return { job, worker: row, state: 'locked', leaseToken: null, cachedPrepared };
+    }
+    if (row.status === 'processing' && Number(row.attempts || 0) >= MAX_LEASE_ATTEMPTS) {
+        await supabase.from('search_progress_workers').update({
+            status: 'failed', last_error: `Worker ${MAX_LEASE_ATTEMPTS} kez kesildi/yeniden denendi.`,
+            updated_at: now.toISOString()
+        }).eq('id', workerId);
+        await reconcileJob(supabase, jobId);
+        throw new Error('Worker deneme sınırına ulaştı.');
+    }
+    const leaseToken = crypto.randomUUID();
+    const until = new Date(Date.now() + LEASE_SECONDS * 1000).toISOString();
+    let query = supabase.from('search_progress_workers').update({
+        status: 'processing', lease_token: leaseToken, lease_until: until,
+        attempts: row.status === 'processing' ? Number(row.attempts || 0) + 1 : 0,
+        updated_at: now.toISOString()
+    }).eq('id', workerId).eq('job_id', jobId);
+    if (row.status === 'pending') query = query.eq('status', 'pending');
+    else query = query.eq('status', 'processing').lt('lease_until', now.toISOString());
+    const { data: claimed, error: claimError } = await query.select(workerColumns).maybeSingle();
+    assertDatabase(claimError, 'Worker kilidi alınamadı');
+    if (!claimed) return { job, worker: row, state: 'locked', leaseToken: null, cachedPrepared };
+    return { job, worker: claimed, state: 'claimed', leaseToken, cachedPrepared };
+}
+
+async function runStep(supabase: any, jobId: string, workerId: string) {
+    const claimed = await claimWorker(supabase, jobId, workerId);
+    const worker = claimed.worker;
+    if (claimed.state !== 'claimed') {
+        return {
+            success: true, state: claimed.state, workerId, progress: Number(worker.progress || 0),
+            resultsCount: Number(worker.results_count || 0),
+            waitMs: claimed.state === 'locked' ? Math.max(1200, Math.min(5000,
+                new Date(worker.lease_until || Date.now()).getTime() - Date.now())) : 0
+        };
+    }
+    const token = claimed.leaseToken as string;
+    try {
+        const cached = claimed.cachedPrepared?.jobId === jobId
+            ? claimed.cachedPrepared : null;
+        const marks: SearchMark[] = Array.isArray(worker.mark_payload)
+            ? worker.mark_payload : cached?.marks;
+        if (!Array.isArray(marks) || marks.length !== Number(worker.expected_mark_count) || !marks.length) {
+            throw new Error('Worker marka listesi eksik veya değiştirilmiş.');
+        }
+        // Her işçi için aynı marka listesi: hazırlık fonksiyonları isolate hayatta
+        // kaldığı sürece bir kez çalışır, soğuk instance'ta güvenle tekrar edilir.
+        const preparationStarted = Date.now();
+        const prepared = cached?.prepared || prepareMarks(marks);
+        const preparationMs = Date.now() - preparationStarted;
+        if (!cached) rememberPreparedWorker(workerId, { jobId, marks, prepared });
+        const BATCH_SIZE = FIXED_WORKER_BATCH_SIZE;
+        let query = supabase.from('trademark_bulletin_records').select(BULLETIN_SELECT)
+            .in('bulletin_id', searchBulletinIds(claimed.job.bulletin_key))
+            .order('id', { ascending: true }).limit(BATCH_SIZE);
+        if (worker.last_record_id) query = query.gt('id', worker.last_record_id);
+        const { data: hits, error: fetchError } = await query;
+        assertDatabase(fetchError, 'Bülten aralık sorgusu başarısız');
+        if (!Array.isArray(hits) || !hits.length) {
+            if (Number(worker.processed_records) !== Number(claimed.job.total_records)) {
+                throw new Error('Bülten kayıt sayısı değişti ya da aralık eksik; işlem tamamlandı sayılmadı.');
+            }
+        }
+        // Karşılaştırma aynı fonksiyona, aynı hazırlanan markalar ve hit'ler ile
+        // girer. Süre bilgisi yalnızca teşhis için döndürülür; paket sabittir.
+        const compareStarted = Date.now();
+        const records = matchBulletinBatch(jobId, prepared, hits || []);
+        // DB sorgusunun ağ süresi CPU ölçümüne katılmaz.
+        const computationMs = preparationMs + Date.now() - compareStarted;
+        for (let i = 0; i < records.length; i += PERMANENT_RESULT_CHUNK_SIZE) {
+            // Aynı (izlenen marka + bülten kaydı) tekrar tarandığında üzerine yazılır.
+            // Not / Benzer kararları / başarı şansı dahil edilmez: kullanıcı kararları korunur.
+            const batch = records.slice(i, i + PERMANENT_RESULT_CHUNK_SIZE);
+            const { data: written, error } = await supabase.rpc('upsert_trademark_similarity_results', {
+                p_rows: batch
+            });
+            assertDatabase(error, 'Kalıcı izleme sonuçları yazılamadı');
+            if (Number(written) !== batch.length) {
+                throw new Error(`Kalıcı sonuç sayısı eksik: ${written}/${batch.length}`);
+            }
+        }
+        const processed = Number(worker.processed_records || 0) + (hits?.length || 0);
+        if (processed > Number(claimed.job.total_records)) {
+            throw new Error('Bülten aralığı toplam kayıt sayısını aştı.');
+        }
+        const finished = processed === Number(claimed.job.total_records) || (hits || []).length < BATCH_SIZE;
+        if (finished && processed !== Number(claimed.job.total_records)) {
+            throw new Error(`Worker tam kapsama ulaşmadı: ${processed}/${claimed.job.total_records}.`);
+        }
+        const nextProgress = finished ? 100 : Math.min(99,
+            Math.floor(processed * 100 / Number(claimed.job.total_records)));
+        const nextState = finished ? 'completed' : 'pending';
+        const { data: written, error: updateError } = await supabase.from('search_progress_workers')
+            .update({
+                status: nextState, last_record_id: hits?.length ? hits[hits.length - 1].id : worker.last_record_id,
+                processed_records: processed, results_count: Number(worker.results_count || 0) + records.length,
+                progress: nextProgress, lease_token: null, lease_until: null,
+                attempts: 0, last_error: null, updated_at: new Date().toISOString()
+            })
+            .eq('id', workerId).eq('lease_token', token).eq('status', 'processing')
+            .select('id').maybeSingle();
+        assertDatabase(updateError, 'Checkpoint yazılamadı');
+        if (!written) throw new Error('Worker lease değişti; eski işleyici checkpoint yazamaz.');
+        if (finished) {
+            preparedWorkerCache.delete(workerId);
+            await reconcileJob(supabase, jobId);
+        }
+        return {
+            success: true, state: nextState, workerId, progress: nextProgress,
+            processedRecords: processed, resultsCount: Number(worker.results_count || 0) + records.length,
+            totalRecords: claimed.job.total_records,
+            // Zaman bilgisi yalnızca teşhis içindir; paket boyu değişmez.
+            batchSize: BATCH_SIZE, processedThisStep: hits?.length || 0,
+            computationMs, warmPreparation: Boolean(cached)
+        };
+    } catch (error: any) {
+        const message = String(error?.message || error).slice(0, 2400);
+        // Hata halinde asla checkpoint atlanmaz veya başarılı görünmez.
+        const { error: statusError } = await supabase.from('search_progress_workers').update({
+            status: 'failed', last_error: message, lease_token: null,
+            lease_until: null, updated_at: new Date().toISOString()
+        }).eq('id', workerId).eq('lease_token', token);
+        if (statusError) console.error('[IPGate] Worker hata durumu yazılamadı:', statusError);
+        try { await reconcileJob(supabase, jobId); } catch (reconcileError) {
+            console.error('[IPGate] Worker başarısızlığını job durumuna taşıyamadı:', reconcileError);
+        }
+        return { success: false, state: 'failed', workerId, error: message };
+    }
 }
 
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-
     try {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceKey) throw new Error('Supabase servis yapılandırması eksik.');
+        const supabase = createClient(supabaseUrl, serviceKey);
         const body = await req.json();
-
-        if (body.action === 'worker') {
-            const { jobId, workerId, monitoredMarks, selectedBulletinId, lastId, processedCount, totalBulletinRecords } = body;
-            
-            try {
-                const BATCH_SIZE = 50; 
-                const rawBulletinNumber = String(selectedBulletinId).split('_')[0]; 
-                let currentOffset = parseInt(lastId, 10) || 0;
-
-                const missingNameMarks = monitoredMarks.filter((m: any) => {
-                    const hasSearchName = m.searchMarkName && String(m.searchMarkName).trim() !== "" && String(m.searchMarkName) !== "undefined" && String(m.searchMarkName) !== "null";
-                    const hasBackupName = m.markName || m.title || m.trademarkName;
-                    return !hasSearchName && !hasBackupName && m.ip_record_id;
-                });
-
-                if (missingNameMarks.length > 0) {
-                    const missingIds = missingNameMarks.map((m: any) => m.ip_record_id);
-                    const { data: fetchedRecords } = await supabase.from('ip_records').select('id, brand_name, mark_name, title').in('id', missingIds);
-
-                    if (fetchedRecords) {
-                        monitoredMarks.forEach((m: any) => {
-                            if (!m.markName && !m.searchMarkName && m.ip_record_id) {
-                                const found = fetchedRecords.find(r => r.id === m.ip_record_id);
-                                if (found) {
-                                    m.markName = found.brand_name || found.mark_name || found.title || 'İsimsiz Marka';
-                                }
-                            }
-                        });
-                    }
-                }
-
-                const preparedMarks = monitoredMarks.map((mark: any) => {
-                    const validSearchMarkName = mark.searchMarkName && String(mark.searchMarkName).trim() !== "" && String(mark.searchMarkName) !== "undefined" && String(mark.searchMarkName) !== "null";
-                    const primaryName = validSearchMarkName 
-                        ? String(mark.searchMarkName).trim() 
-                        : (mark.markName || mark.title || mark.trademarkName || 'İsimsiz Marka').trim();
-                    
-                    const rawBrandText = mark.brandTextSearch || mark.brand_text_search;
-                    let alternatives = Array.isArray(rawBrandText) ? [...rawBrandText] : [];
-                    
-                    if (validSearchMarkName && mark.markName) {
-                        const exactMarkName = String(mark.markName).trim().toLowerCase();
-                        alternatives = alternatives.filter(alt => String(alt).trim().toLowerCase() !== exactMarkName);
-                    }
-
-                    const conceptualName = convertNumbersAndSymbolsToText(primaryName);
-                    if (conceptualName !== primaryName) {
-                        alternatives.push(conceptualName);
-                    }
-
-                    const primaryCleaned = cleanMarkName(primaryName, true); // Korumasız ilk temizlik
-                    const words = primaryCleaned.split(' ').filter(w => w.trim().length > 0);
-                    if (words.length > 1) {
-                        const sortedName = [...words].sort().join(' ');
-                        if (sortedName !== primaryCleaned) {
-                            alternatives.push(sortedName);
-                        }
-                    }
-
-                    // 🔥 1. YENİ KURAL: Çok kelimeli markaların kelimelerini ayrı ayrı aramaya sok.
-                    // Orijinal isimdeki (primaryName) kelimeleri böl ve jenerik olmayanları arama sepetine tekil olarak ekle.
-                    const rawWords = primaryName.toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
-                    if (rawWords.length > 1) {
-                        rawWords.forEach(w => {
-                            const stemmedWord = removeTurkishSuffixes(w);
-                            // Sadece jenerik (sanayi, ticaret vb.) OLMAYAN kelimeleri tekil aramaya ekle
-                            if (w.length >= 3 && !GENERIC_WORDS.includes(w) && !GENERIC_WORDS.includes(stemmedWord)) {
-                                if (!alternatives.includes(w) && primaryName !== w) {
-                                    alternatives.push(w);
-                                }
-                            }
-                        });
-                    }
-
-                    // 🔥 VIP LİSTESİNİ OLUŞTURMA BAŞLANGICI 🔥
-                    const allSearchStrings = [primaryName, ...alternatives];
-                    const protectedWords: string[] = [];
-                    
-                    allSearchStrings.forEach(str => {
-                        if (str) {
-                            const safeWords = String(str).toLowerCase().replace(/[^a-z0-9ğüşöçı\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
-                            protectedWords.push(...safeWords);
-                            safeWords.forEach(w => protectedWords.push(removeTurkishSuffixes(w)));
-                        }
-                    });
-                    
-                    const uniqueProtectedWords = [...new Set(protectedWords)];
-                    // 🔥 VIP LİSTESİNİ OLUŞTURMA BİTİŞİ 🔥
-
-                    const searchTerms = [primaryName, ...alternatives]
-                        .filter(t => t && String(t).trim().length > 0 && String(t) !== "undefined")
-                        .map(term => {
-                            const termStr = String(term);
-                            const isMultiWord = termStr.trim().split(/\s+/).length > 1;
-                            return { 
-                                term: termStr, 
-                                // 🔥 Korumalı kelimeleri (VIP Liste) 3. parametre olarak gönderiyoruz
-                                cleanedSearchName: cleanMarkName(termStr, isMultiWord, uniqueProtectedWords) 
-                            };
-                        });
-                    
-                    const makeArray = (val: any) => {
-                        if (!val) return [];
-                        if (Array.isArray(val)) return val.map(String);
-                        if (typeof val === 'string') return val.split(/[^\d]+/);
-                        return [String(val)];
-                    };
-
-                    const goodsAndServicesByClass = Array.isArray(mark.goodsAndServicesByClass)
-                        ? mark.goodsAndServicesByClass
-                        : [];
-                    const originalClassesRaw = goodsAndServicesByClass.length > 0
-                        ? makeArray(goodsAndServicesByClass.map((c:any) => c.classNo || c))
-                        : makeArray(mark.niceClasses || mark.nice_classes);
-                    const watchedClassesRaw = makeArray(mark.niceClassSearch || mark.nice_class_search);
-
-                    const cleanClass = (c: any) => {
-                        const num = parseInt(String(c).replace(/\D/g, ''), 10);
-                        return isNaN(num) ? '' : num.toString();
-                    };
-
-                    const greenSet = new Set(originalClassesRaw.map(cleanClass).filter(Boolean));
-                    const orangeSet = new Set(watchedClassesRaw.map(cleanClass).filter(Boolean)); 
-                    const blueSet = new Set<string>();
-
-                    greenSet.forEach(c => { if (RELATED_CLASSES_MAP[c]) RELATED_CLASSES_MAP[c].forEach(rel => blueSet.add(rel)); });
-                    
-                    const bypassClassFilter = greenSet.size === 0 && orangeSet.size === 0;
-
-                    const appDateRaw = mark.applicationDate || mark.application_date || null;
-                    const parsedAppDate = parseDateForValidation(appDateRaw);
-
-                    // 🔥 Dönüş nesnesine 'protectedWords: uniqueProtectedWords' ekliyoruz
-                    return { ...mark, primaryName, searchTerms, applicationDate: appDateRaw, parsedAppDate, greenSet, orangeSet, blueSet, bypassClassFilter, protectedWords: uniqueProtectedWords };
-                });
-
-                let actualProcessedCount = 0;
-                const uiResults = [];
-                const permanentRecords = []; 
-
-                const { data: hits, error: fetchError } = await supabase
-                    .from('trademark_bulletin_records')
-                    .select('id, application_number, application_date, brand_name, nice_classes, holders, image_url')
-                    .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]) 
-                    .order('id')
-                    .range(currentOffset, currentOffset + BATCH_SIZE - 1);
-
-                if (fetchError) {
-                    throw fetchError;
-                }
-
-                const hasMoreRecords = hits && hits.length === BATCH_SIZE;
-
-                if (hits && hits.length > 0) {
-                    for (let i = 0; i < hits.length; i++) {
-                        actualProcessedCount++;
-                        const hit = hits[i];
-                        
-                        const parsedHitDate = parseDateForValidation(hit.application_date);
-                        
-                        let rawHitClasses: string[] = [];
-                        if (Array.isArray(hit.nice_classes)) rawHitClasses = hit.nice_classes.map(String);
-                        else if (typeof hit.nice_classes === 'string') rawHitClasses = hit.nice_classes.split(/[^\d]+/);
-                        else if (hit.nice_classes) rawHitClasses = [String(hit.nice_classes)];
-                        
-                        const cleanClass = (c: any) => {
-                            const num = parseInt(String(c).replace(/\D/g, ''), 10);
-                            return isNaN(num) ? '' : num.toString();
-                        };
-                        
-                        const hitClasses = rawHitClasses.map(cleanClass).filter(Boolean);
-                        
-                        const rawHitName = String(hit.brand_name || '');
-                        
-                        const isHitMultiWord = rawHitName.replace(/[^a-zA-Z0-9ğüşöçı]/g, ' ').trim().split(/\s+/).length > 1;
-                        
-                        for (const mark of preparedMarks) { // 🔥 Çift parantez hatası düzeltildi
-                            let isValidDate = true;
-                            if (parsedHitDate && mark.parsedAppDate && !isNaN(parsedHitDate.getTime()) && !isNaN(mark.parsedAppDate.getTime())) {
-                                isValidDate = parsedHitDate >= mark.parsedAppDate;
-                            }
-                            if (!isValidDate) continue;
-
-                            // 🔥 BÜLTEN MARKASI TEMİZLİĞİ DÖNGÜNÜN İÇİNE ALINDI
-                            // Çünkü her izlenen markanın (mark) VIP listesi (protectedWords) kendine özeldir!
-                            let cleanedHitName = cleanMarkName(rawHitName, isHitMultiWord, mark.protectedWords); 
-                            
-                            if (isHitMultiWord) {
-                                cleanedHitName = cleanedHitName.split(' ').sort().join(' ');
-                            }
-
-                            let hasPoolMatch = mark.bypassClassFilter;
-
-                            hitClasses.forEach((hc: string) => {
-                                if (mark.greenSet.has(hc)) { hasPoolMatch = true; }
-                                else if (mark.orangeSet.has(hc)) { hasPoolMatch = true; }
-                                else if (mark.blueSet.has(hc)) { hasPoolMatch = true; }
-                            });
-
-                            for (const searchItem of mark.searchTerms) {
-                                let isExactPrefixSuffix = false;
-                                const sTerm = searchItem.cleanedSearchName;
-                                
-                                if (sTerm.length >= 3) {
-                                    isExactPrefixSuffix = cleanedHitName.includes(sTerm);
-                                } else if (sTerm.length === 2) {
-                                    isExactPrefixSuffix = cleanedHitName.split(' ').some(w => w.endsWith(sTerm));
-                                }
-
-                                if (!hasPoolMatch && !isExactPrefixSuffix) continue;
-
-                                const { finalScore, positionalExactMatchScore } = calculateSimilarityScoreInternal(
-                                    searchItem.term, rawHitName, searchItem.cleanedSearchName, cleanedHitName
-                                );
-
-                                if (finalScore < 0.5 && positionalExactMatchScore < 0.5 && !isExactPrefixSuffix) continue;
-
-                                uiResults.push({
-                                    job_id: jobId, 
-                                    monitored_trademark_id: mark.id, 
-                                    mark_name: hit.brand_name,
-                                    application_no: hit.application_number, 
-                                    nice_classes: Array.isArray(hit.nice_classes) ? hit.nice_classes.join(', ') : String(hit.nice_classes || ''), 
-                                    similarity_score: finalScore,
-                                    holders: typeof hit.holders === 'string' ? hit.holders : JSON.stringify(hit.holders), 
-                                    image_path: hit.image_url
-                                });
-
-                                permanentRecords.push({
-                                    id: `${mark.id}_${hit.id}`, 
-                                    monitored_trademark_id: mark.id,
-                                    bulletin_record_id: hit.id,
-                                    similarity_score: finalScore,
-                                    is_earlier: false, 
-                                    matched_term: searchItem.term, 
-                                    source: 'auto',
-                                    criteria_version: Number(mark.criteriaVersion || mark.criteria_version || 1)
-                                });
-                                break;
-                            }
-                        }
-                    }
-                } 
-
-                if (actualProcessedCount === 0 && !hasMoreRecords) {
-                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
-                    return new Response(JSON.stringify({ success: true, finished: true }), { headers: corsHeaders });
-                }
-
-                if (uiResults.length > 0) {
-                    const CHUNK_SIZE = 1000;
-                    
-                    for (let i = 0; i < uiResults.length; i += CHUNK_SIZE) {
-                        const { error: uiInsertError } = await supabase.from('search_progress_results').insert(uiResults.slice(i, i + CHUNK_SIZE));
-                        if (uiInsertError) throw new Error(`Arama sonuçları yazılamadı: ${uiInsertError.message}`);
-                    }
-                    
-                    for (let i = 0; i < permanentRecords.length; i += CHUNK_SIZE) {
-                        const { error: upsertError } = await supabase.from('monitoring_trademark_records')
-                            .upsert(permanentRecords.slice(i, i + CHUNK_SIZE), { onConflict: 'id' });
-                        if (upsertError) throw new Error(`İzleme eşleşmeleri kaydedilemedi: ${upsertError.message}`);
-                    }
-
-                    const { data: jobData, error: progressReadError } = await supabase.from('search_progress')
-                        .select('current_results').eq('id', jobId).single();
-                    if (progressReadError) throw progressReadError;
-                    const { error: progressWriteError } = await supabase.from('search_progress')
-                        .update({ current_results: (jobData?.current_results || 0) + uiResults.length }).eq('id', jobId);
-                    if (progressWriteError) throw progressWriteError;
-                }
-
-                const newProcessedCount = processedCount + actualProcessedCount;
-                const progressPercent = Math.min(100, Math.floor((newProcessedCount / totalBulletinRecords) * 100));
-                const { error: progressWorkerError } = await supabase.from('search_progress_workers')
-                    .upsert({ id: `${jobId}_w${workerId}`, job_id: jobId, status: 'processing', progress: progressPercent });
-                if (progressWorkerError) throw progressWorkerError;
-
-                const nextOffset = currentOffset + BATCH_SIZE;
-
-                if (hasMoreRecords) {
-                    const invokeWithRetry = async (retries = 3, delay = 1000) => {
-                        try {
-                            const { error } = await supabase.functions.invoke('perform-trademark-similarity-search', {
-                                body: { action: 'worker', jobId, workerId, monitoredMarks, selectedBulletinId, lastId: nextOffset.toString(), processedCount: newProcessedCount, totalBulletinRecords },
-                                headers: { Authorization: `Bearer ${supabaseKey}` }
-                            });
-
-                            if (error) throw error;
-                        } catch (err) {
-                            if (retries > 0) {
-                                const jitter = Math.floor(Math.random() * 500);
-                                await new Promise(resolve => setTimeout(resolve, delay + jitter));
-                                await invokeWithRetry(retries - 1, delay * 2); 
-                            } else {
-                                await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                            }
-                        }
-                    };
-
-                    EdgeRuntime.waitUntil(invokeWithRetry());
-
-                } else {
-                    await markWorkerStatus(supabase, jobId, workerId, 'completed');
-                }
-
-                return new Response(JSON.stringify({ success: true, workerId }), { headers: corsHeaders });
-
-            } catch (workerErr) {
-                await markWorkerStatus(supabase, jobId, workerId, 'failed');
-                return new Response(JSON.stringify({ success: false, error: workerErr.message }), { headers: corsHeaders, status: 500 });
+        const action = body.action || 'start';
+        if (action === 'start') {
+            return reply(await createJob(supabase, body.monitoredMarks, String(body.selectedBulletinId || '')));
+        }
+        if (action === 'step') {
+            const jobId = String(body.jobId || '');
+            const workerId = String(body.workerId || '');
+            if (!jobId || !workerId || !workerId.startsWith(`${jobId}_w`)) {
+                throw new Error('Geçersiz job/worker kimliği.');
             }
+            return reply(await runStep(supabase, jobId, workerId));
         }
-
-        const { monitoredMarks, selectedBulletinId } = body;
-        if (!Array.isArray(monitoredMarks) || monitoredMarks.length === 0 || !selectedBulletinId) {
-            throw new Error('Arama için marka listesi veya bülten numarası eksik.');
+        if (action === 'verify') {
+            const jobId = String(body.jobId || '');
+            if (!jobId) throw new Error('jobId eksik.');
+            return reply({ success: true, ...(await reconcileJob(supabase, jobId)) });
         }
-        if (monitoredMarks.some((m: any) => !m || !m.id)) {
-            throw new Error('İzleme listesinde kimliksiz kayıt var; eksik tarama başlatılmaz.');
+        if (action === 'resume') {
+            const jobId = String(body.jobId || '');
+            const selectedBulletinId = String(body.selectedBulletinId || '');
+            const { data: job, error: jobError } = await supabase.from('search_progress')
+                .select('id, bulletin_key, status, monitored_count, total_records').eq('id', jobId).single();
+            assertDatabase(jobError, 'Devam edilecek iş bulunamadı');
+            if (job.bulletin_key !== selectedBulletinId) throw new Error('Bülten kimliği değişmiş; yeni tarama başlatılmalı.');
+            const { data: workers, error: workersError } = await supabase.from('search_progress_workers')
+                .select('id, status').eq('job_id', jobId).order('id');
+            assertDatabase(workersError, 'Devam edilecek worker listesi okunamadı');
+            if (!workers?.length) throw new Error('İşin worker kayıtları bulunamadı.');
+            return reply({
+                success: true, resumed: true, jobId, status: job.status,
+                workerIds: workers.map((w: any) => w.id), workerCount: workers.length,
+                monitoredMarkCount: job.monitored_count, totalBulletinRecords: job.total_records
+            });
         }
-
-        const jobId = `job_${Date.now()}`;
-        const rawBulletinNumber = String(selectedBulletinId).split('_')[0];
-
-        const { count, error: countError } = await supabase
-            .from('trademark_bulletin_records')
-            .select('*', { count: 'exact', head: true })
-            .in('bulletin_id', [rawBulletinNumber, `bulletin_main_${rawBulletinNumber}`]);
-        
-        if (countError) throw countError;
-
-        if (!count) throw new Error('Seçilen bültende taranacak kayıt bulunamadı.');
-        const totalRecords = count;
-        const { error: createJobError } = await supabase.from('search_progress')
-            .insert({ id: jobId, status: 'processing', current_results: 0, total_records: totalRecords });
-        if (createJobError) throw createJobError;
-        
-        const WORKER_COUNT = Math.min(10, monitoredMarks.length);
-        const chunkSize = Math.ceil(monitoredMarks.length / WORKER_COUNT);
-        
-        const workerRecords = [];
-        const activeChunks = [];
-        
-        let activeWorkerId = 1;
-        for (let i = 0; i < WORKER_COUNT; i++) {
-            const chunk = monitoredMarks.slice(i * chunkSize, (i + 1) * chunkSize);
-            if (chunk.length === 0) continue;
-            
-            workerRecords.push({ id: `${jobId}_w${activeWorkerId}`, job_id: jobId, status: 'processing', progress: 0 });
-            activeChunks.push({ workerId: activeWorkerId, chunk });
-            activeWorkerId++;
-        }
-
-        if (workerRecords.length > 0) {
-            const { error: initWorkersError } = await supabase.from('search_progress_workers').insert(workerRecords);
-            if (initWorkersError) throw initWorkersError;
-        }
-
-        for (const item of activeChunks) {
-            EdgeRuntime.waitUntil(
-                (async () => {
-                    try {
-                        const { error: startWorkerError } = await supabase.functions.invoke('perform-trademark-similarity-search', {
-                            body: { action: 'worker', jobId, workerId: item.workerId, monitoredMarks: item.chunk, selectedBulletinId, lastId: '0', processedCount: 0, totalBulletinRecords: totalRecords },
-                            headers: { Authorization: `Bearer ${supabaseKey}` }
-                        });
-                        if (startWorkerError) throw startWorkerError;
-                    } catch (err) {
-                        console.error(`Worker ${item.workerId} başlatılamadı:`, err);
-                        await markWorkerStatus(supabase, jobId, item.workerId, 'failed');
-                    }
-                })()
-            );
-        }
-
-        return new Response(JSON.stringify({ success: true, jobId, monitoredMarkCount: monitoredMarks.length, workerCount: activeChunks.length }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-
-    } catch (error) {
-        return new Response(JSON.stringify({ success: false, error: error.message }), {
-            status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
+        throw new Error('Bilinmeyen arama eylemi.');
+    } catch (error: any) {
+        console.error('[IPGate] Marka tarama hatası:', error);
+        return reply({ success: false, error: error?.message || String(error) }, 400);
     }
 });

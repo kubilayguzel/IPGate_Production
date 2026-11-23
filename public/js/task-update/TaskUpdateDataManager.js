@@ -133,19 +133,20 @@ export class TaskUpdateDataManager {
             // 🔥 YENİ: Dava Tarafları Senkronizasyonu (Eskileri sil, yenileri yaz)
             if (suitParties && Array.isArray(suitParties)) {
                 // Önce bu davaya ait eski tüm tarafları sil
-                await supabase.from('suit_parties').delete().eq('suit_id', currentSuitId);
+                const { error: partiesDeleteError } = await supabase.from('suit_parties').delete().eq('suit_id', currentSuitId);
+                if (partiesDeleteError) throw partiesDeleteError;
 
                 // Sonra güncel listeyi yaz
                 if (suitParties.length > 0) {
                     const partyInserts = suitParties.map(p => ({
                         suit_id: currentSuitId,
                         role: p.role, // 'davaci' veya 'davali'
-                        person_id: p.id !== 'free_text' ? p.id : null,
-                        free_text_name: p.name
+                        person_id: p.id && !String(p.id).startsWith('free_text') ? p.id : null,
+                        free_text_name: p.name || null
                     }));
                     
                     const { error: partyError } = await supabase.from('suit_parties').insert(partyInserts);
-                    if (partyError) console.error("Taraf ekleme hatası:", partyError);
+                    if (partyError) throw partyError;
                 }
             }
 
@@ -154,6 +155,43 @@ export class TaskUpdateDataManager {
         } catch (error) {
             console.error("Dava kayıt/güncelleme hatası:", error);
             return { success: false, error: error.message };
+        }
+    }
+
+    // Dava portfoyundeki mevcut alanlari is duzenleme ekranindan yeniden YAZMA.
+    // Yalniz dava acilisinda hala bos olan alanlar tamamlanir; mevcut
+    // suit_parties kayitlari silinmez veya yeniden eklenmez.
+    async completeExistingSuitFields(taskId, suitPayload) {
+        try {
+            const existing = await this.getSuitByTaskId(taskId);
+            if (!existing?.id) throw new Error('Var olan dava dosyası tekrar okunamadı.');
+            const changes = {};
+            for (const field of ['court_name', 'file_no', 'opening_date', 'client_id']) {
+                if (!existing[field] && suitPayload[field]) changes[field] = suitPayload[field];
+            }
+            if (Object.keys(changes).length) {
+                const { error } = await supabase.from('suits')
+                    .update(changes).eq('id', String(existing.id));
+                if (error) throw error;
+            }
+            const savedParties = existing.suit_parties || [];
+            for (const role of ['davaci', 'davali']) {
+                if (savedParties.some(p => p.role === role)) continue;
+                const proposed = (suitPayload.suitParties || []).filter(p => p.role === role);
+                if (!proposed.length) continue;
+                const inserts = proposed.map(p => ({
+                    suit_id: String(existing.id),
+                    role,
+                    person_id: p.id && !String(p.id).startsWith('free_text') ? String(p.id) : null,
+                    free_text_name: String(p.name || '').trim() || null
+                }));
+                const { error } = await supabase.from('suit_parties').insert(inserts);
+                if (error) throw error;
+            }
+            return { success: true, data: { id: existing.id }, updated: true };
+        } catch (error) {
+            console.error('Eksik dava açılış alanları kaydedilemedi:', error);
+            return { success: false, error: error.message || String(error) };
         }
     }
 

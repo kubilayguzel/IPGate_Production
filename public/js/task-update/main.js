@@ -48,6 +48,8 @@ class TaskUpdateController {
         this.selectedPersonId = null;
         this.tempRenewalData = null;
         this.suitParties = { plaintifs: [], defendants: [] };
+        this.suitPartyLocks = { plaintif: false, defendant: false };
+        this.existingYidkSuit = null;
         this.oppositionWorkspaceManager = null;
         this.petitionReviewBusy = false;
     }
@@ -295,15 +297,29 @@ class TaskUpdateController {
         const existingYidkSuit = typeStr === '49'
             ? await this.dataManager.getSuitByTaskId(this.taskId)
             : null;
-        // 🔥 YENİ: Veritabanından gelen eski tarafları main.js state'ine yükle
-        if (existingYidkSuit && existingYidkSuit.suit_parties) {
-            this.suitParties.plaintifs = existingYidkSuit.suit_parties
-                .filter(p => p.role === 'davaci')
-                .map(p => ({ id: p.person_id || 'free_text_' + crypto.randomUUID(), name: p.free_text_name }));
-                
-            this.suitParties.defendants = existingYidkSuit.suit_parties
-                .filter(p => p.role === 'davali')
-                .map(p => ({ id: p.person_id || 'free_text_' + crypto.randomUUID(), name: p.free_text_name }));
+        // 49 / YİDK davası: eksik dava açılış bilgileri de taslak olarak saklanır.
+        // Tamamlanmış suits kaydı varsa onu, yoksa tasks.details taslağını kullan.
+        this.existingYidkSuit = existingYidkSuit || null;
+        this.suitPartyLocks = {
+            plaintif: !!existingYidkSuit?.suit_parties?.some(p => p.role === 'davaci'),
+            defendant: !!existingYidkSuit?.suit_parties?.some(p => p.role === 'davali')
+        };
+        const yidkDraft = typeStr === '49' ? this.getTaskDetails().yidk_opening_draft : null;
+        const yidkOpening = (existingYidkSuit && { ...existingYidkSuit, __isPersistedSuit: true }) || (yidkDraft && {
+            court_name: yidkDraft.court_name,
+            file_no: yidkDraft.file_no,
+            opening_date: yidkDraft.opening_date,
+            suit_parties: yidkDraft.suit_parties || []
+        });
+        if (typeStr === '49') {
+            const parties = yidkOpening?.suit_parties || [];
+            const toParty = p => ({
+                id: p.person_id || 'free_text_' + crypto.randomUUID(),
+                name: p.free_text_name || p.name ||
+                    this.masterData.persons.find(person => String(person.id) === String(p.person_id))?.name || ''
+            });
+            this.suitParties.plaintifs = parties.filter(p => p.role === 'davaci').map(toParty);
+            this.suitParties.defendants = parties.filter(p => p.role === 'davali').map(toParty);
         }
 
         if (this.selectedIpRecordId) {
@@ -319,7 +335,7 @@ class TaskUpdateController {
 
         // Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
             if (typeStr === '49') {
-                this.uiManager.buildYidkSuitForm(this.taskData, rec, existingYidkSuit);
+                this.uiManager.buildYidkSuitForm(this.taskData, rec, yidkOpening);
                 // 🔥 Arayüzü güncel verilerle tetikle
                 this.updateSuitPartyUI('plaintif');
                 this.updateSuitPartyUI('defendant');
@@ -327,7 +343,9 @@ class TaskUpdateController {
         } else {
             // Marka verisi yoksa bile Görev tipi 49 ise Dava kartını mevcut dava verisiyle çiz
             if (typeStr === '49') {
-                this.uiManager.buildYidkSuitForm(this.taskData, null, existingYidkSuit);
+                this.uiManager.buildYidkSuitForm(this.taskData, null, yidkOpening);
+                this.updateSuitPartyUI('plaintif');
+                this.updateSuitPartyUI('defendant');
             }
         }
 
@@ -660,6 +678,7 @@ class TaskUpdateController {
     }
 
     addSuitParty(person, role) {
+        if (this.suitPartyLocks?.[role]) return;
         const list = role === 'plaintif' ? this.suitParties.plaintifs : this.suitParties.defendants;
         if (!list.find(p => p.id === person.id)) {
             list.push(person);
@@ -668,6 +687,7 @@ class TaskUpdateController {
     }
 
     removeSuitParty(personId, role) {
+        if (this.suitPartyLocks?.[role]) return;
         if (role === 'plaintif') {
             this.suitParties.plaintifs = this.suitParties.plaintifs.filter(p => p.id !== personId);
         } else {
@@ -693,9 +713,7 @@ class TaskUpdateController {
         container.innerHTML = list.map(p => `
             <div class="d-flex justify-content-between align-items-center p-1 mb-1 border-bottom bg-white">
                 <span class="small font-weight-bold text-dark"><i class="fas fa-user mr-2 text-secondary"></i> ${escapeHtml(p.name)}</span>
-                <button type="button" class="btn btn-xs text-danger border-0 remove-suit-party-btn" data-id="${p.id}" data-role="${role}">
-                    <i class="fas fa-times"></i>
-                </button>
+                ${this.suitPartyLocks?.[role] ? '' : `<button type="button" class="btn btn-xs text-danger border-0 remove-suit-party-btn" data-id="${p.id}" data-role="${role}"><i class="fas fa-times"></i></button>`}
             </div>
         `).join('');
     }
@@ -1198,8 +1216,9 @@ class TaskUpdateController {
     async uploadCourtFiledPdf(file) {
         if (!file) return false;
         const workTypes = new Set(['61', '62', '63', '64', '65', '91', '93', '94', '96', '97']);
+        const litigationForm = window.ipgateLitigationSuitForm;
         const typeId = String(this.taskData?.taskType || this.taskData?.task_type_id || '');
-        if (!document.body.classList.contains('litigation-task-mode') || !workTypes.has(typeId)) {
+        if (!document.body.classList.contains('litigation-task-mode') || (!workTypes.has(typeId) && !litigationForm?.supportsTask(typeId))) {
             showNotification('Mahkemeye sunulan evrak alanı yalnız dava işlerinde kullanılabilir.', 'error');
             return false;
         }
@@ -1218,8 +1237,12 @@ class TaskUpdateController {
             // Kaynağın en yeni kontrol sonucu alınmalı; sayfa açıkken onay gerçekleşmiş olabilir.
             await this.refreshTaskData();
             if (this.taskData?.status === 'completed') throw new Error('Bu dava işi zaten tamamlanmış.');
-            if (this.getPetitionReviewStatus() !== 'approved') {
+            if (workTypes.has(typeId) && this.getPetitionReviewStatus() !== 'approved') {
                 throw new Error('Mahkemeye sunulan PDF ile işi tamamlamak için önce dilekçe kontrolünün Onaylandı durumuna gelmesi gerekir.');
+            }
+            if (litigationForm && !(await litigationForm.persist({ requireComplete: true }))) {
+                // Eksik dava alanlari varsa PDF yukleme baslamaz; mevcut veriler korunur.
+                return false;
             }
             const existing = await supabase.from('task_documents')
                 .select('id')
@@ -1486,7 +1509,9 @@ class TaskUpdateController {
     
     async removeEpatsDocument() {
         if (this.epatsRemovalInProgress) return;
-        if (!confirm('EPATS evrakı silinecek. Emin misiniz?')) return;
+        if (!confirm(String(this.taskData?.taskType || this.taskData?.task_type_id || '') === '49'
+            ? 'Mahkemeye sunulan dava dilekçesi / tevzi PDF silinecek. Emin misiniz?'
+            : 'EPATS evrakı silinecek. Emin misiniz?')) return;
 
         const epatsDoc = this.getOwnedEpatsDocument();
         if (!epatsDoc) {
@@ -1788,15 +1813,86 @@ class TaskUpdateController {
         } else if (this.epatsAddedThisSession) {
             finalStatus = 'completed';
         }
+        // YİDK (49): formda girilen dava açılış verilerini TAMAMLANMA öncesinde de
+        // sakla; daha önce yüklenmiş PDF + onay + eksiksiz bilgilerle işi kapat.
+        // Bu işlem PDF'yi yeniden yüklemez ve diğer görev türlerini etkilemez.
+        let yidkOpeningDraft = null;
+        let yidkPendingFields = false;
+        if (isYidkSuitTask && this.taskData?.status !== 'completed') {
+            const courtEl = document.getElementById('suitCourtName');
+            const fileEl = document.getElementById('suitFileNo');
+            const dateEl = document.getElementById('suitOpeningDate');
+            if (!courtEl || !fileEl || !dateEl) {
+                showNotification('Dava açılış formu yüklenmedi; bilgiler kaydedilemedi.', 'error');
+                return false;
+            }
+            const toSavedParty = (p, role) => ({
+                role,
+                person_id: p.id && !String(p.id).startsWith('free_text') ? String(p.id) : null,
+                free_text_name: String(p.name || '').trim()
+            });
+            yidkOpeningDraft = {
+                court_name: String(courtEl.value || '').trim(),
+                file_no: String(fileEl.value || '').trim(),
+                opening_date: String(dateEl.value || '').trim(),
+                suit_parties: [
+                    ...this.suitParties.plaintifs.map(p => toSavedParty(p, 'davaci')),
+                    ...this.suitParties.defendants.map(p => toSavedParty(p, 'davali'))
+                ]
+            };
+            const yidkReady = Boolean(yidkOpeningDraft.court_name && yidkOpeningDraft.file_no &&
+                yidkOpeningDraft.opening_date && this.suitParties.plaintifs.length &&
+                this.suitParties.defendants.length);
+            yidkPendingFields = !yidkReady;
+
+            // ÖNCE taslağı kaydet: daha sonraki tamamlama/mahkeme işlemi hata verirse
+            // kullanıcı bilgileri kaybolmasın. Her seferinde en güncel details'e merge edilir.
+            const { data: currentYidkTask, error: readDraftError } = await supabase
+                .from('tasks').select('details').eq('id', String(this.taskId)).single();
+            if (readDraftError) {
+                showNotification('Dava açılış bilgileri okunamadı: ' + readDraftError.message, 'error');
+                return false;
+            }
+            let currentYidkDetails = currentYidkTask?.details || {};
+            if (typeof currentYidkDetails === 'string') {
+                try { currentYidkDetails = JSON.parse(currentYidkDetails); }
+                catch (_) { currentYidkDetails = {}; }
+            }
+            const { error: draftWriteError } = await supabase.from('tasks').update({
+                details: { ...currentYidkDetails, yidk_opening_draft: yidkOpeningDraft }
+            }).eq('id', String(this.taskId));
+            if (draftWriteError) {
+                showNotification('Dava açılış bilgileri kaydedilemedi: ' + draftWriteError.message, 'error');
+                return false;
+            }
+
+            // PDF zaten yüklenmiş, dilekçe onaylanmış ve açılış alanları tam ise
+            // kaydederken kullanıcıyı tekrar PDF yüklemeye zorlamadan tamamla.
+            if (yidkReady && ownedEpatsDoc && this.getPetitionReviewStatus() === 'approved') {
+                finalStatus = 'completed';
+            } else if (!yidkReady && finalStatus === 'completed') {
+                finalStatus = 'open';
+                this.epatsAddedThisSession = false;
+            }
+        }
         if (statusSelect) statusSelect.value = finalStatus;
+
+        // Mevcut davanin salt-okunur bilgilerine dokunulmaz. Sadece bos
+        // bilgiler doldurulmus ise asıl suits / suit_parties kaydina yazilir.
+        const litigationSuitForm = window.ipgateLitigationSuitForm;
+        if (litigationSuitForm?.supportsTask(taskTypeStr)) {
+            const stored = await litigationSuitForm.persist({ requireComplete: finalStatus === 'completed' && this.taskData?.status !== 'completed' });
+            if (!stored) return false;
+        }
 
         // Dava dilekçesi kontrolü ve mahkemeye sunulmuş resmi PDF tamamlamanın iki ayrı şartıdır.
         // 49 numaralı dava açılışı mevcut EPATS/tevzi formu yolunu, dava work işleri
         // ise ayrı court_filed_pdf yolunu kullanır. Taslak eklemek hiçbir koşulda kapatmaz.
         const courtWorkTypes = new Set(['61','62','63','64','65','91','93','94','96','97']);
-        const isCourtWork = document.body.classList.contains('litigation-task-mode') && courtWorkTypes.has(taskTypeStr);
+        const isCourtWork = document.body.classList.contains('litigation-task-mode') &&
+            (courtWorkTypes.has(taskTypeStr) || litigationSuitForm?.supportsTask(taskTypeStr));
         if (finalStatus === 'completed' && this.taskData?.status !== 'completed' && (isCourtWork || isYidkSuitTask)) {
-            if (this.getPetitionReviewStatus() !== 'approved') {
+            if ((isYidkSuitTask || courtWorkTypes.has(taskTypeStr)) && this.getPetitionReviewStatus() !== 'approved') {
                 showNotification('Dava dilekçesi kontrolü onaylanmadan dava işi tamamlanamaz.', 'warning');
                 return false;
             }
@@ -1815,7 +1911,7 @@ class TaskUpdateController {
         let epatsDocumentNoForDB = null;
 
         // YİDK iptal davasında bu alan EPATS evrakı değil, dava dilekçesi / tevzi formudur.
-        if (ownedEpatsDoc && !isYidkSuitTask) {
+        if (ownedEpatsDoc && !isYidkSuitTask && !isCourtWork) {
             const evrakNo = document.getElementById('turkpatentEvrakNo')?.value;
             const evrakDate = document.getElementById('epatsDocumentDate')?.value;
 
@@ -1861,12 +1957,22 @@ class TaskUpdateController {
                 suitParties: combinedParties
             };
 
-            const suitRes = await this.dataManager.saveSuitRecord(suitPayload);
+            const existingSuit = this.existingYidkSuit;
+            const existingSuitComplete = !!(
+                existingSuit?.id && existingSuit.court_name && existingSuit.file_no &&
+                existingSuit.opening_date && existingSuit.suit_parties?.some(p => p.role === 'davaci') &&
+                existingSuit.suit_parties?.some(p => p.role === 'davali')
+            );
+            const suitRes = existingSuitComplete
+                ? { success: true, data: { id: existingSuit.id }, updated: true }
+                : existingSuit?.id
+                    ? await this.dataManager.completeExistingSuitFields(this.taskId, suitPayload)
+                    : await this.dataManager.saveSuitRecord(suitPayload);
             if (!suitRes.success) {
                 return showNotification('Dava dosyası açılamadı: ' + suitRes.error, 'error');
             }
 
-            await this.dataManager.logTransaction({
+            if (!existingSuitComplete && !suitRes.updated) await this.dataManager.logTransaction({
                 ip_record_id: this.selectedIpRecordId,
                 task_id: this.taskId,
                 transaction_type_id: taskTypeStr,
@@ -1876,12 +1982,27 @@ class TaskUpdateController {
             });
 
             if (suitRes.data?.id) {
-                await supabase.from('suit_documents').insert({
-                    suit_id: suitRes.data.id,
-                    document_name: ownedEpatsDoc.name,
-                    document_url: ownedEpatsDoc.url,
-                    document_type: 'dava_dilekcesi'
-                });
+                // Tekrar Kaydet / yeniden deneme aynı PDF'yi ikinci kez eklememeli.
+                const { data: existingSuitPdf, error: suitPdfCheckError } = await supabase
+                    .from('suit_documents').select('id')
+                    .eq('suit_id', String(suitRes.data.id))
+                    .eq('document_url', ownedEpatsDoc.url).limit(1);
+                if (suitPdfCheckError) {
+                    showNotification('Dava PDF kaydı kontrol edilemedi: ' + suitPdfCheckError.message, 'error');
+                    return false;
+                }
+                if (!existingSuitPdf?.length) {
+                    const { error: suitPdfError } = await supabase.from('suit_documents').insert({
+                        suit_id: suitRes.data.id,
+                        document_name: ownedEpatsDoc.name,
+                        document_url: ownedEpatsDoc.url,
+                        document_type: 'dava_dilekcesi'
+                    });
+                    if (suitPdfError) {
+                        showNotification('Dava PDF kaydı tamamlanamadı: ' + suitPdfError.message, 'error');
+                        return false;
+                    }
+                }
             }
         }
 
@@ -1922,7 +2043,7 @@ class TaskUpdateController {
             delete currentDetails.status_before_epats_upload;
             delete currentDetails.completed_by_epats;
             detailsChanged = true;
-        } else if (ownedEpatsDoc) {
+        } else if (ownedEpatsDoc && !isCourtWork) {
             if (!isYidkSuitTask) {
                 currentDetails.epatsDocumentDate = epatsDocumentDateForDB;
                 currentDetails.epatsDocumentNo = epatsDocumentNoForDB;
@@ -2050,7 +2171,11 @@ class TaskUpdateController {
             return showNotification('EPATS evrak kaydı doğrulanamadı; görevden ayrılmadan tekrar kontrol edin.', 'error');
         }
 
-        showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
+        if (isYidkSuitTask && yidkPendingFields && finalStatus !== 'completed') {
+            showNotification('Dava açılış bilgileri taslak olarak kaydedildi. Eksik mahkeme, esas, tarih veya taraf bilgileri nedeniyle iş açık kaldı.', 'warning');
+        } else {
+            showNotification('Değişiklikler başarıyla kaydedildi.', 'success');
+        }
         localStorage.setItem('crossTabUpdatedTaskId', this.taskId);
         setTimeout(() => { window.location.href = this.returnTarget; }, 1000);
         return true;

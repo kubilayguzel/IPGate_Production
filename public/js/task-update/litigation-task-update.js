@@ -301,6 +301,9 @@ class LitigationTaskUpdateView {
         this.subjectAsset = null;
         this.client = null;
         this.taskDocuments = [];
+        this.suitParties = [];
+        this.suitPartiesLoadError = null;
+        this.personNames = {};
         this.active = false;
     }
 
@@ -352,16 +355,14 @@ class LitigationTaskUpdateView {
                 taskTypeId
             );
 
-        // Yeni dava dosyası açılış task'ları mevcut özel ekranında kalır.
-        // 8D-3 yalnız mevcut suit üzerindeki work child task'larını dönüştürür.
-        if (
-            String(
-                taskType?.suit_event_kind ||
-                ''
-            ) !== 'work'
-        ) {
+        // 49 kodlu YIDK dava acilisi kendi formunda kalir.
+        // Diger tum dava work / dava stage islerinde ayni resmi PDF karti kullanilir.
+        const isLitigationWork = String(taskType?.suit_event_kind || '') === 'work';
+        const isLitigationStage = STAGE_PARENT_TYPES.has(taskTypeId) && taskTypeId !== '49';
+        if (taskTypeId === '49' || (!isLitigationWork && !isLitigationStage)) {
             return;
         }
+        this.isLitigationWork = isLitigationWork;
 
         this.task = task;
         this.suit = suit;
@@ -380,6 +381,7 @@ class LitigationTaskUpdateView {
             );
         this.taskDocuments =
             await this.loadTaskDocuments();
+        this.suitParties = await this.loadSuitParties();
 
         this.active = true;
 
@@ -673,6 +675,207 @@ class LitigationTaskUpdateView {
         }
 
         return data || [];
+    }
+
+    async loadSuitParties() {
+        const { data, error } = await supabase
+            .from('suit_parties')
+            .select('id, role, person_id, free_text_name')
+            .eq('suit_id', String(this.suit.id));
+        if (error) {
+            console.error('[DAVA PDF] Dava taraflari okunamadi:', error);
+            this.suitPartiesLoadError = error;
+            return [];
+        }
+        this.suitPartiesLoadError = null;
+        const rows = data || [];
+        const personIds = [...new Set(rows.map(p => p.person_id).filter(Boolean))];
+        if (personIds.length) {
+            const names = await supabase.from('persons')
+                .select('id, name').in('id', personIds);
+            if (!names.error) {
+                for (const person of names.data || []) this.personNames[String(person.id)] = person.name;
+            }
+        }
+        return rows;
+    }
+
+    // Dava dosyasinin mevcut kayitlari salt okunurdur. Sadece BOS alanlar
+    // yeni bilgi kabul eder. Dolu alanlarin asil duzenleme yeri dava portfoyudur.
+    getPartyNames(role, rows = this.suitParties) {
+        const saved = rows.filter(row => row.role === role);
+        if (saved.length) {
+            return saved.map(row =>
+                row.free_text_name || this.personNames[String(row.person_id)] ||
+                (String(row.person_id || '') === String(this.suit.client_id || '') ? this.client?.name : '') ||
+                'Dava portföyünde kayıtlı taraf'
+            ).filter(Boolean);
+        }
+        const clientRole = String(this.suit.client_role || '').toLowerCase().trim();
+        if (!['davaci', 'davali'].includes(clientRole)) return [];
+        const fallback = role === clientRole
+            ? this.client?.name
+            : this.suit.opposing_party;
+        return fallback ? [String(fallback)] : [];
+    }
+
+    renderCourtSuitForm() {
+        const card = document.getElementById('courtFiledPdfCard');
+        const area = card?.querySelector('.card-body-custom');
+        if (!area || document.getElementById('courtFiledSuitDetails')) return;
+        const stored = this.suit;
+        const date = String(stored.opening_date || '').slice(0, 10);
+        const namesFor = role => this.getPartyNames(role).join('\n');
+        const locked = {
+            court: !!String(stored.court_name || '').trim(),
+            file: !!String(stored.file_no || '').trim(),
+            date: !!date,
+            davaci: this.getPartyNames('davaci').length > 0,
+            davali: this.getPartyNames('davali').length > 0
+        };
+        const input = (id, label, value, isLocked, type='text') => `
+            <div class="form-group mb-2">
+                <label class="form-label font-weight-bold" for="${id}">${label}</label>
+                <input id="${id}" type="${type}" class="form-control" value="${esc(value)}"
+                    ${isLocked ? 'disabled' : ''} ${type==='date' ? 'max="9999-12-31"' : ''}>
+            </div>`;
+        const party = (role, label, value, isLocked) => `
+            <div class="form-group mb-2">
+                <label class="form-label font-weight-bold" for="litCourt_${role}">${label}</label>
+                <textarea id="litCourt_${role}" class="form-control" rows="2"
+                  ${isLocked ? 'disabled' : ''} placeholder="Birden fazla taraf için her satıra bir isim yazınız">${esc(value)}</textarea>
+            </div>`;
+        const html = `
+            <div id="courtFiledSuitDetails" class="p-3 mb-3 rounded border" style="background:#f8fafc">
+                <div class="font-weight-bold mb-2"><i class="fas fa-landmark mr-1"></i>Dava Dosyası Bilgileri</div>
+                <div class="small text-muted mb-3">Kayıtlı bilgiler düzenlemeye kapalıdır; değişiklikleri Dava Portföyünden yapabilirsiniz. Eksik alanları burada tamamlayabilirsiniz.</div>
+                ${this.suitPartiesLoadError ? '<div class="alert alert-danger small">Dava tarafları okunamadı. Kayıt yapılmadan önce sayfayı yenileyin.</div>' : ''}
+                <div class="row">
+                    <div class="col-md-6">${input('litCourt_court', 'Mahkeme Adı', stored.court_name || '', locked.court)}</div>
+                    <div class="col-md-6">${input('litCourt_file', 'Esas / Dosya Numarası', stored.file_no || '', locked.file)}</div>
+                    <div class="col-md-6">${input('litCourt_date', 'Dava Açılış Tarihi', date, locked.date, 'date')}</div>
+                    <div class="col-md-6"></div>
+                    <div class="col-md-6">${party('davaci', 'Davacı(lar)', namesFor('davaci'), locked.davaci)}</div>
+                    <div class="col-md-6">${party('davali', 'Davalı(lar)', namesFor('davali'), locked.davali)}</div>
+                </div>
+                <div class="small text-muted" id="courtFiledSuitHint">${Object.values(locked).every(Boolean)
+                    ? 'Dava bilgileri kayıtlı. İşe devam etmek için yalnızca mahkemeye sunulmuş PDF yüklemeniz yeterlidir.'
+                    : 'Eksik dava bilgilerini tamamlayıp Kaydet düğmesini kullanabilir veya bilgileri tamamladıktan sonra doğrudan PDF yükleyebilirsiniz.'}</div>
+            </div>`;
+        area.insertAdjacentHTML('afterbegin', html);
+    }
+
+    notifySuitForm(message, error = true) {
+        let warning = document.getElementById('courtFiledSuitMessage');
+        if (!warning) {
+            const container = document.getElementById('courtFiledSuitDetails');
+            if (container) {
+                warning = document.createElement('div');
+                warning.id = 'courtFiledSuitMessage';
+                container.prepend(warning);
+            }
+        }
+        if (warning) {
+            warning.textContent = message;
+            warning.className = error ? 'alert alert-warning small' : 'alert alert-success small';
+        }
+        if (error) console.warn('[DAVA PDF]', message);
+    }
+
+    // Ayni API hem is duzenle Kaydet hem de PDF yukleme akisi tarafindan kullanilir.
+    // Yazma islemi sadece eksik suits/suit_parties hucrelerine yapilir.
+    async persistSuitFields({ requireComplete = false } = {}) {
+        if (!this.active || this.suitPartiesLoadError) {
+            this.notifySuitForm('Dava bilgileri okunamadı. Sayfayı yenileyin.');
+            return false;
+        }
+        const byId = id => document.getElementById(id);
+        const values = {
+            court_name: String(byId('litCourt_court')?.value || '').trim(),
+            file_no: String(byId('litCourt_file')?.value || '').trim(),
+            opening_date: String(byId('litCourt_date')?.value || '').trim()
+        };
+        const additions = {};
+        let latestSuit, latestParties;
+        try {
+            const [suitRes, partyRes] = await Promise.all([
+                supabase.from('suits')
+                    .select('id,court_name,file_no,opening_date,client_role,opposing_party,client_id')
+                    .eq('id', String(this.suit.id)).single(),
+                supabase.from('suit_parties')
+                    .select('id,role,person_id,free_text_name')
+                    .eq('suit_id', String(this.suit.id))
+            ]);
+            if (suitRes.error) throw suitRes.error;
+            if (partyRes.error) throw partyRes.error;
+            latestSuit = suitRes.data;
+            latestParties = partyRes.data || [];
+            for (const field of ['court_name','file_no','opening_date']) {
+                if (!latestSuit[field] && values[field]) {
+                    additions[field] = field === 'opening_date'
+                        ? `${values[field]}T12:00:00+00:00` : values[field];
+                }
+            }
+            if (Object.keys(additions).length) {
+                const up = await supabase.from('suits')
+                    .update(additions).eq('id', String(this.suit.id));
+                if (up.error) throw up.error;
+                Object.assign(latestSuit, additions);
+            }
+            for (const role of ['davaci','davali']) {
+                if (latestParties.some(row => row.role === role)) continue;
+                // Dava portfoyundeki client/opposing_party alanlarindan
+                // okunabilen taraflar tekrar yazilmaz.
+                const existing = this.getPartyNames(role, latestParties);
+                if (existing.length) continue;
+                const entered = String(byId(`litCourt_${role}`)?.value || '')
+                    .split(/\r?\n/).map(t => t.trim()).filter(Boolean);
+                if (!entered.length) continue;
+                const inserts = entered.map(name => ({
+                    suit_id: String(this.suit.id), role,
+                    person_id: null, free_text_name: name
+                }));
+                const ins = await supabase.from('suit_parties').insert(inserts);
+                if (ins.error) throw ins.error;
+                latestParties.push(...inserts);
+            }
+            Object.assign(this.suit, latestSuit);
+            this.suitParties = latestParties;
+            // Gercek veritabanina yazilan dolu alanlari aninda kilitle.
+            for (const [key,id] of Object.entries({
+                court_name:'litCourt_court',file_no:'litCourt_file',opening_date:'litCourt_date'
+            })) {
+                const field = byId(id);
+                if (field && latestSuit[key]) {
+                    field.value = key === 'opening_date'
+                        ? String(latestSuit[key]).slice(0,10) : latestSuit[key];
+                    field.disabled = true;
+                }
+            }
+            for (const role of ['davaci','davali']) {
+                const field = byId(`litCourt_${role}`);
+                if (field && this.getPartyNames(role, latestParties).length) {
+                    field.value = this.getPartyNames(role, latestParties).join('\n');
+                    field.disabled = true;
+                }
+            }
+            const complete = !!(latestSuit.court_name && latestSuit.file_no && latestSuit.opening_date &&
+                this.getPartyNames('davaci', latestParties).length &&
+                this.getPartyNames('davali', latestParties).length);
+            if (requireComplete && !complete) {
+                this.notifySuitForm('Mahkemeye sunulmuş PDF ile işi tamamlamak için dava açılış bilgilerinin (mahkeme, esas no, tarih, davacı ve davalı) tamamlanması gerekir. Eksikleri doldurup tekrar deneyin.');
+                return false;
+            }
+            if (Object.keys(additions).length || latestParties.length) {
+                const hint = byId('courtFiledSuitHint');
+                if (hint && complete) hint.textContent = 'Dava bilgileri kayıtlı. İşe devam etmek için yalnızca mahkemeye sunulmuş PDF yüklemeniz yeterlidir.';
+            }
+            return true;
+        } catch (error) {
+            console.error('[DAVA PDF] Eksik dava bilgilerini kaydetme hatası:', error);
+            this.notifySuitForm('Dava bilgileri kaydedilemedi: ' + (error?.message || String(error)));
+            return false;
+        }
     }
 
     async waitForTaskForm() {
@@ -1076,19 +1279,21 @@ class LitigationTaskUpdateView {
         // Genel belgeler bölümüne yüklenen herhangi bir PDF artık tamamlanma tetiklemez.
         const workType = String(this.task?.task_type_id || '');
         const petitionWorkTypes = new Set(['61','62','63','64','65','91','93','94','96','97']);
-        if (petitionWorkTypes.has(workType) && !document.getElementById('courtFiledPdfCard')) {
+        if (!document.getElementById('courtFiledPdfCard')) {
             const filedCard = document.createElement('div');
             filedCard.id = 'courtFiledPdfCard';
             filedCard.className = 'premium-card section-card';
             filedCard.style.borderLeft = '5px solid #15803d';
             filedCard.innerHTML = `
                 <div class="card-header-custom section-title" style="color:#166534">
-                    <span><i class="fas fa-gavel mr-2"></i> Mahkemeye Sunulan PDF · İşi Tamamla</span>
+                    <span><i class="fas fa-gavel mr-2"></i> Mahkemeye Sunulan Dava Dilekçesi / Tevzi PDF</span>
                 </div>
                 <div class="card-body-custom">
                     <div class="alert alert-success small mb-3">
                         Bu alana yalnız <strong>mahkemeye sunulmuş nihai PDF</strong> yükleyin.
-                        <strong>Dilekçe Kontrolü Onaylandı</strong> durumunda yükleme işi tamamlar.
+                        ${petitionWorkTypes.has(workType)
+                            ? '<strong>Dilekçe Kontrolü Onaylandı</strong> durumunda yükleme işi tamamlar.'
+                            : 'Dava bilgileri eksiksizse PDF yüklemesi işlemi tamamlar.'}
                         Üstteki taslak ve ek belge alanı işi kapatmaz.
                     </div>
                     <div id="courtFiledPdfList" class="mb-3 small text-muted">Henüz mahkemeye sunulmuş PDF yüklenmedi.</div>
@@ -1100,6 +1305,7 @@ class LitigationTaskUpdateView {
                     </div>
                 </div>`;
             card.insertAdjacentElement('afterend', filedCard);
+            this.renderCourtSuitForm();
             const area = filedCard.querySelector('#courtFiledPdfUploadArea');
             const filedInput = filedCard.querySelector('#courtFiledPdfInput');
             const send = f => {
@@ -1228,6 +1434,12 @@ class LitigationTaskUpdateView {
         this.renderContextCard();
         this.hideGenericCards();
         this.renderDocumentArea();
+        // Diger dava islerinde tek resmi belge giris yolu bu karttir.
+        // 49/YIDK'nin mevcut kendine ozgu kaydetme sistemi korunur.
+        window.ipgateLitigationSuitForm = {
+            supportsTask: typeId => this.active && String(typeId) === String(this.task.task_type_id),
+            persist: options => this.persistSuitFields(options)
+        };
 
         console.log(
             '[AŞAMA 8D-3] Litigation task-update mode aktif.',

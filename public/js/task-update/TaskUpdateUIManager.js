@@ -27,6 +27,7 @@ export class TaskUpdateUIManager {
     }
 
     fillForm(task, users) {
+        this.currentTaskType = String(task.taskType || task.task_type_id || '');
         this.elements.title.value = task.title || '';
         this.elements.desc.value = task.description || '';
         this.elements.priority.value = task.priority || 'medium';
@@ -68,9 +69,19 @@ export class TaskUpdateUIManager {
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
         }[m]));
 
+        // Veri gercek suits tablosundan geliyorsa, sadece DOLU alanlari kilitle.
+        // tasks.details taslagi bu isleme dahil degildir.
+        const fromSuit = suitData?.__isPersistedSuit === true;
         const selectedCourt = suitData?.court_name || '';
         const existingFileNo = suitData?.file_no || '';
         const existingOpeningDate = suitData?.opening_date || '';
+        const locks = {
+            court: fromSuit && !!String(selectedCourt).trim(),
+            fileNo: fromSuit && !!String(existingFileNo).trim(),
+            openingDate: fromSuit && !!String(existingOpeningDate).trim(),
+            plaintiffs: fromSuit && (suitData?.suit_parties || []).some(p => p.role === 'davaci'),
+            defendants: fromSuit && (suitData?.suit_parties || []).some(p => p.role === 'davali')
+        };
 
         const existingParties = suitData?.suit_parties || [];
         const initDavaci = JSON.stringify(existingParties.filter(p => p.role === 'davaci').map(p => ({id: 'free_text', name: p.free_text_name})));
@@ -80,10 +91,10 @@ export class TaskUpdateUIManager {
 
         const epatsArea = document.getElementById('epatsFileUploadArea');
         if (epatsArea) {
-            const epatsCard = epatsArea.closest('.card');
+            const epatsCard = epatsArea.closest('.premium-card, .card');
             if (epatsCard) {
-                const header = epatsCard.querySelector('.card-header h6, .card-header .m-0');
-                if (header) header.innerHTML = '<i class="fas fa-gavel mr-2"></i>YİDK İptal Davası Açılış Bilgileri';
+                const header = epatsCard.querySelector('.card-header-custom .section-title span, .card-header-custom span, .card-header h6, .card-header .m-0');
+                if (header) header.innerHTML = '<i class="fas fa-gavel mr-2"></i>Mahkemeye Sunulan Dava Dilekçesi / Tevzi PDF';
             }
             const uploadLabel = epatsArea.querySelector('p, span, .upload-text');
             if (uploadLabel) uploadLabel.textContent = 'Dava Dilekçesi ve Tevzi Formu';
@@ -107,6 +118,10 @@ export class TaskUpdateUIManager {
             }).join('');
         }
 
+        if (selectedCourt && !courtOptions.includes(`value="${esc(selectedCourt)}"`)) {
+            courtOptions += `<option value="${esc(selectedCourt)}" selected>${esc(selectedCourt)}</option>`;
+        }
+
         const brandDisplay = ipRecord ? `${ipRecord.brand_name || ipRecord.brandName || ipRecord.title} (${ipRecord.application_number || ipRecord.applicationNumber || '-'})` : 'Bilinmiyor';
 
         const suitFieldsHtml = `
@@ -118,15 +133,15 @@ export class TaskUpdateUIManager {
                     </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitCourtName" class="font-weight-bold small">Mahkeme Adı <span class="text-danger">*</span></label>
-                        <select id="suitCourtName" class="form-control select2" required>${courtOptions}</select>
+                        <select id="suitCourtName" class="form-control select2" ${locks.court ? 'disabled' : ''} required>${courtOptions}</select>
                     </div>
                     <div class="col-md-6 mb-3 px-1">
                         <label for="suitFileNo" class="font-weight-bold small">Esas Numarası <span class="text-danger">*</span></label>
-                        <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" value="${esc(existingFileNo)}" required>
+                        <input type="text" id="suitFileNo" class="form-control" placeholder="Örn: 2026/123" value="${esc(existingFileNo)}" ${locks.fileNo ? 'disabled' : ''} required>
                     </div>
                     <div class="col-md-12 mb-3 px-1">
                         <label for="suitOpeningDate" class="font-weight-bold small">Dava Tarihi <span class="text-danger">*</span></label>
-                        <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" value="${esc(existingOpeningDate)}" required>
+                        <input type="text" id="suitOpeningDate" class="form-control bg-white" placeholder="GG.AA.YYYY" value="${esc(existingOpeningDate)}" ${locks.openingDate ? 'disabled' : ''} required>
                     </div>
                 </div>
                 <div class="row m-0 mt-2 border-top pt-3">
@@ -134,10 +149,10 @@ export class TaskUpdateUIManager {
                         <label class="font-weight-bold small text-success"><i class="fas fa-user-plus mr-1"></i> Davacılar</label>
                         <div class="d-flex mb-2" style="position:relative;">
                             <div class="w-100 position-relative">
-                                <input type="text" id="suitPlaintifSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off">
+                                <input type="text" id="suitPlaintifSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off" ${locks.plaintiffs ? 'disabled' : ''}>
                                 <div id="suitPlaintifSearchResults" class="search-results-list shadow-sm" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto;"></div>
                             </div>
-                            <button type="button" class="btn btn-sm btn-success ml-2 add-suit-party-btn" data-role="plaintif"><i class="fas fa-plus"></i></button>
+                            <button type="button" class="btn btn-sm btn-success ml-2 add-suit-party-btn" data-role="plaintif" ${locks.plaintiffs ? 'disabled' : ''}><i class="fas fa-plus"></i></button>
                         </div>
                         <div id="selectedSuitPlaintifsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
                     </div>
@@ -145,15 +160,16 @@ export class TaskUpdateUIManager {
                         <label class="font-weight-bold small text-danger"><i class="fas fa-user-minus mr-1"></i> Davalılar</label>
                         <div class="d-flex mb-2" style="position:relative;">
                             <div class="w-100 position-relative">
-                                <input type="text" id="suitDefendantSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off">
+                                <input type="text" id="suitDefendantSearch" class="form-control form-control-sm" placeholder="DB'den ara veya serbest yaz..." autocomplete="off" ${locks.defendants ? 'disabled' : ''}>
                                 <div id="suitDefendantSearchResults" class="search-results-list shadow-sm" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto;"></div>
                             </div>
-                            <button type="button" class="btn btn-sm btn-danger ml-2 add-suit-party-btn" data-role="defendant"><i class="fas fa-plus"></i></button>
+                            <button type="button" class="btn btn-sm btn-danger ml-2 add-suit-party-btn" data-role="defendant" ${locks.defendants ? 'disabled' : ''}><i class="fas fa-plus"></i></button>
                         </div>
                         <div id="selectedSuitDefendantsDisplay" class="d-flex flex-column gap-1" style="min-height:60px;"></div>
                     </div>
                 </div>
-            </div>`;
+            </div>
+            ${Object.values(locks).some(Boolean) ? '<div class="alert alert-light small mt-2"><i class="fas fa-lock mr-1"></i> Kayıtlı dava bilgileri salt okunurdur. Değişiklikleri Dava Portföyünden yapabilirsiniz.</div>' : ''}`;
 
         if (epatsArea && !document.getElementById('yidkSpecificFields')) {
             epatsArea.insertAdjacentHTML('beforebegin', suitFieldsHtml);
@@ -167,8 +183,14 @@ export class TaskUpdateUIManager {
                     altInput: true,
                     altFormat: "d.m.Y",
                     locale: "tr",
-                    defaultDate: existingOpeningDate || new Date()
+                    defaultDate: existingOpeningDate || undefined,
+                    clickOpens: !locks.openingDate,
+                    allowInput: !locks.openingDate
                 });
+                if (locks.openingDate) {
+                    const datePicker = document.getElementById('suitOpeningDate')?._flatpickr;
+                    if (datePicker?.altInput) datePicker.altInput.disabled = true;
+                }
             }
         }, 100);
     }
@@ -261,7 +283,9 @@ export class TaskUpdateUIManager {
         const subText = isParentDocument && d.type === 'epats_document'
             ? '<span class="badge badge-secondary ml-2">Ana Görev · EPATS</span>'
             : (isEpats
-                ? '<span class="badge badge-info ml-2">EPATS</span>'
+                ? (this.currentTaskType === '49'
+                    ? '<span class="badge badge-success ml-2">Mahkemeye Sunulan PDF</span>'
+                    : '<span class="badge badge-info ml-2">EPATS</span>')
                 : (isPetition
                     ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
                     : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : '')));

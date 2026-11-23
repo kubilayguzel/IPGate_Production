@@ -365,10 +365,17 @@ serve(async (req: Request) => {
             console.log(`[MAIL-DEBUG] Göreve (Task: ${record.id}) ait task_documents araması yapıldı. Bulunan evrak sayısı: ${taskDocs ? taskDocs.length : 0}`);
             if (docsErr) console.error(`[MAIL-DEBUG] task_documents çekilirken hata:`, docsErr);
 
+            // 49 / YİDK dava açılışı: yalnız EN SON resmî tevzi PDF'i bildirime ekle.
+            // Onaylanan Word dilekçe taslağı ve Genel Belgeler mail eki değildir.
+            const completionDocs = taskTypeId === '49'
+                ? (taskDocs || []).filter(d => d.document_type === 'epats_document' && d.document_url)
+                    .sort((a, b) => Date.parse(b.uploaded_at || '1970-01-01') - Date.parse(a.uploaded_at || '1970-01-01'))
+                    .slice(0, 1)
+                : (taskDocs || []);
             let primaryDocId = null;
-            if (taskDocs && taskDocs.length > 0) {
-                const epats = taskDocs.find(d => d.document_type === 'epats_document');
-                primaryDocId = epats ? epats.id : taskDocs[0].id;
+            if (completionDocs.length > 0) {
+                const epats = completionDocs.find(d => d.document_type === 'epats_document');
+                primaryDocId = epats ? epats.id : completionDocs[0].id;
             }
             
             let templateId = null;
@@ -510,10 +517,10 @@ serve(async (req: Request) => {
             if (insErr) {
                 console.error(`[MAIL-DEBUG] KRİTİK HATA: mail_notifications eklenemedi!`, insErr);
             } else {
-                if (taskDocs && taskDocs.length > 0) {
-                    console.log(`[MAIL-DEBUG] Bildirime ait ${taskDocs.length} adet evrak 'mail_attachments' tablosuna KOPYALANIYOR...`);
-                    
-                    const attachmentsToInsert = taskDocs.map(doc => ({
+                if (completionDocs.length > 0) {
+                    console.log(`[MAIL-DEBUG] Bildirime ait ${completionDocs.length} adet evrak 'mail_attachments' tablosuna KOPYALANIYOR...`);
+
+                    const attachmentsToInsert = completionDocs.map(doc => ({
                         id: crypto.randomUUID(),
                         notification_id: notificationId,
                         file_name: doc.document_name,

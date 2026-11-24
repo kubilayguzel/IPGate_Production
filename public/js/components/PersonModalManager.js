@@ -8,6 +8,11 @@ const $ = window.jQuery || window.$;
 // Portföy yöneticisi seçilmemiş kişiler için varsayılan kullanıcı: Muhammed Özcan
 const DEFAULT_PORTFOLIO_MANAGER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
 const DEFAULT_PETITION_CONTROLLER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
+const FOREIGN_PORTFOLIO_MANAGERS = new Set([
+    '752b2087-2513-4b25-841a-b6acd6ab4141', // Sinejan Güngör
+    'f712cbf3-5156-4bfa-ad86-1425b12901ee'  // Beyza Sevinç
+]);
+
 
 export class PersonModalManager {
     constructor(options = {}) {
@@ -20,6 +25,10 @@ export class PersonModalManager {
         this.relatedDraft = [];
         this.relatedLoaded = [];
         this.relatedToDelete = [];
+        this.portfolioNationalityChangeToken = 0;
+        this.portfolioAutoManagerPending = false;
+        this.portfolioAutoManagerError = null;
+        this.portfolioAutoManagerReady = false;
         this.init();
     }
 
@@ -277,8 +286,9 @@ export class PersonModalManager {
                                                             <option value="">Atanmadı</option>
                                                         </select>
                                                         <small class="form-text text-muted mt-2">
-                                                            Varsayılan portföy yöneticisi Muhammed Özcan'dır. Client rolündeki ve pasif kullanıcılar listelenmez.
+                                                            Yerli müvekkillerde varsayılan Muhammed Özcan; yabancı müvekkillerde Sinejan Güngör ve Beyza Sevinç sırayla atanır.
                                                         </small>
+                                                        <small id="portfolio-manager-nationality-hint" class="form-text text-primary mt-2" aria-live="polite"></small>
                                                     </div>
                                                 </div>
 
@@ -370,7 +380,9 @@ export class PersonModalManager {
         };
 
         if(el('personNationalityType')) el('personNationalityType').onchange = async (e) => {
+            // Veri tabani nihai atamayi yapar; burada kullaniciya beklenen sorumluyu goster.
             await this.applyNationalityUi(e.target.value, { resetCountry: true });
+            await this.syncPortfolioManagerAfterNationalityChange();
         };
         
         if(el('personType')) el('personType').onchange = (e) => {
@@ -524,11 +536,86 @@ export class PersonModalManager {
         this.applyPersonIdentityUi();
     }
 
+    // Sadece yeni yabanci kayitlarda veya mevcut kisinin statuyu DEGISTIRDIGI durumda
+    // otomatik atama yapilir. Daha once tanimlanmis kisilerin yoneticileri korunur.
+    requiresNationalityPortfolioManagerReassignment() {
+        const newNationality = this.getNationalityType();
+        if (!this.isEdit) return newNationality === 'foreign';
+        const previous = this.originalPersonData?.nationalityType;
+        return Boolean(previous && previous !== newNationality);
+    }
+
+    async syncPortfolioManagerAfterNationalityChange() {
+        const managerSelect = document.getElementById('person-portfolio-manager');
+        const hint = document.getElementById('portfolio-manager-nationality-hint');
+        if (!managerSelect) return;
+
+        const token = ++this.portfolioNationalityChangeToken;
+        const nationality = this.getNationalityType();
+        const shouldAutoAssign = this.requiresNationalityPortfolioManagerReassignment();
+        this.portfolioAutoManagerPending = shouldAutoAssign;
+        this.portfolioAutoManagerError = null;
+        this.portfolioAutoManagerReady = false;
+        managerSelect.disabled = true;
+        if (hint) hint.textContent = '';
+
+        try {
+            if (shouldAutoAssign) {
+                // Yalniz goruntuleme: sirayi ARTIRMAZ. Kesin atama kisi INSERT/UPDATE
+                // transaction'i icindeki Postgres trigger ile atomik yapilir.
+                const { data: previewUserId, error } = await supabase.rpc(
+                    'preview_person_portfolio_manager',
+                    { p_nationality_type: nationality }
+                );
+                if (error) throw new Error('Portföy yöneticisi önizlemesi alınamadı. SQL güncellemesini kontrol edin: ' + error.message);
+                if (token !== this.portfolioNationalityChangeToken || nationality !== this.getNationalityType()) return;
+                const nextId = String(previewUserId || '');
+                if (!nextId || !Array.from(managerSelect.options).some(option => option.value === nextId)) {
+                    throw new Error('Otomatik atanacak portföy sorumlusu aktif kullanıcılar arasında bulunamadı.');
+                }
+                managerSelect.value = nextId;
+                this.portfolioAutoManagerReady = true;
+                const displayed = managerSelect.selectedOptions[0]?.textContent || 'Seçilen personel';
+                if (hint) {
+                    hint.textContent = nationality === 'foreign'
+                        ? `${displayed} sıradaki sorumlu olarak gösteriliyor. Kesin atama kayıt sırasında yapılır.`
+                        : `${displayed} statü değişikliği nedeniyle otomatik atanacak.`;
+                }
+                // Statü değişirken yanlış portföy yöneticisinin elle korunmasına izin verme.
+                managerSelect.disabled = true;
+            } else {
+                if (this.isEdit && this.currentPersonId) {
+                    await this.loadAssignedPortfolioManager(this.currentPersonId);
+                } else {
+                    managerSelect.value = DEFAULT_PORTFOLIO_MANAGER_USER_ID;
+                }
+                if (token !== this.portfolioNationalityChangeToken || nationality !== this.getNationalityType()) return;
+                managerSelect.disabled = false;
+                if (hint) hint.textContent = 'Mevcut statüde portföy sorumlusu elle düzenlenebilir.';
+            }
+        } catch (err) {
+            if (token !== this.portfolioNationalityChangeToken) return;
+            this.portfolioAutoManagerError = err.message || String(err);
+            managerSelect.value = '';
+            managerSelect.disabled = true;
+            if (hint) hint.textContent = 'Atama doğrulanamadı. Kayıt yapılamaz: ' + this.portfolioAutoManagerError;
+            showNotification('Portföy yöneticisi belirlenemedi: ' + this.portfolioAutoManagerError, 'error');
+        } finally {
+            if (token === this.portfolioNationalityChangeToken) {
+                this.portfolioAutoManagerPending = false;
+            }
+        }
+    }
+
     async open(personId = null, callback = null) {
         this.isEdit = !!personId;
         this.currentPersonId = personId || crypto.randomUUID(); 
         this.tempCallback = callback; 
         this.originalPersonData = null; // 🔥 GÜVENLİK 1: Önceki açılıştan kalan verileri temizle
+        ++this.portfolioNationalityChangeToken;
+        this.portfolioAutoManagerPending = false;
+        this.portfolioAutoManagerError = null;
+        this.portfolioAutoManagerReady = false;
         this.resetForm();
         this.petitionAssignmentsLoadError = null;
         this.petitionControllerOptionsError = null;
@@ -605,6 +692,7 @@ export class PersonModalManager {
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Yükleniyor...';
 
         try {
+            let autoAssignedPortfolioManagerName = null;
             const countrySel = document.getElementById('countrySelect');
             const provinceSel = document.getElementById('provinceSelect');
             const districtSel = document.getElementById('districtSelect'); // 🔥 YENİ
@@ -622,6 +710,27 @@ export class PersonModalManager {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Kaydet';
                 return showNotification('Yabancı kişi için Türkiye dışında bir ülke seçiniz.', 'warning');
+            }
+
+            // Statü değişikliği / yeni yabancı kişi kaydında yöneticiyi Postgres
+            // otomatik belirleyecek. Önizleme çalışmadıysa kaydı DURDUR.
+            const autoManagerRequired = this.requiresNationalityPortfolioManagerReassignment();
+            if (autoManagerRequired) {
+                if (this.portfolioAutoManagerPending || this.portfolioAutoManagerError || !this.portfolioAutoManagerReady) {
+                    throw new Error('Kişi statüsü değişti, ancak portföy yöneticisi doğrulanamadı. Önce statü seçimini tekrarlayıp otomatik atamayı tamamlayın. ' + (this.portfolioAutoManagerError || ''));
+                }
+                const managerSelect = document.getElementById('person-portfolio-manager');
+                const { data: currentPreviewId, error: previewError } = await supabase.rpc(
+                    'preview_person_portfolio_manager',
+                    { p_nationality_type: nationalityType }
+                );
+                if (previewError || !currentPreviewId) {
+                    throw new Error('Kayıt öncesi portföy yöneticisi kontrolü başarısız: ' + (previewError?.message || 'Sorumlu yok'));
+                }
+                if (String(managerSelect?.value || '') !== String(currentPreviewId)) {
+                    if (managerSelect) managerSelect.value = String(currentPreviewId);
+                    throw new Error('Bu sırada başka bir yabancı müvekkil kaydedildi. Portföy yöneticisi yeni sıraya göre güncellendi; lütfen kontrol edip yeniden Kaydet seçin.');
+                }
             }
 
             const processedDocs = [];
@@ -703,13 +812,34 @@ export class PersonModalManager {
                 savedId = res.data.id;
             }
 
-            // IPGATE_PORTFOLIO_MANAGER_V1: Müvekkilin portföy yöneticisini kaydet
-            const portfolioManagerResult = await portfolioManagerService.setPersonPortfolioManager(
-                savedId,
-                personData.portfolioManagerUserId
-            );
-            if (!portfolioManagerResult.success) {
-                throw new Error('Portföy yöneticisi kaydedilemedi: ' + portfolioManagerResult.error);
+            if (autoManagerRequired) {
+                // INSERT/UPDATE nationality_type trigger'i aynı SQL transaction'ında
+                // sıradaki sorumluyu belirler. Buradan ikinci UPDATE yaparsak
+                // eş zamanlı iki kayıtta doğru round-robin atamayı yanlışlıkla ezeriz.
+                const result = await portfolioManagerService.getPersonPortfolioManager(savedId);
+                if (!result.success || !result.data) {
+                    throw new Error('Otomatik atanan portföy yöneticisi veritabanından teyit edilemedi: ' + (result.error || 'Boş sorumlu'));
+                }
+                if (nationalityType === 'foreign' && !FOREIGN_PORTFOLIO_MANAGERS.has(String(result.data))) {
+                    throw new Error('Yabancı müvekkile Sinejan/Beyza dışında bir sorumlu atanmış. SQL trigger kontrol edilmeli.');
+                }
+                if (nationalityType === 'domestic' && String(result.data) !== DEFAULT_PORTFOLIO_MANAGER_USER_ID) {
+                    throw new Error('Yerli statüsüne geçişte Muhammed Özcan atanmadı. SQL trigger kontrol edilmeli.');
+                }
+                personData.portfolioManagerUserId = result.data;
+                const selectedManager = await portfolioManagerService.getUserById(result.data);
+                autoAssignedPortfolioManagerName = selectedManager.success
+                    ? (selectedManager.data?.display_name || selectedManager.data?.email || result.data)
+                    : result.data;
+            } else {
+                // Statü değişmiyorsa mevcut elle seçilebilen portföy yöneticisi akışı korunur.
+                const portfolioManagerResult = await portfolioManagerService.setPersonPortfolioManager(
+                    savedId,
+                    personData.portfolioManagerUserId
+                );
+                if (!portfolioManagerResult.success) {
+                    throw new Error('Portföy yöneticisi kaydedilemedi: ' + portfolioManagerResult.error);
+                }
             }
 
             const { error: reviewAssignmentsError } = await supabase.rpc('set_client_petition_controllers', {
@@ -734,7 +864,9 @@ export class PersonModalManager {
             if (this.tempCallback) this.tempCallback(finalPersonObject);
             else this.onSuccess(finalPersonObject);
 
-            showNotification('Kişi bilgileri başarıyla kaydedildi.', 'success');
+            showNotification(autoManagerRequired
+                ? `Kişi kaydedildi. Portföy yöneticisi: ${autoAssignedPortfolioManagerName || 'otomatik atandı'}.`
+                : 'Kişi bilgileri başarıyla kaydedildi.', 'success');
             window.$('#personModal').modal('hide');
 
         } catch (err) {
@@ -1115,8 +1247,8 @@ export class PersonModalManager {
 
         select.innerHTML = '<option value="">Atanmadı</option>' + options;
 
-        // Yeni kişi oluştururken varsayılan portföy yöneticisi Muhammed Özcan olsun.
-        // Kullanıcı isterse dropdown'dan 'Atanmadı' seçerek bunu bilinçli olarak kaldırabilir.
+        // Yeni YERLİ kişi oluştururken Muhammed Özcan varsayılan kalır.
+        // Yabancıya geçince seçim preview RPC ve SQL trigger üzerinden değiştirilir.
         const defaultOptionExists = Array.from(select.options)
             .some(option => option.value === DEFAULT_PORTFOLIO_MANAGER_USER_ID);
         if (defaultOptionExists) {
@@ -1451,6 +1583,8 @@ export class PersonModalManager {
         if (form) form.reset();
         const nationalitySelect = document.getElementById('personNationalityType');
         if (nationalitySelect) nationalitySelect.value = 'domestic';
+        const managerHint = document.getElementById('portfolio-manager-nationality-hint');
+        if (managerHint) managerHint.textContent = '';
         this.applyPersonIdentityUi();
         
         this.documents = [];

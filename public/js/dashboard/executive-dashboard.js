@@ -105,11 +105,21 @@ async function updateDashboardData() {
             end_date_param: state.endDate
         });
         if (error) throw error;
+        document.querySelector('.task-chart-error')?.remove();
         await renderTaskDistributionChart(data);
     } catch (error) {
         console.error('Görev dağılımı grafiği hatası:', error);
         showNotification('Görev dağılımı verileri yüklenemedi.', 'error');
-        chartContainer.innerHTML = '<p class="text-danger">Grafik yüklenirken bir hata oluştu.</p>';
+        const chartCanvas = document.getElementById('taskDistributionChart');
+        if (chartCanvas) {
+            const placeholder = chartCanvas.parentElement?.querySelector('.task-chart-error');
+            if (!placeholder && chartCanvas.parentElement) {
+                const errorMessage = document.createElement('p');
+                errorMessage.className = 'text-danger task-chart-error';
+                errorMessage.textContent = 'Grafik yüklenirken bir hata oluştu.';
+                chartCanvas.parentElement.appendChild(errorMessage);
+            }
+        }
     }
 }
 
@@ -222,44 +232,70 @@ async function showUserDetailModal(userId, userName) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-    // Chart.js kütüphanesinin yüklendiğinden emin ol
-    if (typeof Chart === 'undefined') {
-        console.error('Chart.js kütüphanesi bulunamadı! Lütfen HTML dosyanıza ekleyin.');
-        return;
+document.addEventListener('DOMContentLoaded', () => {
+    // Is Verileri baslangicta gizli sekme: grafik/sorgular gereksiz yere
+    // sayfa acilisini yavaslatmasin. Chart.js gizli canvas uzerinde de
+    // yanlis boyut hesaplamasin.
+    let firstLoadPromise = null;
+    const loadTaskDataOnDemand = () => {
+        if (!firstLoadPromise) {
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js kutuphanesi bulunamadi.');
+                return Promise.resolve();
+            }
+            firstLoadPromise = Promise.all([
+                updateDashboardData(),
+                renderCompletionTimeTable()
+            ]).finally(() => {
+                state.taskDistributionChart?.resize();
+            });
+        } else {
+            state.taskDistributionChart?.resize();
+        }
+        return firstLoadPromise;
+    };
+
+    // Bootstrap 4 jQuery tab olayini dogrudan dinle.
+    if (window.jQuery) {
+        window.jQuery('#business-tab').on('shown.bs.tab', () => {
+            loadTaskDataOnDemand();
+            // Canvas gorunur olduktan sonra boyutlar tekrar hesaplanir.
+            requestAnimationFrame(() => state.taskDistributionChart?.resize());
+            const portfolioCanvas = document.getElementById('portfolioDistributionChart');
+            if (portfolioCanvas && typeof Chart !== 'undefined' && typeof Chart.getChart === 'function') {
+                Chart.getChart(portfolioCanvas)?.resize();
+            }
+        });
+    } else {
+        document.getElementById('business-tab')?.addEventListener('click', () => {
+            requestAnimationFrame(() => loadTaskDataOnDemand());
+        });
+    }
+    if (document.getElementById('business-tab')?.classList.contains('active')) {
+        loadTaskDataOnDemand();
     }
 
-    // 🔥 PERFORMANS İYİLEŞTİRMESİ: Verileri sırayla değil, aynı anda (Promise.all) çekiyoruz.
-    try {
-        await Promise.all([
-            updateDashboardData(),
-            renderCompletionTimeTable()
-        ]);
-    } catch (err) {
-        console.error("Dashboard yüklenirken hata:", err);
-    }
-
-    // Filtreleme butonlarının dinleyicileri
     document.getElementById('applyTaskFilters')?.addEventListener('click', async () => {
+        const btn = document.getElementById('applyTaskFilters');
+        if (!btn || btn.disabled) return;
         state.startDate = document.getElementById('startDateFilter').value || null;
         state.endDate = document.getElementById('endDateFilter').value || null;
-        
-        const btn = document.getElementById('applyTaskFilters');
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         btn.disabled = true;
-
-        await updateDashboardData();
-
-        btn.innerHTML = originalHtml;
-        btn.disabled = false;
+        try {
+            await updateDashboardData();
+        } finally {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
     });
 
-    document.getElementById('clearTaskFilters')?.addEventListener('click', () => {
+    document.getElementById('clearTaskFilters')?.addEventListener('click', async () => {
         document.getElementById('startDateFilter').value = '';
         document.getElementById('endDateFilter').value = '';
         state.startDate = null;
         state.endDate = null;
-        updateDashboardData();
+        await updateDashboardData();
     });
 });

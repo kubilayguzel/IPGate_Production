@@ -3,91 +3,78 @@ import { personService, commonService, storageService, supabase } from '../../su
 
 
 export class PersonDataManager {
-    async fetchPersons() { 
-        const baseResult = await personService.getPersons();
-        if (!baseResult.success) return baseResult;
+    async fetchPersons() {
+        // Tek persons sorgusu; onceki uygulama bir kez personService.getPersons(),
+        // ikinci kez persons.id/portfolio_manager_user_id cekiyordu.
+        // Bagimsiz veriler paralel yuklenir; ulke veya kullanici listesi
+        // hatasi kisi listesinin yuklenmesini engellemez.
+        const [personsResult, countriesResult, usersResult] = await Promise.allSettled([
+            supabase.from('persons').select('*').order('name', { ascending: true }),
+            commonService.getCountries(),
+            supabase.from('users').select('id, display_name, email, disabled')
+        ]);
 
-        // Ülke bilgisi persons tablosunda country_code olarak tutuluyor.
-        // Kişi Yönetimi ekranında ülke adını gösterebilmek için common/countries
-        // sözlüğüyle uygulama katmanında eşleştiriyoruz.
-        let countryMap = new Map();
-        try {
-            const countriesResult = await commonService.getCountries();
-            if (countriesResult?.success) {
-                countryMap = new Map(
-                    (countriesResult.data || [])
-                        .filter(country => country?.code)
-                        .map(country => [
-                            String(country.code).toUpperCase(),
-                            country.name || country.label || country.code
-                        ])
-                );
-            }
-        } catch (error) {
-            console.warn('Ülke sözlüğü yüklenemedi:', error);
+        if (personsResult.status !== 'fulfilled') {
+            console.error('Kisiler yuklenemedi:', personsResult.reason);
+            return { success: false, error: String(personsResult.reason) };
+        }
+        if (personsResult.value.error) {
+            console.error('Kisiler yuklenemedi:', personsResult.value.error);
+            return { success: false, error: personsResult.value.error.message };
         }
 
-        const withLocation = (person) => ({
-            ...person,
-            countryName: person.countryCode
-                ? (countryMap.get(String(person.countryCode).toUpperCase()) || person.countryCode)
-                : null
+        const rawPersons = personsResult.value.data || [];
+        const countryRows = countriesResult.status === 'fulfilled' && countriesResult.value?.success
+            ? (countriesResult.value.data || []) : [];
+        if (countriesResult.status === 'rejected' || (countriesResult.value && !countriesResult.value.success)) {
+            console.warn('Ulke sozlugu yuklenemedi; ulke kodlari gosterilecek.');
+        }
+        const countryMap = new Map(countryRows.filter(c => c?.code).map(c => [
+            String(c.code).toUpperCase(), c.name || c.label || c.code
+        ]));
+
+        const userRows = usersResult.status === 'fulfilled' && !usersResult.value.error
+            ? (usersResult.value.data || []) : [];
+        if (usersResult.status === 'rejected' || usersResult.value?.error) {
+            console.warn('Portfoy yoneticileri alinamadi; kisi listesi yuklenmeye devam edecek.');
+        }
+        const userMap = new Map(userRows.map(user => [user.id, user]));
+
+        const mappedPersons = rawPersons.map(p => {
+            const managerId = p.portfolio_manager_user_id || null;
+            const manager = managerId ? userMap.get(managerId) : null;
+            return {
+                id: p.id,
+                name: p.name,
+                type: p.type,
+                nationalityType: p.nationality_type || 'domestic',
+                tckn: p.tckn,
+                taxOffice: p.tax_office,
+                taxNo: p.tax_no,
+                tpeNo: p.tpe_no,
+                email: p.email,
+                phone: p.phone,
+                address: p.address,
+                countryCode: p.country_code,
+                province: p.province,
+                district: p.district,
+                is_evaluation_required: p.is_evaluation_required,
+                has_tevkifat: p.has_tevkifat,
+                requires_sas_code: p.requires_sas_code,
+                priceListId: p.price_list_id,
+                petitionControllerUserId: p.petition_controller_user_id || null,
+                countryName: p.country_code
+                    ? countryMap.get(String(p.country_code).toUpperCase()) || p.country_code
+                    : null,
+                portfolioManagerUserId: managerId,
+                portfolioManagerName: manager?.display_name || null,
+                portfolioManagerEmail: manager?.email || null,
+                portfolioManagerDisabled: manager ? !!manager.disabled : false,
+                hasExplicitPortfolioManager: !!managerId
+            };
         });
 
-        try {
-            // Kişi -> portföy yöneticisi ilişkisini ayrıca çekiyoruz.
-            // Böylece merkezi personService yapısını değiştirmeden Kişi Yönetimi ekranını zenginleştiriyoruz.
-            const [{ data: personLinks, error: personLinksError }, { data: users, error: usersError }] = await Promise.all([
-                supabase
-                    .from('persons')
-                    .select('id, portfolio_manager_user_id'),
-                supabase
-                    .from('users')
-                    .select('id, display_name, email, disabled')
-            ]);
-
-            if (personLinksError) throw personLinksError;
-            if (usersError) throw usersError;
-
-            const userMap = new Map((users || []).map(user => [user.id, user]));
-            const managerByPerson = new Map(
-                (personLinks || []).map(person => [person.id, person.portfolio_manager_user_id])
-            );
-
-            const enrichedData = (baseResult.data || []).map(person => {
-                const savedManagerId = managerByPerson.get(person.id) || null;
-                const savedManager = savedManagerId ? userMap.get(savedManagerId) : null;
-
-                return {
-                    ...withLocation(person),
-                    // Liste yalnızca veritabanındaki GERÇEK atamayı gösterir.
-                    // portfolio_manager_user_id NULL ise kullanıcı "Atanmadı" olarak gösterilir.
-                    portfolioManagerUserId: savedManagerId,
-                    portfolioManagerName: savedManager?.display_name || null,
-                    portfolioManagerEmail: savedManager?.email || null,
-                    portfolioManagerDisabled: savedManager ? !!savedManager.disabled : false,
-                    hasExplicitPortfolioManager: !!savedManagerId
-                };
-            });
-
-            return { success: true, data: enrichedData };
-        } catch (error) {
-            console.error('Portföy yöneticileri yüklenirken hata:', error);
-
-            // Liste tamamen bozulmasın. İlişki verisi okunamazsa temel kişi listesini yine göster.
-            // Bu durumda sahte/default bir atama göstermiyoruz.
-            return {
-                success: true,
-                data: (baseResult.data || []).map(person => ({
-                    ...withLocation(person),
-                    portfolioManagerUserId: null,
-                    portfolioManagerName: null,
-                    portfolioManagerEmail: null,
-                    portfolioManagerDisabled: false,
-                    hasExplicitPortfolioManager: false
-                }))
-            };
-        }
+        return { success: true, data: mappedPersons };
     }
 
     async deletePerson(id) {

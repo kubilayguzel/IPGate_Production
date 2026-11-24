@@ -1623,7 +1623,7 @@ export class DocumentReviewManager {
                 } catch (err) {}
             }
 
-            await supabase.from(INCOMING_DOCS_COLLECTION).update({
+            const { error: indexedSaveError } = await supabase.from(INCOMING_DOCS_COLLECTION).update({
                 status: 'indexed',
                 file_url: finalPdfUrl, 
                 file_path: finalPdfPath, 
@@ -1634,6 +1634,11 @@ export class DocumentReviewManager {
                 // 🔥 TARİH EKLENDİ
                 teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString()
             }).eq('id', String(this.pdfId));
+            // Veritabanı ETEBS bildirim işini oluşturamazsa (ör. yabancı müvekkilin
+            // portföy sorumlusu yoksa) indeksleme rollback olur. Yanlış başarı mesajı verme.
+            if (indexedSaveError) {
+                throw new Error('ETEBS evrakı indekslenemedi: ' + indexedSaveError.message);
+            }
 
             // 🔥 ÇÖZÜM: Manuel mail tetikleme kodları tamamen SİLİNDİ!
             // Artık statü 'indexed' olduğu için Supabase Trigger devreye girip her şeyi arka planda (tek merkezden) halledecek.

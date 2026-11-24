@@ -210,6 +210,8 @@ export class TaskUpdateUIManager {
     populateStatusDropdown(currentStatus) {
         this.elements.status.innerHTML = '';
         TASK_STATUSES.forEach(s => {
+            // Yabancı müvekkil ETEBS bildirimi yalnız açık / tamamlandı olabilir.
+            if (this.currentTaskType === '87' && !['open', 'completed'].includes(s.value)) return;
             const opt = document.createElement('option');
             opt.value = s.value;
             opt.textContent = s.text;
@@ -275,27 +277,31 @@ export class TaskUpdateUIManager {
 
     _createFileItemHtml(d, isEpats) {
         const isParentDocument = this.isInheritedDocument(d);
+        // İndekslenen ETEBS PDF'i resmi kayıttır: bu işten silinemez / dilekçeye dönüştürülemez.
+        const isForeignEtebsSource = this.currentTaskType === '87' && d.type === 'etebs_notification';
         const removeBtnId = isEpats ? 'id="removeEpatsFileBtn"' : `data-id="${d.id}"`;
         const removeClass = isEpats ? 'btn-danger' : 'btn-outline-danger btn-remove-file';
         const iconColor = isEpats || d.type === 'epats_document' ? '#d63384' : '#e74c3c';
         const isPetition = !isEpats && d.type === 'petition';
         const isPreviousPetition = !isEpats && d.type === 'petition_previous';
-        const subText = isParentDocument && d.type === 'epats_document'
-            ? '<span class="badge badge-secondary ml-2">Ana Görev · EPATS</span>'
-            : (isEpats
+        const subText = isForeignEtebsSource
+            ? '<span class="badge badge-info ml-2">İndekslenen ETEBS Tebligatı</span>'
+            : (isParentDocument && d.type === 'epats_document'
+                ? '<span class="badge badge-secondary ml-2">Ana Görev · EPATS</span>'
+                : (isEpats
                 ? (this.currentTaskType === '49'
                     ? '<span class="badge badge-success ml-2">Mahkemeye Sunulan PDF</span>'
                     : '<span class="badge badge-info ml-2">EPATS</span>')
                 : (isPetition
                     ? '<span class="badge badge-primary ml-2"><i class="fas fa-file-signature mr-1"></i>Dilekçe</span>'
-                    : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : '')));
-        const petitionToggle = (!isEpats && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition && d.type !== 'epats_document' && d.type !== 'court_filed_pdf')
+                    : (isPreviousPetition ? '<span class="badge badge-secondary ml-2">Eski Dilekçe</span>' : ''))));
+        const petitionToggle = (!isEpats && !isForeignEtebsSource && this.petitionReviewEnabled && !isParentDocument && !isPreviousPetition && d.type !== 'epats_document' && d.type !== 'court_filed_pdf')
             ? `<div class="custom-control custom-checkbox d-inline-flex align-items-center ml-2" title="Bu belgenin dilekçe olarak kaydedilip kaydedilmediğini gösterir.">
                     <input type="checkbox" class="custom-control-input petition-document-checkbox" id="petitionDoc_${d.id}" data-id="${d.id}" ${isPetition ? 'checked' : ''}>
                     <label class="custom-control-label small font-weight-bold text-primary mb-0" for="petitionDoc_${d.id}">Dilekçe</label>
                </div>`
             : '';
-        const removeButton = isParentDocument
+        const removeButton = (isParentDocument || isForeignEtebsSource)
             ? ''
             : `<button type="button" class="btn btn-sm ${removeClass}" ${removeBtnId}>
                     <i class="fas fa-trash"></i>

@@ -387,6 +387,12 @@ class TaskUpdateController {
             if (partyRemoveBtn) partyRemoveBtn.style.display = 'none';
         }
 
+        // 87 / Yabancı müvekkile Gmail üzerinden bildirim: salt okunur ETEBS dosyası,
+        // tek aksiyon "Gmail ile bildirdim / işi tamamla". Mevcut görev tipleri etkilenmez.
+        if (currentType === '87') {
+            this.configureForeignEtebsNotificationTask();
+        }
+
         if (currentType === PETITION_REVIEW_TASK_TYPE) {
             const statusSelect = document.getElementById('taskStatus');
             if (statusSelect) {
@@ -401,6 +407,78 @@ class TaskUpdateController {
         }
     }
     
+    configureForeignEtebsNotificationTask() {
+        const task = this.taskData || {};
+        const details = this.getTaskDetails();
+        const sourceDoc = (this.currentDocuments || []).find(d => d.type === 'etebs_notification');
+
+        // Görev içindeki indekslenmiş PDF, Belgeler & Dosyalar bölümünde kalır.
+        // Son kullanıcının PDF'yi silmesi veya yeni EPATS evrakı yüklemesi önlenir.
+        const epatsCard = document.getElementById('epatsFileUploadArea')?.closest('.premium-card');
+        if (epatsCard) epatsCard.style.display = 'none';
+        const uploadArea = document.getElementById('fileUploadArea');
+        if (uploadArea) uploadArea.style.display = 'none';
+        const petitionOptions = document.getElementById('petitionUploadOptions');
+        if (petitionOptions) petitionOptions.style.display = 'none';
+
+        ['taskTitle', 'taskDescription', 'taskPriority', 'taskDueDate', 'deliveryDate',
+         'relatedIpRecordSearch', 'relatedPartySearch'].forEach(id => {
+            const field = document.getElementById(id);
+            if (field) { field.disabled = true; field.setAttribute('aria-readonly', 'true'); }
+        });
+        ['removeIpRecordBtn', 'removeRelatedPartyBtn'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.style.display = 'none';
+        });
+        const statusSelect = document.getElementById('taskStatus');
+        if (statusSelect) statusSelect.disabled = true;
+
+        const documentList = document.getElementById('fileListContainer');
+        if (documentList && !document.getElementById('foreignEtebsNoticeCard')) {
+            const note = document.createElement('div');
+            note.id = 'foreignEtebsNoticeCard';
+            note.className = 'alert alert-info mb-3';
+            note.innerHTML = '<strong><i class="fas fa-envelope-open-text mr-2"></i>Karar / Tebligat Bildirim İşi</strong>'
+                + '<div class="small mt-2" id="foreignEtebsNoticeBody"></div>'
+                + '<div class="small mt-2 text-muted">Aşağıdaki resmi PDF'i açabilir veya indirebilirsiniz. '
+                + 'Müvekkili Gmail'deki mevcut yazışmanızdan bilgilendirdikten sonra işi tamamlayın. '
+                + 'IPGate bu işlem nedeniyle otomatik mail göndermez.</div>';
+            documentList.parentElement?.insertBefore(note, documentList);
+        }
+        const noteBody = document.getElementById('foreignEtebsNoticeBody');
+        if (noteBody) {
+            const info = [
+                details.document_number ? `Evrak No: ${details.document_number}` : null,
+                details.teblig_tarihi ? `Tebliğ Tarihi: ${String(details.teblig_tarihi).slice(0, 10)}` : null,
+                sourceDoc ? `Evrak: ${sourceDoc.name}` : 'Uyarı: Bağlı ETEBS PDF kaydı bulunamadı.'
+            ].filter(Boolean);
+            noteBody.textContent = info.join('  •  ');
+        }
+
+        const saveBtn = document.getElementById('saveTaskChangesBtn');
+        if (saveBtn) saveBtn.style.display = 'none';
+        if (saveBtn && !document.getElementById('foreignEtebsCompleteBtn')) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'foreignEtebsCompleteBtn';
+            btn.className = 'btn btn-success';
+            btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Gmail ile Bildirdim – İşi Tamamla';
+            saveBtn.parentElement?.insertBefore(btn, saveBtn);
+            btn.addEventListener('click', async () => {
+                const status = document.getElementById('taskStatus');
+                if (!status || btn.disabled) return;
+                btn.disabled = true;
+                status.value = 'completed';
+                try {
+                    const completed = await this.saveTaskChanges();
+                    if (!completed) status.value = task.status || 'open';
+                } finally { btn.disabled = false; }
+            });
+        }
+        const completeBtn = document.getElementById('foreignEtebsCompleteBtn');
+        if (completeBtn) completeBtn.style.display = task.status === 'completed' ? 'none' : '';
+    }
+
     // GÜVENLİ ETKİLEŞİM TANIMLAMALARI (if kontrolü ile)
     setupEvents() {
         const saveBtn = document.getElementById('saveTaskChangesBtn');
@@ -1876,6 +1954,21 @@ class TaskUpdateController {
             }
         }
         if (statusSelect) statusSelect.value = finalStatus;
+
+        // 87 / Karar-Tebligat Bildirimi: Gmail ile bildirim onayı olmadan iş kapatılamaz.
+        // PDF kayıtlı değilse yanlışlıkla tamamlandı durumuna da geçilmez.
+        if (taskTypeStr === '87' && finalStatus === 'completed' && this.taskData?.status !== 'completed') {
+            const officialPdf = await supabase.from('task_documents')
+                .select('id').eq('task_id', String(this.taskId))
+                .eq('document_type', 'etebs_notification').limit(1);
+            if (officialPdf.error || !officialPdf.data?.length) {
+                showNotification('İndekslenen ETEBS tebligatı işe bağlı değil. İş kapatılamadı.', 'error');
+                return false;
+            }
+            const confirmed = window.confirm('Yabancı müvekkili Gmail üzerindeki mevcut mail yazışmasından bilgilendirdiniz mi? '
+                + 'Onaylarsanız Karar / Tebligat Bildirim İşi tamamlanacaktır.');
+            if (!confirmed) return false;
+        }
 
         // Mevcut davanin salt-okunur bilgilerine dokunulmaz. Sadece bos
         // bilgiler doldurulmus ise asıl suits / suit_parties kaydina yazilir.

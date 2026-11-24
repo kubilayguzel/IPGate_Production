@@ -31,11 +31,23 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" id="tab-approval" data-tab="approval" href="#" style="font-weight: 600; color: #6c757d;">
+                            <i class="fas fa-clock mr-2"></i>Onay Bekleyen İşler
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" id="tab-completed" data-tab="completed" href="#" style="font-weight: 600; color: #6c757d;">
                             <i class="fas fa-check-circle mr-2"></i>Biten / Kapatılan İşler
                         </a>
                     </li>
                 </ul>
+                <div id="myPortfolioApprovalNationalityTabs" class="mb-3" style="display:none;" aria-label="Müvekkil statüsü filtreleri">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Yerli veya yabancı müvekkiller">
+                        <button id="approvalDomesticTab" type="button" class="btn btn-primary" data-nationality="domestic" aria-pressed="true">Yerli Müvekkiller</button>
+                        <button id="approvalForeignTab" type="button" class="btn btn-outline-primary" data-nationality="foreign" aria-pressed="false">Yabancı Müvekkiller</button>
+                    </div>
+                    <div class="small text-muted mt-2">Yalnızca portföy yöneticisi olduğunuz müvekkillere ait onay bekleyen işler görüntülenir.</div>
+                </div>
                     <div class="tasks-header">
                         <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
                             <div class="search-wrapper" style="margin: 0;">
@@ -200,3 +212,4 @@
     <script src="js/simple-loading.js"></script>
 </body>
 </html>
+

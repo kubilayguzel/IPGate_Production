@@ -34,6 +34,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.processedData = [];
             this.filteredData = [];
             this.activeTab = 'active';
+            this.approvalClientNationality = 'domestic';
+            this.approvalTasks = [];
+            this.approvalOwnerNationality = new Map();
+            this.approvalLoaded = false;
+            this.approvalLoading = null;
 
             this.sortState = { key: 'officialDueObj', direction: 'asc' };
 
@@ -118,7 +123,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
                 // Sadece görevleri çek
                 const tasksResult = await taskService.getTasksForUser(this.currentUser.uid);
+                // Mevcut aktif/biten görev akışı korunur. Onay bekleyenler ayrı,
+                // yalnızca müvekkilin portföy yöneticisine göre kapsamı sınırlandırılmış sorgudan gelir.
                 this.allTasks = tasksResult.success ? tasksResult.data.filter(t => t.status !== 'awaiting_client_approval') : [];
+                this.approvalLoaded = false;
+                this.approvalTasks = [];
+                this.approvalOwnerNationality.clear();
 
                 const fetchPromises = [];
                 if (this.allPersons.length === 0) fetchPromises.push(personService.getPersons());
@@ -154,7 +164,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     this.completeTaskFormManager.render();
                 }
 
-                this.processData();
+                if (this.activeTab === 'approval') {
+                    if (this.approvalLoading) await this.approvalLoading;
+                    this.approvalLoaded = false;
+                    await this.loadPortfolioApprovalTasks();
+                } else {
+                    this.processData();
+                }
 
             } catch (error) {
                 console.error(error);
@@ -167,6 +183,70 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         
+        // Müvekkil onayı bekleyen işleri yalnızca kendi portföyümüzdeki kişiler için al.
+        // Gizli sekmelerde sorgu yapılmaz; belleğe alınan veri tekrar kullanılır.
+        async loadPortfolioApprovalTasks() {
+            if (this.approvalLoaded) return;
+            if (this.approvalLoading) return this.approvalLoading;
+            this.approvalLoading = (async () => {
+                const nationality = new Map();
+                const rawTasks = [];
+                if (['admin', 'superadmin'].includes(this.currentUser.role) && !this.currentUser.disabled) {
+                    const pageSize = 200;
+                    for (let offset = 0; ; offset += pageSize) {
+                        const { data: owners, error } = await supabase.from('persons')
+                            .select('id,nationality_type')
+                            .eq('portfolio_manager_user_id', this.currentUser.uid)
+                            .order('id').range(offset, offset + pageSize - 1);
+                        if (error) throw error;
+                        for (const owner of owners) {
+                            nationality.set(String(owner.id), owner.nationality_type === 'foreign' ? 'foreign' : 'domestic');
+                        }
+                        if (owners.length < pageSize) break;
+                    }
+                    const ownerIds = [...nationality.keys()];
+                    for (let i = 0; i < ownerIds.length; i += 50) {
+                        const batch = ownerIds.slice(i, i + 50);
+                        for (let offset = 0; ; offset += pageSize) {
+                            const { data: tasks, error } = await supabase.from('v_tasks_dashboard')
+                                .select('*').eq('status', 'awaiting_client_approval')
+                                .in('task_owner_id', batch).order('id').range(offset, offset + pageSize - 1);
+                            if (error) throw error;
+                            rawTasks.push(...tasks);
+                            if (tasks.length < pageSize) break;
+                        }
+                    }
+                }
+                this.approvalOwnerNationality = nationality;
+                this.approvalTasks = taskService._mapTaskViewData(rawTasks);
+                this.approvalLoaded = true;
+                this.processData();
+            })().finally(() => { this.approvalLoading = null; });
+            return this.approvalLoading;
+        }
+
+        updateApprovalTabUI() {
+            const isApproval = this.activeTab === 'approval';
+            const nav = document.getElementById('myPortfolioApprovalNationalityTabs');
+            if (nav) nav.style.display = isApproval ? '' : 'none';
+            const domestic = document.getElementById('approvalDomesticTab');
+            const foreign = document.getElementById('approvalForeignTab');
+            for (const [el, type] of [[domestic, 'domestic'], [foreign, 'foreign']]) {
+                if (!el) continue;
+                const selected = isApproval && this.approvalClientNationality === type;
+                el.classList.toggle('btn-primary', selected);
+                el.classList.toggle('btn-outline-primary', !selected);
+                el.setAttribute('aria-pressed', String(selected));
+            }
+            // Onay listesi yalnızca görüntüleme; mevcut işler için toplu atama korunur.
+            const checkAll = document.getElementById('selectAllTasks');
+            if (checkAll) checkAll.disabled = isApproval;
+            const batch = document.getElementById('batchAssignBtn');
+            if (batch && isApproval) batch.style.display = 'none';
+            const status = document.getElementById('statusFilter');
+            if (status) status.value = 'all';
+        }
+
         buildMaps() {}
 
         // 🔥 YENİ: Otomatik Hesaplama Motorunu Çağıran Ana Fonksiyon
@@ -233,7 +313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return isNaN(d.getTime()) ? null : d;
             };
 
-            this.processedData = this.allTasks.map(task => {
+            this.processedData = [...this.allTasks, ...this.approvalTasks].map(task => {
                 // Her iki tarih anahtarını da güvene alıyoruz
                 const opDueStr = task.operationalDueDate || task.dueDate || task.operational_due_date;
                 const offDueStr = task.officialDueDate || task.official_due_date;
@@ -382,18 +462,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const matchesSearch = !lowerQuery || item.searchString.includes(lowerQuery);
                 const matchesStatusFilter = (statusFilter === 'all' || item.status === statusFilter);
 
-                let matchesTab = false;
-                const activeStatuses = ['open', 'in-progress', 'pending']; 
-
-                if (this.activeTab === 'active') {
-                    matchesTab = activeStatuses.includes(item.status);
-                } else {
-                    matchesTab = !activeStatuses.includes(item.status);
+                const activeStatuses = ['open', 'in-progress', 'pending'];
+                if (this.activeTab === 'approval') {
+                    const ownerId = String(item.task_owner_id || item.relatedPartyId || '');
+                    return matchesSearch && matchesStatusFilter
+                        && item.status === 'awaiting_client_approval'
+                        && this.approvalOwnerNationality.get(ownerId) === this.approvalClientNationality;
                 }
-
-                const isMyTask = (item.assignedTo_uid === currentUserId) || 
-                                 (item.assignedTo_email === currentUserEmail);
-
+                const isMyTask = String(item.assignedTo_uid || '') === String(currentUserId)
+                    || item.assignedTo_email === currentUserEmail;
+                const matchesTab = this.activeTab === 'active'
+                    ? activeStatuses.includes(item.status)
+                    : !activeStatuses.includes(item.status) && item.status !== 'awaiting_client_approval';
                 return matchesSearch && matchesStatusFilter && matchesTab && isMyTask;
             });
 
@@ -522,21 +602,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         setupEventListeners() {
             document.querySelectorAll('#taskTabs .nav-link').forEach(tab => {
-                tab.addEventListener('click', (e) => {
+                tab.addEventListener('click', async (e) => {
                     e.preventDefault();
                     document.querySelectorAll('#taskTabs .nav-link').forEach(t => {
                         t.classList.remove('active');
                         t.style.color = '#6c757d'; 
                     });
-                    e.target.classList.add('active');
-                    e.target.style.color = '#495057'; 
+                    e.currentTarget.classList.add('active');
+                    e.currentTarget.style.color = '#495057'; 
 
-                    this.activeTab = e.target.dataset.tab;
+                    this.activeTab = e.currentTarget.dataset.tab;
+                    this.selectedTaskIds.clear();
+                    this.updateApprovalTabUI();
                     const currentQuery = document.getElementById('taskSearchInput').value;
+                    if (this.activeTab === 'approval' && !this.approvalLoaded) {
+                        try {
+                            await this.loadPortfolioApprovalTasks();
+                        } catch (error) {
+                            console.error('Portföy onay işleri okunamadı:', error);
+                            showNotification('Portföyünüzün onay bekleyen işleri yüklenemedi: ' + error.message, 'error');
+                        }
+                    }
                     this.handleSearch(currentQuery);
                 });
             });
 
+            document.querySelectorAll('[data-nationality]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.approvalClientNationality = btn.dataset.nationality === 'foreign' ? 'foreign' : 'domestic';
+                    this.updateApprovalTabUI();
+                    this.handleSearch(document.getElementById('taskSearchInput').value);
+                });
+            });
             document.getElementById('taskSearchInput').addEventListener('input', (e) => this.handleSearch(e.target.value));
             document.getElementById('statusFilter').addEventListener('change', () => {
                 const query = document.getElementById('taskSearchInput').value;
@@ -551,6 +648,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!btn) return;
                 e.preventDefault();
                 const taskId = btn.dataset.id;
+                if (this.activeTab === 'approval' && !btn.classList.contains('view-btn')) {
+                    showNotification('Onay bekleyen işler bu sekmede yalnızca görüntülenebilir.', 'info');
+                    return;
+                }
 
                 if (btn.classList.contains('petition-send-review-btn')) {
                     this.handleSendPetitionForReview(taskId, btn);
@@ -624,6 +725,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             tableBody.innerHTML = '';
 
             if (this.filteredData.length === 0) {
+                if (noTasksMessage) noTasksMessage.textContent = this.activeTab === 'approval'
+                    ? 'Bu grupta portföyünüze ait müvekkil onayı bekleyen iş bulunmuyor.'
+                    : 'Bu kategoride gösterilecek iş bulunmuyor.';
                 if(noTasksMessage) noTasksMessage.style.display = 'block';
                 return;
             }
@@ -666,7 +770,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const copyActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-secondary copy-btn action-btn" data-id="${task.id}" data-action="copy" title="İşi Kopyala (Taslak Oluştur)"><i class="fas fa-copy" style="pointer-events: none;"></i></button>`;
                 const assignActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-info assign-btn action-btn" data-id="${task.id}" title="Başkasına Ata"><i class="fas fa-user-plus" style="pointer-events: none;"></i></button>`;
                 const accrualActionHtml = isPetitionReviewTask ? '' : `<button class="btn btn-sm btn-light text-success add-accrual-btn action-btn" data-id="${task.id}" title="Ek Tahakkuk Ekle"><i class="fas fa-file-invoice-dollar" style="pointer-events: none;"></i></button>`;
-                const actionMenuHtml = `
+                const actionMenuHtml = this.activeTab === 'approval' ? `
+                    <button class="btn btn-sm btn-outline-primary view-btn action-btn" data-id="${task.id}" data-action="view" title="İş detayını görüntüle"><i class="fas fa-eye"></i> Detay</button>
+                ` : `
                     <div class="dropdown">
                         <button class="btn btn-sm btn-light text-secondary rounded-circle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-ellipsis-v" style="pointer-events: none;"></i>
@@ -692,7 +798,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 // 🔥 2) Tablo Şablonu: "Son İşlem" kaldırıldı, ID renklendirildi
                 row.innerHTML = `
-                    <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}></td>
+                    <td>${this.activeTab === 'approval' ? '' : `<input type="checkbox" class="task-checkbox" value="${task.id}" ${this.selectedTaskIds.has(task.id) ? 'checked' : ''}>`}</td>
                     <td>
                         <div class="font-weight-bold ${idColorClass}" style="${idTooltip ? 'cursor:help;' : ''}" title="${idTooltip}">
                             #${task.id}
@@ -1094,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         async showTaskDetailModal(taskId) { 
-            const task = this.allTasks.find(t => t.id === taskId);
+            const task = [...this.allTasks, ...this.approvalTasks].find(t => String(t.id) === String(taskId));
             if (!task || !this.taskDetailManager) return;
 
             const modal = document.getElementById('taskDetailModal');

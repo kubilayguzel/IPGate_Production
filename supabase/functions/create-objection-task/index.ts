@@ -26,9 +26,79 @@ serve(async (req) => {
         const { data: monData } = await supabase.from('monitoring_trademarks').select('*').eq('id', cleanMonitoredId).maybeSingle();
         let targetIpRecordId = cleanMonitoredId;
         if (monData && monData.ip_record_id) targetIpRecordId = monData.ip_record_id;
+        // Ayrı international_monitoring kayıtları da farklı izleme bildirimleridir.
+        // WIPO/ARIPO child kaydıyla eşleştirme yapılmıyorsa kaynak izleme ID'si korunur.
+        let intlData: any = null;
+        if (!monData && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(cleanMonitoredId)) {
+            const { data, error: intlError } = await supabase.from('international_monitoring')
+                .select('*').eq('id', cleanMonitoredId).maybeSingle();
+            if (intlError) throw new Error('Yurtdışı izleme kaydı okunamadı: ' + intlError.message);
+            intlData = data;
+        }
+
+        // Bağımsız yurtdışı izleme bildirimi varsa IR numarasını gerçek WIPO/ARIPO
+        // kaynak dosyasına eşleştir. Bir IR birden çok ülke child'ına bağlı olabilir.
+        if (intlData) {
+            const intlNo = String(intlData.application_no || '').trim();
+            if (!intlNo) throw new Error('Yurtdışı izleme bildiriminde IR/başvuru numarası bulunmuyor.');
+            const matchQueries = await Promise.all(['wipo_ir', 'aripo_ir', 'application_number'].map(col =>
+                supabase.from('ip_records')
+                    .select('id, parent_id, transaction_hierarchy, origin, country_code')
+                    .eq('record_owner_type', 'self').eq(col, intlNo).limit(300)
+            ));
+            const parentMap = new Map<string, any>();
+            for (const res of matchQueries) {
+                if (res.error) throw new Error('Uluslararası portföy eşleştirmesi yapılamadı: ' + res.error.message);
+                for (const row of (res.data || [])) {
+                    if (['WIPO', 'ARIPO'].includes(String(row.origin || '').toUpperCase())) parentMap.set(String(row.id), row);
+                }
+            }
+            const parents = [...parentMap.values()].filter(r => r.transaction_hierarchy === 'parent');
+            const childMap = new Map<string, any>();
+            [...parentMap.values()].filter(r => r.transaction_hierarchy === 'child').forEach(r => childMap.set(String(r.id), r));
+            if (parents.length) {
+                const { data: linkedChildren, error: linkedError } = await supabase.from('ip_records')
+                    .select('id, parent_id, country_code, origin, transaction_hierarchy')
+                    .eq('record_owner_type', 'self')
+                    .in('parent_id', parents.map(r => String(r.id)))
+                    .eq('transaction_hierarchy', 'child').limit(500);
+                if (linkedError) throw new Error('Uluslararası child kayıtları okunamadı: ' + linkedError.message);
+                for (const child of (linkedChildren || [])) childMap.set(String(child.id), child);
+            }
+            const countryValues = Array.isArray(intlData.countries) ? intlData.countries : [];
+            let wantedCountry = countryValues.length === 1
+                ? String(typeof countryValues[0] === 'object'
+                    ? (countryValues[0]?.code || countryValues[0]?.country_code || countryValues[0]?.name || '')
+                    : countryValues[0]).trim() : '';
+            // Ülke adı girildiyse ortak sözlükten ISO ülke kodunu bul.
+            if (wantedCountry && wantedCountry.length > 2) {
+                const { data: countryMeta } = await supabase.from('common')
+                    .select('data').eq('id', 'countries').maybeSingle();
+                let catalog: any = countryMeta?.data?.list || countryMeta?.data || [];
+                if (typeof catalog === 'string') { try { catalog = JSON.parse(catalog); } catch { catalog = []; } }
+                if (!Array.isArray(catalog) && Array.isArray(catalog?.list)) catalog = catalog.list;
+                const match = Array.isArray(catalog) ? catalog.find((c: any) =>
+                    [c.name, c.tr, c.code].some(value =>
+                        String(value || '').toLocaleLowerCase('tr-TR') === wantedCountry.toLocaleLowerCase('tr-TR'))
+                ) : null;
+                if (match?.code) wantedCountry = String(match.code);
+            }
+            const matches = [...childMap.values()].filter(c =>
+                wantedCountry && String(c.country_code || '').toUpperCase() === wantedCountry.toUpperCase());
+            const matched = matches.length === 1 ? matches[0] : null;
+            if (!matched) {
+                throw new Error('Yurtdışı izleme bildirimi için kaynak WIPO/ARIPO child dosyası tekil belirlenemedi. ' +
+                    'İzleme kaydını ilgili ülkeye ve portföy dosyasına eşleştirin. IR: ' + intlNo +
+                    ', ülke: ' + (wantedCountry || 'belirsiz'));
+            }
+            targetIpRecordId = String(matched.id);
+        }
 
         // 🔥 ÇÖZÜM 1: Yeni Şemaya Uygun Okuma (Marka adı ip_record_trademark_details tablosundan çekiliyor)
-        const { data: ipData } = await supabase.from('ip_records').select('*, details:ip_record_trademark_details(brand_name)').eq('id', targetIpRecordId).maybeSingle();
+        const { data: ipData, error: sourceError } = await supabase.from('ip_records').select('*, details:ip_record_trademark_details(brand_name)').eq('id', targetIpRecordId).maybeSingle();
+
+        if (sourceError) throw new Error(sourceError.message);
+        if (!ipData) throw new Error('İzlenen markanın kaynak portföy kaydı bulunamadı.');
 
         let clientId = null;
         let ipAppName = "-";
@@ -51,6 +121,10 @@ serve(async (req) => {
             ipTitle = monData.search_mark_name || "-";
             ipAppNo = "-";
             ipAppName = "-";
+        } else if (intlData) {
+            ipTitle = intlData.mark_name || '-';
+            ipAppNo = intlData.application_no || '-';
+            ipAppName = intlData.applicant_name || '-';
         }
 
         // 🔥 2. ATAMA (TEST/CANLI ORTAM KONTROLLÜ)
@@ -79,6 +153,27 @@ serve(async (req) => {
         // 🔥 NİHAİ MÜVEKKİL (CLIENT) ID BELİRLEME
         let finalClientId = bodyClientId || clientId;
         if (String(finalClientId).startsWith('owner_')) finalClientId = null;
+
+        // İzlenen portföy kaydının benzersiz kaynak kimliği, WIPO/ARIPO child ülkelerini ayırır.
+        // IR/application_no sadece dosya numarasıdır; child kaydını tek başına temsil etmez.
+        const sourceIpRecordId = ipData?.id ? String(ipData.id) : null;
+        const intlCountries = Array.isArray(intlData?.countries) ? intlData.countries : [];
+        const inferredIntlCountry = intlCountries.length === 1
+            ? String(typeof intlCountries[0] === 'object'
+                ? (intlCountries[0]?.code || intlCountries[0]?.country_code || '')
+                : intlCountries[0]) : null;
+        const sourceCountryCode = ipData?.country_code || inferredIntlCountry || null;
+        // Tek WIPO/ARIPO child'in kendisi veya bağımsız yurt dışı izleme bildirimi
+        // kaynak kimliği olarak kullanılır; başvuru/IR numarası tekilleştirme anahtarı değildir.
+        const sourceContextKey = sourceIpRecordId
+            ? 'ip:' + sourceIpRecordId
+            : intlData ? 'international:' + cleanMonitoredId + ':' + (sourceCountryCode || '-')
+            : null;
+        const sourceParentIpRecordId = ipData?.parent_id || null;
+        const sourceHierarchy = ipData?.transaction_hierarchy || null;
+        const sourceOrigin = String(ipData?.origin || '').toUpperCase();
+        const sourceIsWipoAripoChild = ['WIPO', 'ARIPO'].includes(sourceOrigin)
+            && sourceHierarchy === 'child';
 
         const hitMarkName = similarMarkName || similarMark.markName || 'Bilinmeyen Marka';
 
@@ -121,7 +216,7 @@ serve(async (req) => {
 
             bulletinRecordId = bulletinRecord?.id || null;
 
-            if (bulletinRecordId) {
+            if (bulletinRecordId && monData) {
 
                 const {
                     data: monitoringMatch,
@@ -158,32 +253,60 @@ serve(async (req) => {
             if (existingIp) existingIpRecordId = existingIp.id;
         }
 
-        // b) Eğer bu başvuru numarasıyla kayıt varsa, O KAYDA, BU MÜVEKKİLE ve AKTİF STATÜDE iş açılmış mı bakıyoruz!
-        if (existingIpRecordId) {
+        // b) Aynı rakip kayıt + aynı müvekkil + aynı İZLENEN KAYNAK dosya = mükerrer.
+        // WIPO/ARIPO'da farklı ülke child'ları aynı IR no ve aynı rakip başvuru no
+        // paylaşabilir; fakat child.ip_records.id birbirinden farklıdır.
+        // Bu nedenle kaynak child kimliği farklı ise yeni itirazın önü açılır.
+        if (existingIpRecordId || thirdPartyIpRecordId) {
             let dupQuery = supabase
                 .from('tasks')
-                .select('id')
+                .select('id, details')
                 .eq('task_type_id', '20')
-                .eq('ip_record_id', existingIpRecordId)
-                .in('status', ['open', 'awaiting_client_approval', 'in_progress']) // 🔥 Statü kontrolü korundu!
-                .limit(1);
+                .eq('ip_record_id', thirdPartyIpRecordId || existingIpRecordId)
+                .in('status', ['open', 'awaiting_client_approval', 'in_progress', 'in-progress', 'client_approval_opened']);
 
-            // Müvekkil (Client) Eşleşmesi Kontrolü
             if (finalClientId) {
                 dupQuery = dupQuery.eq('task_owner_id', finalClientId);
             } else {
                 dupQuery = dupQuery.is('task_owner_id', null);
             }
 
-            const { data: existingTasks } = await dupQuery;
-
-            if (existingTasks && existingTasks.length > 0) {
-                console.log(`⚠️ Mükerrer Görev Engellendi. Mevcut Task ID: ${existingTasks[0].id}`);
-                return new Response(JSON.stringify({ 
-                    success: true, 
-                    taskId: existingTasks[0].id, 
-                    message: "Bu görev zaten mevcut, tekrar oluşturulmadı.",
-                    isDuplicate: true 
+            // Tek kayda limit koymak başka ülke child'ı kaynaklı mükerrerliği gizler.
+            // Aynı rakip/müvekkil için bütün aktif işleri sayfalarla kontrol et.
+            let duplicateTaskId: string | null = null;
+            for (let from = 0; ; from += 500) {
+                const { data: existingTasks, error: dupError } = await dupQuery.order('id').range(from, from + 499);
+                if (dupError) throw new Error(`İtiraz mükerrerlik kontrolü yapılamadı: ${dupError.message}`);
+                for (const t of existingTasks || []) {
+                    const details = typeof t.details === 'string'
+                        ? (() => { try { return JSON.parse(t.details); } catch { return {}; } })()
+                        : (t.details || {});
+                    let differentCountry = false;
+                    const previousSource = details?.source_ip_record_id;
+                    if (sourceIsWipoAripoChild && sourceParentIpRecordId && sourceCountryCode &&
+                        previousSource && previousSource !== sourceIpRecordId) {
+                        // Eski işlerde yalnızca source_ip_record_id mevcut olabilir.
+                        const { data: previous, error } = await supabase.from('ip_records')
+                            .select('parent_id, country_code, transaction_hierarchy, origin')
+                            .eq('id', previousSource).maybeSingle();
+                        if (error) throw new Error(error.message);
+                        differentCountry = previous?.transaction_hierarchy === 'child' &&
+                            previous.parent_id === sourceParentIpRecordId &&
+                            String(previous.origin || '').toUpperCase() === sourceOrigin &&
+                            Boolean(previous.country_code) &&
+                            String(previous.country_code).toUpperCase() !== String(sourceCountryCode).toUpperCase();
+                    }
+                    if (!differentCountry) { duplicateTaskId = String(t.id); break; }
+                }
+                if (duplicateTaskId) break;
+                if (!existingTasks || existingTasks.length < 500) break;
+            }
+            if (duplicateTaskId) {
+                return new Response(JSON.stringify({
+                    success: true,
+                    taskId: duplicateTaskId,
+                    message: 'Aynı müvekkil, rakip marka ve kaynak portföy kaydı için devam eden itiraz zaten mevcut.',
+                    isDuplicate: true
                 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
             }
         }
@@ -292,9 +415,14 @@ serve(async (req) => {
             // 🔥 TERTEMİZ MİNİMAL JSON (Arayüz / Frontend ile Birebir Aynı)
             details: {
                 assigned_to_email: assignedEmail,
-                source_ip_record_id: targetIpRecordId,
+                source_ip_record_id: sourceIpRecordId,
+                source_context_key: sourceContextKey,
+                source_country_code: sourceCountryCode,
+                source_parent_ip_record_id: sourceParentIpRecordId,
+                source_transaction_hierarchy: sourceHierarchy,
                 competitor_ip_record_id: thirdPartyPortfolioId,
                 monitored_trademark_id: cleanMonitoredId,
+                international_monitoring_id: intlData ? cleanMonitoredId : null,
                 bulletin_record_id: bulletinRecordId,
                 monitoring_match_id: monitoringMatchId,
                 target_app_no: opponentAppNo,
@@ -338,7 +466,7 @@ serve(async (req) => {
                 opposed_ip_record_id: thirdPartyPortfolioId,
 
                 bulletin_record_id: bulletinRecordId,
-                monitoring_trademark_id: cleanMonitoredId,
+                monitoring_trademark_id: monData?.id || null,
                 monitoring_match_id: monitoringMatchId,
 
                 status: 'analysis',
@@ -351,11 +479,15 @@ serve(async (req) => {
                 facts_snapshot: {
                     created_from: 'monitoring',
 
-                    source_ip_record_id: targetIpRecordId,
+                    source_ip_record_id: sourceIpRecordId,
+                    source_context_key: sourceContextKey,
+                    source_country_code: sourceCountryCode,
+                    source_parent_ip_record_id: sourceParentIpRecordId,
+                    source_transaction_hierarchy: sourceHierarchy,
                     opposed_ip_record_id: thirdPartyPortfolioId,
 
                     bulletin_record_id: bulletinRecordId,
-                    monitoring_trademark_id: cleanMonitoredId,
+                    monitoring_trademark_id: monData?.id || null,
                     monitoring_match_id: monitoringMatchId,
 
                     opponent_application_no: opponentAppNo,

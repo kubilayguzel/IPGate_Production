@@ -84,6 +84,106 @@ export function resolveTrademarkContextualTaskRule(typeObj, parentTypeId, record
     return null;
 }
 
+function fiveDayDeadline(createdAt, officialDate) {
+    const deadline = new Date(createdAt);
+    deadline.setDate(deadline.getDate() + 5);
+    return officialDate && officialDate < deadline ? new Date(officialDate) : deadline;
+}
+
+async function readNotificationData(query) {
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+// İş sahibini yalnızca indekslenen işlem ve onun üst işlemi üzerinden çöz.
+async function findNotificationOwner(transactionId) {
+    if (!transactionId) return null;
+    const tx = await readNotificationData(supabase.from('transactions').select('task_id,parent_id')
+        .eq('id', transactionId).single());
+    if (tx.task_id) {
+        const task = await readNotificationData(supabase.from('tasks').select('task_owner_id')
+            .eq('id', tx.task_id).maybeSingle());
+        if (task?.task_owner_id) return task.task_owner_id;
+    }
+    const last = await readNotificationData(supabase.from('tasks').select('task_owner_id')
+        .eq('transaction_id', transactionId).neq('task_type_id', '87')
+        .not('task_owner_id', 'is', null).order('created_at', { ascending: false })
+        .limit(1).maybeSingle());
+    return last?.task_owner_id || null;
+}
+
+async function foreignClients(record, transactionId, parentId) {
+    const owner = await findNotificationOwner(transactionId) || await findNotificationOwner(parentId);
+    let ids;
+    if (owner) {
+        ids = [owner];
+    } else {
+        if ((record.record_owner_type || record.recordOwnerType) !== 'self') return [];
+        const applicants = await readNotificationData(supabase.from('ip_record_applicants').select('person_id')
+            .eq('ip_record_id', record.id));
+        ids = [...new Set(applicants.map(a => a.person_id).filter(Boolean))];
+    }
+    if (!ids.length) return [];
+    return readNotificationData(supabase.from('persons').select('id,name,portfolio_manager_user_id')
+        .in('id', ids).eq('nationality_type', 'foreign'));
+}
+
+async function findExistingNotificationTask(documentId, clientId) {
+    return readNotificationData(supabase.from('tasks').select('id')
+        .eq('task_type_id', '87').eq('details->>source_document_id', documentId)
+        .eq('details->>client_id', clientId).maybeSingle());
+}
+
+async function attachNotificationPdf(taskId, doc, url) {
+    const data = { document_name: doc.file_name || 'ETEBS_Tebligati.pdf', document_url: url };
+    const update = () => supabase.from('task_documents').update(data)
+        .eq('task_id', taskId).eq('document_type', 'etebs_notification').select('task_id');
+    if ((await readNotificationData(update())).length) return;
+    const { error } = await supabase.from('task_documents').insert({
+        ...data, task_id: taskId, document_type: 'etebs_notification'
+    });
+    if (error && (error.code !== '23505' || !(await readNotificationData(update())).length)) {
+        throw new Error(error.message);
+    }
+}
+
+async function createEtebsNotificationTasks({ doc, record, transactionId, parentId,
+    pdfUrl, documentType, deliveryDate, deadline }) {
+    if (doc.document_source !== 'etebs') return;
+    const clients = await foreignClients(record, transactionId, parentId);
+    if (!clients.length) return;
+    if (!pdfUrl) throw new Error('ETEBS tebligatının PDF bağlantısı eksik.');
+    const managers = [...new Set(clients.map(c => c.portfolio_manager_user_id).filter(Boolean))];
+    const users = managers.length ? await readNotificationData(supabase.from('users').select('id,disabled')
+        .in('id', managers)) : [];
+    const active = new Set(users.filter(u => !u.disabled).map(u => u.id));
+    for (const client of clients) {
+        if (!active.has(client.portfolio_manager_user_id)) {
+            throw new Error(client.name + ' için etkin portföy sorumlusu bulunamadı.');
+        }
+    }
+    for (const client of clients) {
+        let task = await findExistingNotificationTask(doc.id, client.id);
+        if (!task) {
+            const result = await taskService.createTask({
+                title: 'Karar / Tebligat Bildirim İşi - ' + (record.title || record.brand_name || record.application_number || record.id) + ' | ' + client.name,
+                description: 'ETEBS tebligatını Gmail üzerindeki mevcut e-posta zincirinden müvekkile bildirdikten sonra işi tamamlayınız.',
+                task_type_id: '87', status: 'open', priority: 'high', task_owner_id: client.id,
+                assigned_to: client.portfolio_manager_user_id, ip_record_id: record.id,
+                transaction_id: transactionId, official_due_date: deadline, operational_due_date: deadline,
+                details: { source: 'etebs', source_document_id: doc.id, client_id: client.id,
+                    delivery_channel: 'gmail', document_number: doc.document_number,
+                    document_type_id: documentType, teblig_tarihi: deliveryDate,
+                    foreign_client_notification: true }
+            });
+            task = result.success ? result.data : await findExistingNotificationTask(doc.id, client.id);
+            if (!task?.id) throw new Error(result.error?.message || '87 numaralı iş oluşturulamadı.');
+        }
+        await attachNotificationPdf(task.id, doc, pdfUrl);
+    }
+}
+
 export class DocumentReviewManager {
     constructor() {
         this.pdfId = new URLSearchParams(window.location.search).get('pdfId');
@@ -1342,6 +1442,8 @@ export class DocumentReviewManager {
                 }
             }
 
+            const triggeredAt = new Date();
+            let notificationOfficialDate = null;
             if (shouldTriggerTask) {
                 const deliveryDate = new Date(deliveryDateStr);
                 // Kabul (40) işlem türü yenilemede de kullanılıyor (22).
@@ -1351,6 +1453,7 @@ export class DocumentReviewManager {
                 
                 let officialDueDate = addMonthsToDate(deliveryDate, duePeriod);
                 officialDueDate = findNextWorkingDay(officialDueDate, TURKEY_HOLIDAYS);
+                notificationOfficialDate = officialDueDate;
                 let taskDueDate = new Date(officialDueDate);
                 taskDueDate.setDate(taskDueDate.getDate() - 3);
                 while (isWeekend(taskDueDate) || isHoliday(taskDueDate, TURKEY_HOLIDAYS)) {
@@ -1540,13 +1643,7 @@ export class DocumentReviewManager {
                     let taskOperationalDueDate = new Date(taskDueDate);
 
                     if (String(tType) === "66") {
-                        const evaluationFiveDayDeadline = new Date(taskCreatedAt);
-                        evaluationFiveDayDeadline.setDate(evaluationFiveDayDeadline.getDate() + 5);
-
-                        const normalOfficialDueDate = new Date(officialDueDate);
-                        const evaluationDeadline = evaluationFiveDayDeadline.getTime() > normalOfficialDueDate.getTime()
-                            ? normalOfficialDueDate
-                            : evaluationFiveDayDeadline;
+                        const evaluationDeadline = fiveDayDeadline(triggeredAt, officialDueDate);
 
                         // 66 tipli işte operasyonel ve resmi son tarih aynıdır.
                         taskOfficialDueDate = new Date(evaluationDeadline);
@@ -1623,6 +1720,13 @@ export class DocumentReviewManager {
                 } catch (err) {}
             }
 
+            await createEtebsNotificationTasks({
+                doc: this.pdfData, record: this.matchedRecord, transactionId: childTransactionId,
+                parentId: finalParentId, pdfUrl: finalPdfUrl, documentType: childTypeId,
+                deliveryDate: new Date(deliveryDateStr).toISOString(),
+                deadline: fiveDayDeadline(triggeredAt, notificationOfficialDate).toISOString()
+            });
+
             const { error: indexedSaveError } = await supabase.from(INCOMING_DOCS_COLLECTION).update({
                 status: 'indexed',
                 file_url: finalPdfUrl, 
@@ -1634,8 +1738,6 @@ export class DocumentReviewManager {
                 // 🔥 TARİH EKLENDİ
                 teblig_tarihi: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : new Date().toISOString()
             }).eq('id', String(this.pdfId));
-            // Veritabanı ETEBS bildirim işini oluşturamazsa (ör. yabancı müvekkilin
-            // portföy sorumlusu yoksa) indeksleme rollback olur. Yanlış başarı mesajı verme.
             if (indexedSaveError) {
                 throw new Error('ETEBS evrakı indekslenemedi: ' + indexedSaveError.message);
             }

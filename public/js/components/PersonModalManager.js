@@ -7,7 +7,9 @@ const $ = window.jQuery || window.$;
 
 // Portföy yöneticisi seçilmemiş kişiler için varsayılan kullanıcı: Muhammed Özcan
 const DEFAULT_PORTFOLIO_MANAGER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
-const DEFAULT_PETITION_CONTROLLER_USER_ID = '28f07d5d-f1c6-456f-8b4b-3bb8226b5253';
+// Yeni kisi icin dilekce kontrol sorumlusu VARSAYILANLARI (elle degistirilebilir).
+const DEFAULT_PETITION_ADMIN_FOR_MUHAMMED = '4e742c1e-911f-4f0a-a565-419335685402'; // Cengizhan Egemen
+const DEFAULT_PETITION_ALI = '63cf9fff-a22c-4aeb-8f1e-4e01e9f9067f'; // Ali Kucuksahin
 const FOREIGN_PORTFOLIO_MANAGERS = new Set([
     '752b2087-2513-4b25-841a-b6acd6ab4141', // Sinejan Güngör
     'f712cbf3-5156-4bfa-ad86-1425b12901ee'  // Beyza Sevinç
@@ -304,7 +306,7 @@ export class PersonModalManager {
                                                         <small class="form-text text-muted mt-2">
                                                             <strong>İdari:</strong> marka itirazları ve dava dışı dilekçeler.
                                                             <strong>Yargı:</strong> dava dilekçeleri. Her alanda bir sorumlu seçilir;
-                                                            aynı kişi iki alan için de atanabilir. Yeni müvekkilde İdari varsayılan Muhammed Özcan, Yargı atanmaz.
+                                                            aynı kişi iki alan için de atanabilir. Yeni müvekkilde portföy yöneticisi Muhammed Özcan ise İdari: Cengizhan Egemen; diğer yöneticilerde İdari: Ali Küçükşahin. Yargı varsayılanı: Ali Küçükşahin. Bu seçimler elle değiştirilebilir.
                                                         </small>
                                                     </div>
                                                 </div>
@@ -421,7 +423,15 @@ export class PersonModalManager {
         if(el('cancelRelatedBtn')) el('cancelRelatedBtn').onclick = () => this.resetRelatedForm();
         if(el('addDocBtn')) el('addDocBtn').onclick = () => this.addDocumentHandler();
         if(el('savePersonBtn')) el('savePersonBtn').onclick = (e) => this.handleSave(e);
-        if(el('add-person-petition-controller')) el('add-person-petition-controller').onclick = () => this.addPetitionControllerRow();
+        if(el('add-person-petition-controller')) el('add-person-petition-controller').onclick = () => {
+            this.petitionAssignmentsManuallyEdited = true;
+            this.addPetitionControllerRow();
+        };
+        // Yeni kisi formunda portfoy yoneticisi elle degisirse yalnizca HENUZ
+        // elle duzenlenmemis varsayilan kontrol sorumlularini yenile.
+        if(el('person-portfolio-manager')) el('person-portfolio-manager').onchange = () => {
+            this.applyNewPersonPetitionDefaults();
+        };
 
         this.addPhoneListeners('personPhone');
         this.addPhoneListeners('relatedPhone');
@@ -574,6 +584,7 @@ export class PersonModalManager {
                     throw new Error('Otomatik atanacak portföy sorumlusu aktif kullanıcılar arasında bulunamadı.');
                 }
                 managerSelect.value = nextId;
+                this.applyNewPersonPetitionDefaults();
                 this.portfolioAutoManagerReady = true;
                 const displayed = managerSelect.selectedOptions[0]?.textContent || 'Seçilen personel';
                 if (hint) {
@@ -591,6 +602,7 @@ export class PersonModalManager {
                 }
                 if (token !== this.portfolioNationalityChangeToken || nationality !== this.getNationalityType()) return;
                 managerSelect.disabled = false;
+                this.applyNewPersonPetitionDefaults();
                 if (hint) hint.textContent = 'Mevcut statüde portföy sorumlusu elle düzenlenebilir.';
             }
         } catch (err) {
@@ -619,6 +631,8 @@ export class PersonModalManager {
         this.resetForm();
         this.petitionAssignmentsLoadError = null;
         this.petitionControllerOptionsError = null;
+        // Her modal acilisinda onceki kisideki manuel duzenleme durumu unutulur.
+        this.petitionAssignmentsManuallyEdited = false;
 
         // IPGATE_CLIENT_SETTINGS_TABS_V1: Modal her açıldığında Genel Bilgiler sekmesinden başla.
         const generalTabLink = document.querySelector('#personModalTabs a[href="#personGeneralTab"]');
@@ -1258,6 +1272,30 @@ export class PersonModalManager {
         select.disabled = false;
     }
 
+    // Yalniz YENI kisi formundaki onerilen atamalari olusturur.
+    // Mevcut kayitlarin tercihleri ve kullanicinin elle yaptigi degisiklikler korunur.
+    getNewPersonPetitionDefaults(portfolioManagerUserId) {
+        const managerId = String(portfolioManagerUserId || '');
+        const adminUserId = managerId === DEFAULT_PORTFOLIO_MANAGER_USER_ID
+            ? DEFAULT_PETITION_ADMIN_FOR_MUHAMMED
+            : managerId ? DEFAULT_PETITION_ALI : '';
+        if (adminUserId && adminUserId === DEFAULT_PETITION_ALI) {
+            // Ayni kisiyi iki satirda yinelemeyelim; tek satirda iki yetki.
+            return [{ user_id: DEFAULT_PETITION_ALI, is_administrative: true, is_judicial: true }];
+        }
+        return [
+            { user_id: adminUserId, is_administrative: true, is_judicial: false },
+            { user_id: DEFAULT_PETITION_ALI, is_administrative: false, is_judicial: true }
+        ];
+    }
+
+    applyNewPersonPetitionDefaults() {
+        if (this.isEdit || this.petitionAssignmentsManuallyEdited) return;
+        if (this.petitionControllerOptionsError || !Array.isArray(this.petitionControllerOptions)) return;
+        const managerId = document.getElementById('person-portfolio-manager')?.value || '';
+        this.renderPetitionControllerRows(this.getNewPersonPetitionDefaults(managerId));
+    }
+
     // Dilekçe kontrol sorumlularında her satır bir kullanıcı + iki yetkiyi temsil eder.
     // Veritabanında client_petition_controller_assignments tablosu RPC üzerinden yönetilir.
     async loadPetitionControllers() {
@@ -1270,12 +1308,7 @@ export class PersonModalManager {
         }
         this.petitionControllerOptionsError = null;
         this.petitionControllerOptions = result.data || [];
-        this.renderPetitionControllerRows([{
-            user_id: this.petitionControllerOptions.some(u => String(u.id) === DEFAULT_PETITION_CONTROLLER_USER_ID)
-                ? DEFAULT_PETITION_CONTROLLER_USER_ID : '',
-            is_administrative: true,
-            is_judicial: false
-        }]);
+        this.applyNewPersonPetitionDefaults();
     }
 
     // Eski kayıtların idari ataması SQL geçişinde aynen korunur.
@@ -1340,12 +1373,14 @@ export class PersonModalManager {
             ));
         });
         select.value = String(user_id || '');
+        select.onchange = () => { this.petitionAssignmentsManuallyEdited = true; };
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'btn btn-outline-danger btn-sm mb-2';
         remove.title = 'Bu sorumluyu kaldır';
         remove.textContent = 'Kaldır';
         remove.onclick = () => {
+            this.petitionAssignmentsManuallyEdited = true;
             row.remove();
             if (!container.querySelector('.petition-controller-row')) this.renderPetitionControllerRows([]);
         };
@@ -1359,6 +1394,7 @@ export class PersonModalManager {
             checkbox.type = 'checkbox';
             checkbox.className = cls;
             checkbox.checked = !!checked;
+            checkbox.onchange = () => { this.petitionAssignmentsManuallyEdited = true; };
             wrapper.append(checkbox,document.createTextNode(' ' + label));
             options.appendChild(wrapper);
         };

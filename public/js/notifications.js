@@ -112,8 +112,20 @@ class NotificationsManager {
                 .order('created_at', { ascending: false });
         
         if (data && !error) {
-            // 🔥 enrichment sildik, sadece datayı state'e atıyoruz.
-            this.allNotifications = data; 
+            // ASAMA 2: 87 numarali is olusturulamamissa taslak kilitli kalir.
+            // Bu kritik durum personelin Bildirimler ekraninda da gorunmelidir.
+            const { data: missingTaskMails, error: missingTaskError } = await supabase
+                .from('mail_notifications')
+                .select('id')
+                .eq('source', 'document_index')
+                .eq('decision_notification_task_missing', true)
+                .is('deleted_at', null);
+            if (missingTaskError) console.error('Karar bildirimi is eksigi kontrol edilemedi:', missingTaskError);
+            const missingTaskIds = new Set((missingTaskMails || []).map(row => row.id));
+            this.allNotifications = data.map(row => ({
+                ...row,
+                decision_task_missing: missingTaskIds.has(row.id)
+            })); 
             
             if (!this.pagination) {
                 this.pagination = new Pagination({
@@ -314,7 +326,8 @@ class NotificationsManager {
                 'pending': 'Gönderime Hazır', 
                 'missing_info': 'Eksik Bilgi', 
                 'awaiting_client_approval': 'Gönderime Hazır',
-                'evaluation_pending': 'Değerlendirme Bekliyor'
+                'evaluation_pending': 'Değerlendirme Bekliyor',
+                'decision_notification_pending': 'Karar / Tebligat Bildirimi Bekleniyor'
             };
 
             let statusClass = 'status-pending';
@@ -323,6 +336,12 @@ class NotificationsManager {
             if (notification.status === 'missing_info') statusClass = 'missing-info';
 
             const isEvalPending = notification.status === 'evaluation_pending';
+            const isDecisionPending = notification.status === 'decision_notification_pending';
+            const isSendLocked = isEvalPending || isDecisionPending;
+            const statusLabel = notification.decision_task_missing
+                ? 'Karar Bildirim İşi Bulunamadı – Kontrol Gerekli'
+                : (statusMap[notification.status] || notification.status);
+            if (notification.decision_task_missing) statusClass = 'missing-info';
             
             const rowOpacity = notification.is_held ? '0.5' : '1';
             tr.style.opacity = rowOpacity;
@@ -353,7 +372,7 @@ class NotificationsManager {
                                ${notification.is_held ? 'checked' : ''}>
                     </div>
                 </td>
-                <td><span class="status-badge ${statusClass}">${statusMap[notification.status] || notification.status}</span></td>
+                <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
                 <td>${clientName}</td>
                 <td>${finalSubject}</td>
                 <td>${appNo}</td>
@@ -375,7 +394,8 @@ class NotificationsManager {
             const editBtn = document.createElement('button');
             editBtn.className = 'action-btn btn-sm btn-info w-100';
             editBtn.innerHTML = '<i class="fas fa-edit"></i> Düzenle';
-            if (isEvalPending) { editBtn.disabled = true; editBtn.style.opacity = '0.5'; } 
+            if (isSendLocked) { editBtn.disabled = true; editBtn.style.opacity = '0.5';
+                editBtn.title = isDecisionPending ? 'Karar / Tebligat Bildirim İşi tamamlanana kadar düzenlenemez.' : 'Değerlendirme bekleniyor.'; } 
             else { editBtn.onclick = () => this.openEditModal(notification); }
             actionCell.appendChild(editBtn);
 
@@ -395,7 +415,8 @@ class NotificationsManager {
                 const sendBtn = document.createElement('button');
                 sendBtn.className = 'action-btn btn-sm btn-success w-100 send-btn'; 
                 sendBtn.innerHTML = notification.status === 'failed' ? '<i class="fas fa-redo"></i> Tekrar Dene' : '<i class="fas fa-paper-plane"></i> Gönder';
-                if (isEvalPending || notification.is_held) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
+                if (isSendLocked || notification.is_held) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5';
+                    if (isDecisionPending) sendBtn.title = 'Karar / Tebligat Bildirim İşi tamamlanmadan gönderilemez.'; }
                 else { sendBtn.onclick = (e) => this.processAction(e, notification, 'send'); }
                 actionCell.appendChild(sendBtn);
             }
@@ -408,8 +429,9 @@ class NotificationsManager {
                 deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Sil';
                 
                 // Eğer mail beklemedeyse (is_held) silme butonunu da kilitlemek isterseniz:
-                if (notification.is_held) { 
-                    deleteBtn.disabled = true; 
+                if (notification.is_held || isDecisionPending) { 
+                    deleteBtn.disabled = true;
+                    if (isDecisionPending) deleteBtn.title = 'Önce Gmail üzerinden bildirim yapıp 87 numaralı işi tamamlayın.'; 
                     deleteBtn.style.opacity = '0.5'; 
                 } else { 
                     deleteBtn.onclick = () => this.handleDeleteMail(notification.id); 
@@ -442,7 +464,13 @@ class NotificationsManager {
     async processAction(e, notification, actionType) {
         const btn = e.currentTarget;
         const isSend = actionType === 'send';
-        
+
+        // Bekleyen karar/tebligat maili buton devre disi olsa dahi gonderilmez.
+        if (notification.status === 'decision_notification_pending' || notification.status === 'evaluation_pending') {
+            alert('Bağlı Karar / Tebligat Bildirim veya Değerlendirme İşi tamamlanmadan gönderim yapılamaz.');
+            return;
+        }
+
         if (isSend) {
             const { toList } = this.getToCc(notification);
             if (!toList || toList.length === 0) {
@@ -749,7 +777,7 @@ class NotificationsManager {
             let newStatus = 'pending';
             if (missing.length > 0) {
                 newStatus = 'missing_info';
-            } else if (this.currentEditNotification.status === 'awaiting_client_approval' || this.currentEditNotification.status === 'evaluation_pending') {
+            } else if (this.currentEditNotification.status === 'awaiting_client_approval' || this.currentEditNotification.status === 'evaluation_pending' || this.currentEditNotification.status === 'decision_notification_pending') {
                 // Eğer statü zaten onay bekliyor ise veya değerlemedeyse, "pending" statüsüne düşürmemek için orijinali koru
                 newStatus = this.currentEditNotification.status;
             }
@@ -788,6 +816,11 @@ class NotificationsManager {
     }
 
     async handleDeleteMail(mailId) {
+        const current = this.allNotifications.find(n => n.id === mailId);
+        if (current?.status === 'decision_notification_pending') {
+            alert('Gmail bildirim işi tamamlanmadan taslak silinemez.');
+            return;
+        }
         // 1. Teyit sorusu
         const isConfirmed = window.confirm("Bu mail taslağını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.");
         if (!isConfirmed) return;

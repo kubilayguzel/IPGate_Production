@@ -731,7 +731,18 @@ export class TaskDetailManager {
 
             if (taskErr) throw new Error("Görev tablosu hatası: " + taskErr.message);
             
-            alert("İşlem başarıyla tamamlandı. Mail gönderime hazır.");
+            // 87 no'lu Karar / Tebligat Bildirim Isi ayri bir kilittir.
+            // 66 numarali is tamamlansa bile bu kilit devam edebilir.
+            const { data: updatedMail } = await supabase
+                .from('mail_notifications')
+                .select('status')
+                .eq('id', mailId)
+                .maybeSingle();
+            if (updatedMail?.status === 'decision_notification_pending') {
+                alert('Değerlendirme işi tamamlandı. Karar / Tebligat Bildirim İşi açık olduğu için mail kilitli kalacak.');
+            } else {
+                alert('İşlem başarıyla tamamlandı. Mailin güncel durumunu Müvekkil Bildirimleri ekranından kontrol edin.');
+            }
             window.location.reload(); 
 
         } catch (e) {

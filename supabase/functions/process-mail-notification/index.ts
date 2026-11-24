@@ -29,6 +29,70 @@ serve(async (req: Request) => {
 
     if (fetchErr || !notification) throw new Error("Bildirim bulunamadı.");
 
+    // ASAMA 2 / Guvenlik: UI butonu veya bildirim statusu degistirilse de
+    // 87 no'lu Gmail bildirim isi tamamlanmadan SMTP gonderimine ASLA gecme.
+    // Ayri bagli 66 degerlendirme isi varsa onun da tamamlanmis olmasi gerekir.
+    if (notification.status === 'decision_notification_pending') {
+      throw new Error('Karar / Tebligat Bildirim Isi tamamlanmadan bu mail gonderilemez.');
+    }
+    if (notification.status === 'evaluation_pending') {
+      throw new Error('Itiraz/Dava Degerlendirme Isi tamamlanmadan bu mail gonderilemez.');
+    }
+
+    if (notification.source === 'document_index' && notification.source_document_id) {
+      const { data: foreignTasks, error: foreignTasksError } = await supabaseClient
+        .from('tasks')
+        .select('id, status')
+        .eq('task_type_id', '87')
+        .filter('details->>source_document_id', 'eq', String(notification.source_document_id));
+      if (foreignTasksError) {
+        throw new Error('Karar bildirim isleri dogrulanamadi; mail gonderimi durduruldu.');
+      }
+      const taskIds = new Set((foreignTasks || []).map((t: any) => String(t.id)));
+      const linkedTaskIds: string[] = Array.isArray(notification.decision_notification_task_ids)
+        ? notification.decision_notification_task_ids.map(String)
+        : [];
+      const missingTaskIds = linkedTaskIds.filter((id: string) => !taskIds.has(id));
+      if (notification.decision_notification_task_missing || missingTaskIds.length > 0) {
+        throw new Error('Karar / Tebligat Bildirim Isi baglantisi eksik; mail gonderimi durduruldu.');
+      }
+      if ((foreignTasks || []).some((t: any) => t.status !== 'completed')) {
+        throw new Error('Bagli 87 numarali karar bildirim isleri tamamlanmadan mail gonderilemez.');
+      }
+      // Henüz hic 87 isi olusmamis yabanci muvekkil taslaklari da korunsun.
+      if (!taskIds.size) {
+        const { data: sourceDoc, error: sourceError } = await supabaseClient
+          .from('incoming_documents')
+          .select('document_source')
+          .eq('id', String(notification.source_document_id))
+          .maybeSingle();
+        if (sourceError) throw new Error('Kaynak tebligat dogrulanamadi; mail gonderimi durduruldu.');
+        if (sourceDoc?.document_source === 'etebs' && notification.client_id) {
+          const { data: client, error: clientError } = await supabaseClient
+            .from('persons')
+            .select('nationality_type')
+            .eq('id', String(notification.client_id))
+            .maybeSingle();
+          if (clientError) throw new Error('Müvekkil durumu dogrulanamadi; mail gonderimi durduruldu.');
+          if (client?.nationality_type === 'foreign') {
+            throw new Error('Yabanci muvekkil icin 87 numarali bildirim isi bulunamadi; gonderim durduruldu.');
+          }
+        }
+      }
+
+      if (notification.associated_task_id) {
+        const { data: evalTask, error: evalError } = await supabaseClient
+          .from('tasks')
+          .select('task_type_id, status')
+          .eq('id', String(notification.associated_task_id))
+          .maybeSingle();
+        if (evalError) throw new Error('Bagli degerlendirme isi kontrol edilemedi.');
+        if (String(evalTask?.task_type_id || '') === '66' && evalTask?.status !== 'completed') {
+          throw new Error('Bagli Itiraz/Dava Degerlendirme Isi tamamlanmadan mail gonderilemez.');
+        }
+      }
+    }
+
     // DAVA ISI GUVENLIGI: Bildirim arayuzu, genel gorev eklerini de
     // iletebilir. Kullanici girdisi ve mail_attachments listesi dava isi
     // bildirimleri icin yetkili bir belge kaynagi OLAMAZ.

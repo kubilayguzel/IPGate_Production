@@ -440,8 +440,8 @@ class TaskUpdateController {
             note.className = 'alert alert-info mb-3';
             note.innerHTML = '<strong><i class="fas fa-envelope-open-text mr-2"></i>Karar / Tebligat Bildirim İşi</strong>'
                 + '<div class="small mt-2" id="foreignEtebsNoticeBody"></div>'
-                + '<div class="small mt-2 text-muted">Aşağıdaki resmi PDF'i açabilir veya indirebilirsiniz. '
-                + 'Müvekkili Gmail'deki mevcut yazışmanızdan bilgilendirdikten sonra işi tamamlayın. '
+                + '<div class="small mt-2 text-muted">Aşağıdaki resmi PDF\'i açabilir veya indirebilirsiniz. '
+                + 'Müvekkili Gmail\'deki mevcut yazışmanızdan bilgilendirdikten sonra işi tamamlayın. '
                 + 'IPGate bu işlem nedeniyle otomatik mail göndermez.</div>';
             documentList.parentElement?.insertBefore(note, documentList);
         }

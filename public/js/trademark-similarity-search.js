@@ -1147,100 +1147,124 @@ const escapeExpertHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch =
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[ch]));
 
-const formatCacheData = (r) => ({
-    id: r.id, objectID: r.id, applicationNo: r.similar_application_no, markName: r.similar_mark_name,
-    monitoredTrademarkId: r.monitored_trademark_id, niceClasses: r.nice_classes, similarityScore: parseFloat(r.similarity_score || 0),
-    isSimilar: r.is_similar, holders: r.holders, note: normalizeExpertNote(r.note), bs: normalizeExpertChance(r.success_chance ?? r.bs_value), imagePath: r.image_path, source: 'cache'
+const BULLETIN_RECORD_COLUMNS = 'id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id';
+const MONITORING_RESULT_COLUMNS = 'id, bulletin_record_id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source';
+
+const toStoredMonitoringResult = (row, bulletinRecord) => ({
+    id: row.id,
+    objectID: row.id,
+    monitoredTrademarkId: row.monitored_trademark_id,
+    markName: bulletinRecord.brand_name,
+    applicationNo: bulletinRecord.application_number,
+    applicationDate: bulletinRecord.application_date,
+    niceClasses: Array.isArray(bulletinRecord.nice_classes) ? bulletinRecord.nice_classes.join(', ') : bulletinRecord.nice_classes,
+    similarityScore: row.similarity_score,
+    holders: bulletinRecord.holders,
+    imagePath: bulletinRecord.image_url,
+    bulletinId: bulletinRecord.bulletin_id,
+    bulletinRecordId: bulletinRecord.id,
+    manualSourceLabel: bulletinRecord.manual_source_label,
+    isSimilar: row.is_similar === true,
+    bs: normalizeExpertChance(row.success_chance),
+    note: normalizeExpertNote(row.note),
+    source: row.source || 'cache'
 });
 
-// isActive: kullanıcının bülten seçimi değişmişse geç kalan sorgu eski veriyi ekrana yazmaz.
+async function readBulletinMatchGroup(records, isActive) {
+    const recordsById = new Map(records.map(record => [String(record.id), record]));
+    const ids = records.map(record => record.id);
+    const results = [];
+    let pageSize = 4000;
+    while (isActive()) {
+        const offset = results.length;
+        const { data, error } = await supabase.from('monitoring_trademark_records')
+            .select(MONITORING_RESULT_COLUMNS).in('bulletin_record_id', ids)
+            .order('bulletin_record_id').order('id').range(offset, offset + pageSize - 1);
+        if (!isActive()) break;
+        if (error) {
+            if (pageSize > 500 && (error.code === '57014' || /statement timeout/i.test(error.message || ''))) {
+                pageSize = 500;
+                continue;
+            }
+            throw error;
+        }
+        if (!data.length) break;
+        for (const row of data) {
+            results.push(toStoredMonitoringResult(row, recordsById.get(String(row.bulletin_record_id))));
+        }
+    }
+    return results;
+}
+
+async function readBulletinCache(bulletinNo, isActive, results) {
+    const bulletinKeys = [String(bulletinNo), `bulletin_main_${bulletinNo}`];
+    for (const bulletinKey of bulletinKeys) {
+        let afterRecordId = null;
+        while (isActive()) {
+            let query = supabase.from('trademark_bulletin_records')
+                .select(BULLETIN_RECORD_COLUMNS)
+                .eq('bulletin_id', bulletinKey).order('id').limit(1000);
+            if (afterRecordId !== null) query = query.gt('id', afterRecordId);
+            const { data: records, error } = await query;
+            if (!isActive()) return;
+            if (error) throw error;
+            if (!records.length) break;
+
+            // URL boyutunu sınırlamak için her istekte en fazla 80 kayıt kimliği gönder.
+            // Dört bağımsız grup aynı anda okunur ve bülten sırasıyla birleştirilir.
+            for (let start = 0; start < records.length; start += 320) {
+                if (!isActive()) return;
+                const pending = [];
+                const end = Math.min(start + 320, records.length);
+                for (let i = start; i < end; i += 80) {
+                    pending.push(readBulletinMatchGroup(records.slice(i, Math.min(i + 80, end)), isActive));
+                }
+                const groups = await Promise.all(pending);
+                if (!isActive()) return;
+                for (const group of groups) {
+                    for (const row of group) results.push(row);
+                }
+                if (results.length && typeof SimpleLoading !== 'undefined') {
+                    SimpleLoading.update('Veriler Yükleniyor...', `${results.length.toLocaleString('tr-TR')} sonuç yüklendi.`);
+                }
+            }
+            afterRecordId = records.at(-1).id;
+        }
+    }
+}
+
+async function readManualCache(isActive, results) {
+    let afterId = null;
+    while (isActive()) {
+        let query = supabase.from('monitoring_trademark_records')
+            .select(`${MONITORING_RESULT_COLUMNS}, trademark_bulletin_records!inner(${BULLETIN_RECORD_COLUMNS}, manual_source_label)`)
+            .eq('source', 'manual').order('id').limit(500);
+        if (afterId !== null) query = query.gt('id', afterId);
+        const { data, error } = await query;
+        if (!isActive()) return;
+        if (error) throw error;
+        if (!data.length) break;
+        for (const row of data) {
+            const record = Array.isArray(row.trademark_bulletin_records)
+                ? row.trademark_bulletin_records[0] : row.trademark_bulletin_records;
+            if (record) results.push(toStoredMonitoringResult(row, record));
+        }
+        afterId = data.at(-1).id;
+    }
+}
+
+// Kullanıcı bülteni değiştirirse eski sorgunun sonuçları ekrana yazılmaz.
 const loadDataFromCache = async (realBulletinId, isActive = () => true) => {
     const noRecordsMessage = document.getElementById('noRecordsMessage');
     const infoMessageContainer = document.getElementById('infoMessageContainer');
-    
+
     try {
-        let allCachedData = [];
-        let from = 0;
-        const limitSize = 20000; // Supabase'i yormamak ve tarayıcıyı dondurmamak için 20 Binlik paketler
-        
-        if (typeof SimpleLoading !== 'undefined') {
-            SimpleLoading.update('Veriler Yükleniyor...', 'Çok sayıda sonuç tespit edildi, parça parça indiriliyor...');
+        const cachedResults = [];
+        if (realBulletinId === MANUAL_COLLECTION_ID) {
+            await readManualCache(isActive, cachedResults);
+        } else {
+            await readBulletinCache(realBulletinId, isActive, cachedResults);
         }
-
-        // Supabase'in proje satır sınırından küçük yanıtlar dönebilir; ofseti gerçek uzunluk kadar artır.
-        while (true) {
-            if (!isActive()) return false;
-            let req = supabase
-                .from('monitoring_trademark_records')
-                .select(`
-                    id, monitored_trademark_id, similarity_score, is_similar, success_chance, note, source, criteria_version,
-                    trademark_bulletin_records!inner (
-                        id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
-                        ${realBulletinId === MANUAL_COLLECTION_ID ? ", manual_source_label" : ""}
-                    )
-                `)
-                .order('id', { ascending: true })
-                .range(from, from + limitSize - 1);
-
-            if (realBulletinId === MANUAL_COLLECTION_ID) {
-                req = req.eq('source', 'manual');
-            } else {
-                req = req.in('trademark_bulletin_records.bulletin_id', [String(realBulletinId), `bulletin_main_${realBulletinId}`]);
-            }
-
-            const { data, error } = await req;
-            if (!isActive()) return false;
-            if (error) throw error;
-            
-            if (!data || data.length === 0) {
-                break;
-            }
-
-            allCachedData.push(...data);
-            if (typeof SimpleLoading !== 'undefined' && isActive()) {
-                SimpleLoading.update('Veriler Yükleniyor...',
-                    `${allCachedData.length.toLocaleString('tr-TR')} kayıt yüklendi; bülten sonuçları getiriliyor...`);
-            }
-
-            // API/PostgREST proje limitinden dolayı istenenden daha az satır döndürebilir.
-            // Bu yüzden istenen pencere kadar değil, GERÇEKTEN gelen satır kadar ilerliyoruz.
-            from += data.length;
-        }
-
-        let cachedResults = [];
-
-        if (allCachedData && allCachedData.length > 0) {
-            // KRİTİK: Bülten kaydı daha önce aramada bulunup değerlendirilmişse,
-            // izleme kriterleri sonradan değişti diye sonucu gizleme.
-            // criteria_version yeni aramaların izlenmesi için kalır; sonuç ve kullanıcı
-            // tarafından kaydedilen "Benzer"/başarı şansı/not görünürlüğünü etkilemez.
-            // Rapor + Bildir aynı listeyi kullandığından burada filtreleme veri kaybı
-            // görüntüsüne ve eksik müvekkil raporlarına neden oluyordu.
-            cachedResults = allCachedData.map(item => {
-                let bRec = item.trademark_bulletin_records || {};
-                if (Array.isArray(bRec)) bRec = bRec[0] || {};
-
-                return {
-                    id: item.id,
-                    objectID: item.id,
-                    monitoredTrademarkId: item.monitored_trademark_id,
-                    markName: bRec.brand_name,
-                    applicationNo: bRec.application_number,
-                    applicationDate: bRec.application_date,
-                    niceClasses: Array.isArray(bRec.nice_classes) ? bRec.nice_classes.join(', ') : bRec.nice_classes,
-                    similarityScore: item.similarity_score,
-                    holders: bRec.holders,
-                    imagePath: bRec.image_url,
-                    bulletinId: bRec.bulletin_id,
-                    manualSourceLabel: bRec.manual_source_label,
-                    isSimilar: item.is_similar === true, 
-                    bs: normalizeExpertChance(item.success_chance), 
-                    note: normalizeExpertNote(item.note),   
-                    source: item.source || 'cache'
-                };
-            });
-        }
-
         if (!isActive()) return false;
         allSimilarResults = cachedResults;
         
@@ -1307,26 +1331,7 @@ const checkCacheAndToggleButtonStates = async () => {
     if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
 
     try {
-        let probe;
-        if (isManualList) {
-            probe = await supabase.from('monitoring_trademark_records')
-                .select('id').eq('source', 'manual').limit(1);
-        } else {
-            probe = await supabase.from('monitoring_trademark_records')
-                .select('id, trademark_bulletin_records!inner(bulletin_id)')
-                .in('trademark_bulletin_records.bulletin_id',
-                    [String(realBulletinId), `bulletin_main_${realBulletinId}`]).limit(1);
-        }
-        if (!isActive()) return;
-        if (probe.error) throw probe.error; // Sessizce "sonuç yok" kabul etme.
-
-        if (Array.isArray(probe.data) && probe.data.length > 0) {
-            await loadDataFromCache(realBulletinId, isActive);
-        } else {
-            allSimilarResults = [];
-            if (pagination) pagination.update(0);
-            renderCurrentPageOfResults();
-        }
+        await loadDataFromCache(realBulletinId, isActive);
         if (!isActive()) return;
         updateSearchButtonsState();
 
@@ -1441,7 +1446,8 @@ const performSearch = async () => {
         
         // 2. İşlem bitince verileri doğrudan "Gerçek" ID'leriyle tablodan çekip ekrana bas!
         const realBulletinId = String(bulletinKey).split('_')[0];
-        await loadDataFromCache(realBulletinId);
+        const loaded = await loadDataFromCache(realBulletinId, () => bulletinSelect.value === bulletinKey);
+        if (!loaded) return;
 
         // 🔥 2. YENİ KURAL: Eğer RAM'de yedeklenmiş eski tercihler varsa, bunları yeni sonuçlara uygula
         if (window._tempSearchBackup && window._tempSearchBackup.size > 0) {
@@ -2974,3 +2980,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     criteriaModalManager.init(); setupManualTargetSearch(); setupDragAndDrop(); setTimeout(addGlobalOptionToBulletinSelect, 1000);
 });
+

@@ -34,7 +34,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.processedData = [];
             this.filteredData = [];
             this.activeTab = 'active';
-            this.approvalClientNationality = 'domestic';
+            this.approvalClientNationality = 'all';
+            this.approvalTypeIds = new Set();
             this.approvalTasks = [];
             this.approvalOwnerNationality = new Map();
             this.approvalLoaded = false;
@@ -80,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (session) {
                 const { data: profile } = await supabase.from('users').select('*').eq('id', session.user.id).single();
                 this.currentUser = { ...session.user, ...(profile || {}), uid: session.user.id };
+                this.restoreApprovalTypes();
                 this.loadAllData().then(() => {
                     this.setupEventListeners();
                     this.populateStatusFilterDropdown();
@@ -183,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         
-        // Müvekkil onayı bekleyen işleri yalnızca kendi portföyümüzdeki kişiler için al.
+        // Yenilemeler işin atandığı çalışana, diğer onay işleri portföy sorumlusuna gösterilir.
         // Gizli sekmelerde sorgu yapılmaz; belleğe alınan veri tekrar kullanılır.
         async loadPortfolioApprovalTasks() {
             if (this.approvalLoaded) return;
@@ -191,8 +193,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.approvalLoading = (async () => {
                 const nationality = new Map();
                 const rawTasks = [];
+                const pageSize = 200;
                 if (['admin', 'superadmin'].includes(this.currentUser.role) && !this.currentUser.disabled) {
-                    const pageSize = 200;
                     for (let offset = 0; ; offset += pageSize) {
                         const { data: owners, error } = await supabase.from('persons')
                             .select('id,nationality_type')
@@ -210,33 +212,117 @@ document.addEventListener('DOMContentLoaded', async () => {
                         for (let offset = 0; ; offset += pageSize) {
                             const { data: tasks, error } = await supabase.from('v_tasks_dashboard')
                                 .select('*').eq('status', 'awaiting_client_approval')
-                                .in('task_owner_id', batch).order('id').range(offset, offset + pageSize - 1);
+                                .neq('task_type_id', '22').in('task_owner_id', batch).order('id').range(offset, offset + pageSize - 1);
                             if (error) throw error;
                             rawTasks.push(...tasks);
                             if (tasks.length < pageSize) break;
                         }
                     }
                 }
+                if (['user', 'admin', 'superadmin'].includes(this.currentUser.role) && !this.currentUser.disabled) {
+                    const missingOwners = new Set();
+                    for (let offset = 0; ; offset += pageSize) {
+                        const { data: renewals, error } = await supabase.from('v_tasks_dashboard')
+                            .select('*').eq('status', 'awaiting_client_approval').eq('task_type_id', '22')
+                            .eq('assigned_to', this.currentUser.uid).order('id').range(offset, offset + pageSize - 1);
+                        if (error) throw error;
+                        rawTasks.push(...renewals);
+                        for (const { task_owner_id: id } of renewals) {
+                            if (id && !nationality.has(String(id))) missingOwners.add(String(id));
+                        }
+                        if (renewals.length < pageSize) break;
+                    }
+                    const ids = [...missingOwners];
+                    for (let i = 0; i < ids.length; i += 50) {
+                        const { data: owners, error } = await supabase.from('persons')
+                            .select('id,nationality_type').in('id', ids.slice(i, i + 50));
+                        if (error) throw error;
+                        for (const owner of owners) {
+                            nationality.set(String(owner.id), owner.nationality_type === 'foreign' ? 'foreign' : 'domestic');
+                        }
+                    }
+                }
                 this.approvalOwnerNationality = nationality;
                 this.approvalTasks = taskService._mapTaskViewData(rawTasks);
+                this.renderApprovalTypeFilter();
+                this.updateApprovalCounts();
                 this.approvalLoaded = true;
                 this.processData();
             })().finally(() => { this.approvalLoading = null; });
             return this.approvalLoading;
         }
 
+        approvalPreferenceKey() {
+            return 'ipgate.approvalTypes.v1.' + this.currentUser.uid;
+        }
+
+        restoreApprovalTypes() {
+            try {
+                const stored = JSON.parse(localStorage.getItem(this.approvalPreferenceKey()));
+                this.approvalTypeIds = new Set(Array.isArray(stored) ? stored.map(String) : []);
+            } catch (error) { this.approvalTypeIds = new Set(); }
+        }
+
+        matchesApprovalType(task) {
+            return !this.approvalTypeIds.size || this.approvalTypeIds.has(String(task.taskType ?? task.task_type_id));
+        }
+
+        updateApprovalCounts() {
+            const counts = { all: 0, domestic: 0, foreign: 0 };
+            for (const task of this.approvalTasks) {
+                if (!this.matchesApprovalType(task)) continue;
+                counts.all++;
+                const group = this.approvalOwnerNationality.get(String(task.task_owner_id || task.relatedPartyId));
+                if (group) counts[group]++;
+            }
+            document.querySelectorAll('[data-approval-count]').forEach(el => {
+                el.textContent = counts[el.dataset.approvalCount];
+            });
+        }
+
+        renderApprovalTypeFilter() {
+            const list = document.getElementById('approvalTypeList');
+            const query = document.getElementById('approvalTypeSearch').value.trim().toLocaleLowerCase('tr');
+            const names = new Map(this.allTransactionTypes.map(t => [String(t.id), t.alias || t.name]));
+            const types = new Map();
+            for (const task of this.approvalTasks) {
+                const id = task.taskType ?? task.task_type_id;
+                if (id != null) types.set(String(id), names.get(String(id)) || 'Tanımsız iş tipi');
+            }
+            list.replaceChildren();
+            for (const [id, text] of [...types].sort((a, b) => a[1].localeCompare(b[1], 'tr'))) {
+                if (!text.toLocaleLowerCase('tr').includes(query)) continue;
+                const label = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.value = id;
+                input.checked = this.approvalTypeIds.has(id);
+                label.append(input, text);
+                list.append(label);
+            }
+            if (!list.childElementCount) {
+                list.textContent = types.size ? 'Eşleşen iş tipi bulunamadı.' : 'Onay bekleyen iş bulunmuyor.';
+            }
+            document.getElementById('approvalTypeLabel').textContent = 'İş tipleri · ' +
+                (this.approvalTypeIds.size ? this.approvalTypeIds.size + ' seçili' : 'Tümü');
+        }
+
+        applyApprovalTypePreference() {
+            try {
+                localStorage.setItem(this.approvalPreferenceKey(), JSON.stringify([...this.approvalTypeIds]));
+            } catch (error) { showNotification('Seçiminiz bu tarayıcıda saklanamadı.', 'warning'); }
+            document.getElementById('approvalTypeLabel').textContent = 'İş tipleri · ' +
+                (this.approvalTypeIds.size ? this.approvalTypeIds.size + ' seçili' : 'Tümü');
+            this.updateApprovalCounts();
+            this.handleSearch(document.getElementById('taskSearchInput').value);
+        }
+
         updateApprovalTabUI() {
             const isApproval = this.activeTab === 'approval';
             const nav = document.getElementById('myPortfolioApprovalNationalityTabs');
             if (nav) nav.style.display = isApproval ? '' : 'none';
-            const domestic = document.getElementById('approvalDomesticTab');
-            const foreign = document.getElementById('approvalForeignTab');
-            for (const [el, type] of [[domestic, 'domestic'], [foreign, 'foreign']]) {
-                if (!el) continue;
-                const selected = isApproval && this.approvalClientNationality === type;
-                el.classList.toggle('btn-primary', selected);
-                el.classList.toggle('btn-outline-primary', !selected);
-                el.setAttribute('aria-pressed', String(selected));
+            for (const button of nav?.querySelectorAll('[data-nationality]') || []) {
+                button.setAttribute('aria-pressed', String(button.dataset.nationality === this.approvalClientNationality));
             }
             // Onay listesi yalnızca görüntüleme; mevcut işler için toplu atama korunur.
             const checkAll = document.getElementById('selectAllTasks');
@@ -466,8 +552,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (this.activeTab === 'approval') {
                     const ownerId = String(item.task_owner_id || item.relatedPartyId || '');
                     return matchesSearch && matchesStatusFilter
-                        && item.status === 'awaiting_client_approval'
-                        && this.approvalOwnerNationality.get(ownerId) === this.approvalClientNationality;
+                        && item.status === 'awaiting_client_approval' && this.matchesApprovalType(item)
+                        && (this.approvalClientNationality === 'all' || this.approvalOwnerNationality.get(ownerId) === this.approvalClientNationality);
                 }
                 const isMyTask = String(item.assignedTo_uid || '') === String(currentUserId)
                     || item.assignedTo_email === currentUserEmail;
@@ -627,9 +713,32 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             });
 
+            const menu = document.getElementById('approvalTypeMenu');
+            document.addEventListener('click', event => {
+                if (menu.open && !menu.contains(event.target)) menu.open = false;
+            });
+            menu.addEventListener('keydown', event => {
+                if (event.key === 'Escape') {
+                    menu.open = false;
+                    menu.querySelector('summary').focus();
+                }
+            });
+            document.getElementById('approvalTypeSearch').addEventListener('input', () => this.renderApprovalTypeFilter());
+            document.getElementById('approvalTypeList').addEventListener('change', ({ target }) => {
+                if (!target.matches('input[type="checkbox"]')) return;
+                if (target.checked) this.approvalTypeIds.add(target.value);
+                else this.approvalTypeIds.delete(target.value);
+                this.applyApprovalTypePreference();
+            });
+            document.getElementById('approvalAllTypes').addEventListener('click', () => {
+                this.approvalTypeIds.clear();
+                document.getElementById('approvalTypeSearch').value = '';
+                this.renderApprovalTypeFilter();
+                this.applyApprovalTypePreference();
+            });
             document.querySelectorAll('[data-nationality]').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    this.approvalClientNationality = btn.dataset.nationality === 'foreign' ? 'foreign' : 'domestic';
+                    this.approvalClientNationality = btn.dataset.nationality;
                     this.updateApprovalTabUI();
                     this.handleSearch(document.getElementById('taskSearchInput').value);
                 });
@@ -726,7 +835,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (this.filteredData.length === 0) {
                 if (noTasksMessage) noTasksMessage.textContent = this.activeTab === 'approval'
-                    ? 'Bu grupta portföyünüze ait müvekkil onayı bekleyen iş bulunmuyor.'
+                    ? 'Bu seçim için onay bekleyen iş bulunmuyor.'
                     : 'Bu kategoride gösterilecek iş bulunmuyor.';
                 if(noTasksMessage) noTasksMessage.style.display = 'block';
                 return;
@@ -1847,3 +1956,4 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 });
+

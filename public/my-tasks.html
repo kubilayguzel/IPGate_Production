@@ -12,6 +12,33 @@
     <link rel="stylesheet" href="./css/task-management.css">
     <link rel="stylesheet" href="css/simple-loading.css">
 
+    <style>
+        .approval-scope { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: -.35rem 0 1.25rem; }
+        .approval-switch { display: inline-flex; gap: 3px; max-width: 100%; padding: 4px;
+            border: 1px solid #d6dee8; border-radius: 9px; background: #f2f5f8; }
+        .approval-switch button { display: inline-flex; align-items: center; justify-content: center;
+            gap: .45em; padding: .45rem .8rem; border: 0; border-radius: 6px; background: transparent;
+            color: #475569; font: inherit; font-size: .875rem; font-weight: 600; cursor: pointer; }
+        .approval-switch button:hover { background: #e3eaf2; }
+        .approval-switch button[aria-pressed="true"] { background: #244565; color: white; }
+        .approval-switch button:focus-visible { outline: 2px solid #3374a6; outline-offset: 2px; }
+        .approval-switch span { padding: .05em .45em; border-radius: 5px; background: #dfe6ee;
+            color: #34475a; font-size: .85em; font-variant-numeric: tabular-nums; }
+        .approval-switch [aria-pressed="true"] span { color: white; background: #456583; }
+        .approval-types { position: relative; }
+        .approval-types summary { cursor: pointer; padding: .48rem .8rem; background: white;
+            border: 1px solid #cbd5e1; border-radius: 7px; font-size: .875rem; color: #244565; }
+        .approval-type-panel { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0;
+            width: min(290px, 80vw); padding: .75rem; border: 1px solid #d6dee8; border-radius: 8px;
+            background: white; box-shadow: 0 5px 16px #20354a20; }
+        #approvalTypeList { max-height: 15rem; overflow: auto; }
+        #approvalTypeList label { display: flex; align-items: baseline; gap: .5rem; padding: .25rem;
+            margin: 0; cursor: pointer; font-size: .875rem; }
+        @media (max-width: 520px) {
+            .approval-switch { display: flex; width: 100%; }
+            .approval-switch button { flex: 1; padding: .45rem .2rem; white-space: nowrap; }
+        }
+    </style>
 </head>
 <body>
 <div id="notification-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
@@ -41,12 +68,20 @@
                         </a>
                     </li>
                 </ul>
-                <div id="myPortfolioApprovalNationalityTabs" class="mb-3" style="display:none;" aria-label="Müvekkil statüsü filtreleri">
-                    <div class="btn-group btn-group-sm" role="group" aria-label="Yerli veya yabancı müvekkiller">
-                        <button id="approvalDomesticTab" type="button" class="btn btn-primary" data-nationality="domestic" aria-pressed="true">Yerli Müvekkiller</button>
-                        <button id="approvalForeignTab" type="button" class="btn btn-outline-primary" data-nationality="foreign" aria-pressed="false">Yabancı Müvekkiller</button>
+                <div id="myPortfolioApprovalNationalityTabs" class="approval-scope" style="display:none;">
+                    <div class="approval-switch" role="group" aria-label="İş sahibine göre onay bekleyen işler">
+                        <button type="button" data-nationality="all" aria-pressed="true">Tümü <span data-approval-count="all">…</span></button>
+                        <button type="button" data-nationality="domestic" aria-pressed="false">Yurt içi <span data-approval-count="domestic">…</span></button>
+                        <button type="button" data-nationality="foreign" aria-pressed="false">Yurt dışı <span data-approval-count="foreign">…</span></button>
                     </div>
-                    <div class="small text-muted mt-2">Yalnızca portföy yöneticisi olduğunuz müvekkillere ait onay bekleyen işler görüntülenir.</div>
+                    <details class="approval-types" id="approvalTypeMenu">
+                        <summary id="approvalTypeLabel">İş tipleri · Tümü</summary>
+                        <div class="approval-type-panel">
+                            <input id="approvalTypeSearch" type="search" class="form-control form-control-sm" aria-label="İş tipi ara" placeholder="İş tipi ara">
+                            <button id="approvalAllTypes" type="button" class="btn btn-sm btn-link px-0">Tüm iş tiplerini göster</button>
+                            <div id="approvalTypeList"></div>
+                        </div>
+                    </details>
                 </div>
                     <div class="tasks-header">
                         <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
@@ -212,4 +247,5 @@
     <script src="js/simple-loading.js"></script>
 </body>
 </html>
+
 

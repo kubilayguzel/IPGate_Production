@@ -23,6 +23,8 @@ import {
 import '../simple-loading.js';
 
 const INCOMING_DOCS_COLLECTION = 'incoming_documents';
+// ETEBS Tebligatları ekranında Token ve Manuel Yükleme aynı tebligat akışını kullanır.
+const ETEBS_NOTIFICATION_SOURCES = new Set(['etebs', 'manual']);
 const STORAGE_BUCKET = 'documents';
 
 // ⚠️ LÜTFEN DİKKAT: Eski Firebase UID'si (dqk6...) Supabase'de ÇALIŞMAZ. 
@@ -150,9 +152,9 @@ async function attachNotificationPdf(taskId, doc, url) {
 
 async function createEtebsNotificationTasks({ doc, record, transactionId, parentId,
     pdfUrl, documentType, deliveryDate, deadline }) {
-    if (doc.document_source !== 'etebs') return;
+    if (!ETEBS_NOTIFICATION_SOURCES.has(doc.document_source)) return 0;
     const clients = await foreignClients(record, transactionId, parentId);
-    if (!clients.length) return;
+    if (!clients.length) return 0;
     if (!pdfUrl) throw new Error('ETEBS tebligatının PDF bağlantısı eksik.');
     const managers = [...new Set(clients.map(c => c.portfolio_manager_user_id).filter(Boolean))];
     const users = managers.length ? await readNotificationData(supabase.from('users').select('id,disabled')
@@ -182,6 +184,7 @@ async function createEtebsNotificationTasks({ doc, record, transactionId, parent
         }
         await attachNotificationPdf(task.id, doc, pdfUrl);
     }
+    return clients.length;
 }
 
 export class DocumentReviewManager {
@@ -449,6 +452,44 @@ export class DocumentReviewManager {
         displayInput.value = officialDate.toLocaleDateString('tr-TR');
     }
 
+    showNotificationRecoveryButton() {
+        const saveButton = document.getElementById('saveTransactionBtn');
+        if (!saveButton || document.getElementById('ensureEtebsNotificationTask')) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'ensureEtebsNotificationTask';
+        button.className = 'btn btn-outline-primary ml-2';
+        button.textContent = '87 Bildirim İşini Kontrol Et / Oluştur';
+        saveButton.insertAdjacentElement('afterend', button);
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+                const doc = this.pdfData;
+                const [record, transaction, linkedTasks] = await Promise.all([
+                    readNotificationData(supabase.from('ip_records').select('*').eq('id', doc.ip_record_id).single()),
+                    readNotificationData(supabase.from('transactions').select('parent_id').eq('id', doc.created_transaction_id).single()),
+                    readNotificationData(supabase.from('tasks').select('official_due_date')
+                        .eq('transaction_id', doc.created_transaction_id).neq('task_type_id', '87')
+                        .not('official_due_date', 'is', null)
+                        .order('official_due_date').limit(1))
+                ]);
+                const officialDate = linkedTasks[0] ? new Date(linkedTasks[0].official_due_date) : null;
+                const indexedAt = new Date(doc.indexed_at || doc.created_at || Date.now());
+                const count = await createEtebsNotificationTasks({
+                    doc, record, transactionId: doc.created_transaction_id, parentId: transaction.parent_id,
+                    pdfUrl: doc.file_url, documentType: doc.transaction_type_id, deliveryDate: doc.teblig_tarihi,
+                    deadline: fiveDayDeadline(indexedAt, officialDate).toISOString()
+                });
+                showNotification(count ? '87 numaralı bildirim işi hazır.' :
+                    'Bu evrak için yabancı müvekkil bulunamadı.', count ? 'success' : 'warning');
+            } catch (error) {
+                showNotification('Bildirim işi kontrol edilemedi: ' + error.message, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        });
+    }
+
     async loadData() {
         if (window.SimpleLoadingController && typeof window.SimpleLoadingController.show === 'function') {
             window.SimpleLoadingController.show({ text: 'PDF yükleniyor', subtext: 'Belge hazırlanıyor, lütfen bekleyin...' });
@@ -458,11 +499,6 @@ export class DocumentReviewManager {
             const { data: docSnap, error } = await supabase.from(INCOMING_DOCS_COLLECTION).select('*').eq('id', String(this.pdfId)).single();
             if (error || !docSnap) throw new Error('PDF kaydı bulunamadı.');
             
-            // 🔥 UX ÇÖZÜMÜ: Kullanıcıya anında, detaylı ve net bir uyarı veriyoruz!
-            if (docSnap.status === 'indexed') {
-                showNotification('⚠️ BİLGİ: Bu evrak daha önce indekslenmiş ve maili atılmış! İşlemi tekrarlarsanız MÜŞTERİYE YENİ BİR MAİL BİLDİRİMİ GİTMEYECEKTİR.', 'warning');
-            }
-            
             this.pdfData = { 
                 id: docSnap.id, 
                 ...docSnap,
@@ -471,6 +507,14 @@ export class DocumentReviewManager {
                 matchedRecordId: docSnap.ip_record_id,
                 tebligTarihi: docSnap.teblig_tarihi 
             };
+
+            if (docSnap.status === 'indexed') {
+                showNotification('Bu evrak daha önce indekslenmiş.', 'warning');
+                if (ETEBS_NOTIFICATION_SOURCES.has(docSnap.document_source) &&
+                    docSnap.created_transaction_id && docSnap.ip_record_id) {
+                    this.showNotificationRecoveryButton();
+                }
+            }
 
             if (this.pdfData.fileUrl || this.pdfData.downloadURL) {
                 const pdfUrl = this.pdfData.fileUrl || this.pdfData.downloadURL;
@@ -1916,3 +1960,4 @@ export class DocumentReviewManager {
 export async function resolveApprovalStateAssignee() { return { uid: null, email: null }; }
 
 document.addEventListener('DOMContentLoaded', () => { new DocumentReviewManager(); });
+

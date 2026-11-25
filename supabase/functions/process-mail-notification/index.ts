@@ -67,7 +67,7 @@ serve(async (req: Request) => {
           .eq('id', String(notification.source_document_id))
           .maybeSingle();
         if (sourceError) throw new Error('Kaynak tebligat dogrulanamadi; mail gonderimi durduruldu.');
-        if (sourceDoc?.document_source === 'etebs' && notification.client_id) {
+        if (['etebs', 'manual'].includes(sourceDoc?.document_source) && notification.client_id) {
           const { data: client, error: clientError } = await supabaseClient
             .from('persons')
             .select('nationality_type')

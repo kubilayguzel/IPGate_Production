@@ -695,8 +695,11 @@ serve(async (req) => {
 
         const finalInvoiceNote = noteLines.join('\n');
         const isTevkifatli = clientData.has_tevkifat === true;
-        // YENİ SATIR: Veritabanındaki oranı default 2 olacak şekilde çek
-        const tevkifatRate = clientData.tevkifat_rate || 2; 
+        // Kişi kartındaki değerler %20 KDV sonrası kalan KDV oranını saklar:
+        // 10 = 5/10 (Diğer Hizmetler), 2 = 9/10 (Danışmanlık ve benzeri hizmetler).
+        const tevkifatRate = Number(clientData.tevkifat_rate || 2);
+        const withholdingCode = tevkifatRate === 10 ? "616" : "602";
+        const withholdingVal = tevkifatRate === 10 ? "50" : "90";
 
         const { data: linkedInvoices, error: linkReadError } = await supabaseClient
             .from('accrual_invoices')
@@ -911,9 +914,6 @@ serve(async (req) => {
 
                     // 🔥 GÜNCELLEME: e-SMM için de KDV Tevkifat parametrelerini (withholding) KolayBi'ye iletiyoruz.
                     if (docType === 'TEVKIFAT') {
-                        const withholdingVal = tevkifatRate === 10 ? "50" : "90";
-                        const withholdingCode = tevkifatRate === 10 ? "611" : "602"; 
-                        
                         invoiceParams.append(`items[${itemIndex}][withholding_code]`, withholdingCode);
                         invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
                         invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
@@ -925,9 +925,6 @@ serve(async (req) => {
                     calculatedGrandTotal += (itemGrossTotal + itemVatAmount - itemTevkifatAmount - itemStoppageAmount);
                 } else {
                     if (docType === 'TEVKIFAT') {
-                        const withholdingVal = tevkifatRate === 10 ? "50" : "90";
-                        const withholdingCode = tevkifatRate === 10 ? "611" : "602"; 
-                        
                         invoiceParams.append(`items[${itemIndex}][withholding_code]`, withholdingCode);
                         invoiceParams.append(`items[${itemIndex}][withholding_value]`, withholdingVal);
                         invoiceParams.append(`items[${itemIndex}][withholding_type]`, "PERCENTAGE");
